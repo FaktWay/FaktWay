@@ -158,7 +158,7 @@ jako problemu.
 Build na `app-1` trwa 12–18 min na aplikację, zjada ok. 4,5 GB swapu
 i 08.11.2026 zapchał dysk (ENOSPC). Workflow `.github/workflows/obrazy.yml`
 buduje `runner` i `worker` na maszynie GitHuba po każdym scaleniu do `main`
-i wypycha je do GHCR: `ghcr.io/ezior8888-cpu/faktway-runner:<pełny SHA>`
+i wypycha je do GHCR: `ghcr.io/faktway/faktway-runner:<pełny SHA>`
 i `…-worker:<pełny SHA>` (plus `:main`). Etykieta
 `org.opencontainers.image.revision` i zmienna `APP_COMMIT_SHA` w obrazie =
 SHA. Pakiety są publiczne (repo jest publiczne, w obrazie nie ma sekretów),

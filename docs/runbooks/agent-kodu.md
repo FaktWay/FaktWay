@@ -95,15 +95,15 @@ w `agent.yml`).
 ## 5. Konfiguracja jednorazowa (Bartosz)
 
 1. **Aplikacja Claude** na repo: https://github.com/apps/claude → Install →
-   tylko `ezior8888-cpu/ksef-saas`.
+   tylko `FaktWay/FaktWay`.
 2. **Token subskrypcji**: w terminalu `claude setup-token`, potem
-   `gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo ezior8888-cpu/ksef-saas`
+   `gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo FaktWay/FaktWay`
    (wklejasz token w terminalu, nigdzie go nie zapisuj).
 3. **Etykiety**:
    ```bash
-   gh label create agent:napraw --color 5319e7 --description "Uruchamia agenta kodu" --repo ezior8888-cpu/ksef-saas
-   gh label create zgoda:obszar-wrazliwy --color b60205 --description "Zgoda właściciela na zmianę obszaru wrażliwego (PR agenta)" --repo ezior8888-cpu/ksef-saas
-   gh label create zgoda:bez-testu --color fbca04 --description "Zgoda na zmianę kodu bez testu (PR agenta)" --repo ezior8888-cpu/ksef-saas
+   gh label create agent:napraw --color 5319e7 --description "Uruchamia agenta kodu" --repo FaktWay/FaktWay
+   gh label create zgoda:obszar-wrazliwy --color b60205 --description "Zgoda właściciela na zmianę obszaru wrażliwego (PR agenta)" --repo FaktWay/FaktWay
+   gh label create zgoda:bez-testu --color fbca04 --description "Zgoda na zmianę kodu bez testu (PR agenta)" --repo FaktWay/FaktWay
    ```
 4. **Ruleset `main`**: dopisz do wymaganych kontroli `Next build`,
    `Test-first (agent)` i `Agent guard`. Zrób to dopiero, gdy pojawią się
@@ -121,7 +121,7 @@ w `agent.yml`).
   Przy przekroczeniu limitu job kończy się błędem — wtedy przełącz na
   `anthropic_api_key` z miesięcznym limitem kosztu w konsoli Anthropic.
 - Minuty Actions: repo publiczne nie płaci za standardowe runnery.
-- Wyłączenie natychmiast: `gh workflow disable "Agent kodu" --repo ezior8888-cpu/ksef-saas`.
+- Wyłączenie natychmiast: `gh workflow disable "Agent kodu" --repo FaktWay/FaktWay`.
   Trwające zadanie: anuluj run w Actions.
 
 ## 7. Issue z alarmów produkcji (plan usprawnień 3.5)
@@ -139,7 +139,7 @@ komentarz. Nowe issue: najwyżej 3 na godzinę i 15 otwartych naraz.
 - Po naprawie zamknij issue. Kolejne wystąpienie założy nowe.
 - Etykieta `alert-produkcji` musi istnieć (`gh label create alert-produkcji
   --color d93f0b --description "Issue z alarmu produkcji (automat)" --repo
-  ezior8888-cpu/FaktWay`). Gdy GitHub jej nie nada, moduł zakłada jedno issue,
+  FaktWay/FaktWay`). Gdy GitHub jej nie nada, moduł zakłada jedno issue,
   wpisuje błąd do logu workera i wstrzymuje nowe issue do restartu.
 - Wyłączenie: usuń `GITHUB_ALERT_ISSUES_TOKEN` z workera (Coolify `id=2`)
   i zrestartuj go. Alarmy Slack i Telegram działają dalej.

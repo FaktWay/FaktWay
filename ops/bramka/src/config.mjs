@@ -44,12 +44,12 @@ export function loadConfig(env = process.env) {
       workerUuid: env.COOLIFY_APP_WORKER.trim(),
     },
     github: {
-      repo: (env.GITHUB_REPO ?? 'ezior8888-cpu/ksef-saas').trim(),
+      repo: (env.GITHUB_REPO ?? 'FaktWay/FaktWay').trim(),
       branch: (env.GITHUB_BRANCH ?? 'main').trim(),
       token: env.GITHUB_TOKEN?.trim() || null,
     },
     // Obrazy z `.github/workflows/obrazy.yml`: <prefiks>-runner i <prefiks>-worker.
-    ghcrPrefix: (env.GHCR_PREFIX ?? 'ghcr.io/ezior8888-cpu/faktway').trim().replace(/\/$/, ''),
+    ghcrPrefix: (env.GHCR_PREFIX ?? 'ghcr.io/faktway/faktway').trim().replace(/\/$/, ''),
     healthUrl: (env.PUBLIC_HEALTH_URL ?? 'https://faktway.pl/api/health').trim(),
     // Kontrole, bez których wdrożenie się nie zacznie (nazwy jobów z CI).
     requiredChecks: (env.BRAMKA_REQUIRED_CHECKS ?? 'Typecheck + Lint + Unit tests,Next build')
