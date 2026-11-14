@@ -1,4 +1,4 @@
-import { isGtuCode, isPkwiuCode } from '@/lib/invoices/line-codes';
+import { isPkwiuCode } from '@/lib/invoices/line-codes';
 import {
   isProductVatRate,
   PRODUCT_SUGGESTIONS_LIMIT,
@@ -136,7 +136,7 @@ interface SuggestQueryLike {
   limit: (n: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
 }
 
-type SuggestionRow = Pick<ProductRow, 'id' | 'name' | 'unit' | 'default_price_net' | 'default_vat_rate' | 'pkwiu_code' | 'gtu_code'>;
+type SuggestionRow = Pick<ProductRow, 'id' | 'name' | 'unit' | 'default_price_net' | 'default_vat_rate' | 'pkwiu_code'>;
 
 /** 0: nazwa zaczyna się od frazy, 1: któreś słowo nazwy zaczyna się od frazy, 2: fraza w środku słowa. */
 function suggestionRank(name: string, phrase: string): number {
@@ -159,7 +159,7 @@ export async function suggestProducts(client: unknown, tenantId: string, q: stri
   if (phrase.length < PRODUCT_SUGGESTIONS_MIN_QUERY) return [];
   const db = client as ClientLike;
   const res = await (db.from('products') as SuggestQueryLike)
-    .select('id, name, unit, default_price_net, default_vat_rate, pkwiu_code, gtu_code')
+    .select('id, name, unit, default_price_net, default_vat_rate, pkwiu_code')
     .eq('tenant_id', tenantId)
     .eq('is_archived', false)
     .ilike('name', `%${phrase}%`)
@@ -180,6 +180,5 @@ export async function suggestProducts(client: unknown, tenantId: string, q: stri
       priceNet: price(row.default_price_net),
       vatRate: isProductVatRate(row.default_vat_rate) ? row.default_vat_rate : null,
       pkwiuCode: typeof row.pkwiu_code === 'string' && isPkwiuCode(row.pkwiu_code.trim()) ? row.pkwiu_code.trim() : null,
-      gtuCode: isGtuCode(row.gtu_code) ? row.gtu_code : null,
     }));
 }

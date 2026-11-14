@@ -328,13 +328,13 @@ function linesToStoredItems(correctionData: CorrectionInvoiceData): InvoiceLineI
   if (correctionType === 'amount_change' && correctionData.amountChange) {
     const ac = correctionData.amountChange;
     const rate = resolveAmountChangeVatRate(ac);
-    const line = {
+    const line: InvoiceLine = {
       name: ac.description,
       unit: 'szt.',
       quantity: 1,
       unitPriceNet: ac.netDelta,
       vatRate: rate,
-    } satisfies InvoiceLine;
+    };
     return [
       {
         ordinal: 1,
@@ -643,8 +643,7 @@ async function listCorrectionsOf(
 type CorrectionBaseline = CorrectionBaselineOf<CorrectionLineSchema>;
 
 function linesTotals(lines: CorrectionLineSchema[]) {
-  // Tylko sumy: oznaczenie GTU z linii korekty (tekst) nie jest tu potrzebne.
-  return calculateInvoiceTotals(lines.map((line, index) => ({ ...line, gtuCode: undefined, ordinal: index + 1, ...calculateLineItem(line) })));
+  return calculateInvoiceTotals(lines.map((line, index) => ({ ...line, ordinal: index + 1, ...calculateLineItem(line) })));
 }
 
 async function correctionBaseline(

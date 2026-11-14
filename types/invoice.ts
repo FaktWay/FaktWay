@@ -83,9 +83,6 @@ export type VatRate =
   | 'np' // nie podlega opodatkowaniu w kraju — XSD 'np I' (P_13_8)
   | 'np_ii'; // usługi z art. 100 ust. 1 pkt 4 (art. 28b, nabywca z UE) — XSD 'np II' (P_13_9, P_18=1); AUD-70
 
-/** Oznaczenie GTU pozycji: GTU_01 do GTU_13 (FA(3) `TGTU`; lista w `lib/invoices/line-codes.ts`). */
-export type GtuCode = `GTU_${'01' | '02' | '03' | '04' | '05' | '06' | '07' | '08' | '09' | '10' | '11' | '12' | '13'}`;
-
 export interface InvoiceLineItem {
   /** Kolejny numer porządkowy pozycji (1, 2, 3...) */
   ordinal: number;
@@ -99,8 +96,6 @@ export interface InvoiceLineItem {
   classificationCode?: string;
   /** PKWiU pozycji (FA(3) `PKWiU`), z formularza albo katalogu produktów. */
   pkwiuCode?: string;
-  /** Oznaczenie GTU pozycji (FA(3) `GTU`); wybiera klient (D8 planu księgowości). */
-  gtuCode?: GtuCode;
   /** Jednostka miary (szt, kg, godz, usł, mies., itd.) */
   unit: string;
   /** Ilość - do 4 miejsc po przecinku */

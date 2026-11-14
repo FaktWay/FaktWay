@@ -15,7 +15,7 @@ import {
   saveRegularDraft,
   type RegularIssueResult,
 } from '@/lib/invoices/issue-regular';
-import { isGtuCode, isPkwiuCode } from '@/lib/invoices/line-codes';
+import { isPkwiuCode } from '@/lib/invoices/line-codes';
 import { addressCountryForKodUE, parseVatUe } from '@/lib/invoices/vat-ue';
 import { RECURRING_DRAFT_REFUSED_MESSAGE } from '@/lib/invoices/recurring/issue';
 import { suggestNextInvoiceNumberForTenant } from '@/lib/invoices/next-number';
@@ -323,8 +323,8 @@ async function prefillCore(
     .eq('invoice_id', row.id)
     .order('ordinal', { ascending: true });
 
-  // Krok 2.6, część 2b: PKWiU i GTU pozycji są w dokumencie faktury (`fa3_data`),
-  // nie w `invoice_line_items`; tylko poprawne kody wracają do formularza.
+  // Krok 2.6, część 2b-1: PKWiU pozycji jest w dokumencie faktury (`fa3_data`),
+  // nie w `invoice_line_items`; tylko poprawny kod wraca do formularza.
   const kodyPozycji = new Map(
     (Array.isArray(faktura.lines) ? faktura.lines : []).map((l) => [l.ordinal, l] as const),
   );
@@ -339,7 +339,6 @@ async function prefillCore(
         unitPriceNet: Number(poz.unit_price_net) || 0,
         vatRate: String(poz.vat_rate ?? '23'),
         ...(isPkwiuCode(pkwiuCode) ? { pkwiuCode } : {}),
-        ...(isGtuCode(kody?.gtuCode) ? { gtuCode: kody.gtuCode } : {}),
       };
     })
     .filter((poz) => poz.name.length > 0 && poz.quantity > 0);

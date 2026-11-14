@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildInvoiceFromForm } from '@/lib/invoices/build-from-form';
-import { GTU_CODES } from '@/lib/invoices/line-codes';
 import { invoiceFormSchema, lineItemSchema, type InvoiceFormValues } from '@/lib/schemas/invoice-form';
 import { generateFA3Xml } from '@/lib/xml/fa3-generator';
 import { validateInvoiceXml } from '@/lib/xml/validator';
 
 /**
- * Plan kompletnej aplikacji, krok 2.6, część 2b-1: PKWiU i GTU w pozycji
- * zwykłej faktury. Kod ma jawny typ (pole PKWiU, pole GTU), nie jest
- * zgadywany po długości. Kody idą z formularza (albo katalogu) przez schemat
- * (klient i serwer) do faktury (`fa3_data`) i do pliku FA(3): `PKWiU` po
- * nazwie (P_7), `GTU` po stawce (P_12), jak w typie FaWiersz schematu.
+ * Plan kompletnej aplikacji, krok 2.6, część 2b-1: PKWiU w pozycji zwykłej
+ * faktury z jawnym typem kodu (nie zgadywanym po długości). Kod idzie
+ * z formularza (albo katalogu) przez schemat (klient i serwer) do faktury
+ * (`fa3_data`) i do pliku FA(3): `PKWiU` po nazwie (P_7), przed jednostką
+ * (P_8A), jak w typie FaWiersz schematu. GTU pozycji dojdzie razem z GTU
+ * w JPK_V7M (część 2b-2); do tego czasu schemat je pomija.
  */
 
 const DZIS = '2026-11-14';
@@ -47,56 +47,65 @@ const pozycja = { name: 'Szkolenie BHP', unit: 'godz.', quantity: 2, unitPriceNe
 const bledy = (wynik: ReturnType<typeof lineItemSchema.safeParse>) =>
   wynik.success ? [] : wynik.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
 
-describe('schemat pozycji: PKWiU i GTU', () => {
-  it('PKWiU z kropkami i każdy kod GTU z listy przechodzą; puste pola to brak kodu', () => {
-    for (const gtuCode of GTU_CODES) {
-      expect(bledy(lineItemSchema.safeParse({ ...pozycja, pkwiuCode: '85.59.13.0', gtuCode }))).toEqual([]);
+/** Faktura z formularza tak, jak robi to akcja zapisu: schemat, potem budowanie. */
+function fakturaZFormularza(lines: InvoiceFormValues['lines']) {
+  const parsed = invoiceFormSchema.safeParse(form(lines));
+  if (!parsed.success) throw new Error(parsed.error.issues.map((i) => i.message).join('; '));
+  return buildInvoiceFromForm(parsed.data, TENANT, null, false);
+}
+
+describe('schemat pozycji: PKWiU', () => {
+  it('PKWiU z kropkami i bez przechodzi; puste pole i brak pola to brak kodu', () => {
+    for (const pkwiuCode of ['85.59.13.0', '85591300', ' 62.01.11.0 ', '', '   ']) {
+      expect(bledy(lineItemSchema.safeParse({ ...pozycja, pkwiuCode }))).toEqual([]);
     }
-    expect(bledy(lineItemSchema.safeParse({ ...pozycja, pkwiuCode: '', gtuCode: '' }))).toEqual([]);
     expect(bledy(lineItemSchema.safeParse(pozycja))).toEqual([]);
   });
 
-  it('PKWiU z literami albo dłuższe niż 20 znaków i GTU spoza listy: błąd z tym, co zrobić', () => {
+  it('PKWiU z literami albo dłuższe niż 20 znaków: błąd z tym, co zrobić', () => {
     expect(bledy(lineItemSchema.safeParse({ ...pozycja, pkwiuCode: '85.59.A' }))).toEqual([
+      'pkwiuCode: PKWiU: tylko cyfry i kropki, na przykład 62.01.11.0.',
+    ]);
+    expect(bledy(lineItemSchema.safeParse({ ...pozycja, pkwiuCode: '.85.59' }))).toEqual([
       'pkwiuCode: PKWiU: tylko cyfry i kropki, na przykład 62.01.11.0.',
     ]);
     expect(bledy(lineItemSchema.safeParse({ ...pozycja, pkwiuCode: '1'.repeat(21) }))).toEqual([
       'pkwiuCode: PKWiU: najwyżej 20 znaków.',
     ]);
-    expect(bledy(lineItemSchema.safeParse({ ...pozycja, gtuCode: 'GTU_14' }))).toEqual([
-      'gtuCode: Wybierz kod GTU z listy albo zostaw pole puste.',
+  });
+});
+
+describe('faktura z formularza: PKWiU w pozycjach', () => {
+  it('kod przechodzi przez schemat formularza i trafia do pozycji faktury bez spacji; puste i same spacje nie', () => {
+    const invoice = fakturaZFormularza([
+      { ...pozycja, pkwiuCode: ' 85.59.13.0 ' },
+      { ...pozycja, name: 'Materiały', pkwiuCode: '' },
+      { ...pozycja, name: 'Dojazd', pkwiuCode: '   ' },
     ]);
-  });
-});
-
-describe('faktura z formularza: kody w pozycjach', () => {
-  it('kody przechodzą przez schemat formularza i trafiają do pozycji faktury bez spacji; puste nie', () => {
-    const parsed = invoiceFormSchema.safeParse(form([
-      { ...pozycja, pkwiuCode: ' 85.59.13.0 ', gtuCode: 'GTU_12' },
-      { ...pozycja, name: 'Materiały', pkwiuCode: '', gtuCode: '' },
-    ]));
-    expect(parsed.success).toBe(true);
-    if (!parsed.success) return;
-    const invoice = buildInvoiceFromForm(parsed.data, TENANT, null, false);
-    expect(invoice.lines[0]).toMatchObject({ pkwiuCode: '85.59.13.0', gtuCode: 'GTU_12' });
+    expect(invoice.lines[0]).toMatchObject({ pkwiuCode: '85.59.13.0' });
     expect(invoice.lines[1]).not.toHaveProperty('pkwiuCode');
-    expect(invoice.lines[1]).not.toHaveProperty('gtuCode');
+    expect(invoice.lines[2]).not.toHaveProperty('pkwiuCode');
+  });
+
+  it('GTU w żądaniu (formularz go jeszcze nie ma) schemat pomija: ani w fakturze, ani w pliku (do części 2b-2)', () => {
+    const invoice = fakturaZFormularza([{ ...pozycja, pkwiuCode: '85.59.13.0', gtuCode: 'GTU_12' } as InvoiceFormValues['lines'][number]]);
+    expect(invoice.lines[0]).not.toHaveProperty('gtuCode');
+    const xml = generateFA3Xml(invoice, { generatedAt: new Date(`${DZIS}T10:00:00Z`) });
+    expect(xml).not.toContain('<GTU>');
   });
 });
 
-describe('plik FA(3): PKWiU i GTU w FaWiersz', () => {
+describe('plik FA(3): PKWiU w FaWiersz', () => {
   const xmlZ = (lines: InvoiceFormValues['lines']) =>
-    generateFA3Xml(buildInvoiceFromForm(form(lines), TENANT, null, false), { generatedAt: new Date(`${DZIS}T10:00:00Z`) });
+    generateFA3Xml(fakturaZFormularza(lines), { generatedAt: new Date(`${DZIS}T10:00:00Z`) });
 
-  it('PKWiU po P_7, GTU po P_12, plik zgodny z XSD', async () => {
-    const xml = xmlZ([{ ...pozycja, pkwiuCode: '85.59.13.0', gtuCode: 'GTU_12' }]);
+  it('PKWiU po P_7, przed P_8A; plik zgodny z XSD', async () => {
+    const xml = xmlZ([{ ...pozycja, pkwiuCode: '85.59.13.0' }]);
     expect((await validateInvoiceXml(xml)).errors).toEqual([]);
     const wiersz = xml.slice(xml.indexOf('<FaWiersz>'), xml.indexOf('</FaWiersz>'));
     expect(wiersz).toContain('<PKWiU>85.59.13.0</PKWiU>');
-    expect(wiersz).toContain('<GTU>GTU_12</GTU>');
     expect(wiersz.indexOf('<P_7>')).toBeLessThan(wiersz.indexOf('<PKWiU>'));
     expect(wiersz.indexOf('<PKWiU>')).toBeLessThan(wiersz.indexOf('<P_8A>'));
-    expect(wiersz.indexOf('<P_12>')).toBeLessThan(wiersz.indexOf('<GTU>'));
   });
 
   it('PKWiU bez kropek zostaje PKWiU (nie CN ani GTIN, jak przy zgadywaniu po długości)', async () => {
@@ -107,10 +116,9 @@ describe('plik FA(3): PKWiU i GTU w FaWiersz', () => {
     expect(xml).not.toContain('<CN>');
   });
 
-  it('pozycja bez kodów: bez PKWiU i GTU, jak dotąd', async () => {
+  it('pozycja bez kodu: bez PKWiU, jak dotąd', async () => {
     const xml = xmlZ([pozycja]);
     expect((await validateInvoiceXml(xml)).errors).toEqual([]);
     expect(xml).not.toContain('<PKWiU>');
-    expect(xml).not.toContain('<GTU>');
   });
 });

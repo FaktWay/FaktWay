@@ -13,27 +13,29 @@ import { labelClass } from './constants';
 
 /**
  * PKWiU pozycji (plan kompletnej aplikacji, krok 2.6, część 2b-1).
- * Zwinięte pod przyciskiem „Dodaj PKWiU”; pokazane, gdy pozycja ma kod
- * (np. z katalogu produktów) albo błąd w polu kodu.
+ * Zwinięte pod przyciskiem „Dodaj PKWiU”; pokazane po kliknięciu, gdy pozycja
+ * ma kod (np. z katalogu produktów) albo błąd w polu kodu, i odtąd zostaje.
  *
- * Oznaczenie GTU (model, schemat i plik FA(3) już je znają) dojdzie tutaj
- * razem z GTU w JPK_V7M (część 2b-2), żeby oznaczenie nie trafiało na
- * fakturę bez ewidencji w pliku JPK.
+ * Oznaczenie GTU dojdzie tutaj razem z GTU w JPK_V7M (część 2b-2), żeby
+ * oznaczenie nie trafiało na fakturę bez ewidencji w pliku JPK.
  */
 export function LineCodesFields({ form, index }: { form: UseFormReturn<InvoiceFormValues>; index: number }) {
-  const [opened, setOpened] = useState(false);
-  const focusPending = useRef(false);
   const pkwiu = useWatch({ control: form.control, name: `lines.${index}.pkwiuCode` });
   const pkwiuError = form.formState.errors.lines?.[index]?.pkwiuCode?.message;
-  const shown = opened || Boolean(pkwiu?.trim()) || Boolean(pkwiuError);
+  const [shown, setShown] = useState(false);
+  const focusPending = useRef(false);
   const pkwiuId = `line-${index}-pkwiu`;
+
+  // Kod (z katalogu, z kopii faktury) albo błąd pokazuje pole; raz pokazane
+  // zostaje, także po wyczyszczeniu kodu (stan z poprzedniego renderu).
+  if (!shown && (Boolean(pkwiu?.trim()) || Boolean(pkwiuError))) setShown(true);
 
   // Po „Dodaj PKWiU” kursor w polu PKWiU (pole pojawia się dopiero po kliknięciu).
   useEffect(() => {
-    if (!opened || !focusPending.current) return;
+    if (!shown || !focusPending.current) return;
     focusPending.current = false;
     document.getElementById(pkwiuId)?.focus();
-  }, [opened, pkwiuId]);
+  }, [shown, pkwiuId]);
 
   if (!shown) {
     return (
@@ -42,10 +44,10 @@ export function LineCodesFields({ form, index }: { form: UseFormReturn<InvoiceFo
         variant="link"
         size="sm"
         className="h-auto px-0 text-xs"
-        aria-expanded={false}
+        aria-label={`Dodaj PKWiU do pozycji ${index + 1}`}
         onClick={() => {
           focusPending.current = true;
-          setOpened(true);
+          setShown(true);
         }}
       >
         Dodaj PKWiU
@@ -58,6 +60,7 @@ export function LineCodesFields({ form, index }: { form: UseFormReturn<InvoiceFo
       <Label htmlFor={pkwiuId} className={labelClass}>PKWiU</Label>
       <Input
         id={pkwiuId}
+        aria-label={`PKWiU pozycji ${index + 1}`}
         placeholder="np. 62.01.11.0"
         autoComplete="off"
         {...fieldErrorProps(pkwiuId, !!pkwiuError)}
