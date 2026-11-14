@@ -6,8 +6,9 @@ import type { JobContext } from '@/lib/jobs/registry';
 import { getRlsTestEnvironment } from './helpers/rls-environment';
 
 /**
- * FZ-005 na prawdziwej bazie: `cron.retention-delete` a klucze, które
- * blokują usunięcie faktury. Korekta trzyma oryginał kluczem
+ * FZ-005 na prawdziwej bazie: `cron.retention-delete` a to, co blokuje
+ * usunięcie wiersza faktury. Strażnik cyklu KSeF (00119, 00132) nie da
+ * usunąć faktury wysłanej do KSeF żadnej roli (FZ-016). Korekta trzyma oryginał kluczem
  * `parent_invoice_id ... ON DELETE RESTRICT` (00012, 00118), koszt z KSeF
  * trzyma fakturę kluczem bez `ON DELETE` (00034, 00121). Przed naprawą
  * zadanie usuwało pliki całej paczki, a potem jeden DELETE paczki padał na
@@ -128,6 +129,7 @@ describe.skipIf(!hasDatabase)('FZ-005: retention-delete a korekty i koszty na pr
       issue_date: '2016-01-15', net_amount: 1000, vat_amount: 230, gross_amount: 1230, payment_split: false,
     });
     if (kosztError) throw new Error(`insert koszt: ${kosztError.message}`);
+    ids.wyslana = await faktura({ ...przyjeta(), submitted_to_ksef_at: '2016-01-15T10:00:00.000Z' });
     ids.parzystyOryginal = await faktura(przyjeta());
     ids.parzystaKorekta = await korekta(ids.parzystyOryginal);
   });
@@ -147,10 +149,12 @@ describe.skipIf(!hasDatabase)('FZ-005: retention-delete a korekty i koszty na pr
     const zostaly = new Map((data ?? []).map((r) => [r.id as string, Date.parse(r.scheduled_deletion_at as string)]));
 
     // Usunięte: zwykła faktura i para oryginał z korektą (obie po terminie).
-    expect([...zostaly.keys()].sort()).toEqual([ids.oryginal, ids.korektaPrzedTerminem, ids.zKosztem].sort());
+    expect([...zostaly.keys()].sort()).toEqual([ids.oryginal, ids.korektaPrzedTerminem, ids.zKosztem, ids.wyslana].sort());
     expect(m.pliki.filter((p) => Object.values(ids).includes(p)).sort()).toEqual([ids.zwykla, ids.parzystyOryginal, ids.parzystaKorekta].sort());
     // Oryginał czeka do terminu swojej korekty, faktura z kosztem co najmniej 30 dni.
     expect(zostaly.get(ids.oryginal)).toBe(Date.parse(PRZED_TERMINEM));
     expect(zostaly.get(ids.zKosztem)!).toBeGreaterThanOrEqual(start + 29 * DZIEN);
+    // Faktura wysłana do KSeF: strażnik nie da usunąć wiersza, więc pliki zostają (FZ-016).
+    expect(zostaly.get(ids.wyslana)!).toBeGreaterThanOrEqual(start + 29 * DZIEN);
   });
 });
