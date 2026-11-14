@@ -655,7 +655,7 @@ async function glowna(argumenty) {
     numer = zdarzenie.pull_request?.number;
   } else if (argumenty.includes('--pr')) {
     numer = Number(argumenty[argumenty.indexOf('--pr') + 1]);
-    repo = process.env.GITHUB_REPOSITORY ?? 'ezior8888-cpu/FaktWay';
+    repo = process.env.GITHUB_REPOSITORY ?? 'FaktWay/FaktWay';
   }
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo ?? '') || !Number.isInteger(numer) || numer <= 0) {
     console.error('Użycie: node scripts/filtr/straz.mjs --github | --pr <N> [--tylko-raport]');

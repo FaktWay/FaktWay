@@ -1,7 +1,7 @@
 # Żelazny filtr: gdy coś zablokuje
 
 > Plan: `docs/koordynacja/PLAN-ZELAZNY-FILTR.md` (B6). Dane filtra: `filtr/`
-> (`README.md` w skrócie). Etykiety zgody nadaje tylko Bartosz.
+> (`README.md` w skrócie). Etykiety zgody nadaje agent, który zrobił PR, po drugim czytelniku (`AGENTS.md`, „Żelazny filtr”).
 
 ## Gdzie filtr łapie i co dalej
 

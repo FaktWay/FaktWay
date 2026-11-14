@@ -316,7 +316,7 @@ export async function zglos({ fetchImpl = fetch, token, repo, zmiany, niedostepn
 async function main() {
   const env = process.env;
   const katalogRepo = resolve(env.CZUJKA_KATALOG_REPO ?? 'lib/xml/schemas/fa3');
-  const repo = env.GITHUB_REPOSITORY ?? 'ezior8888-cpu/FaktWay';
+  const repo = env.GITHUB_REPOSITORY ?? 'FaktWay/FaktWay';
   const runUrl = env.GITHUB_RUN_ID ? `${env.GITHUB_SERVER_URL ?? 'https://github.com'}/${repo}/actions/runs/${env.GITHUB_RUN_ID}` : '';
   const podsumowanie = (t) => env.GITHUB_STEP_SUMMARY && appendFileSync(env.GITHUB_STEP_SUMMARY, `${t}\n`);
 

@@ -31,7 +31,7 @@
 
 <!-- Żelazny filtr (docs/koordynacja/PLAN-ZELAZNY-FILTR.md, B5.6). PR R0 i R3: wystarczy „n/d” w pierwszym polu.
      PR R1 i R2: „Filtr: straż” wymaga każdego pola (gdy nie dotyczy: „n/d”). Poziom: pnpm filtr:mapa --diff origin/main.
-     R1: id reguł z rejestru (RP-…) i ścieżki testów w „Dowody”. Etykiet zgoda:* nadaje tylko Bartosz. -->
+     R1: id reguł z rejestru (RP-…) i ścieżki testów w „Dowody”. Etykiety zgoda:* nadaje autor PR po ostatnim pushu i po drugim czytelniku bez otwartych uwag. -->
 
 - Poziom i obszary z mapy:
 - Rodzaj: naprawa / nowa funkcja / refaktor bez zmiany zachowania / tylko testy / tylko wiedza
