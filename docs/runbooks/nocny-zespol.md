@@ -330,8 +330,8 @@ zawsze czekają na Bartosza. Etap 2 to decyzja na później (sekcja 13).
 | Chcesz | Zrób |
 |---|---|
 | zatrzymać noce | dodaj etykietę `nocny:stop` do dowolnego otwartego zgłoszenia, najprościej do dziennika (działa z telefonu) |
-| zatrzymać z terminala | `gh variable set NOCNY_STOP --body 1 --repo ezior8888-cpu/FaktWay` |
-| wznowić | zdejmij etykietę `nocny:stop` albo `gh variable delete NOCNY_STOP --repo ezior8888-cpu/FaktWay` |
+| zatrzymać z terminala | `gh variable set NOCNY_STOP --body 1 --repo FaktWay/FaktWay` |
+| wznowić | zdejmij etykietę `nocny:stop` albo `gh variable delete NOCNY_STOP --repo FaktWay/FaktWay` |
 | przerwać trwającą noc | zatrzymaj sesję albo zadanie cykliczne na claude.ai/code (lista zadań: claude.ai/code/routines) |
 | wyłączyć na dłużej | wstrzymaj albo usuń zadanie cykliczne na obu kontach |
 
@@ -408,9 +408,9 @@ Praca 2 h 10 min, szacunek 5,2 % tygodnia. Jutro konto Igora: KSeF, wysyłka w z
   przypięte i z rozmową zablokowaną dla spoza współpracowników (zakłada
   Bartosz, sekcja 12; przypięcia nie da się zrobić przez REST).
 - Sesja znajduje je przez
-  `gh api "repos/ezior8888-cpu/FaktWay/issues?labels=nocny:dziennik&state=open"`
+  `gh api "repos/FaktWay/FaktWay/issues?labels=nocny:dziennik&state=open"`
   i dopisuje jeden komentarz po każdej nocy:
-  `gh api --method POST repos/ezior8888-cpu/FaktWay/issues/<N>/comments -F body=@/tmp/dziennik.md`.
+  `gh api --method POST repos/FaktWay/FaktWay/issues/<N>/comments -F body=@/tmp/dziennik.md`.
 - Dziennik jest publiczny: bez danych klientów, bez szczegółów luk („1 sprawa
   poufna”).
 
@@ -480,20 +480,20 @@ wprowadza człowiek w zwykłym PR do tego pliku.
 3. **Etykiety i dziennik (Bartosz, raz):**
 
    ```bash
-   gh label create nocny:stop --color b60205 --description "Zatrzymuje nocny zespół" --repo ezior8888-cpu/FaktWay
+   gh label create nocny:stop --color b60205 --description "Zatrzymuje nocny zespół" --repo FaktWay/FaktWay
    ```
 
    ```bash
-   gh label create nocny:dziennik --color 0e8a16 --description "Dziennik nocnego zespołu" --repo ezior8888-cpu/FaktWay
+   gh label create nocny:dziennik --color 0e8a16 --description "Dziennik nocnego zespołu" --repo FaktWay/FaktWay
    ```
 
    ```bash
-   gh issue create --title "Nocny zespół: dziennik" --label nocny:dziennik --body "Komentarz po każdej nocy. Instrukcja: docs/runbooks/nocny-zespol.md" --repo ezior8888-cpu/FaktWay
+   gh issue create --title "Nocny zespół: dziennik" --label nocny:dziennik --body "Komentarz po każdej nocy. Instrukcja: docs/runbooks/nocny-zespol.md" --repo FaktWay/FaktWay
    ```
 
    Potem w GitHubie przy tym zgłoszeniu: „Pin issue” i „Lock conversation”.
 4. **Zadanie cykliczne (każde konto osobno)**, claude.ai/code/routines albo
-   `/schedule`: repozytorium `ezior8888-cpu/FaktWay`, środowisko z punktu 2,
+   `/schedule`: repozytorium `FaktWay/FaktWay`, środowisko z punktu 2,
    model Opus, polecenie z `docs/nocny/PROMPT.md`, harmonogram „Custom” z
    wyrażeniem z sekcji 2. Z zakładki Connectors usuń wszystkie konektory:
    nocy żaden nie jest potrzebny. Pierwsza noc: zajrzyj rano w przebieg

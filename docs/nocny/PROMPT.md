@@ -2,7 +2,7 @@
 
 Tekst spod kreski wklejasz jako polecenie zadania cyklicznego
 (claude.ai/code/routines albo `/schedule`). Repozytorium
-`ezior8888-cpu/FaktWay`, model Opus, harmonogram i środowisko według
+`FaktWay/FaktWay`, model Opus, harmonogram i środowisko według
 [`docs/runbooks/nocny-zespol.md`](../runbooks/nocny-zespol.md), sekcje 2 i 12.
 Polecenie jest krótkie celowo: całą wiedzę ma instrukcja, a jej zmiana nie
 wymaga edycji zadania na dwóch kontach.
