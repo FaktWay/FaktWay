@@ -153,6 +153,9 @@ export function ProductNameInput({
     if (p.priceNet !== null) form.setValue(`lines.${index}.unitPriceNet`, p.priceNet, opts);
     const keepExemptRate = vatExempt && p.vatRate !== null && TAXED_VAT_RATES.includes(p.vatRate);
     if (p.vatRate && !keepExemptRate) form.setValue(`lines.${index}.vatRate`, p.vatRate, opts);
+    // Krok 2.6, część 2b-1: PKWiU z katalogu tylko, gdy produkt je ma (jak cena i stawka).
+    // GTU z katalogu dojdzie z polem GTU pozycji i JPK_V7M (część 2b-2).
+    if (p.pkwiuCode) form.setValue(`lines.${index}.pkwiuCode`, p.pkwiuCode, opts);
     setItems([]);
     close();
     const exemptNote = keepExemptRate ? exemptRateText(p) : null;

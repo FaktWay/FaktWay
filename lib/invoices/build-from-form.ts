@@ -53,6 +53,8 @@ export function buildInvoiceFromForm(
       unitPriceNet: line.unitPriceNet,
       vatRate: line.vatRate,
     });
+    // Krok 2.6, część 2b: kody z jawnym typem tylko, gdy są (puste pole = brak).
+    const pkwiuCode = line.pkwiuCode?.trim();
     return {
       ordinal: idx + 1,
       name: line.name,
@@ -63,6 +65,8 @@ export function buildInvoiceFromForm(
       netAmount: calc.netAmount,
       vatAmount: calc.vatAmount,
       grossAmount: calc.grossAmount,
+      ...(pkwiuCode ? { pkwiuCode } : {}),
+      ...(line.gtuCode ? { gtuCode: line.gtuCode } : {}),
     };
   });
 

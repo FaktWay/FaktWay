@@ -14,6 +14,14 @@ import {
   type ReceiptBuyerKind,
   type ReceiptRuleField,
 } from '@/lib/invoices/receipt-invoice';
+import {
+  GTU_CODE_MESSAGE,
+  GTU_CODES,
+  PKWIU_LENGTH_MESSAGE,
+  PKWIU_MAX_LENGTH,
+  PKWIU_PATTERN,
+  PKWIU_PATTERN_MESSAGE,
+} from '@/lib/invoices/line-codes';
 import { isSaleDateWithinLimit, SALE_DATE_TOO_LATE_MESSAGE } from '@/lib/invoices/sale-date';
 import { addressCountryForKodUE, parseVatUe, type KodUE, isNpIiBuyerVat } from '@/lib/invoices/vat-ue';
 import { numberingFormFields } from '@/lib/numeracja/pola';
@@ -195,6 +203,13 @@ export const lineItemSchema = z.object({
     .max(MAX_INVOICE_AMOUNT, 'Cena za duża')
     .refine((v) => hasAtMostDecimals(v, 4), 'Cena — najwyżej 4 miejsca po przecinku'),
   vatRate: vatRateEnum,
+  // Krok 2.6, część 2b: kody pozycji z jawnym typem; puste pole = brak kodu.
+  pkwiuCode: z
+    .string()
+    .optional()
+    .refine((v) => v === undefined || v.trim().length <= PKWIU_MAX_LENGTH, PKWIU_LENGTH_MESSAGE)
+    .refine((v) => v === undefined || v.trim() === '' || v.trim().length > PKWIU_MAX_LENGTH || PKWIU_PATTERN.test(v.trim()), PKWIU_PATTERN_MESSAGE),
+  gtuCode: z.union([z.literal(''), z.enum(GTU_CODES)], { message: GTU_CODE_MESSAGE }).optional(),
 });
 
 export const invoiceFormSchema = z
@@ -430,7 +445,7 @@ export const invoiceFormSchema = z
   .superRefine((d, ctx) => {
     if (d.receiptInvoice !== true) return;
     const buyerKind = receiptBuyerKindOfForm(d);
-    const lines = d.lines.map((l, i) => ({ ...l, ordinal: i + 1, ...calculateLineItem(l) }));
+    const lines = d.lines.map((l, i) => ({ ...l, ordinal: i + 1, gtuCode: l.gtuCode || undefined, ...calculateLineItem(l) }));
     const reported = new Set<string>();
     for (const issue of receiptInvoiceIssues({
       receipt: receiptFromFormValues(d, buyerKind),
