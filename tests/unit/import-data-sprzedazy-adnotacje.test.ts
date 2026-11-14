@@ -336,7 +336,6 @@ describe('C5b: procedury i oznaczenia, których FaktWay nie wykazuje w JPK → z
     ['nowe środki transportu (P_22)', (x: string) => replaceOnce(x, '<NoweSrodkiTransportu><P_22N>1</P_22N></NoweSrodkiTransportu>', NST), /nowych środków transportu \(P_22\)/],
     ['faktura do paragonu (FP)', (x: string) => afterRodzaj(x, '<FP>1</FP>'), /do paragonu \(FP\)/],
     ['powiązania stron (TP)', (x: string) => afterRodzaj(x, '<TP>1</TP>'), /powiązania .*\(TP\)/],
-    ['oznaczenie GTU w pozycji', (x: string) => afterP12(x, '<GTU>GTU_12</GTU>'), /GTU_12/],
     ['procedura w pozycji (WSTO_EE)', (x: string) => afterP12(x, '<Procedura>WSTO_EE</Procedura>'), /WSTO_EE/],
     ['podmiot upoważniony (komornik, RolaPU 1)', (x: string) => replaceOnce(x, '</Podmiot2>', `</Podmiot2>${PODMIOT_UPOWAZNIONY}`), /podmiot upoważniony/],
   ])('%s → ostrzeżenie na początku raportu i odmowa JPK_FA i JPK_V7M', async (_name, change, reason) => {
@@ -347,6 +346,20 @@ describe('C5b: procedury i oznaczenia, których FaktWay nie wykazuje w JPK → z
     expect(result.warnings[0]).toContain('FV/PROC/1');
     expect(result.warnings[0]).toMatch(reason);
     await expectJpkRefusal('FV/PROC/1', reason);
+  });
+
+  it('oznaczenie GTU w pozycji (krok 2.6, część 2b-2) → JPK_V7M wykazuje GTU_12 w wierszu tej faktury (XSD), JPK_FA odmawia jak dotąd', async () => {
+    const xml = afterP12(xml23('FV/GTU/1'), '<GTU>GTU_12</GTU>');
+    await expectSchemaValid(xml);
+    const result = await importXml(xml);
+    expect(result.invoicesImported).toBe(1);
+    expect(fa3('FV/GTU/1').ksefMarkers).toEqual({ gtu: ['GTU_12'] });
+    // JPK_FA(4) bez zmian: zaimportowana faktura z GTU dalej go wstrzymuje (osobna decyzja), ostrzeżenie importu też.
+    expect(result.warnings[0]).toMatch(/GTU_12/);
+    await expect(jpkFa()).rejects.toThrow(/JPK wstrzymany: faktura FV\/GTU\/1 .*GTU_12/);
+    const v7m = await jpkV7m();
+    expect((await validateJpkV7m(v7m)).errors).toEqual([]);
+    expect(fragment(v7m, '<DowodSprzedazy>FV/GTU/1', '</SprzedazWiersz>')).toMatch(/<\/NrKSeF>\s*<GTU_12>1<\/GTU_12>\s*<K_19>1000.00<\/K_19>/);
   });
 
   it('faktura zakupu z procedurą trójstronną → adnotacje zapisane, bez komunikatu o JPK (dotyczy sprzedaży)', async () => {

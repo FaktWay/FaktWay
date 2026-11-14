@@ -8,6 +8,7 @@ import {
   PKWIU_PATTERN_MESSAGE,
 } from '@/lib/invoices/line-codes';
 import { vatRateEnum } from '@/lib/schemas/invoice-form';
+import type { GtuCode } from '@/types/invoice';
 
 /**
  * Katalog produktów i usług firmy (plan kompletnej aplikacji, krok 2.6, część 1)
@@ -166,6 +167,8 @@ export interface ProductSuggestion {
   vatRate: ProductVatRate | null;
   /** PKWiU z katalogu (krok 2.6, część 2b-1); niepoprawny albo brak to `null`. */
   pkwiuCode: string | null;
+  /** GTU z katalogu (krok 2.6, część 2b-2); spoza listy GTU_01-GTU_13 albo brak to `null`. */
+  gtuCode: GtuCode | null;
 }
 
 /** Czy wartość z bazy jest stawką z listy formularza faktury (`vatRateEnum`). */

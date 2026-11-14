@@ -555,6 +555,13 @@ function buildFaWiersz(
     );
   }
   wiersz.ele('P_12').txt(mapping.p12Value);
+
+  // GTU po stawce (XSD FaWiersz: P_12, P_12_XII, P_12_Zal_15, KwotaAkcyzy,
+  // GTU, Procedura); oznaczenie wybiera klient (krok 2.6, część 2b-2). To samo
+  // oznaczenie trafia do wiersza tej faktury w JPK_V7M (`gtuOfRow`).
+  if (line.gtuCode) {
+    wiersz.ele('GTU').txt(line.gtuCode);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════

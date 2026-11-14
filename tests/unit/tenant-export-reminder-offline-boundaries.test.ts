@@ -368,8 +368,9 @@ describe('tenant boundaries for accounting exports', () => {
     const data = await fetchInvoicesForExport({ ...exportParams, direction: 'issued' });
     expect(data.issuedInvoices).toHaveLength(1200);
     expect(data.issuedInvoices.at(-1)?.correctedInvoiceNumber).toBe('ORIGINAL-1199');
+    // Krok 2.6, część 2b-2: dokument faktury korygowanej (GTU pozycji) w tym samym zapytaniu.
     expect(operations.filter(op => op.table === 'invoices' &&
-      op.selection === 'id, internal_number, ksef_number')).toHaveLength(12);
+      op.selection === 'id, internal_number, ksef_number, fa3_data')).toHaveLength(12);
   });
 
   it('exports all 1200 fallback line items for one invoice', async () => {
