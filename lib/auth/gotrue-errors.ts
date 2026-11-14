@@ -113,7 +113,9 @@ export type AuthFailureFlow =
 /**
  * Sygnał dla operatora: `[auth] gotrue_rate_limited` albo `[auth] gotrue_unavailable`
  * z przepływem, statusem, kodem i klasą błędu. Nigdy treść błędu, adres e-mail,
- * token ani kod 2FA. Wołający pisze jeden wpis na żądanie.
+ * token ani kod 2FA. Wołający pisze jeden wpis na żądanie. Poza proxy limit
+ * przy odświeżeniu sesji dopisuje drugi, z `flow: 'odswiezenie-sesji'`
+ * (`lib/supabase/refresh-rate-limit.ts`), żeby było widać, który krok trafił na limit.
  */
 export function logAuthServiceFailure(flow: AuthFailureFlow, error: unknown): void {
   const source = isAuthServiceUnavailable(error) ? error.cause : error;
