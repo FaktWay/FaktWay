@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Plan skalowania 3000, sesja 7 (GTR-03): kody `auth_busy` i `auth_unavailable`
- * z akcji logowania, rejestracji i 2FA mają na ekranie polski komunikat.
+ * z akcji logowania, rejestracji, resetu hasła i 2FA (oraz `email_rate_limited`
+ * z rejestracji) mają na ekranie polski komunikat.
  * Strona logowania i rejestracji pokazuje nieznany kod wprost, więc bez
  * wpisu w mapie klient zobaczyłby „auth_busy”.
  */
@@ -19,6 +20,7 @@ vi.mock('@/lib/feature-flags/signups', async (importOriginal) => ({
 vi.mock('@/components/auth/turnstile-widget', () => ({ TurnstileWidget: () => null }));
 vi.mock('@/app/(auth)/login/actions', () => ({ loginWithEmail: vi.fn(), loginWithGoogle: vi.fn() }));
 vi.mock('@/app/(auth)/register/actions', () => ({ signupWithEmail: vi.fn() }));
+vi.mock('@/app/(auth)/forgot-password/actions', () => ({ requestPasswordReset: vi.fn() }));
 vi.mock('@/app/(auth)/login/two-factor/actions', () => ({ verifyMfaChallengeAction: vi.fn() }));
 vi.mock('@/lib/auth/verified-mfa', () => ({ getVerifiedMfaState: mocks.mfa }));
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({}) }));
@@ -28,6 +30,7 @@ vi.mock('next/navigation', () => ({
   redirect: (path: string) => { throw new Error('redirect:' + path); },
 }));
 
+import ForgotPasswordPage from '@/app/(auth)/forgot-password/page';
 import LoginPage from '@/app/(auth)/login/page';
 import RegisterPage from '@/app/(auth)/register/page';
 import TwoFactorChallengePage from '@/app/(auth)/login/two-factor/page';
@@ -50,6 +53,8 @@ describe('komunikaty limitu i awarii GoTrue', () => {
     ['logowanie, awaria', LoginPage, 'auth_unavailable', 'Nie udało się teraz zalogować. Spróbuj ponownie za chwilę.'],
     ['rejestracja, limit', RegisterPage, 'auth_busy', 'Rejestracja jest chwilowo przeciążona. Spróbuj ponownie za kilka minut.'],
     ['rejestracja, awaria', RegisterPage, 'auth_unavailable', 'Nie udało się teraz założyć konta. Spróbuj ponownie za chwilę.'],
+    ['rejestracja, limit maili', RegisterPage, 'email_rate_limited', 'Przekroczono limit wysyłki maili. Poczekaj kilka minut i spróbuj ponownie.'],
+    ['reset hasła, limit', ForgotPasswordPage, 'auth_busy', 'Wysyłka linków do resetu hasła jest chwilowo przeciążona. Spróbuj ponownie za minutę.'],
     ['2FA, limit', TwoFactorChallengePage, 'auth_busy', AUTH_BUSY],
   ] as const)('%s', async (_name, render, error, text) => {
     const html = await page(render as never, error);

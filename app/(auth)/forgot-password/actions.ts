@@ -48,9 +48,14 @@ export async function requestPasswordReset(formData: FormData): Promise<void> {
   // Odmowa captcha pada przed szukaniem konta, więc nie zdradza, czy konto
   // istnieje. Bez tego klient czekałby na link, który nie wyjdzie.
   if (isGoTrueCaptchaRejection(result?.error)) redirect('/forgot-password?error=bot_check_failed');
-  // Limit (429) i awaria GoTrue: ekran bez zmian (nie zdradza, czy konto
-  // istnieje), ale operator dostaje sygnał (plan skalowania 3000, sesja 7).
-  if (result?.error && isAuthServiceFailure(result.error)) logAuthServiceFailure('forgot-password', result.error);
+  // Limit (429) i awaria GoTrue (plan skalowania 3000, sesja 7): operator
+  // dostaje sygnał. Limit żądań GoTrue liczy od adresu IP przed szukaniem
+  // konta, więc jak captcha dostaje własny komunikat. Limit maili i awaria
+  // mogą zależeć od konta: ekran bez zmian, żeby nie zdradzić, czy istnieje.
+  if (result?.error && isAuthServiceFailure(result.error)) {
+    logAuthServiceFailure('forgot-password', result.error);
+    if (result.error.code === 'over_request_rate_limit') redirect('/forgot-password?error=auth_busy');
+  }
 
   if (result && !result.error) {
     // Auth acceptance is not evidence that a message arrived.

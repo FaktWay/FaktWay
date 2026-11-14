@@ -93,6 +93,8 @@ export async function signupWithEmail(formData: FormData): Promise<void> {
     // tekstu GoTrue i wpis dla operatora (plan skalowania 3000, sesja 7).
     if (isAuthServiceFailure(error)) {
       logAuthServiceFailure('register', error);
+      // Limit wysyłki maili ma swój komunikat (dawniej przez surowy tekst GoTrue).
+      if (error.code === 'over_email_send_rate_limit') redirect('/register?error=email_rate_limited');
       redirect(isAuthRateLimited(error) ? '/register?error=auth_busy' : '/register?error=auth_unavailable');
     }
     redirect(`/register?error=${encodeURIComponent(error.message)}`);

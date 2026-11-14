@@ -76,11 +76,19 @@ function isRetryableFetchError(error: unknown): boolean {
     && (error as { name?: unknown }).name === 'AuthRetryableFetchError';
 }
 
-/** GoTrue odmówił limitem: status 429 albo kod `over_*_rate_limit`. */
+/**
+ * Treść błędu `withRefreshRateLimit` (`lib/supabase/refresh-rate-limit.ts`).
+ * auth-js podaje go dalej jako `AuthRetryableFetchError` ze statusem 0 i tą
+ * treścią, więc bez niej limit przy odświeżeniu wyglądałby jak awaria.
+ */
+export const REFRESH_RATE_LIMITED = 'gotrue_refresh_rate_limited';
+
+/** GoTrue odmówił limitem: status 429, kod `over_*_rate_limit` albo limit przy odświeżeniu sesji. */
 export function isAuthRateLimited(error: unknown): boolean {
   if (isAuthServiceUnavailable(error)) return error.rateLimited === true;
   const { status, code } = factsOf(error);
-  return status === 429 || (code !== null && RATE_LIMIT_CODES.has(code));
+  if (status === 429 || (code !== null && RATE_LIMIT_CODES.has(code))) return true;
+  return isRetryableFetchError(error) && (error as { message?: unknown }).message === REFRESH_RATE_LIMITED;
 }
 
 /** Sesji, hasła ani kodu nie da się teraz sprawdzić: limit, 5xx albo brak sieci. */

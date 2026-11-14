@@ -41,7 +41,7 @@ const ERROR_MESSAGES: Record<string, string> = {
     'Zbyt wiele prób rejestracji z tego urządzenia. Poczekaj kilka minut i spróbuj ponownie.',
   bot_check_failed:
     'Nie udało się potwierdzić, że nie jesteś botem. Odśwież stronę i spróbuj ponownie.',
-  'email rate limit exceeded':
+  email_rate_limited:
     'Przekroczono limit wysyłki maili. Poczekaj kilka minut i spróbuj ponownie.',
   // Limit (429) i awaria GoTrue (plan skalowania 3000, sesja 7).
   auth_busy: 'Rejestracja jest chwilowo przeciążona. Spróbuj ponownie za kilka minut.',

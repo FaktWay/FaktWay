@@ -1,4 +1,4 @@
-import { logAuthServiceFailure } from '@/lib/auth/gotrue-errors';
+import { logAuthServiceFailure, REFRESH_RATE_LIMITED } from '@/lib/auth/gotrue-errors';
 
 /**
  * Odmowa odświeżenia sesji limitem GoTrue (429), podana auth-js jako błąd sieci.
@@ -12,7 +12,7 @@ export class RefreshRateLimitedError extends Error {
   readonly status = 429;
 
   constructor() {
-    super('gotrue_refresh_rate_limited');
+    super(REFRESH_RATE_LIMITED);
     this.name = 'RefreshRateLimitedError';
   }
 }

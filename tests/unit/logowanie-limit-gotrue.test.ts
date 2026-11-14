@@ -158,11 +158,15 @@ describe('logowanie', () => {
 });
 
 describe('rejestracja', () => {
-  it.each([['limit żądań', rateLimited], ['limit maili', emailRateLimited]] as [string, Respond][])(
+  it.each([
+    ['limit żądań', rateLimited, 'auth_busy'],
+    // Limit wysyłki maili ma swój, dokładniejszy komunikat (jak przed zmianą).
+    ['limit maili', emailRateLimited, 'email_rate_limited'],
+  ] as [string, Respond, string][])(
     '%s (429): kod komunikatu zamiast surowego tekstu GoTrue',
-    async (_name, respond) => {
+    async (_name, respond, code) => {
       gotrue = respond;
-      await expect(signupWithEmail(form())).rejects.toThrow('redirect:/register?error=auth_busy');
+      await expect(signupWithEmail(form())).rejects.toThrow(`redirect:/register?error=${code}`);
       expect(authLines()).toEqual(['[auth] gotrue_rate_limited']);
       expect(wholeLog()).not.toContain(email);
     },
@@ -181,7 +185,17 @@ describe('rejestracja', () => {
 });
 
 describe('reset hasła: ekran bez zmian (nie zdradza, czy konto istnieje), serwer zapisuje sygnał', () => {
-  it('limit 429', async () => {
+  it('limit żądań (429, przed szukaniem konta): komunikat o przeciążeniu zamiast „wysłaliśmy link”', async () => {
+    // GoTrue liczy ten limit od adresu IP, zanim sprawdzi konto, więc komunikat
+    // niczego nie zdradza, a klient nie czeka na link, który nie wyjdzie.
+    gotrue = rateLimited;
+    await expect(requestPasswordReset(form())).rejects.toThrow('redirect:/forgot-password?error=auth_busy');
+    expect(authLines()).toEqual(['[auth] gotrue_rate_limited']);
+    expect(wholeLog()).not.toContain(email);
+    expect(mocks.audit).not.toHaveBeenCalled();
+  });
+
+  it('limit maili (429): ekran bez zmian, bo GoTrue liczy go tylko dla istniejącego konta', async () => {
     gotrue = emailRateLimited;
     await expect(requestPasswordReset(form())).rejects.toThrow('redirect:/forgot-password?success=email_sent');
     expect(authLines()).toEqual(['[auth] gotrue_rate_limited']);

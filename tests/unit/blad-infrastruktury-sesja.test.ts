@@ -55,9 +55,12 @@ let warn: MockInstance<typeof console.warn>;
 
 const b64url = (value: string) => Buffer.from(value).toString('base64url');
 
-/** Ważna sesja HS256 (jak na produkcji) w formacie ciasteczka `@supabase/ssr`. */
-function sessionCookie(): string {
-  const now = Math.floor(Date.now() / 1000);
+/**
+ * Ważna sesja HS256 (jak na produkcji) w formacie ciasteczka `@supabase/ssr`.
+ * `expired`: token po terminie, więc auth-js najpierw odświeża sesję.
+ */
+function sessionCookie({ expired = false }: { expired?: boolean } = {}): string {
+  const now = Math.floor(Date.now() / 1000) - (expired ? 7200 : 0);
   const payload = {
     sub: userId, aal: 'aal1', role: 'authenticated', aud: 'authenticated',
     iat: now, exp: now + 3600, session_id: 'fixture-session-id',
@@ -209,6 +212,26 @@ describe('akcja serwera: awaria to „spróbuj ponownie”, nie „Niezalogowany
   it('błąd zapytania o członkostwo: „spróbuj ponownie”, nie „Brak dostępu”', async () => {
     failures.set('/rest/v1/memberships', statementTimeout);
     await expect(requireUserAndActiveOrg()).rejects.toMatchObject({ name: 'ActionAuthError', message: MEMBERSHIP_RETRY });
+  });
+
+  it('limit 429 przy odświeżeniu sesji: ten sam komunikat i wpis co przy limicie, a nie „awaria”', async () => {
+    // auth-js dostaje błąd z `fetch` (opakowanie `withRefreshRateLimit`) jako błąd
+    // sieci ze statusem 0 i ponawia go z przerwami do 30 s: zegar przewijamy.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      jar.set(COOKIE_NAME, sessionCookie({ expired: true }));
+      failures.set('/auth/v1/token', rateLimited);
+      let settled = false;
+      const outcome = requireUserAndActiveOrg().then(() => 'ok', (error: unknown) => error)
+        .finally(() => { settled = true; });
+      for (let step = 0; step < 40 && !settled; step += 1) await vi.advanceTimersByTimeAsync(1_000);
+      await expect(outcome).resolves.toMatchObject({ name: 'ActionAuthError', message: AUTH_BUSY });
+      expect(authLines().length).toBeGreaterThan(0);
+      expect(authLines().every((line) => line === '[auth] gotrue_rate_limited')).toBe(true);
+      expect(wholeLog()).not.toMatch(/eyJ|fixture-refresh|@example.test/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('prawdziwa odmowa zostaje odmową', async () => {
