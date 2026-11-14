@@ -118,7 +118,7 @@ async function wyslijCzesc({ token, czat, tekst, fetch, czekaj }) {
 
 /**
  * @typedef {(adres: string, opcje: { method: string, headers: Record<string, string>, body: string, signal?: AbortSignal })
- *   => Promise<{ ok: boolean, status: number, json: () => Promise<any> }>} FetchTelegrama
+ *   => Promise<{ ok: boolean, status: number, json: () => Promise<unknown> }>} FetchTelegrama
  */
 
 /**
@@ -141,10 +141,21 @@ export async function wyslij({ token, czaty, czesci, fetch = globalThis.fetch, c
   return bledy;
 }
 
-async function czytajWejscie() {
+/** Standardowe wejście; bez danych przez 30 s (otwarte, puste wejście) kończy pustym tekstem zamiast czekać bez końca. */
+async function czytajWejscie(cisza = 30_000) {
   if (process.stdin.isTTY) return '';
   const kawalki = [];
-  for await (const kawalek of process.stdin) kawalki.push(Buffer.isBuffer(kawalek) ? kawalek : Buffer.from(String(kawalek)));
+  const czytaj = (async () => {
+    for await (const kawalek of process.stdin) kawalki.push(Buffer.isBuffer(kawalek) ? kawalek : Buffer.from(String(kawalek)));
+  })();
+  let zegar;
+  const limit = new Promise((gotowe) => {
+    zegar = setTimeout(() => gotowe('cisza'), cisza);
+  });
+  const wynik = await Promise.race([czytaj.then(() => 'koniec'), limit]);
+  clearTimeout(zegar);
+  if (wynik === 'cisza' && kawalki.length === 0) process.stdin.destroy();
+  else if (wynik === 'cisza') await czytaj;
   return Buffer.concat(kawalki).toString('utf8');
 }
 

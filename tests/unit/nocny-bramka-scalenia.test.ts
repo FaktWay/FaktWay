@@ -237,6 +237,14 @@ describe('ocenPR: pliki', () => {
     expect(wynik.linia).toBe(`po przeczytaniu zmian: gh pr checks 900 --watch && gh pr merge 900 --merge --match-head-commit ${SHA}`);
   });
 
+  it('fork albo cudza gałąź z obszarem wrażliwym: bez linii do scalenia', () => {
+    const plik = { filename: 'lib/ksef/submit.ts', status: 'modified', changes: 2, patch: '@@\n+x' };
+    const fork = { head: { ref: 'agent/nocny-x', sha: SHA, repo: { full_name: 'obcy/repo' } }, changed_files: 3 };
+    expect(ocena({ pliki: [PLIK_TESTU, PLIK_KODU, plik], pr: pr(fork) }).linia).toBeNull();
+    const zamkniety = { state: 'closed', changed_files: 3 };
+    expect(ocena({ pliki: [PLIK_TESTU, PLIK_KODU, plik], pr: pr(zamkniety) }).linia).toBeNull();
+  });
+
   it('zakazana kategoria: linia do przejrzenia PR, bez scalania', () => {
     expect(ocena(zPlikiem({ filename: 'supabase/migrations/00205_x.sql', status: 'added', changes: 3, patch: '@@\n+x' })).linia).toBe(
       'zmiana poza zasięgiem nocnego zespołu, przejrzyj ją i zdecyduj: gh pr view 900 --web',
@@ -432,6 +440,12 @@ describe('ocenPR: PR zbiorczy', () => {
     expect(wynik.powody).toEqual(['Pliki PR zbiorczego spoza składowych: lib/inny.ts.']);
   });
 
+  it('etykieta zgody na składowej to NIE (zgoda zmienia wynik jej kontroli)', () => {
+    const [pierwsza, druga] = dobre();
+    const zZgoda = { ...druga, pr: { ...(druga.pr as Obiekt), labels: [{ name: 'zgoda:bez-testu' }] } };
+    expect(ocena(zbiorczy([pierwsza, zZgoda])).powody.join('\n')).toContain('Składowa #902: Etykiety zgody na PR (zgoda:bez-testu)');
+  });
+
   it('sekcja „Składowe” bez numerów to NIE', () => {
     expect(ocena({ ...zbiorczy([]) }).powody).toContain('Sekcja „Składowe” bez numerów PR (#N).');
   });
@@ -555,6 +569,10 @@ describe('GitHub przez gh api i git', () => {
     const zmieniona = vi.fn((argumenty: string[]) => (argumenty[0] === 'diff' ? 'scripts/nocny/bramka-scalenia.mjs\n' : ''));
     expect(sprawdzZrodlo(zmieniona)).toMatchObject({ zgodne: false, powod: expect.stringContaining('scripts/nocny/bramka-scalenia.mjs') });
 
+    expect(git.mock.calls[2][0]).toEqual(['ls-files', '--others', '--exclude-standard', '--', 'scripts/nocny', 'scripts/filtr', 'scripts/ci/agent-guard.mjs', '.github/CODEOWNERS']);
+    const nowyModul = vi.fn((argumenty: string[]) => (argumenty[0] === 'ls-files' ? 'scripts/filtr/nowy.mjs\n' : ''));
+    expect(sprawdzZrodlo(nowyModul)).toMatchObject({ zgodne: false, powod: expect.stringContaining('scripts/filtr/nowy.mjs') });
+
     const bezSieci = vi.fn(() => {
       throw new Error('fetch');
     });
@@ -595,7 +613,7 @@ describe('glowna', () => {
     return api;
   }
 
-  async function uruchom(argv: string[], api: ReturnType<typeof router>) {
+  async function uruchom(argv: string[], api: (sciezka: string, opcje?: { metoda?: string; pola?: Record<string, string> }) => Promise<unknown>) {
     const wyjscie: string[] = [];
     const bledy: string[] = [];
     const czekaj = vi.fn(async () => {});
@@ -681,7 +699,7 @@ describe('glowna', () => {
     const api = vi.fn(async () => {
       throw new BladApi('repos/x', 502, 'Bad Gateway');
     });
-    const wynik = await uruchom(['900'], api as unknown as ReturnType<typeof router>);
+    const wynik = await uruchom(['900'], api);
     expect(wynik.kod).toBe(2);
     expect(wynik.bledy).toContain('Traktuj to jak NIE');
   });

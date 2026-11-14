@@ -332,10 +332,11 @@ export function ocenStanPR(pr, { skladowa = false } = {}) {
     powody.push('PR spoza tego repozytorium (fork): nocny zespół scala tylko własne gałęzie.');
   }
   if (!pr.head?.ref?.startsWith(PREFIKS_GALEZI)) powody.push(`Gałąź ${pr.head?.ref ?? '?'} nie zaczyna się od ${PREFIKS_GALEZI}.`);
-  if (skladowa) return powody;
-
+  // Także na składowej: zgoda na niej (np. zgoda:bez-testu) zmienia wynik jej kontroli.
   const zgody = (pr.labels ?? []).map((etykieta) => etykieta.name).filter((nazwa) => nazwa?.startsWith(PREFIKS_ZGODY));
   if (zgody.length > 0) powody.push(`Etykiety zgody na PR (${zgody.join(', ')}): zgodę daje człowiek, więc PR scala człowiek.`);
+  if (skladowa) return powody;
+
   if (pr.mergeable === null || pr.mergeable === undefined) {
     powody.push('GitHub jeszcze liczy, czy PR da się scalić. Sprawdź za minutę.');
   } else if (pr.mergeable === false || pr.mergeable_state !== 'clean') {
@@ -385,6 +386,10 @@ export function liniaDlaBartosza({ numer, sha, kategorie, etykiety }) {
   return `po przeczytaniu zmian: gh pr edit ${numer} --add-label ${ETYKIETA_OBSZARU} && sleep 30 && ${scal}`;
 }
 
+function wlasnyOtwarty(pr) {
+  return ocenStanPR(pr, { skladowa: true }).filter((powod) => !powod.startsWith('Etykiety zgody')).length === 0;
+}
+
 /** Ocena całego PR. Zwraca { wynik: 'TAK'|'NIE', numer, sha, galaz, powody, uwagi, linia }. */
 export function ocenPR(dane) {
   const powody = [];
@@ -422,7 +427,8 @@ export function ocenPR(dane) {
     galaz: dane.pr.head?.ref,
     powody,
     uwagi,
-    linia: wynik === 'NIE' ? liniaDlaBartosza({ numer: dane.pr.number, sha: dane.pr.head?.sha, kategorie: pliki.kategorie, etykiety }) : null,
+    // Linia tylko dla własnego, otwartego PR nocnego zespołu: forka ani cudzej gałęzi nie podsuwamy do scalenia.
+    linia: wynik === 'NIE' && wlasnyOtwarty(dane.pr) ? liniaDlaBartosza({ numer: dane.pr.number, sha: dane.pr.head?.sha, kategorie: pliki.kategorie, etykiety }) : null,
   };
 }
 
@@ -487,7 +493,7 @@ export class BladApi extends Error {
 }
 
 function uruchomGh(argumenty) {
-  return execFileSync('gh', argumenty, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
+  return execFileSync('gh', argumenty, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024, timeout: 120_000 });
 }
 
 /** Klient REST przez `gh api` (w chmurze uwierzytelnia go proxy GitHuba). */
@@ -522,7 +528,7 @@ export async function wszystkieStrony(api, sciezka, klucz) {
 }
 
 function uruchomGit(argumenty) {
-  return execFileSync('git', ['-C', KATALOG_REPO, ...argumenty], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  return execFileSync('git', ['-C', KATALOG_REPO, ...argumenty], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000 });
 }
 
 /** Pliki bramki z kopii lokalnej muszą być takie jak w origin/main (po świeżym fetch). */
@@ -534,7 +540,13 @@ export function sprawdzZrodlo(git) {
   }
   let rozne;
   try {
-    rozne = git(['diff', '--name-only', 'origin/main', '--', ...SCIEZKI_BRAMKI]).trim();
+    // Zmienione pliki śledzone i nowe nieśledzone (nowy moduł też zmienia bramkę).
+    rozne = [
+      git(['diff', '--name-only', 'origin/main', '--', ...SCIEZKI_BRAMKI]),
+      git(['ls-files', '--others', '--exclude-standard', '--', ...SCIEZKI_BRAMKI]),
+    ]
+      .join('\n')
+      .trim();
   } catch {
     return { zgodne: false, powod: 'Porównanie z origin/main nie zadziałało: bramka nie wie, czy działa na zasadach z main.' };
   }
