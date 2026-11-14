@@ -421,6 +421,28 @@ describe('R1 w obszarze bez reguły w rejestrze', () => {
     const wynik = ocenPR(dane({ pliki: [zmianaR1, testR1], opis: kartaBezReguly, przepisy: new Set(['RP-PIT-01']) }));
     expect(wymogi(wynik)).toMatch(/R1 bez id reguły z rejestru/);
   });
+
+  it('pusty zbiór obszarów z rejestru to brak danych, nie „każdy obszar bez reguły”', () => {
+    const wynik = ocenPR(dane({ pliki: [zmianaR1, testR1], opis: kartaBezReguly, przepisy: new Set(['RP-PIT-01']), ...pokryte() }));
+    expect(wymogi(wynik)).toMatch(/R1 bez id reguły z rejestru/);
+  });
+
+  it('plik w obszarze R1 i R2: reguła obszaru R2 nie zmusza do id (liczą się tylko obszary R1)', () => {
+    // Jak `lib/support/retention.ts`: `retencja` (R1, bez reguły) i `tresci` (R2, z regułą).
+    const m = mapa();
+    m.obszary.push({ id: 'retencja', poziom: 'R1', opis: 'Retencja danych fakturowych.', sciezki: ['lib/retencja/**'] });
+    m.obszary.push({ id: 'tresci', poziom: 'R2', opis: 'Treści dla klienta w ekranach.', sciezki: ['lib/retencja/teksty/**'] });
+    const plik: Plik = { plik: 'lib/retencja/teksty/a.ts', status: 'modified', patch: patch('const t = 1;') };
+    const karta = KARTA_R1.replace('R1, silniki', 'R1, retencja, tresci').replace('RP-ZAOKR-01', 'brak reguły w rejestrze dla obszaru retencja');
+    const wynik = ocenPR(dane({ mapaMain: m, mapaPR: m, pliki: [plik, testR1], opis: karta, przepisy: new Set(['RP-PIT-01']), ...pokryte('tresci') }));
+    expect(wymogi(wynik)).not.toMatch(/R1 bez id reguły/);
+  });
+
+  it('komunikat nazywa obszary R1, które mają regułę', () => {
+    const wynik = ocenPR(dane({ pliki: [zmianaR1, testR1], opis: kartaBezReguly, przepisy: new Set(['RP-PIT-01']), ...pokryte('silniki') }));
+    const blad = wynik.bledy.find((b) => /R1 bez id reguły/.test(b.wymog));
+    expect(blad?.coZrobic).toMatch(/Obszary R1 z regułą w rejestrze: silniki/);
+  });
 });
 
 describe('obszaryPrzepisow', () => {
@@ -429,13 +451,13 @@ describe('obszaryPrzepisow', () => {
     expect([...obszaryPrzepisow(json)].sort()).toEqual(['x.a', 'x.b']);
   });
 
-  it('prawdziwy rejestr: kpir ma regułę, windykacja nie', async () => {
+  it('prawdziwy rejestr: kpir ma regułę, obszar spoza mapy nie', async () => {
     const { readFileSync, readdirSync } = await import('node:fs');
     const obszary = new Set<string>();
     for (const plik of readdirSync('filtr/przepisy').filter((p) => p.endsWith('.json'))) {
       obszaryPrzepisow(JSON.parse(readFileSync(`filtr/przepisy/${plik}`, 'utf8')), obszary);
     }
     expect(obszary.has('ksiegowosc.kpir')).toBe(true);
-    expect(obszary.has('windykacja')).toBe(false);
+    expect(obszary.has('obszar-spoza-mapy')).toBe(false);
   });
 });

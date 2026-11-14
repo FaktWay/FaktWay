@@ -461,13 +461,21 @@ function bledyKarty(karta, { poziom, wiersze, dane, istnieje, wymaganeZgody }) {
       // uzasadniony brak („brak reguły w rejestrze dla obszaru …”). Gdy choć jeden
       // obszar R1 w PR ma regułę, id nadal obowiązuje. Bez danych o obszarach
       // (`obszaryPrzepisow`) straż działa jak dotąd.
-      const obszaryR1 = new Set(wiersze.filter((w) => w.poziom === 'R1').flatMap((w) => w.obszary));
-      const bezReguly =
-        dane.obszaryPrzepisow instanceof Set && obszaryR1.size > 0 && [...obszaryR1].every((obszar) => !dane.obszaryPrzepisow.has(obszar)) && /regu/i.test(karta.przepisy);
+      // Liczą się tylko obszary, które w mapie (PR albo main) mają poziom R1: wiersz
+      // pliku R1 niesie też obszary niższego poziomu (np. `tresci` R2 z regułą).
+      const idObszarowR1 = new Set(
+        [dane.mapaMain, dane.mapaPR].flatMap((mapa) => (mapa?.obszary ?? []).filter((o) => o.poziom === 'R1').map((o) => o.id)),
+      );
+      const obszaryR1 = new Set(wiersze.filter((w) => w.poziom === 'R1').flatMap((w) => w.obszary).filter((obszar) => idObszarowR1.has(obszar)));
+      // Pusty zbiór to brak danych z rejestru, a nie „żaden obszar nie ma reguły”.
+      const znaObszary = dane.obszaryPrzepisow instanceof Set && dane.obszaryPrzepisow.size > 0;
+      const zRegula = znaObszary ? [...obszaryR1].filter((obszar) => dane.obszaryPrzepisow.has(obszar)) : [];
+      const bezReguly = znaObszary && obszaryR1.size > 0 && zRegula.length === 0 && /regu/i.test(karta.przepisy);
       if (podane.length === 0 && !/nowy przepis/i.test(karta.przepisy) && !bezReguly) {
         blad(
           'karta zmiany: R1 bez id reguły z rejestru',
-          'Wskaż id reguł (RP-…) z filtr/przepisy/ albo napisz „nowy przepis:” ze źródłem. Gdy żaden obszar R1 w PR nie ma reguły w rejestrze, napisz „brak reguły w rejestrze dla obszaru …”.',
+          'Wskaż id reguł (RP-…) z filtr/przepisy/ albo napisz „nowy przepis:” ze źródłem. Gdy żaden obszar R1 w PR nie ma reguły w rejestrze, napisz „brak reguły w rejestrze dla obszaru …”.' +
+            (zRegula.length > 0 ? ` Obszary R1 z regułą w rejestrze: ${zRegula.join(', ')}. Dla nich wskaż id.` : ''),
         );
       }
       if (nieznane.length > 0) {
