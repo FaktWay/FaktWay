@@ -21,6 +21,12 @@
 
 import { cookies } from 'next/headers';
 
+import {
+  AUTH_BUSY_MESSAGE,
+  isAuthServiceUnavailable,
+  logAuthServiceFailure,
+  SESSION_RETRY_MESSAGE,
+} from '@/lib/auth/gotrue-errors';
 // Bramka panelu: sesja po biometrii przechodzi jak `verified`. Operacje wrażliwe
 // dokładają `getVerifiedMfaState` wprost (certyfikat, 2FA, hasło) albo `assertSensitiveMfa`.
 import { getRequestPanelMfaState } from '@/lib/auth/panel-mfa-request';
@@ -32,6 +38,35 @@ export class ActionAuthError extends Error {
     super(message);
     this.name = 'ActionAuthError';
   }
+}
+
+/**
+ * Plan skalowania 3000, sesja 7: zapytanie o członkostwo zwróciło błąd (baza,
+ * pula połączeń). To nie „brak dostępu”: klient ponawia, a nie szuka innej firmy.
+ */
+export const MEMBERSHIP_RETRY_MESSAGE = 'Nie udało się sprawdzić dostępu do firmy. Spróbuj ponownie za chwilę.';
+
+type PanelMfaState = Awaited<ReturnType<typeof getRequestPanelMfaState>>;
+
+/**
+ * Stan 2FA dla akcji. Awaria albo limit GoTrue: wpis w logu i „spróbuj
+ * ponownie” (przy limicie `AUTH_BUSY_MESSAGE`), a nie „Niezalogowany”.
+ * Inny błąd weryfikacji zostaje odmową z dawnym tekstem.
+ */
+async function actionMfaState(supabase: Awaited<ReturnType<typeof createClient>>): Promise<PanelMfaState> {
+  try {
+    return await getRequestPanelMfaState(supabase);
+  } catch (error) {
+    if (!isAuthServiceUnavailable(error)) {
+      throw new ActionAuthError('Nie udało się zweryfikować sesji. Zaloguj się ponownie.');
+    }
+    logAuthServiceFailure('akcja', error);
+    throw new ActionAuthError(error.rateLimited ? AUTH_BUSY_MESSAGE : SESSION_RETRY_MESSAGE);
+  }
+}
+
+function logMembershipCheckFailed(flow: 'akcja' | 'api', error: { code?: string }): void {
+  console.warn('[auth] Zapytanie o członkostwo nie powiodło się', { flow, code: error.code ?? null });
 }
 
 export type UserRole = 'owner' | 'admin' | 'member' | 'accountant';
@@ -99,10 +134,7 @@ export interface FormTenantCheck {
  */
 export async function requireUserAndActiveOrg(formTenant?: FormTenantCheck): Promise<AuthContext> {
   const supabase = await createClient();
-  const state = await getRequestPanelMfaState(supabase).catch(() => null);
-  if (!state) {
-    throw new ActionAuthError('Nie udało się zweryfikować sesji. Zaloguj się ponownie.');
-  }
+  const state = await actionMfaState(supabase);
   if (state.status === 'unauthenticated') throw new ActionAuthError('Niezalogowany');
   if (state.status === 'challenge_required') {
     throw new ActionAuthError('Wymagana weryfikacja dwuetapowa');
@@ -121,7 +153,7 @@ export async function requireUserAndActiveOrg(formTenant?: FormTenantCheck): Pro
   // Membership weryfikujemy admin clientem — pewny i deterministyczny check
   // (omija RLS). Bezpieczeństwo: filtrujemy po auth.uid() z user-context.
   const admin = createAdminClient();
-  const { data: membership } = await admin
+  const { data: membership, error: membershipError } = await admin
     .from('memberships')
     .select('role, status')
     .eq('user_id', user.id)
@@ -129,6 +161,10 @@ export async function requireUserAndActiveOrg(formTenant?: FormTenantCheck): Pro
     .eq('status', 'active')
     .maybeSingle();
 
+  if (membershipError) {
+    logMembershipCheckFailed('akcja', membershipError);
+    throw new ActionAuthError(MEMBERSHIP_RETRY_MESSAGE);
+  }
   if (!membership) {
     throw new ActionAuthError('Brak dostępu do aktywnej organizacji');
   }
@@ -155,10 +191,7 @@ export async function requireUserAndActiveOrg(formTenant?: FormTenantCheck): Pro
  */
 export async function requireVerifiedUser(): Promise<Pick<AuthContext, 'supabase' | 'user'>> {
   const supabase = await createClient();
-  const state = await getRequestPanelMfaState(supabase).catch(() => null);
-  if (!state) {
-    throw new ActionAuthError('Nie udało się zweryfikować sesji. Zaloguj się ponownie.');
-  }
+  const state = await actionMfaState(supabase);
   if (state.status === 'unauthenticated') throw new ActionAuthError('Niezalogowany');
   if (state.status === 'challenge_required') {
     throw new ActionAuthError('Wymagana weryfikacja dwuetapowa');
@@ -181,15 +214,25 @@ export const requireUserAndTenant = requireUserAndActiveOrg;
  * z `getActiveOrgIdFromCookies()` — musi potwierdzić aktywne membership, co
  * robi ten helper. Endpointy na kliencie user-context (RLS) są chronione i
  * bez tego, ale użycie tego helpera i tam nie szkodzi.
+ *
+ * 503 (plan skalowania 3000, sesja 7): awaria albo limit GoTrue
+ * (`session_verification_failed`) i błąd zapytania o członkostwo
+ * (`membership_check_failed`). Klient ponawia, sesja zostaje.
  */
 export type ApiOrgContext =
   | { ok: true; userId: string; tenantId: string; role: UserRole }
-  | { ok: false; status: 401 | 403; error: string };
+  | { ok: false; status: 401 | 403 | 503; error: string };
 
 export async function resolveApiUserAndActiveOrg(): Promise<ApiOrgContext> {
   const supabase = await createClient();
-  const state = await getRequestPanelMfaState(supabase).catch(() => null);
-  if (!state) return { ok: false, status: 401, error: 'session_verification_failed' };
+  let state: PanelMfaState;
+  try {
+    state = await getRequestPanelMfaState(supabase);
+  } catch (error) {
+    if (!isAuthServiceUnavailable(error)) return { ok: false, status: 401, error: 'session_verification_failed' };
+    logAuthServiceFailure('api', error);
+    return { ok: false, status: 503, error: 'session_verification_failed' };
+  }
   if (state.status === 'unauthenticated') {
     return { ok: false, status: 401, error: 'not_authenticated' };
   }
@@ -205,7 +248,7 @@ export async function resolveApiUserAndActiveOrg(): Promise<ApiOrgContext> {
   }
 
   const admin = createAdminClient();
-  const { data: membership } = await admin
+  const { data: membership, error: membershipError } = await admin
     .from('memberships')
     .select('role')
     .eq('user_id', user.id)
@@ -213,6 +256,10 @@ export async function resolveApiUserAndActiveOrg(): Promise<ApiOrgContext> {
     .eq('status', 'active')
     .maybeSingle();
 
+  if (membershipError) {
+    logMembershipCheckFailed('api', membershipError);
+    return { ok: false, status: 503, error: 'membership_check_failed' };
+  }
   if (!membership) return { ok: false, status: 403, error: 'no_active_org' };
 
   return {

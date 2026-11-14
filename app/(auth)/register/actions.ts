@@ -7,6 +7,7 @@ import { headers } from 'next/headers';
 import { logAudit } from '@/lib/audit/log';
 import { recordSignupCompleted } from '@/lib/analytics/funnel';
 import { getClientIp } from '@/lib/auth/get-client-ip';
+import { isAuthRateLimited, isAuthServiceFailure, logAuthServiceFailure } from '@/lib/auth/gotrue-errors';
 import { validatePassword } from '@/lib/auth/password';
 import { readAccessTokenFacts, sessionAuditMetadata } from '@/lib/auth/sessions/access-token';
 import { requestNewLoginCheck } from '@/lib/auth/sessions/new-login-check';
@@ -88,6 +89,12 @@ export async function signupWithEmail(formData: FormData): Promise<void> {
 
   if (error) {
     if (isGoTrueCaptchaRejection(error)) redirect('/register?error=bot_check_failed');
+    // Limit (429) i awaria GoTrue: kod komunikatu po polsku zamiast surowego
+    // tekstu GoTrue i wpis dla operatora (plan skalowania 3000, sesja 7).
+    if (isAuthServiceFailure(error)) {
+      logAuthServiceFailure('register', error);
+      redirect(isAuthRateLimited(error) ? '/register?error=auth_busy' : '/register?error=auth_unavailable');
+    }
     redirect(`/register?error=${encodeURIComponent(error.message)}`);
   }
 

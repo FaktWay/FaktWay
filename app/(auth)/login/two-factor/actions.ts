@@ -3,6 +3,12 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { logAudit } from '@/lib/audit/log';
+import {
+  isAuthRateLimited,
+  isAuthServiceFailure,
+  isAuthServiceUnavailable,
+  logAuthServiceFailure,
+} from '@/lib/auth/gotrue-errors';
 import { safeRedirectPath } from '@/lib/auth/safe-redirect';
 import { getVerifiedMfaState } from '@/lib/auth/verified-mfa';
 import { checkMfaRateLimit } from '@/lib/rate-limit/mfa';
@@ -16,10 +22,19 @@ export async function verifyMfaChallengeAction(formData: FormData): Promise<void
   function fail(error: string): never {
     redirect('/login/two-factor?' + new URLSearchParams({ error, redirect: next }));
   }
+  // Limit (429) i awaria GoTrue (plan skalowania 3000, sesja 7): wpis w logu
+  // i „spróbuj ponownie”, a nie „zły kod” ani logowanie od nowa.
+  function serviceFailure(error: unknown): never {
+    logAuthServiceFailure('two-factor', error);
+    fail(isAuthRateLimited(error) ? 'auth_busy' : 'verification_unavailable');
+  }
 
   const supabase = await createClient();
-  const state = await getVerifiedMfaState(supabase).catch(() => null);
-  if (!state) fail('verification_unavailable');
+  const state = await getVerifiedMfaState(supabase).catch((error: unknown) => ({ failed: error }));
+  if ('failed' in state) {
+    if (isAuthServiceUnavailable(state.failed)) serviceFailure(state.failed);
+    fail('verification_unavailable');
+  }
   if (state.status === 'unauthenticated') redirect('/login');
   if (state.status === 'verified') redirect(next);
   if (state.status !== 'challenge_required') fail('no_factor');
@@ -41,6 +56,7 @@ export async function verifyMfaChallengeAction(formData: FormData): Promise<void
   if (!factor) fail('no_factor');
 
   const challenge = await supabase.auth.mfa.challenge({ factorId: factor.id }).catch(() => null);
+  if (challenge?.error && isAuthServiceFailure(challenge.error)) serviceFailure(challenge.error);
   if (!challenge || challenge.error || !challenge.data) fail('verification_unavailable');
 
   const verified = await supabase.auth.mfa.verify({
@@ -48,6 +64,8 @@ export async function verifyMfaChallengeAction(formData: FormData): Promise<void
     challengeId: challenge.data.id,
     code,
   }).catch(() => null);
+  // Kodu nikt nie sprawdził, więc to nie nieudana próba (bez wpisu w audycie).
+  if (verified?.error && isAuthServiceFailure(verified.error)) serviceFailure(verified.error);
   if (!verified || verified.error) {
     await logAudit({
       action: 'auth.mfa_challenge_failed',
@@ -59,8 +77,12 @@ export async function verifyMfaChallengeAction(formData: FormData): Promise<void
   }
 
   // A successful SDK response alone must not claim that a stronger session exists.
-  const finalState = await getVerifiedMfaState(supabase).catch(() => null);
-  if (!finalState || finalState.status !== 'verified' || finalState.user.id !== user.id) {
+  const finalState = await getVerifiedMfaState(supabase).catch((error: unknown) => ({ failed: error }));
+  if ('failed' in finalState) {
+    if (isAuthServiceUnavailable(finalState.failed)) serviceFailure(finalState.failed);
+    fail('verification_unavailable');
+  }
+  if (finalState.status !== 'verified' || finalState.user.id !== user.id) {
     fail('verification_unavailable');
   }
 

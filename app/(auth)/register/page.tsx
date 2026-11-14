@@ -43,6 +43,9 @@ const ERROR_MESSAGES: Record<string, string> = {
     'Nie udało się potwierdzić, że nie jesteś botem. Odśwież stronę i spróbuj ponownie.',
   'email rate limit exceeded':
     'Przekroczono limit wysyłki maili. Poczekaj kilka minut i spróbuj ponownie.',
+  // Limit (429) i awaria GoTrue (plan skalowania 3000, sesja 7).
+  auth_busy: 'Rejestracja jest chwilowo przeciążona. Spróbuj ponownie za kilka minut.',
+  auth_unavailable: 'Nie udało się teraz założyć konta. Spróbuj ponownie za chwilę.',
   signups_disabled: SIGNUPS_CLOSED_MESSAGE,
   terms_required:
     'Aby założyć konto, zaakceptuj Regulamin i Umowę powierzenia (pierwsze pole wyboru).',
