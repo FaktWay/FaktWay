@@ -4,6 +4,9 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Kolejka scalania (organizacja FaktWay, od 14.11.2026): wymagane kontrole
+  # muszą się zgłosić także na commicie grupy z kolejki.
+  merge_group:
   workflow_dispatch:
 
 permissions:

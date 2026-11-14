@@ -9,9 +9,9 @@
 ## Kolejność przy pełnym wydaniu
 
 ```
-0. Bartosz w czacie wprost prosi o scalenie / wdrożenie
+0. Bartosz w czacie wprost prosi o wdrożenie (scalenie robi agent przez kolejkę)
 1. pnpm run ci && pnpm build        ← lokalnie, PRZED pushem
-2. PR do main, 11/11 kontroli CI zielone → scalenie („Scalanie PR”)
+2. PR do main, kontrole zielone → kolejka scalania (`scalanie-pr.md`)
 3. migracje „przed wdrożeniem” na db-1 (+ schema_migrations + NOTIFY pgrst
    + weryfikacja) — tylko pliki z main
 4. wdrożenie: worker id=2, potem aplikacja id=1 — po kolei, nie naraz
