@@ -92,6 +92,12 @@ describe('faktura z formularza: PKWiU w pozycjach', () => {
     expect(invoice.lines[0]).not.toHaveProperty('gtuCode');
     const xml = generateFA3Xml(invoice, { generatedAt: new Date(`${DZIS}T10:00:00Z`) });
     expect(xml).not.toContain('<GTU>');
+    // Akcje przekazują dalej także niesparsowane wartości: budowanie mapuje pola jawnie.
+    const zSurowych = buildInvoiceFromForm(
+      form([{ ...pozycja, gtuCode: 'GTU_12' } as InvoiceFormValues['lines'][number]]), TENANT, null, false,
+    );
+    expect(zSurowych.lines[0]).not.toHaveProperty('gtuCode');
+    expect(generateFA3Xml(zSurowych, { generatedAt: new Date(`${DZIS}T10:00:00Z`) })).not.toContain('<GTU>');
   });
 });
 
