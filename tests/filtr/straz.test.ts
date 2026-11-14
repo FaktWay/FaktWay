@@ -8,6 +8,7 @@ import {
   etykietaWazna,
   idPrzepisow,
   liniePatcha,
+  obszaryPrzepisow,
   ocenPR,
   plikiTestowWPolu,
   raport,
@@ -372,5 +373,69 @@ describe('komentarze HTML w opisie (CodeQL F2)', () => {
     expect(bezKomentarzyHtml('a<!--<!-- x -->-->b')).toBe('a-->b');
     expect(bezKomentarzyHtml('a<!-- bez końca')).toBe('a');
     expect(bezKomentarzyHtml('bez komentarzy')).toBe('bez komentarzy');
+  });
+});
+
+describe('R1 w obszarze bez reguły w rejestrze', () => {
+  // Rejestr (`filtr/przepisy/`) ma reguły tylko dla części obszarów R1. Karta
+  // w obszarze bez żadnej reguły nie ma czego przytoczyć, więc uczciwy „brak
+  // reguły w rejestrze” przechodzi, a obcy identyfikator nie jest wymuszany.
+  const kartaBezReguly = KARTA_R1.replace('RP-ZAOKR-01', 'brak reguły w rejestrze dla obszaru silniki, zmiana nie liczy kwot');
+  const pokryte = (...obszary: string[]) => ({ obszaryPrzepisow: new Set(obszary) });
+
+  it('obszar bez reguł: uzasadniony brak reguły przechodzi', () => {
+    const wynik = ocenPR(dane({ pliki: [zmianaR1, testR1], opis: kartaBezReguly, przepisy: new Set(['RP-PIT-01']), ...pokryte('parametry') }));
+    expect(wymogi(wynik)).not.toMatch(/R1 bez id reguły/);
+    expect(wynik.ok).toBe(true);
+  });
+
+  it('obszar z regułą w rejestrze: nadal trzeba wskazać id', () => {
+    const wynik = ocenPR(dane({ pliki: [zmianaR1, testR1], opis: kartaBezReguly, przepisy: new Set(['RP-PIT-01']), ...pokryte('silniki') }));
+    expect(wymogi(wynik)).toMatch(/R1 bez id reguły z rejestru/);
+  });
+
+  it('samo „brak” bez słowa o regule nie wystarcza', () => {
+    const karta = KARTA_R1.replace('RP-ZAOKR-01', 'brak, bo tak');
+    const wynik = ocenPR(dane({ pliki: [zmianaR1, testR1], opis: karta, przepisy: new Set(['RP-PIT-01']), ...pokryte('parametry') }));
+    expect(wymogi(wynik)).toMatch(/R1 bez id reguły z rejestru/);
+  });
+
+  it('obszary mieszane: skoro jeden ma regułę, id nadal obowiązuje', () => {
+    const m = mapa();
+    m.obszary.push({ id: 'platnosci', poziom: 'R1', opis: 'Płatności.', sciezki: ['lib/platnosci/**'] });
+    const platnosci: Plik = { plik: 'lib/platnosci/a.ts', status: 'modified', patch: patch('const y = 2;') };
+    const wynik = ocenPR(
+      dane({ mapaMain: m, mapaPR: m, pliki: [zmianaR1, platnosci, testR1], opis: kartaBezReguly, przepisy: new Set(['RP-PIT-01']), ...pokryte('silniki') }),
+    );
+    expect(wymogi(wynik)).toMatch(/R1 bez id reguły z rejestru/);
+  });
+
+  it('obszary bez reguł, ale PR ma też obszar z regułą w innym pliku: id nadal obowiązuje', () => {
+    const wynik = ocenPR(
+      dane({ pliki: [zmianaR1, testR1, { plik: 'lib/ksiegowosc/parametry/x.ts', status: 'modified', patch: patch('const z = 3;') }], opis: kartaBezReguly, przepisy: new Set(['RP-PIT-01']), ...pokryte('parametry') }),
+    );
+    expect(wymogi(wynik)).toMatch(/R1 bez id reguły z rejestru/);
+  });
+
+  it('bez informacji o obszarach reguł straż działa jak dotąd', () => {
+    const wynik = ocenPR(dane({ pliki: [zmianaR1, testR1], opis: kartaBezReguly, przepisy: new Set(['RP-PIT-01']) }));
+    expect(wymogi(wynik)).toMatch(/R1 bez id reguły z rejestru/);
+  });
+});
+
+describe('obszaryPrzepisow', () => {
+  it('zbiera obszary tylko z przepisów z id RP-…', () => {
+    const json = { przepisy: [{ id: 'RP-A-01', obszary: ['x.a', 'x.b'] }, { id: 'nie-regula', obszary: ['x.c'] }, { id: 'RP-B-01' }] };
+    expect([...obszaryPrzepisow(json)].sort()).toEqual(['x.a', 'x.b']);
+  });
+
+  it('prawdziwy rejestr: kpir ma regułę, windykacja nie', async () => {
+    const { readFileSync, readdirSync } = await import('node:fs');
+    const obszary = new Set<string>();
+    for (const plik of readdirSync('filtr/przepisy').filter((p) => p.endsWith('.json'))) {
+      obszaryPrzepisow(JSON.parse(readFileSync(`filtr/przepisy/${plik}`, 'utf8')), obszary);
+    }
+    expect(obszary.has('ksiegowosc.kpir')).toBe(true);
+    expect(obszary.has('windykacja')).toBe(false);
   });
 });

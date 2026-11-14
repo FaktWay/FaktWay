@@ -23,6 +23,18 @@ pnpm filtr:lokalnie
 node scripts/filtr/straz.mjs --pr 488 --tylko-raport
 ```
 
+## Karta R1 w obszarze bez reguły w rejestrze
+
+Straż przy R1 wymaga w polu „Przepisy z rejestru” id `RP-…` z `filtr/przepisy/`
+albo „nowego przepisu” ze źródłem. Rejestr ma reguły tylko dla części obszarów
+R1 (m.in. `koszty`, `retencja`, `windykacja`, `ksef.wysylka`, `operator.dane-faktur`,
+`kontrahent` ich nie mają). Gdy **żaden** obszar R1 w PR nie ma reguły w rejestrze,
+wystarczy uzasadniony brak: napisz w polu „brak reguły w rejestrze dla obszaru …”
+i dlaczego zmiana nie liczy ani nie zmienia kwot, terminów i plików. Gdy choć
+jeden obszar R1 w PR ma regułę, id nadal obowiązuje. Pozostałe wymogi R1 (testy
+w „Dowody”, drugi czytelnik, etykiety zgody) zostają bez zmian. Nie wpisuj id
+reguły, która do zmiany nie pasuje.
+
 ## Wyjątki
 
 Wyjątek zwalnia tylko z wymogu straży (karta, test przy kodzie R1, komentarz
