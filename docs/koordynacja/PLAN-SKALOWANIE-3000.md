@@ -292,6 +292,8 @@ nadążać; to argument za `max_slot_wal_keep_size` 2–4 GB (sesja 25).
 | 14.11.2026 | Ustalenia z #732 poza sesją 7: fabryki klientów Supabase bez limitu czasu (`lib/api/v1/db.ts`, `lib/api/mobile/db.ts`, `lib/auth/reauth.ts`, skrypty), reszta LIM-05 (`S3Client`, klient Anthropic, ciało odpowiedzi `ksefFetch`, JOB-07) | brak | osobne PR po scaleniu #732; pełna lista w jego opisie, sekcja „Osobne ustalenia” |
 | 14.11.2026 | Z pushu #730: test `/expenses` (`tests/unit/wydatki-miesiac.test.ts`) padał w haku na Windowsie na limicie 5 s przy zimnym imporcie strony | #733 | otwarty 14.11; R0, sam test, bez migracji; hak przeszedł bez obejść; inne testy blisko limitu 5 s na Windowsie (m.in. `rotacja-kluczy-skrypt`, w pełnym biegu 12 z 13 czerwonych) w opisie PR, sekcja „Osobne ustalenia” |
 | 14.11.2026 | Scalony zbiorczy #725 Bartosza (w nim #715 i #717) | #725 | sesja 33 odblokowana: #715 zmieniał `lib/exports/data-fetcher.ts`; styk z #730 rozwiązany w #730 |
+| 13.11.2026 | Ustalenie 1 z #676: testy wyciszeń Flo (`flo-silenced-list`, `flo-silence`, `flo-shadow-wiring`) z zegarem przypiętym do `NOW` (bomby 22.12 i 23.12.2026) | #720 | scalony 14.11 w zbiorczym „Scalenie #733 … #721, #736” |
+| 14.11.2026 | Sesja 33: KPiR, ewidencja, raport KPiR i eksporty czytają stronami po kluczu zamiast OFFSET-em (RP-ODCZYT-01, `readCompletePagesByKey`) | #758 | scalony 14.11 w zbiorczym „Scalenie #733 … #721, #736”; bez migracji; R1 z kartą w opisie zbiorczego. Osobny PR: dopisać `jpk.vat-fa` i `raporty.kpir` do obszarów RP-ODCZYT-01 (`zgoda:wiedza-prawna`) |
 
 **Następny krok:** #725 scalony 14.11, a #730 ma już `main` z poprawką
 z sekcji „Styk z #725”. Teraz etykieta `zgoda:zmiana-filtra` na #730
