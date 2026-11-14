@@ -21,8 +21,11 @@ const SRC = resolve(__dirname, '../../scripts/ops');
 const SHA = 'a'.repeat(40);
 const OLD = 'b'.repeat(40);
 const FOREIGN = 'c'.repeat(40);
-const RUNNER = 'ghcr.io/ezior8888-cpu/faktway-runner';
-const WORKER = 'ghcr.io/ezior8888-cpu/faktway-worker';
+const RUNNER = 'ghcr.io/faktway/faktway-runner';
+const WORKER = 'ghcr.io/faktway/faktway-worker';
+// Nazwy sprzed przeniesienia repo do organizacji FaktWay (14.11.2026).
+const OLD_RUNNER = 'ghcr.io/ezior8888-cpu/faktway-runner';
+const OLD_WORKER = 'ghcr.io/ezior8888-cpu/faktway-worker';
 
 const FAKE_SSH = `#!/usr/bin/env bash
 while [ $# -gt 0 ]; do
@@ -96,7 +99,7 @@ const FAKE_CURL = `#!/usr/bin/env bash
 url=""
 for a in "$@"; do url=$a; done
 echo "$url" >> "$FAKE_DIR/curl.log"
-name=$(printf '%s' "$url" | sed -n 's#.*/v2/ezior8888-cpu/\\([^/]*\\)/.*#\\1#p')
+name=$(printf '%s' "$url" | sed -n 's#.*/v2/[^/]*/\\([^/]*\\)/.*#\\1#p')
 case "$url" in
   *ghcr.io/token*) echo '{"token":"anonimowy"}' ;;
   */manifests/sha256:amd64-*)
@@ -499,5 +502,82 @@ describe('coolify-zrodlo.sh', () => {
     const r = run('coolify-zrodlo.sh', ['repo', '--wdroz']);
     expect(r.code, r.out).toBe(0);
     expect(log().filter((l) => !l.startsWith('zmiana'))).toEqual(['wdrozenie 2 HEAD', 'wdrozenie 1 HEAD', 'kontrola']);
+  });
+});
+
+describe('przeniesienie repo do organizacji FaktWay (14.11.2026)', () => {
+  // Coolify zostaje na starej nazwie obrazu do pierwszego wdrożenia po
+  // przeniesieniu; do starej nazwy GitHub nie przyjmuje już zapisu.
+  function oldImageMode(tag = OLD) {
+    setApp(2, `dockerimage|${OLD_WORKER}|${tag}|/Dockerfile|worker`);
+    setApp(1, `dockerimage|${OLD_RUNNER}|${tag}|/Dockerfile|runner`);
+  }
+  const curlLog = () => (existsSync(fake('curl.log')) ? readFileSync(fake('curl.log'), 'utf8') : '');
+
+  it('--obraz z Coolify na starej nazwie: sprawdza obrazy organizacji i przestawia Coolify na nowe nazwy', () => {
+    oldImageMode();
+    publish(SHA);
+    const r = run('wdroz-produkcje.sh', ['--obraz', SHA]);
+    expect(r.code, r.out).toBe(0);
+    expect(log()).toEqual([
+      `zmiana 2 dockerimage|${WORKER}|${SHA}|/Dockerfile|worker`,
+      `wdrozenie 2 ${SHA}`,
+      `zmiana 1 dockerimage|${RUNNER}|${SHA}|/Dockerfile|runner`,
+      `wdrozenie 1 ${SHA}`,
+      'kontrola',
+    ]);
+    expect(curlLog()).toContain('/v2/faktway/faktway-worker/');
+    expect(curlLog()).not.toContain('/v2/ezior8888-cpu/');
+  });
+
+  it('nieudany worker po przeniesieniu: wraca stara nazwa i stary tag', () => {
+    oldImageMode();
+    publish(SHA);
+    write(fake('status-2'), 'failed');
+    const r = run('wdroz-produkcje.sh', ['--obraz', SHA]);
+    expect(r.code).toBe(1);
+    expect(state(2)).toBe(`dockerimage|${OLD_WORKER}|${OLD}|/Dockerfile|worker`);
+    expect(state(1)).toBe(`dockerimage|${OLD_RUNNER}|${OLD}|/Dockerfile|runner`);
+  });
+
+  it('nieudana aplikacja po przeniesieniu: aplikacja wraca na starą nazwę, podpowiedź cofnięcia workera ze starą nazwą', () => {
+    oldImageMode();
+    publish(SHA);
+    write(fake('status-1'), 'failed');
+    const r = run('wdroz-produkcje.sh', ['--obraz', SHA]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(`GHCR_PREFIX=ghcr.io/ezior8888-cpu/faktway ./scripts/ops/wdroz-produkcje.sh --obraz ${OLD}`);
+    expect(state(2)).toBe(`dockerimage|${WORKER}|${SHA}|/Dockerfile|worker`);
+    expect(state(1)).toBe(`dockerimage|${OLD_RUNNER}|${OLD}|/Dockerfile|runner`);
+  });
+
+  it('GHCR_PREFIX ze starą nazwą: powrót na SHA sprzed przeniesienia', () => {
+    imageMode(SHA);
+    publish(OLD);
+    const r = run('wdroz-produkcje.sh', ['--obraz', OLD], { GHCR_PREFIX: 'ghcr.io/ezior8888-cpu/faktway' });
+    expect(r.code, r.out).toBe(0);
+    expect(state(2)).toBe(`dockerimage|${OLD_WORKER}|${OLD}|/Dockerfile|worker`);
+    expect(state(1)).toBe(`dockerimage|${OLD_RUNNER}|${OLD}|/Dockerfile|runner`);
+    expect(curlLog()).toContain('/v2/ezior8888-cpu/faktway-worker/');
+  });
+
+  it('GHCR_PREFIX spoza dwóch naszych nazw: odmowa, nic nie zmienia', () => {
+    imageMode();
+    publish(SHA);
+    const r = run('wdroz-produkcje.sh', ['--obraz', SHA], { GHCR_PREFIX: 'ghcr.io/obcy/faktway' });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('GHCR_PREFIX może być tylko');
+    expect(log()).toEqual([]);
+  });
+
+  it('coolify-zrodlo.sh obraz z Coolify na starej nazwie przestawia na nazwę organizacji', () => {
+    oldImageMode();
+    publish(OLD);
+    const r = run('coolify-zrodlo.sh', ['obraz', OLD]);
+    expect(r.code, r.out).toBe(0);
+    expect(log()).toEqual([
+      `zmiana 2 dockerimage|${WORKER}|${OLD}|/Dockerfile|worker`,
+      `zmiana 1 dockerimage|${RUNNER}|${OLD}|/Dockerfile|runner`,
+    ]);
   });
 });

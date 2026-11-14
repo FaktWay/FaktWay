@@ -41,7 +41,7 @@ z konfiguracji aplikacji i pisze je w `/wdroz` („Źródło: obrazy z GHCR”).
 Zasady 1–7 zostają, a dochodzi:
 
 - obie aplikacje muszą mieć to samo źródło i nasze obrazy
-  (`ghcr.io/ezior8888-cpu/faktway-runner` i `…-worker`); stan mieszany albo
+  (`ghcr.io/faktway/faktway-runner` i `…-worker`); stan mieszany albo
   obcy obraz blokuje z odesłaniem do `coolify-zrodlo.sh stan`;
 - oba obrazy `<HEAD>` muszą być w GHCR z etykietą rewizji równą HEAD.
   Workflow `obrazy.yml` buduje je po każdym scaleniu, kilkanaście minut:
@@ -124,7 +124,7 @@ Kolejność ma znaczenie.
    Bramka to osobny program, który musi stale działać; uruchamiamy go na `ops-1`.
    - Projekt FaktFlow → środowisko produkcyjne → *+ New* → *Private Repository
      (with GitHub App)* → ta sama aplikacja GitHub co web/worker → repo
-     `ezior8888-cpu/ksef-saas`, gałąź `main`, serwer **localhost** (`ops-1`).
+     `FaktWay/FaktWay`, gałąź `main`, serwer **localhost** (`ops-1`).
    - Build Pack *Dockerfile*, Base Directory `/ops/bramka`, Dockerfile
      Location `/Dockerfile`. Domeny puste, healthcheck wyłączony.
    - Zmienne (`is_preview = false`):
@@ -139,7 +139,7 @@ Kolejność ma znaczenie.
    | `COOLIFY_API_TOKEN` | token z kroku 4 |
    | `COOLIFY_APP_WEB`, `COOLIFY_APP_WORKER` | UUID aplikacji id=1 i id=2 (koniec adresu strony aplikacji w Coolify) |
    | `GITHUB_TOKEN` | opcjonalnie: fine-grained, tylko odczyt repo (bez niego limit 60 zapytań/h) |
-   | `GHCR_PREFIX` | opcjonalnie, domyślnie `ghcr.io/ezior8888-cpu/faktway` (obrazy `-runner` i `-worker`; pakiety publiczne, bez tokenu) |
+   | `GHCR_PREFIX` | opcjonalnie, domyślnie `ghcr.io/faktway/faktway` (obrazy `-runner` i `-worker`; pakiety publiczne, bez tokenu) |
 
    - *Deploy*. W logach: `start: 1 operator(ów)`, w Telegramie „🟢 Bramka uruchomiona”.
 8. **Kto może pisać do bramki (`BRAMKA_USERS`).** Bramka odpowiada tylko

@@ -61,7 +61,7 @@ const CRITICAL_ISSUE_SOURCES: readonly string[] = [CRITICAL_ISSUE_SOURCE_MONITOR
 
 export const ALERT_ISSUE_LABEL = 'alert-produkcji';
 
-const DEFAULT_REPO = 'ezior8888-cpu/FaktWay';
+const DEFAULT_REPO = 'FaktWay/FaktWay';
 const GITHUB_API = 'https://api.github.com';
 const TIMEOUT_MS = 5000;
 const COMMENT_MIN_INTERVAL_MS = 60 * 60 * 1000;
