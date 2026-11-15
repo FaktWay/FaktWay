@@ -3,17 +3,107 @@ import { useState } from 'react';
 import { Share } from 'react-native';
 
 import { DOSTEPY_KSIEGOWEJ, FORMATY_KSIEGOWEJ, PACZKI_KSIEGOWEJ } from '@/dane-przykladowe/ustawienia';
+import { EkranOdczytu } from '@/komponenty/ekran-odczytu';
 import { PolePrzelacznik, PoleTekstowe, PoleWyboru } from '@/komponenty/formularz';
 import { EkranListy, Sekcja, Wiersz } from '@/komponenty/lista';
+import { MA_ADRES_STRONY, otworzStrone } from '@/komponenty/na-stronie';
 import { potwierdz } from '@/komponenty/potwierdz';
+import type { DostepKsiegowej, KsiegowaOdpowiedz } from '@/lib/api/kontrakt-wiecej';
 import { dataPelna } from '@/lib/format';
+import { dzienZnacznika } from '@/lib/wiecej';
 import { useStanFaktur } from '@/stan/faktury';
+import { useOdczyt, type StanOdczytu } from '@/stan/odczyt';
+
+export default function EkranKsiegowej() {
+  const odczyt = useOdczyt<KsiegowaOdpowiedz>('ksiegowa');
+  return odczyt ? <EkranKsiegowejZBazy odczyt={odczyt} /> : <EkranKsiegowejPrzyklad />;
+}
+
+const STAN_DOSTEPU: Record<DostepKsiegowej['stan'], { etykieta: string; kolor: 'sukces' | 'blad' | 'etykietaDrugorzedna' }> = {
+  aktywny: { etykieta: 'Aktywny', kolor: 'sukces' },
+  odebrany: { etykieta: 'Odebrany', kolor: 'blad' },
+  wygasl: { etykieta: 'Wygasł', kolor: 'etykietaDrugorzedna' },
+};
+
+const data = (iso: string | null) => {
+  const d = dzienZnacznika(iso);
+  return d ? dataPelna(d) : '';
+};
+
+/**
+ * Księgowa na prawdziwym koncie (M10e): urząd skarbowy, Co-Pilot z ostatnimi
+ * paczkami i linki dla księgowej z `GET /ksiegowa`, do odczytu (tylko
+ * właściciel, jak zakładka strony). Zmiany, nowy link i odebranie dostępu na
+ * faktway.pl (M10c).
+ */
+function EkranKsiegowejZBazy({ odczyt }: { odczyt: StanOdczytu<KsiegowaOdpowiedz> }) {
+  return (
+    <EkranOdczytu odczyt={odczyt} tytulBledu="Nie udało się wczytać karty Księgowa" szkielet="Wczytujemy dostęp dla księgowej">
+      {(d) => (
+        <>
+          <Sekcja naglowek="Urząd skarbowy firmy" stopka="Potrzebny do pliku JPK_FA.">
+            <Wiersz tytul={d.urzad ? (d.urzad.nazwa ?? d.urzad.kod) : 'Nie wybrano'} />
+          </Sekcja>
+
+          <Sekcja
+            naglowek="Co-Pilot"
+            stopka={
+              d.coPilot?.wlaczony
+                ? `Wysyłamy paczkę ${d.coPilot.dzienWysylki ?? ''}. dnia każdego miesiąca za poprzedni miesiąc.`
+                : 'Co-Pilot wyłączony: paczki dla księgowej nie wychodzą.'
+            }>
+            <Wiersz tytul="Co-Pilot" wartosc={d.coPilot?.wlaczony ? 'Aktywny' : 'Wyłączony'} wartoscKolor={d.coPilot?.wlaczony ? 'sukces' : 'etykietaDrugorzedna'} />
+            {d.coPilot?.wlaczony ? (
+              <>
+                {d.coPilot.ksiegowa ? <Wiersz tytul="Księgowa" podtytul={[d.coPilot.ksiegowa, d.coPilot.biuro].filter(Boolean).join('\n')} /> : null}
+                {d.coPilot.email ? <Wiersz tytul="E-mail" podtytul={[d.coPilot.email, ...d.coPilot.dw].join('\n')} zaznaczalna /> : null}
+                <Wiersz tytul="Formaty" podtytul={d.coPilot.formaty.join(', ') || 'Brak'} />
+                <Wiersz
+                  tytul="W paczce"
+                  podtytul={[d.coPilot.zakres.wystawione ? 'faktury wystawione' : null, d.coPilot.zakres.otrzymane ? 'faktury otrzymane' : null, d.coPilot.zakres.korekty ? 'faktury korygujące' : null].filter(Boolean).join(', ') || 'Nic'}
+                />
+              </>
+            ) : null}
+          </Sekcja>
+
+          {d.paczki.length > 0 ? (
+            <Sekcja naglowek="Ostatnie paczki">
+              {d.paczki.map((p) => (
+                <Wiersz
+                  key={p.id}
+                  tytul={`${p.format}${p.okresOd && p.okresDo ? `, ${dataPelna(p.okresOd)} do ${dataPelna(p.okresDo)}` : ''}`}
+                  podtytul={p.wyslano ? `Wysłano ${data(p.wyslano)}` : `Utworzono ${data(p.utworzono)}`}
+                  wartoscPodpis={p.statusEtykieta}
+                  wartoscPodpisKolor={p.status === 'completed' ? 'sukces' : p.status === 'failed' ? 'blad' : 'akcent'}
+                />
+              ))}
+            </Sekcja>
+          ) : null}
+
+          <Sekcja naglowek={`Udostępnione dostępy (${d.dostepy.length})`} stopka="Księgowa nie potrzebuje konta w FaktWay. Nowy link i odebranie dostępu na faktway.pl.">
+            {d.dostepy.length === 0 ? <Wiersz tytul="Brak udostępnionych dostępów" /> : null}
+            {d.dostepy.map((a) => (
+              <Wiersz
+                key={a.id}
+                tytul={a.nazwa || a.email}
+                podtytul={[a.email, `${a.poziom}${a.wygasa ? ` · wygasa ${data(a.wygasa)}` : ''} · ${a.uzycia} ${a.uzycia === 1 ? 'użycie' : 'użyć'}`, a.ostatnio ? `ostatnio ${data(a.ostatnio)}` : null].filter(Boolean).join('\n')}
+                wartoscPodpis={STAN_DOSTEPU[a.stan].etykieta}
+                wartoscPodpisKolor={STAN_DOSTEPU[a.stan].kolor}
+              />
+            ))}
+            {MA_ADRES_STRONY ? <Wiersz tytul="Zmień na faktway.pl" ikona="global-line" akcja onPress={() => otworzStrone('/settings/accountant', () => void odczyt.odswiez())} /> : null}
+          </Sekcja>
+        </>
+      )}
+    </EkranOdczytu>
+  );
+}
 
 /**
  * Księgowa: odpowiednik `settings/accountant` (urząd skarbowy, Co-Pilot
  * z paczkami dla księgowej, udostępnione dostępy z linkiem).
  */
-export default function EkranKsiegowej() {
+function EkranKsiegowejPrzyklad() {
   const { flagi, ustawFlage } = useStanFaktur();
   const wl = (k: string, d: boolean) => flagi[`ksieg-${k}`] ?? d;
   const copilot = wl('copilot', true);
