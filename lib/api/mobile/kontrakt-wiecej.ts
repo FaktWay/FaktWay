@@ -238,6 +238,8 @@ export interface ZespolOdpowiedz {
  * aktywnej subskrypcji albo płatności nie są skonfigurowane.
  */
 export interface AbonamentOdpowiedz {
+  /** `false`: płatności nie są skonfigurowane na tym serwerze (stanu subskrypcji nie znamy). */
+  platnosci: boolean;
   subskrypcja: {
     status: string;
     statusEtykieta: string;

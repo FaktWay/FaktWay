@@ -39,7 +39,7 @@ export async function subscriptionForMobile(caller: MobileCaller): Promise<NextR
   if (!caller.org) throw new Error('Trasa abonamentu bez firmy (org: required)');
   const { tenantId, role } = caller.org;
   if (!ROLE.includes(role)) return mobileError(403, 'forbidden', ABONAMENT_BEZ_ROLI, caller.headers);
-  if (!isStripeConfigured()) return mobileJson({ subskrypcja: null } satisfies AbonamentOdpowiedz, 200, caller.headers);
+  if (!isStripeConfigured()) return mobileJson({ platnosci: false, subskrypcja: null } satisfies AbonamentOdpowiedz, 200, caller.headers);
 
   let sub: Awaited<ReturnType<typeof getActiveSubscription>>;
   try {
@@ -47,11 +47,12 @@ export async function subscriptionForMobile(caller: MobileCaller): Promise<NextR
   } catch {
     throw new MobileUpstreamError('subscriptions.read');
   }
-  if (!sub) return mobileJson({ subskrypcja: null } satisfies AbonamentOdpowiedz, 200, caller.headers);
+  if (!sub) return mobileJson({ platnosci: true, subskrypcja: null } satisfies AbonamentOdpowiedz, 200, caller.headers);
 
   const stan = subscriptionStatusLabel(sub.status);
   const proba = isInTrial(sub);
   const odpowiedz: AbonamentOdpowiedz = {
+    platnosci: true,
     subskrypcja: {
       status: sub.status,
       statusEtykieta: stan.label,

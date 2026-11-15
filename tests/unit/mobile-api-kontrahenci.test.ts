@@ -144,7 +144,7 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
       if (contractors.some((r) => r.tenant_id === body.tenant_id && r.nip === body.nip)) {
         return Response.json({ code: '23505', message: 'duplicate key value violates unique constraint "contractors_tenant_id_nip_key"' }, { status: 409 });
       }
-      const row = contractor({ ...body, id: `cccccccc-0000-4000-8000-${String(contractors.length + 100).padStart(12, '0')}`, vat_status: null, last_validation_at: null, last_used_at: null });
+      const row = contractor({ vat_status: null, last_validation_at: null, last_used_at: null, ...body, id: `cccccccc-0000-4000-8000-${String(contractors.length + 100).padStart(12, '0')}` });
       contractors.push(row);
       return asObject ? Response.json({ id: row.id }, { status: 201 }) : Response.json([{ id: row.id }], { status: 201 });
     }
@@ -320,7 +320,7 @@ describe('POST /api/mobile/v1/kontrahenci (dodanie)', () => {
     expect(body.juzBylo).toBe(false);
     expect(body.kontrahent).toMatchObject({ nip: NIP_NEW, nazwa: 'Nowy Klient Sp. z o.o.', email: 'faktury@klient.example', statusVatEtykieta: 'Niezweryfikowany', vatDoSprawdzenia: true });
     const zapisany = contractors.find((r) => r.nip === NIP_NEW)!;
-    expect(zapisany).toMatchObject({ tenant_id: ORG_A, address: { countryCode: 'PL', addressLine1: 'ul. Nowa 2', addressLine2: '00-002 Warszawa' } });
+    expect(zapisany).toMatchObject({ tenant_id: ORG_A, address: { countryCode: 'PL', addressLine1: 'ul. Nowa 2', addressLine2: '00-002 Warszawa' }, last_used_at: NOW.toISOString() });
     expect(fake.audit).toHaveBeenCalledTimes(1);
     expect(fake.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'contractor.created', tenantId: ORG_A, userId: OWNER, metadata: { nip: NIP_NEW, client: 'mobile' } }));
   });

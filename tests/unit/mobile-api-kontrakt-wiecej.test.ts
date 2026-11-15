@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { bladApi } from '../../mobile/src/lib/api/bledy';
-import { dzienZnacznika } from '../../mobile/src/lib/wiecej';
+import { dzienZnacznika, odmiana } from '../../mobile/src/lib/wiecej';
 
 /**
  * Plan aplikacji mobilnej, M10e: kontrakt zakładki Więcej
@@ -42,5 +42,12 @@ describe('dzień znacznika czasu w Polsce', () => {
     expect(dzienZnacznika('2026-07-01T21:59:00Z')).toBe('2026-07-01');
     expect(dzienZnacznika(null)).toBeNull();
     expect(dzienZnacznika('nie-data')).toBeNull();
+  });
+});
+
+describe('odmiana liczebników', () => {
+  it('1 wpis, 3 wpisy, 5 wpisów, 12 wpisów, 22 wpisy', () => {
+    const f: [string, string, string] = ['wpis', 'wpisy', 'wpisów'];
+    expect([1, 3, 5, 12, 22, 0].map((n) => odmiana(n, f))).toEqual(['1 wpis', '3 wpisy', '5 wpisów', '12 wpisów', '22 wpisy', '0 wpisów']);
   });
 });

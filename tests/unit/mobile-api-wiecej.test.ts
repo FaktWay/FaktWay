@@ -327,10 +327,10 @@ describe('GET /api/mobile/v1/abonament', () => {
     tables.subscriptions = [{ ...tables.subscriptions![0], status: 'past_due', trial_end: null }];
     expect((await (await abonamentRoute(req('abonament'))).json()).subskrypcja).toMatchObject({ statusEtykieta: 'Płatność opóźniona', odcien: 'ostrzezenie', dniProby: null, probaDo: null });
     tables.subscriptions = [];
-    expect(await (await abonamentRoute(req('abonament'))).json()).toEqual({ subskrypcja: null });
+    expect(await (await abonamentRoute(req('abonament'))).json()).toEqual({ platnosci: true, subskrypcja: null });
     vi.stubEnv('STRIPE_SECRET_KEY', '');
     reads = [];
-    expect(await (await abonamentRoute(req('abonament'))).json()).toEqual({ subskrypcja: null });
+    expect(await (await abonamentRoute(req('abonament'))).json()).toEqual({ platnosci: false, subskrypcja: null });
     expect(reads.some((r) => r.path === '/rest/v1/subscriptions')).toBe(false);
   });
 
@@ -346,7 +346,7 @@ describe('GET /api/mobile/v1/dziennik', () => {
     const body = await (await dziennikRoute(req('dziennik', { token: TOKEN.member }))).json();
     expect(body.wpisy).toEqual([
       { id: '7', kiedy: expect.stringContaining('15.11.2026'), akcja: 'Zalogowanie', zasob: null, ip: '203.0.113.5' },
-      { id: '6', kiedy: expect.stringContaining('14.11.2026'), akcja: 'contractor.updated', zasob: 'contractor:cccccccc…', ip: null },
+      { id: '6', kiedy: expect.stringContaining('14.11.2026'), akcja: 'Poprawiono dane kontrahenta', zasob: 'contractor:cccccccc…', ip: null },
     ]);
     const read = reads.find((r) => r.path === '/rest/v1/audit_logs');
     expect(read?.select).toBe('id,action,entity_type,entity_id,ip_address,created_at');

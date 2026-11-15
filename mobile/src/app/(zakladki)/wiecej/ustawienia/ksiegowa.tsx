@@ -10,7 +10,7 @@ import { MA_ADRES_STRONY, otworzStrone } from '@/komponenty/na-stronie';
 import { potwierdz } from '@/komponenty/potwierdz';
 import type { DostepKsiegowej, KsiegowaOdpowiedz } from '@/lib/api/kontrakt-wiecej';
 import { dataPelna } from '@/lib/format';
-import { dzienZnacznika } from '@/lib/wiecej';
+import { dzienZnacznika, odmiana } from '@/lib/wiecej';
 import { useStanFaktur } from '@/stan/faktury';
 import { useOdczyt, type StanOdczytu } from '@/stan/odczyt';
 
@@ -86,7 +86,7 @@ function EkranKsiegowejZBazy({ odczyt }: { odczyt: StanOdczytu<KsiegowaOdpowiedz
               <Wiersz
                 key={a.id}
                 tytul={a.nazwa || a.email}
-                podtytul={[a.email, `${a.poziom}${a.wygasa ? ` · wygasa ${data(a.wygasa)}` : ''} · ${a.uzycia} ${a.uzycia === 1 ? 'użycie' : 'użyć'}`, a.ostatnio ? `ostatnio ${data(a.ostatnio)}` : null].filter(Boolean).join('\n')}
+                podtytul={[a.email, `${a.poziom}${a.wygasa ? ` · wygasa ${data(a.wygasa)}` : ''} · ${odmiana(a.uzycia, ['użycie', 'użycia', 'użyć'])}`, a.ostatnio ? `ostatnio ${data(a.ostatnio)}` : null].filter(Boolean).join('\n')}
                 wartoscPodpis={STAN_DOSTEPU[a.stan].etykieta}
                 wartoscPodpisKolor={STAN_DOSTEPU[a.stan].kolor}
               />

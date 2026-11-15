@@ -41,6 +41,8 @@ export type ZapisKontrahenta = {
   dodaj: (dane: NowyKontrahentZadanie, firmaEkranu: string | null) => Promise<Wynik<NowyKontrahentOdpowiedz>>;
   zmien: (id: string, dane: DaneKontrahentaZadanie, firmaEkranu: string | null) => Promise<Wynik<ZmianaKontrahentaOdpowiedz>>;
   usun: (id: string, firmaEkranu: string | null) => Promise<Wynik<UsuniecieKontrahentaOdpowiedz>>;
+  /** Kontrahent zapisany pod tym NIP (po odmowie `contractor_exists`): szukanie w bazie jak lista; `null`, gdy nie ma. */
+  znajdzPoNip: (nip: string, firmaEkranu: string | null) => Promise<string | null>;
 };
 
 export function useZapisKontrahenta(): ZapisKontrahenta | null {
@@ -73,6 +75,12 @@ export function useZapisKontrahenta(): ZapisKontrahenta | null {
       // Tylko lista: karta zamyka się w animacji i pytałaby w tle o usuniętego (404).
       if (wynik.ok && konto && firmaEkranu) oznaczNieaktualne(konto, firmaEkranu, listaKontrahentow);
       return wynik;
+    },
+    znajdzPoNip: async (nip, firmaEkranu) => {
+      const cyfry = nip.replace(/\D/g, '');
+      if (!cyfry) return null;
+      const w = await k.zapytaj<KontrahenciOdpowiedz>(`${SCIEZKA_KONTRAHENTOW}?q=${cyfry}`, { firmaEkranu });
+      return w.ok ? (w.dane.lista.find((x) => x.nip.replace(/\D/g, '') === cyfry)?.id ?? null) : null;
     },
   };
 }

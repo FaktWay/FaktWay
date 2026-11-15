@@ -822,7 +822,11 @@
         "mobile/src/app/(zakladki)/(pulpit)/**",
         "mobile/src/app/(zakladki)/ksiegowosc/**",
         "mobile/src/stan/ksiegowosc.tsx",
-        "mobile/src/stan/ustawienia.tsx"
+        "mobile/src/stan/ustawienia.tsx",
+        "mobile/src/app/(zakladki)/wiecej/kontrahenci/**",
+        "mobile/src/stan/kontrahenci.tsx",
+        "mobile/src/app/(zakladki)/wiecej/import.tsx",
+        "mobile/src/app/(zakladki)/wiecej/ustawienia/{abonament,ksiegowa}.tsx"
       ]
     },
     {

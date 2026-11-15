@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { PoleTekstowe } from '@/komponenty/formularz';
-import { EkranListy, Sekcja } from '@/komponenty/lista';
+import { EkranListy, Sekcja, Wiersz } from '@/komponenty/lista';
 import { PrzyciskGlowny } from '@/komponenty/przycisk-glowny';
 import { PrzyciskPaska } from '@/komponenty/przycisk-paska';
 import { StanPusty } from '@/komponenty/stan-pusty';
@@ -29,6 +29,8 @@ export default function EkranNowegoKontrahenta() {
   const [pola, setPola] = useState({ nip: '', nazwa: '', adres1: '', adres2: '', email: '' });
   const [blad, setBlad] = useState<BladApi>();
   const [trwa, setTrwa] = useState(false);
+  /** Po odmowie `contractor_exists`: zapisany kontrahent z tym NIP, do otwarcia. */
+  const [istniejacy, setIstniejacy] = useState<string | null>(null);
 
   if (!zapis) {
     return (
@@ -46,6 +48,7 @@ export default function EkranNowegoKontrahenta() {
     setTrwa(false);
     if (!w.ok) {
       setBlad(w.blad);
+      setIstniejacy(w.blad.kod === 'contractor_exists' ? await zapis.znajdzPoNip(pola.nip, firmaEkranu) : null);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
@@ -64,7 +67,11 @@ export default function EkranNowegoKontrahenta() {
           <PoleTekstowe etykieta="Kod i miejscowość" wartosc={pola.adres2} onZmiana={ustaw('adres2')} podpowiedz="00-001 Warszawa" blad={bladPola('adres2')} />
           <PoleTekstowe etykieta="E-mail do faktur" wartosc={pola.email} onZmiana={ustaw('email')} klawiatura="email-address" blad={bladPola('email')} />
         </Sekcja>
-        {blad && !blad.pole ? <Sekcja stopka={blad.komunikat} /> : null}
+        {blad && !blad.pole ? (
+          <Sekcja stopka={blad.komunikat}>
+            {istniejacy ? <Wiersz tytul="Otwórz kontrahenta" akcja onPress={() => router.replace({ pathname: '/wiecej/kontrahenci/[id]', params: { id: istniejacy } })} /> : null}
+          </Sekcja>
+        ) : null}
         <View style={styles.akcja}>
           <PrzyciskGlowny tytul="Dodaj kontrahenta" trwa={trwa} onPress={() => void zapisz()} />
         </View>

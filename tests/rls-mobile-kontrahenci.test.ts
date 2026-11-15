@@ -161,6 +161,7 @@ describe.skipIf(!hasDatabase)('M10e: kontrahenci z telefonu na bazie (token i x-
     expect(await updateContractor(memberInB, C_B, DANE, ctx)).toMatchObject({ success: false, reason: 'not_found' });
     expect(await deleteContractor(memberInB, C_B, ctx)).toMatchObject({ success: false, reason: 'not_found' });
     expect(await createContractor(memberInB, { ...DANE, nip: '7010012356' }, ctx)).toMatchObject({ success: false });
+    expect(await countIn(ORG_B, '7010012356')).toBe(0);
     expect(await row(C_B)).toMatchObject({ tenant_id: ORG_B, name: 'Klient B' });
   });
 

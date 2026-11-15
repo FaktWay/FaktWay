@@ -3,6 +3,7 @@ import { EkranOdczytu } from '@/komponenty/ekran-odczytu';
 import { EkranListy, Sekcja, Wiersz } from '@/komponenty/lista';
 import { StanPusty } from '@/komponenty/stan-pusty';
 import type { DziennikOdpowiedz } from '@/lib/api/kontrakt-wiecej';
+import { odmiana } from '@/lib/wiecej';
 import { useOdczyt, type StanOdczytu } from '@/stan/odczyt';
 
 export default function EkranDziennika() {
@@ -18,7 +19,7 @@ function EkranDziennikaZBazy({ odczyt }: { odczyt: StanOdczytu<DziennikOdpowiedz
         d.wpisy.length === 0 ? (
           <StanPusty ikona="history-line" tytul="Brak wpisów" opis="Tu zobaczysz logowania i zmiany w firmie." />
         ) : (
-          <Sekcja naglowek="Historia aktywności" stopka={`${d.wpisy.length} ${d.wpisy.length === 1 ? 'wpis' : 'wpisów'} (najwyżej 200), od najnowszych.`}>
+          <Sekcja naglowek="Historia aktywności" stopka={`${odmiana(d.wpisy.length, ['wpis', 'wpisy', 'wpisów'])} (najwyżej 200), od najnowszych.`}>
             {d.wpisy.map((w) => (
               <Wiersz key={w.id} tytul={w.akcja} podtytul={[w.kiedy, w.zasob, w.ip ? `IP ${w.ip}` : null].filter(Boolean).join(' · ')} zaznaczalna />
             ))}

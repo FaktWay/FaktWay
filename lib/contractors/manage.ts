@@ -203,6 +203,8 @@ export async function createContractor(
       name,
       address: { countryCode: 'PL', addressLine1, addressLine2 },
       email: email || null,
+      // Jak zapis z wyszukania NIP w formularzu: nowy kontrahent na górze listy (od ostatnio użytych).
+      last_used_at: new Date().toISOString(),
     })
     .select('id')
     .maybeSingle();

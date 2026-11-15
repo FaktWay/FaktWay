@@ -20,8 +20,10 @@ const KOLOR: Record<OdcienTelefonu, 'sukces' | 'ostrzezenie' | 'blad' | 'etykiet
 function EkranAbonamentuZBazy({ odczyt }: { odczyt: StanOdczytu<AbonamentOdpowiedz> }) {
   return (
     <EkranOdczytu odczyt={odczyt} tytulBledu="Nie udało się wczytać abonamentu" szkielet="Wczytujemy abonament">
-      {({ subskrypcja: s }) =>
-        !s ? (
+      {({ platnosci, subskrypcja: s }) =>
+        !platnosci ? (
+          <StanPusty ikona="bank-card-line" tytul="Stan abonamentu niedostępny" opis="Nie możemy teraz sprawdzić subskrypcji tej firmy. Spróbuj ponownie później." />
+        ) : !s ? (
           <StanPusty ikona="bank-card-line" tytul="Brak aktywnej subskrypcji" opis="Ta firma nie ma teraz aktywnej subskrypcji FaktWay." />
         ) : (
           <>
@@ -40,7 +42,6 @@ function EkranAbonamentuZBazy({ odczyt }: { odczyt: StanOdczytu<AbonamentOdpowie
                 <Wiersz tytul={s.konczySiePoOkresie ? 'Subskrypcja wygasa' : 'Następne odnowienie'} wartosc={dataPelna(s.okresDo)} />
               ) : null}
             </Sekcja>
-            <Sekcja stopka="Wszystkie funkcje FaktWay działają w aplikacji tak samo jak na komputerze." />
           </>
         )
       }
