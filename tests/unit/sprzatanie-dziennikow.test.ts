@@ -303,10 +303,8 @@ describe('migracja 00157 (tekst; zachowanie na bazie: rls-sprzatanie-dziennikow)
     expect(outsideBodies).toContain('CREATE INDEX IF NOT EXISTS idx_inngest_run_log_created_at\n  ON public.inngest_run_log (created_at);');
   });
 
-  it('rejestr numerów: 00157 zajęte w tym PR, „następny wolny” dalej', () => {
+  it('rejestr numerów: wiersz 00157', () => {
     const registry = readFileSync('docs/koordynacja/CLAUDE-DO-CODEXA.md', 'utf8');
     expect(registry).toMatch(/^\| 00157 \| Claude \(plan skalowania 3000, sesja 20\) \|/m);
-    const next = /^\| \*\*(\d{5})\*\* \| — \| następny wolny/m.exec(registry)?.[1];
-    expect(Number(next)).toBeGreaterThan(157);
   });
 });

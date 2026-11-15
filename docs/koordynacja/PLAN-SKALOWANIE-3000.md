@@ -84,8 +84,8 @@ naprawiamy i w jakiej kolejności.
 - **Pomiar przed i po w opisie PR.** Przy wydajności czerwony test to
   zwykle licznik: wywołań GoTrue na żądanie, zapytań na render, zadań
   w kolejce, rozmiaru pamięci. Liczba przed i po naprawie trafia do opisu.
-- **Migracje (sesje 20, 21, 28):** sesja przygotowuje plik z numerem z rejestru
-  w `CLAUDE-DO-CODEXA.md` i opisuje, czy wgrać go przed, czy po wdrożeniu.
+- **Migracje (sesje 20, 21, 28):** sesja przygotowuje plik z numerem
+  z `node scripts/dev/nastepna-migracja.mjs` i opisuje, czy wgrać go przed, czy po wdrożeniu.
   Wgrywa Bartosz: przed wdrożeniem, poza godzinami pracy.
 - **Scalanie paczkami (Bartosz, 03.11):** każda sesja to osobny PR. Gdy
   uzbierają się 3–4 gotowe, powstaje jeden zbiorczy PR „Scalenie …” według

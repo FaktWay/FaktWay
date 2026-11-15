@@ -13,12 +13,19 @@
 
 1. **Tylko pliki z `main`** (ze scalonego PR). Migracji z nie-scalonej
    gałęzi nie wgrywa się — PR może się jeszcze zmienić, a baza nie.
-2. **Numer z rejestru.** Rejestr jest w `docs/koordynacja/CLAUDE-DO-CODEXA.md`
-   (sekcja „Rejestr numerów migracji”, wiersz „następny wolny”). Nowa
-   migracja bierze ten numer i w TYM SAMYM PR dopisuje wiersz do rejestru.
-   Szkice Codexa mają numery 00083–00101, które częściowo kolidują z `main`
-   — przy przenoszeniu przenumeruj od następnego wolnego. `00200` jest zajęte
-   (wyjątek z audytu bloku 1).
+2. **Numer z `nastepna-migracja.mjs`.** `node scripts/dev/nastepna-migracja.mjs`
+   wypisuje następny wolny numer (największy z `origin/main`, katalogu
+   roboczego i otwartych PR, plus jeden; `00200` jest zajęte, wyjątek
+   z audytu bloku 1). Nowa migracja bierze ten numer. Wiersza w rejestrze
+   `docs/koordynacja/CLAUDE-DO-CODEXA.md` nie dopisujesz: tabela jest od 00207
+   zamrożoną historią (do 00206 włącznie), bo wspólny wiersz kłócił każde dwa
+   PR z migracją. Opis i kolejność względem wdrożenia są w nagłówku pliku,
+   w linii `-- KIEDY WGRAĆ: PRZED wdrożeniem …` albo `-- KIEDY WGRAĆ: PO
+   wdrożeniu …`. Dwa PR z tym samym numerem: kolejka scalania wyrzuca drugi
+   testem unikalności (`tests/unit/migracje-rejestr.test.ts` na commicie
+   grupy); wtedy `git merge origin/main`, nowy numer ze skryptu i zmiana nazwy
+   pliku. Szkice Codexa mają numery 00083–00101, które częściowo kolidują
+   z `main` — przy przenoszeniu nadaj numer od nowa.
 3. **Przed czy PO wdrożeniu** — mówi nagłówek migracji. Domyślnie przed
    (addytywne: nowa tabela, kolumna, funkcja, luźniejszy CHECK). PO
    wdrożeniu idą migracje, które odbierają coś staremu kodowi (uprawnienia,
@@ -35,8 +42,11 @@
    mówi, kiedy (`-- KIEDY WGRAĆ: PRZED wdrożeniem …` albo `PO wdrożeniu …`). Klucza SSH nie kopiuje się
    do chmury.
 
-Po wgraniu i weryfikacji zaktualizuj stan w rejestrze („wgrana na db-1
-DD.MM”) przy najbliższym PR.
+Stanu „wgrana na db-1” nie wpisujesz do repo: źródłem prawdy jest
+`supabase_migrations.schema_migrations` na db-1 (`/status` bramki pokazuje
+ostatnią migrację; niewgrane z `main` wypisuje `scripts/ci/migracje-niewgrane.mjs`).
+Po wgraniu i weryfikacji nie ma więc wpisu do zrobienia, poza typami bazy
+(sekcja „Typy bazy” niżej).
 
 NAJPIERW przeczytaj plik migracji i sprawdź, czy nie ma `DROP`, `TRUNCATE`
 ani `DELETE FROM`. Dopiero potem uruchamiaj.

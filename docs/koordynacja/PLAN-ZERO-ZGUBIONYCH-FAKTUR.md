@@ -96,7 +96,7 @@ Lekcje z rundy października, każda kosztowała realny czas:
 4. Wyzwalacz, RPC, RLS: testy na bazie (`tests/rls-*.test.ts`). Asercja sprawdza skutek, nie kod błędu.
 5. Test niestabilny to defekt testu: osobny mały PR od razu. Bez `vi.resetModules` i `vi.doMock` w locie.
 6. Decyzje współdzielone w czystych modułach (`ksef-send-policy.ts`, `ksef-operator-policy.ts`, `send-error-classes.ts`): przycisk i akcja decydują z tej samej tabeli.
-7. Migracje: numer z rejestru, nagłówek przed/PO wdrożeniu, zero `DROP TABLE/COLUMN`, `UPDATE` danych tylko za zgodą, typy bazy z produkcji.
+7. Migracje: numer z `node scripts/dev/nastepna-migracja.mjs`, nagłówek przed/PO wdrożeniu, zero `DROP TABLE/COLUMN`, `UPDATE` danych tylko za zgodą, typy bazy z produkcji.
 8. Nowy kod albo blokada najpierw w `ksef-operator-policy.ts` i `ksef-error-codes.md`.
 9. Produkcję czytasz tylko przez `scripts/ops/kontrola-faktur-ksef.sh` i procedury z `AGENTS.md`.
 

@@ -264,9 +264,8 @@ describe('migracja 00164', () => {
     expect(sql).not.toMatch(/\b(DROP|TRUNCATE|DELETE|UPDATE|INSERT)\b/i);
   });
 
-  it('rejestr numerów: wiersz 00164, a następny wolny nie wskazuje już tego numeru', () => {
+  it('rejestr numerów: wiersz 00164', () => {
     const registry = readFileSync(join(process.cwd(), 'docs/koordynacja/CLAUDE-DO-CODEXA.md'), 'utf8');
     expect(registry).toMatch(/^\| 00164 \|.*xml_documents_one_per_invoice/m);
-    expect(registry).not.toMatch(/^\| \*\*00164\*\* \| — \| następny wolny/m);
   });
 });
