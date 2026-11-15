@@ -2,6 +2,7 @@ import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
+import { AuthServiceUnavailableError, isAuthServiceFailure, logAuthServiceFailure } from '@/lib/auth/gotrue-errors';
 import { createAdminClient, createClient } from '@/lib/supabase/server';
 import { ACTIVE_ORG_COOKIE, isUuid } from '@/lib/supabase/active-org';
 import type { UserRole } from '@/lib/supabase/auth-context';
@@ -39,12 +40,21 @@ type MembershipTenantRow = {
 /**
  * Jedno wywołanie `getUser()` na request RSC (deduplikacja z layoutem / listą org,
  * `getPageContext` i stronami, które potrzebują pełnego użytkownika).
+ *
+ * `null` tylko przy odmowie (brak albo nieważna sesja). Awaria albo limit
+ * GoTrue rzuca `AuthServiceUnavailableError`: strona trafia na ekran błędu
+ * z „spróbuj ponownie”, a nie na logowanie (plan skalowania 3000, sesja 7).
  */
 export const getDashboardSessionUser = cache(async () => {
   const supabase = await createClient();
   const {
     data: { user },
+    error,
   } = await supabase.auth.getUser();
+  if (error && isAuthServiceFailure(error)) {
+    logAuthServiceFailure('panel', error);
+    throw new AuthServiceUnavailableError(error);
+  }
   return user;
 });
 

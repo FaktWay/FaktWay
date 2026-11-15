@@ -69,10 +69,14 @@ else
 fi
 
 # ── Źródło w Coolify musi pasować do trybu ──
-# Poprzednie tagi w POPRZEDNI_TAG_<id> (bash 3.2 z macOS nie ma tablic
-# asocjacyjnych).
+# Poprzednie tagi i nazwy obrazów w POPRZEDNI_TAG_<id> i POPRZEDNI_OBRAZ_<id>
+# (bash 3.2 z macOS nie ma tablic asocjacyjnych).
 poprzedni_tag() {
   local var="POPRZEDNI_TAG_$1"
+  echo "${!var:-}"
+}
+poprzedni_obraz() {
+  local var="POPRZEDNI_OBRAZ_$1"
   echo "${!var:-}"
 }
 for id in "$WORKER_ID" "$WEB_ID"; do
@@ -87,10 +91,11 @@ for id in "$WORKER_ID" "$WEB_ID"; do
       die "$(nazwa_aplikacji "$id") (id=$id): build_pack=$bp, cel Dockerfile=„$cel”, oczekiwane dockerfile/$(cel_dockerfile "$id"). Pusty cel buduje ostatni etap (coolify-pulapki.md). Napraw: ./scripts/ops/coolify-zrodlo.sh repo"
     fi
   else
-    if [ "$bp" != dockerimage ] || [ "$obraz" != "$(obraz_ghcr "$id")" ]; then
+    if [ "$bp" != dockerimage ] || ! nasz_obraz "$id" "$obraz"; then
       die "$(nazwa_aplikacji "$id") (id=$id) nie jest na obrazie $(obraz_ghcr "$id") (build_pack=$bp, obraz=„$obraz”). Przełącz: ./scripts/ops/coolify-zrodlo.sh obraz <sha>; albo wdrażaj buildem z repo: ./scripts/ops/wdroz-produkcje.sh"
     fi
     printf -v "POPRZEDNI_TAG_$id" '%s' "$tag"
+    printf -v "POPRZEDNI_OBRAZ_$id" '%s' "$obraz"
   fi
 done
 
@@ -161,8 +166,10 @@ deploy_obraz() {
   obraz=$(obraz_ghcr "$app_id")
   poprzedni=$(poprzedni_tag "$app_id")
   echo "── $name (Coolify id=$app_id): $obraz:$SHA (było: ${poprzedni:-brak})"
-  n=$(ustaw_pola "$app_id" "['docker_registry_image_tag' => '$SHA']")
-  [ "$n" = 1 ] || die "Nie ustawiłem tagu obrazu dla $name (zmienione wiersze: ${n:-?}). Nic nie wdrożyłem."
+  # Nazwa razem z tagiem: pierwsze wdrożenie po przeniesieniu repo przestawia
+  # Coolify ze starej nazwy obrazu na nazwę organizacji (coolify-wspolne.sh).
+  n=$(ustaw_pola "$app_id" "['docker_registry_image_name' => '$obraz', 'docker_registry_image_tag' => '$SHA']")
+  [ "$n" = 1 ] || die "Nie ustawiłem obrazu dla $name (zmienione wiersze: ${n:-?}). Nic nie wdrożyłem."
   uuid=$(queue_deployment "$app_id" "$SHA")
   if [ -z "$uuid" ]; then
     przywroc_tag "$app_id" "$poprzedni"
@@ -175,7 +182,9 @@ deploy_obraz() {
     exit 1
   elif [ "$rc" != 0 ]; then
     # Bez cofania tagu: wdrożenie może jeszcze skończyć się na nowym obrazie.
-    echo "Tag $name zostaje na $SHA. Po sprawdzeniu w panelu uruchom skrypt ponownie albo cofnij: ./scripts/ops/wdroz-produkcje.sh --obraz <poprzedni sha>" >&2
+    local cofnij_prefiks=""
+    [ "$(poprzedni_obraz "$app_id")" = "$GHCR_PREFIX_DAWNY-$(cel_dockerfile "$app_id")" ] && cofnij_prefiks="GHCR_PREFIX=$GHCR_PREFIX_DAWNY "
+    echo "Tag $name zostaje na $SHA. Po sprawdzeniu w panelu uruchom skrypt ponownie albo cofnij: ${cofnij_prefiks}./scripts/ops/wdroz-produkcje.sh --obraz ${poprzedni:-<poprzedni sha>}" >&2
     exit 1
   fi
   # Stary kontener może chwilę jeszcze być na liście: do minuty na jeden,
@@ -193,10 +202,11 @@ deploy_obraz() {
 }
 
 przywroc_tag() {
-  local app_id=$1 tag=$2 wartosc
+  local app_id=$1 tag=$2 obraz wartosc
+  obraz=$(poprzedni_obraz "$app_id")
   if [ -n "$tag" ]; then wartosc="'$tag'"; else wartosc=null; fi
-  echo "   przywracam tag obrazu na ${tag:-brak} (Coolify zostawia działający stary kontener)" >&2
-  ustaw_pola "$app_id" "['docker_registry_image_tag' => $wartosc]" >/dev/null || true
+  echo "   przywracam obraz na $obraz:${tag:-brak} (Coolify zostawia działający stary kontener)" >&2
+  ustaw_pola "$app_id" "['docker_registry_image_name' => '$obraz', 'docker_registry_image_tag' => $wartosc]" >/dev/null || true
 }
 
 if [ "$TRYB" = repo ]; then
@@ -206,7 +216,9 @@ else
   deploy_obraz "$WORKER_ID"
   if ! (deploy_obraz "$WEB_ID"); then
     cofnij=$(poprzedni_tag "$WORKER_ID")
-    echo "⚠️  Worker jest na $SHA, aplikacja na poprzedniej wersji (stan mieszany). Cofnięcie workera: ./scripts/ops/wdroz-produkcje.sh --obraz ${cofnij:-<poprzedni sha>}" >&2
+    cofnij_prefiks=""
+    [ "$(poprzedni_obraz "$WORKER_ID")" = "$GHCR_PREFIX_DAWNY-$(cel_dockerfile "$WORKER_ID")" ] && cofnij_prefiks="GHCR_PREFIX=$GHCR_PREFIX_DAWNY "
+    echo "⚠️  Worker jest na $SHA, aplikacja na poprzedniej wersji (stan mieszany). Cofnięcie workera: ${cofnij_prefiks}./scripts/ops/wdroz-produkcje.sh --obraz ${cofnij:-<poprzedni sha>}" >&2
     exit 1
   fi
 fi

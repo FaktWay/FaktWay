@@ -499,14 +499,17 @@
       "obszary": [
         "ksiegowosc.ewidencja",
         "ksiegowosc.kpir",
-        "ksiegowosc.rozliczenia"
+        "ksiegowosc.rozliczenia",
+        "jpk.vat-fa",
+        "raporty.kpir"
       ],
       "kod": [
         "lib/accounting/read-complete-pages.ts#readCompletePages",
         "lib/accounting/read-complete-pages.ts#readCompletePagesByKey"
       ],
       "testy": [
-        "tests/unit/accounting-complete-pages-by-key.test.ts > "
+        "tests/unit/accounting-complete-pages-by-key.test.ts > ",
+        "tests/unit/kpir-eksporty-po-kluczu.test.ts > "
       ],
       "parametry": [],
       "niezmienniki": [],

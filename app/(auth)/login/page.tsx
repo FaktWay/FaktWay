@@ -25,6 +25,7 @@ import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 
 // Lib Imports
+import { AUTH_BUSY_MESSAGE } from '@/lib/auth/gotrue-errors'
 import { isGoogleLoginEnabled } from '@/lib/auth/oauth-providers'
 import { safeRedirectPath } from '@/lib/auth/safe-redirect'
 import { isPhoneUserAgent } from '@/lib/auth/phone-user-agent'
@@ -43,6 +44,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   auth_callback_failed: 'Link z maila wygasł lub był już użyty. Zarejestruj się ponownie albo poproś o nowy link.',
   rate_limited: 'Zbyt wiele prób logowania. Poczekaj kilka minut i spróbuj ponownie.',
   bot_check_failed: 'Nie udało się potwierdzić, że nie jesteś botem. Odśwież stronę i spróbuj ponownie.',
+  // Limit (429) i awaria GoTrue (plan skalowania 3000, sesja 7): to nie „złe hasło”.
+  auth_busy: AUTH_BUSY_MESSAGE,
+  auth_unavailable: 'Nie udało się teraz zalogować. Spróbuj ponownie za chwilę.',
 }
 
 const SUCCESS_MESSAGES: Record<string, string> = {

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC1111 # cudzysłowy „…” w komunikatach są celowe
 # ════════════════════════════════════════════════════════════════
 # Wgranie migracji „przed wdrożeniem” na produkcję (db-1)
 # ────────────────────────────────────────────────────────────────
@@ -7,9 +8,11 @@
 #   ./scripts/ops/wgraj-migracje.sh 00157 00158 00159
 #
 # Skrypt robi to, co AGENTS.md → „Wgrywanie migracji” opisuje ręcznie:
-# - pliki bierze wyłącznie z `origin/main`, nie z katalogu roboczego;
-# - zatrzymuje się na DROP TABLE, DROP COLUMN, TRUNCATE i DELETE FROM poza
-#   ciałem funkcji, bo te wymagają osobnej zgody Bartosza;
+# - pliki bierze wyłącznie z `origin/main` (albo z SHA z `WGRAJ_REF`), nie
+#   z katalogu roboczego;
+# - zatrzymuje się na tym, co kontrola (`kontrola-migracji.mjs`) uznaje za
+#   wymagające człowieka: DROP TABLE/COLUMN, TRUNCATE, DELETE FROM, UPDATE,
+#   RENAME, zmiana typu kolumny (zgoda Bartosza, wgranie ręczne);
 # - pomija numer, który już jest w `schema_migrations`;
 # - każdą migrację wykonuje w jednej transakcji i dopisuje do `schema_migrations`;
 # - na końcu `NOTIFY pgrst` i sprawdzenie, że PostgREST widzi nowe tabele.
@@ -30,12 +33,12 @@ fi
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 MAIN_ROOT=""
-COMMON_DIR=$(git -C "$ROOT" rev-parse --git-common-dir 2>/dev/null || true)
+# Ścieżka bezwzględna, bo w worktree Git Bash na Windowsie podaje `C:/…`,
+# której nie da się dokleić do $ROOT. Gdy `cd` się nie uda, MAIN_ROOT
+# zostaje pusty, a skrypt idzie dalej.
+COMMON_DIR=$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
 if [ -n "$COMMON_DIR" ]; then
-  case "$COMMON_DIR" in
-    /*) MAIN_ROOT=$(cd "$COMMON_DIR/.." && pwd) ;;
-    *)  MAIN_ROOT=$(cd "$ROOT/$COMMON_DIR/.." && pwd) ;;
-  esac
+  MAIN_ROOT=$(cd "$COMMON_DIR/.." 2>/dev/null && pwd) || MAIN_ROOT=""
 fi
 
 ENV_FILE=""
@@ -67,7 +70,20 @@ psql_query() {
 }
 
 git -C "$ROOT" fetch origin main --quiet
-ALL_FILES=$(git -C "$ROOT" ls-tree --name-only origin/main supabase/migrations/)
+# Źródło plików: domyślnie origin/main; nocne wdrożenie podaje SHA, na którym stoi
+# (WGRAJ_REF), żeby nie wgrać migracji z commita nowszego niż wdrażany kod.
+REF=${WGRAJ_REF:-origin/main}
+if [ "$REF" != origin/main ]; then
+  if ! [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || ! git -C "$ROOT" merge-base --is-ancestor "$REF" origin/main 2>/dev/null; then
+    echo "WGRAJ_REF musi być origin/main albo pełnym SHA, który jest na origin/main (jest: „$REF”)." >&2
+    exit 1
+  fi
+fi
+command -v node >/dev/null || { echo "Brak node: kontrola migracji (scripts/ops/kontrola-migracji.mjs) nie ruszy, nic nie wgrywam." >&2; exit 1; }
+# Opcje psql na czas migracji (nocne wdrożenie ustawia lock_timeout i statement_timeout).
+PGOPT=""
+if [ -n "${WGRAJ_PGOPTIONS:-}" ]; then PGOPT="-e PGOPTIONS='${WGRAJ_PGOPTIONS}'"; fi
+ALL_FILES=$(git -C "$ROOT" ls-tree --name-only "$REF" supabase/migrations/)
 
 # Najpierw sprawdzenie wszystkich numerów, żeby nie zatrzymać się w połowie
 # na literówce albo zakazanej instrukcji.
@@ -82,11 +98,14 @@ for num in "$@"; do
     echo "Migracja $num: oczekiwałem jednego pliku na origin/main, znalazłem: ${file:-żadnego}." >&2
     exit 1
   fi
-  forbidden=$(git -C "$ROOT" show "origin/main:$file" \
-    | grep -nE '^(DROP TABLE|TRUNCATE|DELETE FROM)|^ALTER TABLE.*DROP COLUMN|^[[:space:]]+DROP COLUMN' || true)
-  if [ -n "$forbidden" ]; then
-    echo "Migracja $num ma instrukcje wymagające zgody Bartosza. Wgraj ją ręcznie:" >&2
-    printf '%s\n' "$forbidden" >&2
+  # Kontrola oczyszcza SQL z komentarzy, tekstów i ciał funkcji, więc nie łapie
+  # `DELETE FROM` w funkcji, a łapie ukryte w bloku DO (dawny grep łapał
+  # pierwsze, a nie drugie). Zakazane bez człowieka: DROP TABLE/COLUMN,
+  # TRUNCATE, DELETE FROM, UPDATE, RENAME, zmiana typu (pełna lista w nagłówku
+  # kontrola-migracji.mjs).
+  if ! kontrola=$(node "$ROOT/scripts/ops/kontrola-migracji.mjs" --bez-fazy --git "$REF" "$num" 2>&1); then
+    echo "Migracja $num wymaga człowieka (kontrola-migracji.mjs). Wgraj ją ręcznie według docs/runbooks/wgrywanie-migracji.md:" >&2
+    printf '%s\n' "$kontrola" >&2
     exit 1
   fi
   FILES="$FILES $file"
@@ -102,10 +121,10 @@ for file in $FILES; do
     continue
   fi
   echo "── $num: wgrywam $base"
-  git -C "$ROOT" show "origin/main:$file" \
-    | on_db "docker exec -i $PGC psql -U postgres -d postgres -q -v ON_ERROR_STOP=1 --single-transaction -f -"
+  git -C "$ROOT" show "$REF:$file" \
+    | on_db "docker exec -i $PGOPT $PGC psql -U postgres -d postgres -q -v ON_ERROR_STOP=1 --single-transaction -f -"
   psql_query "INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('$num', '$name') ON CONFLICT (version) DO NOTHING" >/dev/null
-  TABLES="$TABLES $(git -C "$ROOT" show "origin/main:$file" \
+  TABLES="$TABLES $(git -C "$ROOT" show "$REF:$file" \
     | grep -oE '^CREATE TABLE (IF NOT EXISTS )?public\.[a-z0-9_]+' | sed 's/.*public\.//' || true)"
 done
 

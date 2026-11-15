@@ -8,6 +8,7 @@ import {
   isUuid,
 } from './active-org';
 import { createSupabaseFetch } from './fetch-timeout';
+import { withRefreshRateLimit } from './refresh-rate-limit';
 
 /**
  * Supabase client do użycia na serwerze:
@@ -25,6 +26,7 @@ import { createSupabaseFetch } from './fetch-timeout';
  * Każde wywołanie ma limit czasu (`lib/supabase/fetch-timeout.ts`, sesja 5
  * planu skalowania): odczyt 10 s, zapis 30 s. Przekroczenie to `error`
  * w wyniku (PostgREST) albo błąd przejściowy auth-js, a nie wylogowanie.
+ * Limit GoTrue (429) przy odświeżeniu sesji też (`withRefreshRateLimit`, sesja 7).
  */
 export async function createClient() {
   const cookieStore = await cookies();
@@ -60,7 +62,7 @@ export async function createClient() {
         },
       },
       global: {
-        fetch: createSupabaseFetch(),
+        fetch: withRefreshRateLimit(createSupabaseFetch()),
         ...(Object.keys(headers).length > 0 ? { headers } : {}),
       },
     }
@@ -99,7 +101,7 @@ export async function createClientForOrg(orgId: string | null | undefined) {
         },
       },
       global: {
-        fetch: createSupabaseFetch(),
+        fetch: withRefreshRateLimit(createSupabaseFetch()),
         ...(Object.keys(headers).length > 0 ? { headers } : {}),
       },
     }

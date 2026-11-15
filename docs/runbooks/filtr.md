@@ -1,7 +1,7 @@
 # Żelazny filtr: gdy coś zablokuje
 
 > Plan: `docs/koordynacja/PLAN-ZELAZNY-FILTR.md` (B6). Dane filtra: `filtr/`
-> (`README.md` w skrócie). Etykiety zgody nadaje tylko Bartosz.
+> (`README.md` w skrócie). Etykiety zgody nadaje agent, który zrobił PR, po drugim czytelniku (`AGENTS.md`, „Żelazny filtr”).
 
 ## Gdzie filtr łapie i co dalej
 
@@ -22,6 +22,20 @@ pnpm filtr:lokalnie
 ```bash
 node scripts/filtr/straz.mjs --pr 488 --tylko-raport
 ```
+
+## Karta R1 w obszarze bez reguły w rejestrze
+
+Straż przy R1 wymaga w polu „Przepisy z rejestru” id `RP-…` z `filtr/przepisy/`
+albo „nowego przepisu” ze źródłem. Rejestr ma reguły tylko dla części obszarów
+R1 (m.in. `koszty`, `retencja`, `windykacja`, `ksef.wysylka`, `operator.dane-faktur`,
+`kontrahent` ich nie mają). Gdy **żaden** obszar R1 w PR nie ma reguły w rejestrze,
+wystarczy uzasadniony brak: napisz w polu „brak reguły w rejestrze dla obszaru …”
+i dlaczego zmiana nie liczy ani nie zmienia kwot, terminów i plików. Gdy choć
+jeden obszar R1 w PR ma regułę, id nadal obowiązuje (liczą się tylko obszary
+o poziomie R1; reguła obszaru R2 w tym samym pliku nie zmusza do id, a komunikat
+straży wymienia obszary R1, które regułę mają). Pozostałe wymogi R1 (testy
+w „Dowody”, drugi czytelnik, etykiety zgody) zostają bez zmian. Nie wpisuj id
+reguły, która do zmiany nie pasuje.
 
 ## Wyjątki
 
