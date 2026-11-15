@@ -129,7 +129,7 @@ Dostęp: `ssh -i $K root@$DB` (i analogicznie `$APP`, `$OPS`).
 
 1. **Agent sam scala PR przez etykietę `scal`** (decyzja Bartosza
    z 14.11.2026: bez pytania go). Jedna linia, ta sama lokalnie, w Codexie
-   i w chmurze (tylko REST): `./scripts/ops/scal-pr.sh N` (z `--czekaj`, gdy
+   i w chmurze (etykiety i odczyty przez REST): `./scripts/ops/scal-pr.sh N` (z `--czekaj`, gdy
    chcesz zobaczyć wynik). Skrypt nadaje etykietę i włącza scalanie z Twojego
    konta (`gh pr merge`), a PR sam wchodzi do kolejki, gdy kontrole są zielone,
    więc nie czekasz na CI. Z chmury (GraphQL zablokowany) scalanie włącza

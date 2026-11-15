@@ -67,9 +67,14 @@ Sprawdza PR (otwarty, nie szkic, baza `main`, bez konfliktu i bez
 W sesji chmurowej ten ostatni krok kończy się ostrzeżeniem (GraphQL zablokowany):
 etykieta zostaje, a scalanie włączy workflow, jeśli ma `SCAL_TOKEN`. PR, który
 ma już włączone scalanie albo jest w kolejce, zostaje bez zmian (ponowne nadanie
-etykiety wyjęłoby go z kolejki). Etykieta już była,
-ale scalanie nie jest włączone (np. po wyrzuceniu z kolejki): zdejmuje ją
-i nadaje od nowa, bo GitHub nie wysyła zdarzenia dla etykiety, która już jest.
+etykiety wyjęłoby go z kolejki). Etykieta już była, ale scalanie nie jest
+włączone (np. po wyrzuceniu z kolejki): wystarcza samo `gh pr merge`, bez
+zdejmowania etykiety (zdjęcie to zdarzenie `unlabeled`, które wyłączyłoby świeżo
+włączone scalanie). Etykietę zdejmuje i nadaje od nowa dopiero wtedy, gdy
+`gh pr merge` zawiedzie (chmura), bo GitHub nie wysyła zdarzenia dla etykiety,
+która już jest. Scalanie włączone wcześniej przez workflow (autor `github-actions`)
+skrypt wyłącza i włącza od nowa z Twojego konta: to najprostsza naprawa PR
+zostawionych w stanie sprzed tej zmiany (`./scripts/ops/scal-pr.sh N`).
 
 PR wymagający etykiet zgody (straż ich żąda), po drugim czytelniku:
 
@@ -113,8 +118,8 @@ tokenem `GITHUB_TOKEN` (`github-actions[bot]`).
   #769, #785, #786, #787, #788), nie wszedł do kolejki sam. Każdy dostał wpis
   `added_to_merge_queue` od człowieka, najdłuższy po prawie dwóch godzinach.
 - #760 i #769 miały `statusCheckRollup` SUCCESS, bez anulowanych kontroli,
-  wszystkie wymagane kontrole zielone (od 14:31 i 14:37 UTC) i też nie weszły przez 40 minut. Anulowane
-  przebiegi nie są więc przyczyną wstrzymania.
+  wszystkie wymagane kontrole zielone (od 14:31 i 14:37 UTC) i też nie weszły
+  przez 35 do 40 minut. Anulowane przebiegi nie są więc jedyną przyczyną.
 - Jedyny wpis zrobiony przez workflow (#765, ścieżka „clean status” w
   `wlacz()`, `actor` `github-actions[bot]`) stał w AWAITING_CHECKS bez
   przebiegów `merge_group`, aż człowiek zrobił dequeue i enqueue. Przebiegi
@@ -134,7 +139,8 @@ praktyczny nie zależy od przyczyny: scalanie włącza tylko człowiek (albo sek
 `concurrency` z `cancel-in-progress: true`, więc `scal` nadane tuż po `zgoda:*`
 anulowało przebieg na tym samym SHA. Anulowany przebieg to osobna kontrola:
 nowszy zielony go nie zastępuje w `statusCheckRollup`, który zostaje FAILURE
-(#785, #786, #787). Nie blokuje wejścia do kolejki (patrz #760, #769), ale
+(#785, #786, #787). Nie blokuje wpisu do kolejki (ręczny wpis przeszedł na
+tych trzech PR; #760 i #769 pokazują, że to nie była jedyna przyczyna), ale
 wprowadzał w błąd ludzi i skrypty. Teraz anuluje się tylko przebieg z
 poprzedniego pushu (`synchronize`), a zdarzenia etykiet mają własną grupę.
 Nie dodawaj do tych workflowów `if:` pomijającego zadanie na nieistotne

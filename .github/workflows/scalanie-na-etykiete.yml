@@ -1,12 +1,15 @@
 name: Scalanie na etykietę
 
 # Jedna ścieżka scalania dla każdego środowiska agenta (docs/runbooks/scalanie-pr.md).
-# Sesja lokalna, Codex i sesja w chmurze (proxy GitHuba odrzuca tam GraphQL, więc
-# `gh pr merge` nie działa) nadają etykietę `scal` przez REST
-# (`scripts/ops/scal-pr.sh`). Ten workflow włącza wtedy automatyczne scalanie:
-# przy włączonej kolejce scalania PR wchodzi do kolejki, gdy kontrole są zielone.
-# Agent nie czeka na CI. Nowy push, zdjęcie `scal` albo etykieta `wstrzymaj`
-# wyłączają scalanie i wyjmują PR z kolejki.
+# Sesja lokalna, Codex i sesja w chmurze nadają etykietę `scal` przez REST
+# (`scripts/ops/scal-pr.sh`). Sesja lokalna włącza potem scalanie sama z konta
+# człowieka (`gh pr merge`). W chmurze proxy GitHuba odrzuca GraphQL, więc scalanie
+# włącza tu ten workflow, ale TYLKO z sekretem SCAL_TOKEN (konto człowieka): wpis do
+# kolejki zrobiony tokenem Actions nie uruchamia kontroli grupy (docs/runbooks/
+# scalanie-pr.md, „Dlaczego PR nie wchodził do kolejki”). Przy włączonej kolejce
+# scalania PR wchodzi do kolejki, gdy kontrole są zielone; agent nie czeka na CI.
+# Nowy push, zdjęcie `scal` albo etykieta `wstrzymaj` wyłączają scalanie i wyjmują
+# PR z kolejki (tokenem Actions: bez sekretu też działa).
 #
 # pull_request_target: workflow i skrypt pochodzą z gałęzi domyślnej, więc PR
 # nie osłabi kontroli, która go ocenia. Kod z PR NIE jest tu pobierany ani
