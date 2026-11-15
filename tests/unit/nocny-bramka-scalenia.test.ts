@@ -190,6 +190,19 @@ describe('ocenPR: pliki', () => {
     'tsconfig.json',
     'eslint.config.mjs',
     'tests/setup.ts',
+    'tests/setup-rls.ts',
+    'tests/helpers/blokada-sieci.ts',
+    'tests/stubs/server-only.ts',
+    'tests/unit/nocny-telegram.test.ts',
+    'scripts/dev/przygotuj-worktree.sh',
+    'scripts/dev/wlacz-hooki.mjs',
+    'mobile/tsconfig.json',
+    'mobile/eslint.config.js',
+    'mobile/pnpm-workspace.yaml',
+    'supabase/config.toml',
+    'docs/runbooks/scalanie-pr.md',
+    'docs/koordynacja/PLAN-FINORA.md',
+    'docs/filtr/LISTA-KONTROLNA.md',
   ])('zasady, infrastruktura i migracje: %s to NIE', (sciezka) => {
     const wynik = ocena(zPlikiem({ filename: sciezka, status: 'modified', changes: 1, patch: '@@\n+x' }));
     expect(wynik.wynik).toBe('NIE');
@@ -273,14 +286,45 @@ describe('ocenPR: pliki', () => {
     ["+test.skip.each([1])('c', () => {});", true],
     ["+xit('d', () => {});", true],
     ["+fdescribe('e', () => {});", true],
+    ["+it.concurrent.skip('g', () => {});", true],
+    ["+describe.sequential.only('h', () => {});", true],
+    ['+  ctx.skip();', true],
+    ["+it.skipIf(true)('i', () => {});", true],
+    ["+it.runIf(false)('j', () => {});", true],
+    ["+it.todo('k');", true],
+    ["+it.fails('FZ-001: znane naruszenie', () => {});", true],
     ["+describe.skipIf(!bazaDostepna)('rls', () => {});", false],
     ["+it.runIf(process.env.CI)('f', () => {});", false],
-    ["+it.fails('FZ-001: znane naruszenie', () => {});", false],
     ["-it.skip('usunięte pominięcie', () => {});", false],
   ])('pominięcie testu w dodanej linii %s: %s', (linia, blokuje) => {
     expect(pominieteTesty(`@@ -1,1 +1,1 @@\n${linia}`).length > 0).toBe(blokuje);
     const plik = { ...PLIK_TESTU, patch: `@@ -1,1 +1,1 @@\n${linia}` };
     expect(ocena({ pliki: [plik, PLIK_KODU] }).wynik).toBe(blokuje ? 'NIE' : 'TAK');
+  });
+
+  it('istniejący test dostaje tylko nowe linie: zmieniona albo usunięta linia to NIE', () => {
+    const zmieniony = { filename: 'tests/unit/stary.test.ts', status: 'modified', changes: 2, patch: '@@ -1,1 +1,1 @@\n-expect(vat(100)).toBe(23);\n+expect(vat(100)).toBe(22);' };
+    const wynik = ocena({ pliki: [PLIK_TESTU, PLIK_KODU, zmieniony], pr: pr({ changed_files: 3 }) });
+    expect(wynik.powody.join('\n')).toContain('PR zmienia albo usuwa linie istniejących testów: tests/unit/stary.test.ts');
+    const dopisany = { ...zmieniony, patch: "@@ -1,0 +2,1 @@\n+it('nowy przypadek', () => {});" };
+    expect(ocena({ pliki: [PLIK_TESTU, PLIK_KODU, dopisany], pr: pr({ changed_files: 3 }) }).wynik).toBe('TAK');
+  });
+
+  it('linia zgody i scalenia tylko wtedy, gdy brak zgody to jedyna przeszkoda', () => {
+    const wrazliwy = { filename: 'lib/ksef/submit.ts', status: 'modified', changes: 2, patch: '@@\n+x' };
+    const zgoda = 'po przeczytaniu zmian: gh pr edit 900 --add-label zgoda:obszar-wrazliwy && sleep 30 && ./scripts/ops/scal-pr.sh 900 --czekaj';
+    const przejrzyj = 'czeka na zgodę, ale ma też inne powody NIE, przejrzyj ją i zdecyduj: gh pr view 900 --web';
+    const z = (zmiany: Obiekt) => ocena({ pliki: [PLIK_TESTU, PLIK_KODU, wrazliwy], pr: pr({ changed_files: 3 }), ...zmiany }).linia;
+    // Skutki samego braku zgody: czerwony „Agent guard”, stan blocked.
+    const agentCzerwony = [...przebiegi(), { id: 5000, name: 'Agent guard', status: 'completed', conclusion: 'failure' }];
+    expect(z({ przebiegi: agentCzerwony })).toBe(zgoda);
+    expect(z({ pr: pr({ changed_files: 3, mergeable_state: 'blocked' }) })).toBe(zgoda);
+    // Inne powody: usunięty test, pominięty test na bazie, kontrole w toku, czerwony test jednostkowy.
+    const usuniety = { filename: 'tests/unit/inny.test.ts', status: 'removed', changes: 9 };
+    expect(ocena({ pliki: [PLIK_TESTU, PLIK_KODU, wrazliwy, usuniety], pr: pr({ changed_files: 4 }) }).linia).toBe(przejrzyj);
+    expect(z({ krokiTestFirst: [{ name: KROK_TESTU_NA_BAZIE, conclusion: 'skipped' }] })).toBe(przejrzyj);
+    expect(z({ przebiegi: [...przebiegi(), { id: 5000, name: 'Next build', status: 'in_progress', conclusion: null }] })).toBe(przejrzyj);
+    expect(z({ przebiegi: [...przebiegi(), { id: 5000, name: 'Typecheck + Lint + Unit tests', status: 'completed', conclusion: 'failure' }] })).toBe(przejrzyj);
   });
 
   it('test bez podglądu zmian (za duży diff) to NIE', () => {
@@ -462,9 +506,10 @@ describe('wyłącznik', () => {
     expect(zmiennaWlacza(wartosc)).toBe(wlacza);
   });
 
-  const apiWylacznika = (zgloszenia: unknown, zmienna: unknown) =>
+  const apiWylacznika = (zgloszenia: unknown, zmienna: unknown, etykieta: unknown = { name: 'nocny:stop' }) =>
     vi.fn(async (sciezka: string) => {
       if (sciezka.includes('/issues?')) return zgloszenia;
+      if (sciezka === `repos/${REPO}/labels/nocny%3Astop`) return etykieta;
       if (sciezka.includes('/actions/variables/NOCNY_STOP')) {
         if (zmienna instanceof Error) throw zmienna;
         return zmienna;
@@ -488,6 +533,12 @@ describe('wyłącznik', () => {
     const wynik = await sprawdzWylacznik({ api: apiWylacznika([], new BladApi('repos/x/actions/variables/NOCNY_STOP', 403, 'brak')), repo: REPO });
     expect(wynik.wlaczony).toBe(false);
     expect(wynik.uwaga).toContain('HTTP 403');
+  });
+
+  it('bez etykiety nocny:stop w repozytorium: praca, ale z uwagą (wyłącznik przez etykietę nie zadziała)', async () => {
+    const wynik = await sprawdzWylacznik({ api: apiWylacznika([], null, null), repo: REPO });
+    expect(wynik.wlaczony).toBe(false);
+    expect(wynik.uwaga).toContain('Etykiety nocny:stop nie ma w repozytorium');
   });
 
   it('błąd odczytu zgłoszeń albo inny błąd zmiennej przerywa (stop)', async () => {
@@ -558,15 +609,23 @@ describe('GitHub przez gh api i git', () => {
 });
 
 describe('glowna', () => {
-  function router(stan: { pr?: Obiekt[]; zgloszenia?: unknown[] } = {}) {
+  function router(stan: { pr?: Array<Obiekt | Error>; zgloszenia?: unknown[]; zdjecieScal?: 'ok' | 'blad' } = {}) {
     const odpowiedziPr = stan.pr ?? [pr()];
     let ktoryPr = 0;
     const api = vi.fn(async (sciezka: string, opcje?: { metoda?: string; pola?: Record<string, string> }) => {
       if (sciezka === `repos/${REPO}`) return { full_name: REPO };
       if (sciezka.startsWith(`repos/${REPO}/issues?`)) return stan.zgloszenia ?? [];
+      if (sciezka === `repos/${REPO}/labels/nocny%3Astop`) return { name: 'nocny:stop' };
       if (sciezka === `repos/${REPO}/actions/variables/NOCNY_STOP`) return null;
-      if (sciezka === `repos/${REPO}/issues/900/labels/scal` && opcje?.metoda === 'DELETE') return [];
-      if (sciezka === `repos/${REPO}/pulls/900`) return odpowiedziPr[Math.min(ktoryPr++, odpowiedziPr.length - 1)];
+      if (sciezka === `repos/${REPO}/issues/900/labels/scal` && opcje?.metoda === 'DELETE') {
+        if (stan.zdjecieScal === 'blad') throw new BladApi(sciezka, 502, 'Bad Gateway');
+        return [];
+      }
+      if (sciezka === `repos/${REPO}/pulls/900`) {
+        const odpowiedz = odpowiedziPr[Math.min(ktoryPr++, odpowiedziPr.length - 1)];
+        if (odpowiedz instanceof Error) throw odpowiedz;
+        return odpowiedz;
+      }
       if (sciezka.startsWith(`repos/${REPO}/pulls/900/files?`)) return [PLIK_TESTU, PLIK_KODU];
       if (sciezka.startsWith(`repos/${REPO}/commits/${SHA}/check-runs?`)) return { total_count: KONTROLE_WYMAGANE.length, check_runs: przebiegi() };
       if (sciezka.startsWith(`repos/${REPO}/commits/${SHA}/statuses?`)) return [];
@@ -648,6 +707,20 @@ describe('glowna', () => {
     expect(wynik.kod).toBe(1);
     expect(api).toHaveBeenCalledWith(`repos/${REPO}/issues/900/labels/scal`, { metoda: 'DELETE', dopusc404: true });
     expect(wynik.wyjscie).toContain('etykietę zdjąłem');
+  });
+
+  it('nie da się potwierdzić głowy po scal-pr.sh albo zdjąć scal: kod 2 i prośba o wstrzymaj', async () => {
+    const bladOdczytu = await uruchom(['900', '--scal'], router({ pr: [pr(), pr(), new BladApi(`repos/${REPO}/pulls/900`, 502, 'Bad Gateway')] }));
+    expect(bladOdczytu.kod).toBe(2);
+    expect(bladOdczytu.wyjscie).toContain('UWAGA: scal nadana, ale nie mogę sprawdzić głowy PR');
+    expect(bladOdczytu.wyjscie).toContain('dodaj etykietę wstrzymaj na #900');
+
+    const zmieniony = pr({ head: { ref: 'agent/nocny-2026-11-18-n01-lista', sha: INNE_SHA, repo: { full_name: REPO } } });
+    const api = router({ pr: [pr(), pr(), zmieniony], zdjecieScal: 'blad' });
+    const bladZdjecia = await uruchom(['900', '--scal'], api);
+    expect(bladZdjecia.kod).toBe(2);
+    expect(api.mock.calls.filter((c) => c[0] === `repos/${REPO}/issues/900/labels/scal`)).toHaveLength(2);
+    expect(bladZdjecia.wyjscie).toContain('a etykiety nie dało się zdjąć');
   });
 
   it('scal-pr.sh działa tylko na FaktWay/FaktWay', async () => {

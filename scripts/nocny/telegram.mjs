@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // Raport nocnego zespołu na Telegram (docs/runbooks/nocny-zespol.md, „Raport na Telegram”).
 //
-// Ten sam bot i te same czaty co nocne wdrożenie (scripts/ops/nocne-wdrozenie.sh,
-// docs/runbooks/nocne-wdrozenie.md): zmienne środowiska sesji TELEGRAM_BOT_TOKEN
-// i TELEGRAM_CHAT_IDS (kilka identyfikatorów po przecinku; dawna nazwa
-// TELEGRAM_CHAT_ID też działa), te same wartości co w /etc/faktway-nocne.env.
+// Osobny bot tylko do raportów nocy: NOCNY_TELEGRAM_TOKEN w zmiennych środowiska
+// sesji w chmurze. Token bota aplikacji i nocnego wdrożenia (TELEGRAM_BOT_TOKEN)
+// to także bot bramki operatorów (`ops/bramka`, polecenia `/wdroz` przez
+// getUpdates), więc do chmury nie trafia; skrypt go nie używa i ostrzega, gdy
+// jest w środowisku. Czaty te same co nocne wdrożenie: TELEGRAM_CHAT_IDS
+// (kilka identyfikatorów po przecinku; dawna nazwa TELEGRAM_CHAT_ID też działa).
 // Funkcji `telegram()` z nocnego wdrożenia nie da się użyć z chmury (żyje na
 // ops-1 w skrypcie wdrożenia) i ucina tekst na 3900 znakach, a koniec raportu
 // („czeka na Ciebie”) jest najważniejszy. Tekst bierze
@@ -207,13 +209,18 @@ export async function glowna(argv, zaleznosci = {}) {
     return 0;
   }
 
-  const token = String(env.TELEGRAM_BOT_TOKEN ?? '').trim();
+  if (String(env.TELEGRAM_BOT_TOKEN ?? '').trim()) {
+    bledy(
+      'Uwaga: w środowisku jest TELEGRAM_BOT_TOKEN (bot bramki operatorów i alertów). Nie należy do chmury: usuń go ze zmiennych środowiska; raport używa tylko NOCNY_TELEGRAM_TOKEN.',
+    );
+  }
+  const token = String(env.NOCNY_TELEGRAM_TOKEN ?? '').trim();
   if (!token) {
-    bledy('Brak TELEGRAM_BOT_TOKEN: ustaw token bota w zmiennych środowiska sesji (nie w czacie i nie w repozytorium).');
+    bledy('Brak NOCNY_TELEGRAM_TOKEN: ustaw token osobnego bota raportów nocy w zmiennych środowiska sesji (nie w czacie i nie w repozytorium).');
     return 2;
   }
   if (!TOKEN.test(token)) {
-    bledy('TELEGRAM_BOT_TOKEN ma zły format (oczekiwane: liczba, dwukropek i znaki tokenu z BotFathera).');
+    bledy('NOCNY_TELEGRAM_TOKEN ma zły format (oczekiwane: liczba, dwukropek i znaki tokenu z BotFathera).');
     return 2;
   }
   const { czaty, blad } = czytajCzaty(env.TELEGRAM_CHAT_IDS || env.TELEGRAM_CHAT_ID);
@@ -237,7 +244,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     })
     .catch((blad) => {
       const opis = blad instanceof Error ? blad.message : 'nieznany błąd';
-      console.error(`telegram: ${ukryjToken(opis, String(process.env.TELEGRAM_BOT_TOKEN ?? '').trim())}`);
+      console.error(`telegram: ${ukryjToken(opis, String(process.env.NOCNY_TELEGRAM_TOKEN ?? '').trim())}`);
       process.exitCode = 1;
     });
 }

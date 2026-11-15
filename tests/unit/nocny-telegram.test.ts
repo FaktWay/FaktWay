@@ -22,7 +22,7 @@ import {
  */
 
 const TOKEN = '123456789:AAFake_token-for-tests_0123456789';
-const env = { TELEGRAM_BOT_TOKEN: TOKEN, TELEGRAM_CHAT_IDS: '111222333' };
+const env = { NOCNY_TELEGRAM_TOKEN: TOKEN, TELEGRAM_CHAT_IDS: '111222333' };
 
 type Wywolanie = { url: string; body: { chat_id: string; text: string; parse_mode?: string; link_preview_options?: unknown } };
 
@@ -213,11 +213,21 @@ describe('wysyłka', () => {
 });
 
 describe('wejście i konfiguracja', () => {
-  it('te same zmienne co nocne wdrożenie (TELEGRAM_CHAT_IDS), dawna TELEGRAM_CHAT_ID jako zapas', async () => {
+  it('czaty z TELEGRAM_CHAT_IDS jak w nocnym wdrożeniu, dawna TELEGRAM_CHAT_ID jako zapas', async () => {
     const { fetch, wywolania } = atrapaFetch(ok());
-    expect((await uruchom([], { env: { TELEGRAM_BOT_TOKEN: TOKEN, TELEGRAM_CHAT_ID: '444' }, wejscie: 'x', fetch })).kod).toBe(0);
-    expect((await uruchom([], { env: { TELEGRAM_BOT_TOKEN: TOKEN, TELEGRAM_CHAT_IDS: '555', TELEGRAM_CHAT_ID: '444' }, wejscie: 'x', fetch })).kod).toBe(0);
+    expect((await uruchom([], { env: { NOCNY_TELEGRAM_TOKEN: TOKEN, TELEGRAM_CHAT_ID: '444' }, wejscie: 'x', fetch })).kod).toBe(0);
+    expect((await uruchom([], { env: { NOCNY_TELEGRAM_TOKEN: TOKEN, TELEGRAM_CHAT_IDS: '555', TELEGRAM_CHAT_ID: '444' }, wejscie: 'x', fetch })).kod).toBe(0);
     expect(wywolania.map((w) => w.body.chat_id)).toEqual(['444', '555']);
+  });
+
+  it('token bota bramki w środowisku: ostrzega bez wypisania, wysyła tylko botem nocy', async () => {
+    const TOKEN_BRAMKI = '987654321:BBOperator_gate_token_for_tests_000';
+    const { fetch, wywolania } = atrapaFetch(ok());
+    const wynik = await uruchom([], { env: { ...env, TELEGRAM_BOT_TOKEN: TOKEN_BRAMKI }, wejscie: 'raport', fetch });
+    expect(wynik.kod).toBe(0);
+    expect(wywolania[0].url).toBe(`https://api.telegram.org/bot${TOKEN}/sendMessage`);
+    expect(wynik.bledy).toContain('w środowisku jest TELEGRAM_BOT_TOKEN');
+    expect(`${wynik.wyjscie}${wynik.bledy}`).not.toContain(TOKEN_BRAMKI);
   });
 
   it('czyta raport z pliku', async () => {
@@ -239,9 +249,10 @@ describe('wejście i konfiguracja', () => {
   });
 
   it.each([
-    ['brak tokenu', { TELEGRAM_CHAT_ID: '111' }, /TELEGRAM_BOT_TOKEN/],
-    ['zły format tokenu', { TELEGRAM_BOT_TOKEN: 'proxy-injected', TELEGRAM_CHAT_ID: '111' }, /zły format/],
-    ['brak czatu', { TELEGRAM_BOT_TOKEN: TOKEN }, /TELEGRAM_CHAT_IDS/],
+    ['brak tokenu', { TELEGRAM_CHAT_ID: '111' }, /NOCNY_TELEGRAM_TOKEN/],
+    ['zły format tokenu', { NOCNY_TELEGRAM_TOKEN: 'proxy-injected', TELEGRAM_CHAT_ID: '111' }, /zły format/],
+    ['brak czatu', { NOCNY_TELEGRAM_TOKEN: TOKEN }, /TELEGRAM_CHAT_IDS/],
+    ['sam token bota bramki', { TELEGRAM_BOT_TOKEN: TOKEN, TELEGRAM_CHAT_IDS: '111' }, /Brak NOCNY_TELEGRAM_TOKEN/],
   ])('%s: kod 2, nic nie wysyła, token nie trafia do wyjścia', async (_nazwa, zmienne, komunikat) => {
     const { fetch } = atrapaFetch(ok());
     const wynik = await uruchom([], { env: zmienne, wejscie: 'raport', fetch });
@@ -287,6 +298,6 @@ describe('wiersz poleceń (bez sieci)', () => {
   it('bez tokenu kończy kodem 2 i nie łączy się z siecią', () => {
     const wynik = cli([], 'Raport nocy.', { TELEGRAM_CHAT_ID: '111' });
     expect(wynik.kod).toBe(2);
-    expect(wynik.wyjscie).toContain('TELEGRAM_BOT_TOKEN');
+    expect(wynik.wyjscie).toContain('NOCNY_TELEGRAM_TOKEN');
   });
 });

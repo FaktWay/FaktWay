@@ -35,7 +35,9 @@
 ## Kiedy wolno scalić PR
 
 - To PR Twój albo dowolnego konta z `filtr/zgody.json` (Bartosz, Igor). PR
-  botów (Renovate) tylko na polecenie Bartosza.
+  botów (Renovate) tylko na polecenie Bartosza. PR z gałęzi `agent/nocny-*`
+  (nocny zespół) nie scalasz i nie nadajesz na nim zgód: `scal` nadaje mu tylko
+  bramka nocy albo Bartosz osobiście ([`nocny-zespol.md`](nocny-zespol.md)).
 - Nie jest szkicem, ma bazę `main` (stos: patrz niżej), gałąź z tego repo.
 - Żadna kontrola na PR nie jest czerwona ani anulowana, także te niewymagane
   (np. e2e, jeśli ruszyły). Czerwonej kontroli nie obchodzisz. Kontrole

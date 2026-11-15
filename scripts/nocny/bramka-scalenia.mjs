@@ -17,8 +17,9 @@
 //       zgód nie nadaje, taki PR czeka na Bartosza, który nadaje je osobiście;
 //    5. żadnego pliku z migracji, zasad i infrastruktury, wiedzy prawnej
 //       i złotych plików ani z obszarów `.github/CODEOWNERS` (etap 1);
-//    6. jest nowy albo zmieniony test w tests/, żaden test nie znika i nie
-//       dostaje `.skip` ani `.only`;
+//    6. jest nowy albo zmieniony test w tests/; żaden test nie znika, istniejące
+//       testy dostają tylko nowe linie (zmiana oczekiwań to decyzja człowieka),
+//       a dodane linie nie pomijają testów (`.skip`, `.only`, `.todo`, `.fails`);
 //    7. opis ma sekcję „Najpierw test” z plikiem testu z tego PR;
 //    8. najnowszy przebieg każdej kontroli na głowie PR jest zielony, a
 //       kontrole wymagane (lista niżej i ruleset main) są obecne i mają wynik
@@ -98,23 +99,32 @@ export const ZASADY_I_INFRASTRUKTURA = [
   '**/package-lock.json',
   '**/yarn.lock',
   '**/.npmrc',
-  'pnpm-workspace.yaml',
+  '**/pnpm-workspace.yaml',
   '**/Dockerfile',
   '**/.dockerignore',
   'next.config.ts',
   'ops/**',
   'scripts/ops/**',
   'scripts/hetzner/**',
-  // Bramka i instrukcja nocnego zespołu: zespół nie zmienia własnych zasad.
+  // Skrypty, które hooki i ustawienia sesji uruchamiają same (przygotowanie worktree, hook po edycji, core.hooksPath).
+  'scripts/dev/**',
+  // Bramka, jej testy i instrukcja nocnego zespołu: zespół nie zmienia własnych zasad.
   'scripts/nocny/**',
+  'tests/unit/nocny-*',
   'docs/nocny/**',
-  'docs/runbooks/nocny-zespol.md',
-  // Konfiguracja kontroli, które oceniają PR (lint, testy, typy).
-  'eslint.config.mjs',
+  // Instrukcje dla agentów: runbooki, plany wykonywane na hasło, lista kontrolna drugiego czytelnika.
+  'docs/runbooks/**',
+  'docs/koordynacja/**',
+  'docs/filtr/**',
+  // Konfiguracja kontroli, które oceniają PR (lint, testy, typy, baza RLS), także w mobile/.
+  '**/eslint.config.*',
   'eslint/**',
   'vitest*.config.ts',
-  'tsconfig*.json',
-  'tests/setup.ts',
+  '**/tsconfig*.json',
+  'tests/setup*.ts',
+  'tests/helpers/**',
+  'tests/stubs/**',
+  'supabase/**',
   'renovate.json',
   ...MASZYNERIA,
 ];
@@ -131,7 +141,15 @@ const TEST = /^tests\/.+\.test\.tsx?$/;
 // Znacznik komentarza wyjątku filtra (wzór: docs/runbooks/filtr.md). Składany z części, bo
 // „Filtr: straż” liczy każdą dodaną linię z nim jako nowy wyjątek, także w kodzie tej bramki.
 const ZNACZNIK_WYJATKU = new RegExp(['filtr', 'wyjatek'].join('-'));
-const POMINIECIE_TESTU = /\b(?:describe|it|test|suite)\s*\.\s*(?:skip|only)\b|\b(?:xit|xtest|xdescribe|fit|fdescribe)\s*\(/;
+// Pominięcie testu w dodanej linii: `.skip`, `.only`, `.todo`, `.fails` także w łańcuchu
+// (`it.concurrent.skip`), `ctx.skip()`, `skipIf(true)`, `runIf(false)`, `xit`, `fdescribe`.
+// Warunkowe `skipIf(...)` i `runIf(...)` z warunkiem wolno (testy na bazie).
+const POMINIECIE_TESTU =
+  /\b(?:describe|it|test|suite|bench)(?:\s*\.\s*\w+)*?\s*\.\s*(?:skip|only|todo|fails)\b|\.\s*skip\s*\(|\b(?:skipIf\s*\(\s*true|runIf\s*\(\s*false)\s*\)|\b(?:xit|xtest|xdescribe|fit|fdescribe)\s*\(/;
+/** Kontrole, które czerwienieją z samego braku zgody (CODEOWNERS albo filtra). */
+const KONTROLE_ZGODY = ['Agent guard', 'Filtr: straż'];
+/** Powód NIE: `zgoda` brak zgody, `skutek` jego skutek (czerwona kontrola zgody, blokada), `inny` reszta. */
+const wpis = (tekst, rodzaj = 'inny') => ({ tekst, rodzaj });
 const REPO = /^[\w.-]+\/[\w.-]+$/;
 const SHA = /^[0-9a-f]{40}$/;
 
@@ -184,6 +202,7 @@ export function ocenPliki(pliki, regulyCodeowners = []) {
   const wylaczone = [];
   const pominiete = [];
   const bezPodgladu = [];
+  const zmienione = [];
   // Zgody, których zażąda „Filtr: straż” (te same reguły co scripts/filtr/straz.mjs, ocenPR, krok 3).
   const zgodyStrazy = { 'zmiana-filtra': [], 'wyjatek-filtra': [] };
   for (const plik of pliki) {
@@ -212,32 +231,50 @@ export function ocenPliki(pliki, regulyCodeowners = []) {
     }
     if (!jestTest || (plik.changes ?? 1) === 0) continue;
     testy.push(plik.filename);
-    if (typeof plik.patch !== 'string') bezPodgladu.push(plik.filename);
-    else if (pominieteTesty(plik.patch).length > 0) pominiete.push(plik.filename);
+    if (typeof plik.patch !== 'string') {
+      bezPodgladu.push(plik.filename);
+      continue;
+    }
+    if (pominieteTesty(plik.patch).length > 0) pominiete.push(plik.filename);
+    // Istniejący test dostaje tylko nowe linie: zmieniona albo usunięta linia to zmiana oczekiwań.
+    // Testy filtra (tests/filtr/) prowadzi zgoda straży wyżej: tam taką zmianę zatwierdza Bartosz etykietą.
+    const testFiltra = nazwy.some((nazwa) => pasujeDoWzorca(TESTY_FILTRA, nazwa));
+    if (!testFiltra && plik.status !== 'added' && plik.status !== 'copied' && usuniete.length > 0) zmienione.push(plik.filename);
   }
 
-  const powody = [];
+  const wpisy = [];
   for (const { id, opis } of KATEGORIE) {
-    if (kategorie[id].length > 0) powody.push(`${opis}: ${lista(kategorie[id])}.`);
+    if (kategorie[id].length > 0) wpisy.push(wpis(`${opis}: ${lista(kategorie[id])}.`));
   }
   if (kategorie.wrazliwe.length > 0) {
-    powody.push(
-      `Obszar wrażliwy z .github/CODEOWNERS: ${lista(kategorie.wrazliwe)}. Etap 1: zgodę (${ETYKIETA_OBSZARU}) daje Bartosz i on scala.`,
+    wpisy.push(
+      wpis(
+        `Obszar wrażliwy z .github/CODEOWNERS: ${lista(kategorie.wrazliwe)}. Etap 1: zgodę (${ETYKIETA_OBSZARU}) nadaje Bartosz osobiście.`,
+        'zgoda',
+      ),
     );
   }
-  if (testy.length === 0) powody.push('Brak nowego albo zmienionego testu w tests/ (*.test.ts, *.test.tsx).');
-  if (wylaczone.length > 0) powody.push(`PR wyłącza testy (plik znika albo przestaje być testem): ${lista(wylaczone)}.`);
-  if (pominiete.length > 0) powody.push(`Nowe .skip albo .only w testach: ${lista(pominiete)}.`);
+  if (testy.length === 0) wpisy.push(wpis('Brak nowego albo zmienionego testu w tests/ (*.test.ts, *.test.tsx).'));
+  if (wylaczone.length > 0) wpisy.push(wpis(`PR wyłącza testy (plik znika albo przestaje być testem): ${lista(wylaczone)}.`));
+  if (zmienione.length > 0) {
+    wpisy.push(
+      wpis(`PR zmienia albo usuwa linie istniejących testów: ${lista(zmienione)}. Zmiana oczekiwań testu to decyzja człowieka.`),
+    );
+  }
+  if (pominiete.length > 0) wpisy.push(wpis(`Dodane linie pomijają testy (.skip, .only, .todo, .fails i podobne): ${lista(pominiete)}.`));
   if (bezPodgladu.length > 0) {
-    powody.push(`GitHub nie pokazał zmian w teście (za duży diff), więc bramka nie sprawdzi .skip i .only: ${lista(bezPodgladu)}.`);
+    wpisy.push(wpis(`GitHub nie pokazał zmian w teście (za duży diff), więc bramka nie sprawdzi pominięć i zmian: ${lista(bezPodgladu)}.`));
   }
   const zgodyFiltra = Object.keys(zgodyStrazy).filter((zgoda) => zgodyStrazy[zgoda].length > 0);
   for (const zgoda of zgodyFiltra) {
-    powody.push(
-      `„Filtr: straż” zażąda etykiety zgoda:${zgoda} (${lista(zgodyStrazy[zgoda])}). Nocna sesja zgód nie nadaje: czeka na Bartosza, który nadaje ją osobiście.`,
+    wpisy.push(
+      wpis(
+        `„Filtr: straż” zażąda etykiety zgoda:${zgoda} (${lista(zgodyStrazy[zgoda])}). Nocna sesja zgód nie nadaje: czeka na Bartosza, który nadaje ją osobiście.`,
+        'zgoda',
+      ),
     );
   }
-  return { powody, kategorie, testy, zgodyFiltra };
+  return { wpisy, kategorie, testy, zgodyFiltra };
 }
 
 /** Treść sekcji `## …` opisu PR bez komentarzy HTML (do następnego nagłówka # albo ##) albo null. */
@@ -329,18 +366,23 @@ export function ocenKontrole({ przebiegi, statusy, wymagane, krokiTestFirst }) {
     else if (status.state !== 'success') czerwone.push(`${kontekst}: ${status.state}`);
   }
 
-  const powody = [];
+  const wpisy = [];
   if (brakujace.length > 0) {
-    powody.push(`Brak kontroli na głowie PR: ${lista(brakujace)}. CI jeszcze nie ruszyło albo workflow się nie uruchomił.`);
+    wpisy.push(wpis(`Brak kontroli na głowie PR: ${lista(brakujace)}. CI jeszcze nie ruszyło albo workflow się nie uruchomił.`));
   }
-  if (wToku.length > 0) powody.push(`Kontrole w toku: ${lista(wToku)}. Poczekaj i sprawdź ponownie.`);
-  if (czerwone.length > 0) powody.push(`Najnowszy przebieg nie jest zielony: ${lista(czerwone)}.`);
+  if (wToku.length > 0) wpisy.push(wpis(`Kontrole w toku: ${lista(wToku)}. Poczekaj i sprawdź ponownie.`));
+  const czerwoneZgody = czerwone.filter((opis) => KONTROLE_ZGODY.some((nazwa) => opis.startsWith(`${nazwa}: `)));
+  const czerwoneInne = czerwone.filter((opis) => !czerwoneZgody.includes(opis));
+  if (czerwoneInne.length > 0) wpisy.push(wpis(`Najnowszy przebieg nie jest zielony: ${lista(czerwoneInne)}.`));
+  if (czerwoneZgody.length > 0) {
+    wpisy.push(wpis(`Najnowszy przebieg nie jest zielony: ${lista(czerwoneZgody)} (te czerwienieją z braku zgody).`, 'skutek'));
+  }
   const testFirst = najnowsze.get(KONTROLA_TEST_FIRST);
   if (testFirst?.status === 'completed' && testFirst.conclusion === 'success') {
     const powod = ocenTestNaBazie(testFirst, krokiTestFirst);
-    if (powod) powody.push(powod);
+    if (powod) wpisy.push(wpis(powod));
   }
-  return powody;
+  return wpisy;
 }
 
 /** Czy to otwarty PR nocnego zespołu z tego repozytorium do main (bez etykiet i stanu scalenia). */
@@ -357,21 +399,23 @@ export function ocenGalaz(pr) {
   return powody;
 }
 
-/** Stan PR: gałąź, etykiety (`zgoda:*`, `wstrzymaj`) i możliwość scalenia. */
+/** Stan PR: gałąź, etykiety (`zgoda:*`, `wstrzymaj`) i możliwość scalenia. Zwraca wpisy z rodzajem. */
 export function ocenStanPR(pr) {
-  const powody = ocenGalaz(pr);
+  const wpisy = ocenGalaz(pr).map((tekst) => wpis(tekst));
   const etykiety = (pr.labels ?? []).map((etykieta) => etykieta.name);
   const zgody = etykiety.filter((nazwa) => nazwa?.startsWith(PREFIKS_ZGODY));
   if (zgody.length > 0) {
-    powody.push(`Etykiety zgody na PR (${zgody.join(', ')}): nocna sesja zgód nie nadaje, taki PR prowadzi Bartosz.`);
+    wpisy.push(wpis(`Etykiety zgody na PR (${zgody.join(', ')}): nocna sesja zgód nie nadaje, taki PR prowadzi Bartosz.`, 'skutek'));
   }
-  if (etykiety.includes(ETYKIETA_WSTRZYMAJ)) powody.push(`Etykieta ${ETYKIETA_WSTRZYMAJ}: ktoś zatrzymał scalanie tego PR.`);
+  if (etykiety.includes(ETYKIETA_WSTRZYMAJ)) wpisy.push(wpis(`Etykieta ${ETYKIETA_WSTRZYMAJ}: ktoś zatrzymał scalanie tego PR.`));
   if (pr.mergeable === null || pr.mergeable === undefined) {
-    powody.push('GitHub jeszcze liczy, czy PR da się scalić. Sprawdź za minutę.');
+    wpisy.push(wpis('GitHub jeszcze liczy, czy PR da się scalić. Sprawdź za minutę.'));
   } else if (pr.mergeable === false || pr.mergeable_state !== 'clean') {
-    powody.push(`PR nie jest gotowy do scalenia: ${STANY_SCALENIA[pr.mergeable_state] ?? pr.mergeable_state ?? 'stan nieznany'}.`);
+    // `blocked` i `unstable` bywają samym skutkiem czerwonej kontroli zgody; konflikt i reszta nie.
+    const rodzaj = pr.mergeable === true && ['blocked', 'unstable'].includes(pr.mergeable_state) ? 'skutek' : 'inny';
+    wpisy.push(wpis(`PR nie jest gotowy do scalenia: ${STANY_SCALENIA[pr.mergeable_state] ?? pr.mergeable_state ?? 'stan nieznany'}.`, rodzaj));
   }
-  return powody;
+  return wpisy;
 }
 
 /**
@@ -379,11 +423,14 @@ export function ocenStanPR(pr) {
  * Zgody nadaje Bartosz osobiście: `zgoda:obszar-wrazliwy` etykietą, zgody straży
  * flagą `--zgoda` w scal-pr.sh.
  */
-export function liniaDlaBartosza({ numer, kategorie, etykiety, zgodyFiltra = [] }) {
+export function liniaDlaBartosza({ numer, kategorie, etykiety, zgodyFiltra = [], tylkoZgody = true }) {
   if (kategorie.migracje.length + kategorie.zasady.length + kategorie.wiedza.length > 0) {
     return `zmiana poza zasięgiem nocnego zespołu, przejrzyj ją i zdecyduj: gh pr view ${numer} --web`;
   }
   if (kategorie.wrazliwe.length === 0 && zgodyFiltra.length === 0) return null;
+  // Zgoda i scalenie tylko wtedy, gdy brak zgody to jedyna przeszkoda; reszty (usunięty test, brak
+  // sekcji, pominięty test na bazie) CI po zgodzie by nie złapało.
+  if (!tylkoZgody) return `czeka na zgodę, ale ma też inne powody NIE, przejrzyj ją i zdecyduj: gh pr view ${numer} --web`;
   const flagi = zgodyFiltra.map((zgoda) => ` --zgoda ${zgoda}`).join('');
   const scal = `./${SKRYPT_SCALANIA} ${numer}${flagi}${flagi ? ' --po-drugim-czytelniku' : ''} --czekaj`;
   if (kategorie.wrazliwe.length === 0 || etykiety.includes(ETYKIETA_OBSZARU)) return `po przeczytaniu zmian: ${scal}`;
@@ -393,23 +440,23 @@ export function liniaDlaBartosza({ numer, kategorie, etykiety, zgodyFiltra = [] 
 
 /** Ocena całego PR. Zwraca { wynik: 'TAK'|'NIE', numer, sha, galaz, powody, uwagi, linia }. */
 export function ocenPR(dane) {
-  const powody = [];
+  const wpisy = [];
   const uwagi = [...(dane.uwagi ?? [])];
-  if (!dane.zrodlo?.zgodne) powody.push(dane.zrodlo?.powod ?? 'Nie wiadomo, czy bramka działa na zasadach z main.');
+  if (!dane.zrodlo?.zgodne) wpisy.push(wpis(dane.zrodlo?.powod ?? 'Nie wiadomo, czy bramka działa na zasadach z main.'));
   if (!dane.wylacznik || dane.wylacznik.wlaczony) {
-    powody.push(`Wyłącznik nocnego zespołu jest włączony: ${dane.wylacznik?.powod ?? 'stan nieznany'}.`);
+    wpisy.push(wpis(`Wyłącznik nocnego zespołu jest włączony: ${dane.wylacznik?.powod ?? 'stan nieznany'}.`));
   }
   if (dane.wylacznik?.uwaga) uwagi.push(dane.wylacznik.uwaga);
 
-  powody.push(...ocenStanPR(dane.pr));
+  wpisy.push(...ocenStanPR(dane.pr));
   const pliki = ocenPliki(dane.pliki, dane.codeowners);
-  powody.push(...pliki.powody);
+  wpisy.push(...pliki.wpisy);
   if (typeof dane.pr.changed_files === 'number' && dane.pliki.length < dane.pr.changed_files) {
-    powody.push(`Lista plików niepełna (${dane.pliki.length} z ${dane.pr.changed_files}): bramka nie widzi całego PR.`);
+    wpisy.push(wpis(`Lista plików niepełna (${dane.pliki.length} z ${dane.pr.changed_files}): bramka nie widzi całego PR.`));
   }
   const opis = ocenOpis(dane.pr.body, pliki.testy);
-  if (opis) powody.push(opis);
-  powody.push(
+  if (opis) wpisy.push(wpis(opis));
+  wpisy.push(
     ...ocenKontrole({
       przebiegi: dane.przebiegi,
       statusy: dane.statusy,
@@ -418,17 +465,21 @@ export function ocenPR(dane) {
     }),
   );
 
-  const wynik = powody.length === 0 ? 'TAK' : 'NIE';
+  const wynik = wpisy.length === 0 ? 'TAK' : 'NIE';
   const etykiety = (dane.pr.labels ?? []).map((etykieta) => etykieta.name);
+  const tylkoZgody = wpisy.some((w) => w.rodzaj === 'zgoda') && wpisy.every((w) => w.rodzaj !== 'inny');
   return {
     wynik,
     numer: dane.pr.number,
     sha: dane.pr.head?.sha,
     galaz: dane.pr.head?.ref,
-    powody,
+    powody: wpisy.map((w) => w.tekst),
     uwagi,
     // Linia tylko dla własnego, otwartego PR nocnego zespołu: forka ani cudzej gałęzi nie podsuwamy do scalenia.
-    linia: wynik === 'NIE' && ocenGalaz(dane.pr).length === 0 ? liniaDlaBartosza({ numer: dane.pr.number, kategorie: pliki.kategorie, etykiety, zgodyFiltra: pliki.zgodyFiltra }) : null,
+    linia:
+      wynik === 'NIE' && ocenGalaz(dane.pr).length === 0
+        ? liniaDlaBartosza({ numer: dane.pr.number, kategorie: pliki.kategorie, etykiety, zgodyFiltra: pliki.zgodyFiltra, tylkoZgody })
+        : null,
   };
 }
 
@@ -457,6 +508,7 @@ export function zmiennaWlacza(wartosc) {
  * Wyłącznik: otwarte zgłoszenie (albo PR) z etykietą `nocny:stop` albo zmienna
  * repozytorium NOCNY_STOP. Błąd odczytu zgłoszeń przerywa (stop); zmiennej bez
  * uprawnień (401, 403) nie da się odczytać, wtedy działa sama etykieta.
+ * @returns {Promise<{ wlaczony: boolean, powod?: string, uwaga?: string }>}
  */
 export async function sprawdzWylacznik({ api, repo }) {
   const zgloszenia = await api(`repos/${repo}/issues?state=open&labels=${encodeURIComponent(ETYKIETA_STOP)}&per_page=5`);
@@ -464,18 +516,22 @@ export async function sprawdzWylacznik({ api, repo }) {
   if (zgloszenia.length > 0) {
     return { wlaczony: true, powod: `otwarte zgłoszenie #${zgloszenia[0].number} z etykietą ${ETYKIETA_STOP}` };
   }
+  const uwagi = [];
+  // Zapytanie o etykietę, której nie ma, też daje pustą listę: bez etykiety wyłącznik przez nią nie działa.
+  if (!(await api(`repos/${repo}/labels/${encodeURIComponent(ETYKIETA_STOP)}`, { dopusc404: true }))) {
+    uwagi.push(`Etykiety ${ETYKIETA_STOP} nie ma w repozytorium: wyłącznik przez etykietę nie zadziała, dopóki jej nie założysz (instrukcja, sekcja 12).`);
+  }
+  const wynik = (dodatek = {}) => (uwagi.length > 0 ? { wlaczony: false, ...dodatek, uwaga: uwagi.join(' ') } : { wlaczony: false, ...dodatek });
   try {
     const zmienna = await api(`repos/${repo}/actions/variables/${ZMIENNA_STOP}`, { dopusc404: true });
     if (zmienna && zmiennaWlacza(zmienna.value)) {
       return { wlaczony: true, powod: `zmienna repozytorium ${ZMIENNA_STOP}=${String(zmienna.value).trim().slice(0, 40)}` };
     }
-    return { wlaczony: false };
+    return wynik();
   } catch (blad) {
     if (blad instanceof BladApi && (blad.status === 401 || blad.status === 403)) {
-      return {
-        wlaczony: false,
-        uwaga: `Zmiennej ${ZMIENNA_STOP} nie da się odczytać (HTTP ${blad.status}): wyłącznik działa tylko przez zgłoszenie z etykietą ${ETYKIETA_STOP}.`,
-      };
+      uwagi.push(`Zmiennej ${ZMIENNA_STOP} nie da się odczytać (HTTP ${blad.status}): wyłącznik działa tylko przez zgłoszenie z etykietą ${ETYKIETA_STOP}.`);
+      return wynik();
     }
     throw blad;
   }
@@ -483,6 +539,14 @@ export async function sprawdzWylacznik({ api, repo }) {
 
 // ---------------------------------------------------------------------------
 // GitHub i git
+
+/** `scal` mógł zostać na commicie, którego bramka nie oceniła: człowiek dodaje `wstrzymaj`. */
+export class NiepewnaEtykieta extends Error {
+  constructor(komunikat) {
+    super(komunikat);
+    this.name = 'NiepewnaEtykieta';
+  }
+}
 
 export class BladApi extends Error {
   constructor(sciezka, status, szczegoly) {
@@ -659,9 +723,30 @@ export async function oznaczDoScalenia({ api, repo, numer, sha, uruchomScal = ur
     const tekst = `${blad?.stderr ?? ''}\n${blad?.stdout ?? ''}`.trim() || String(blad?.message ?? 'nieznany błąd');
     throw new Error(`${SKRYPT_SCALANIA} odmówił: ${tekst.split('\n').slice(-3).join(' ').slice(0, 400)}`);
   }
-  const po = await api(`repos/${repo}/pulls/${numer}`);
+  let po;
+  try {
+    po = await api(`repos/${repo}/pulls/${numer}`);
+  } catch (blad) {
+    throw new NiepewnaEtykieta(
+      `${ETYKIETA_SCAL} nadana, ale nie mogę sprawdzić głowy PR (${blad instanceof Error ? blad.message : 'błąd'}): dodaj etykietę ${ETYKIETA_WSTRZYMAJ} na #${numer}`,
+    );
+  }
   if (po?.head?.sha !== sha) {
-    await api(`repos/${repo}/issues/${numer}/labels/${ETYKIETA_SCAL}`, { metoda: 'DELETE', dopusc404: true });
+    let zdjeta = false;
+    let ostatniBlad = null;
+    for (let proba = 0; proba < 2 && !zdjeta; proba++) {
+      try {
+        await api(`repos/${repo}/issues/${numer}/labels/${ETYKIETA_SCAL}`, { metoda: 'DELETE', dopusc404: true });
+        zdjeta = true;
+      } catch (blad) {
+        ostatniBlad = blad;
+      }
+    }
+    if (!zdjeta) {
+      throw new NiepewnaEtykieta(
+        `nowy commit w trakcie nadawania ${ETYKIETA_SCAL}, a etykiety nie dało się zdjąć (${ostatniBlad instanceof Error ? ostatniBlad.message : 'błąd'}): dodaj etykietę ${ETYKIETA_WSTRZYMAJ} na #${numer}`,
+      );
+    }
     throw new Error(`nowy commit w trakcie nadawania ${ETYKIETA_SCAL}: etykietę zdjąłem, uruchom bramkę jeszcze raz`);
   }
   return String(wyjscie ?? '').trim();
@@ -737,11 +822,13 @@ export async function glowna(argv, zaleznosci = {}) {
     const ocena = ocenPR(dane);
     let scal = null;
     let odmowa = null;
+    let niepewna = false;
     if (ocena.wynik === 'TAK' && opcje.scal) {
       try {
         scal = await oznaczDoScalenia({ api, repo, numer: ocena.numer, sha: ocena.sha, uruchomScal });
       } catch (blad) {
         odmowa = blad instanceof Error ? blad.message : 'nieznany błąd';
+        niepewna = blad instanceof NiepewnaEtykieta;
       }
     }
     if (opcje.json) wypisz(JSON.stringify({ ...ocena, scal, odmowa }, null, 2));
@@ -751,8 +838,10 @@ export async function glowna(argv, zaleznosci = {}) {
         if (scal) wypisz(scal);
         wypisz(`SCAL: #${ocena.numer} ma etykietę ${ETYKIETA_SCAL}; kolejka scalania scali go po zielonych kontrolach (głowa ${ocena.sha}).`);
       }
-      if (odmowa) wypisz(`NIE: etykiety ${ETYKIETA_SCAL} na #${ocena.numer} nie ma: ${odmowa}`);
+      if (odmowa && niepewna) wypisz(`UWAGA: ${odmowa}`);
+      else if (odmowa) wypisz(`NIE: etykiety ${ETYKIETA_SCAL} na #${ocena.numer} nie ma: ${odmowa}`);
     }
+    if (niepewna) return 2;
     if (odmowa) return 1;
     return ocena.wynik === 'TAK' ? 0 : 1;
   } catch (blad) {
