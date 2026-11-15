@@ -348,11 +348,16 @@ export function ocenPR(dane) {
   // trójstronne zachowuje wpisy dopisane w main po rozejściu, więc ich brak
   // w głowie PR nie jest zmianą z PR (przegląd #786, kolejka bez „strict”).
   // Bez punktu rozejścia porównanie zostaje względem main, czyli ostrzej.
-  const mapaOdniesienia = dane.mapaBazyPR ?? dane.mapaMain;
-  if (mapaPRPoprawna && mapaOdniesienia) {
-    for (const oslabienie of porownajMapy(mapaOdniesienia, dane.mapaPR, [...istniejace])) {
-      wymagaj(ZGODA_FILTRA, `osłabienie mapy: ${oslabienie}`);
+  if (mapaPRPoprawna && (dane.mapaBazyPR || dane.mapaMain)) {
+    let oslabienia;
+    try {
+      oslabienia = porownajMapy(dane.mapaBazyPR ?? dane.mapaMain, dane.mapaPR, [...istniejace]);
+    } catch (blad) {
+      // Mapa z punktu rozejścia w starszym układzie: wracamy do main (ostrzej).
+      if (!dane.mapaBazyPR || !dane.mapaMain) throw blad;
+      oslabienia = porownajMapy(dane.mapaMain, dane.mapaPR, [...istniejace]);
     }
+    for (const oslabienie of oslabienia) wymagaj(ZGODA_FILTRA, `osłabienie mapy: ${oslabienie}`);
   }
   if (dane.zapadkaPR) {
     const zapadkaOdniesienia = dane.zapadkaBazyPR ?? dane.zapadkaMain ?? {};
@@ -630,7 +635,9 @@ export async function zbierzDane({ repo, numer, token }) {
   let mapaBazyPR = null;
   let zapadkaBazyPR = null;
   if (zmienioneSciezki.has(SCIEZKA_MAPY) || zmienioneSciezki.has(SCIEZKA_ZAPADKI)) {
-    const porownanie = await gh(`${baza}/compare/${encodeURIComponent(pr.base.ref)}...${sha}`, { token, brak404: true }).catch(() => null);
+    // SHA bazy zamiast nazwy gałęzi (stos PR na gałęzi z „/” dałby 404);
+    // per_page=1, bo potrzebny jest tylko merge_base_commit, nie lista commitów.
+    const porownanie = await gh(`${baza}/compare/${pr.base.sha}...${sha}?per_page=1`, { token, brak404: true }).catch(() => null);
     const shaBazy = porownanie?.merge_base_commit?.sha;
     if (shaBazy) {
       const zBazy = async (sciezka) => {

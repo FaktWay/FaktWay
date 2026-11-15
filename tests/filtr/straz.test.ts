@@ -508,3 +508,14 @@ describe('mapa i zapadka PR liczone względem punktu rozejścia z main (przeglą
     expect(wzrost.wymaganeZgody.map((z) => z.etykieta)).toEqual([ZGODA_FILTRA]);
   });
 });
+
+describe('mapa z punktu rozejścia w starszym układzie', () => {
+  it('nieczytelna mapa bazy PR: porównanie wraca do main, a nie wywraca straży', () => {
+    const zmianaMapy: Plik = { plik: 'filtr/mapa-ryzyka.json', status: 'modified', patch: patch('{}') };
+    const bezSilnikow = mapa();
+    bezSilnikow.obszary = bezSilnikow.obszary.filter((o) => o.id !== 'silniki');
+    const zepsuta = { wersja: 0, obszary: null } as unknown as ReturnType<typeof mapa>;
+    const wynik = ocenPR(dane({ pliki: [zmianaMapy], mapaBazyPR: zepsuta, mapaPR: bezSilnikow }));
+    expect(wynik.wymaganeZgody.map((z) => z.etykieta)).toEqual([ZGODA_FILTRA]);
+  });
+});
