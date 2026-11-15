@@ -144,10 +144,8 @@ describe('migracja 00198: proforma i oferta', () => {
     expect(sql).not.toMatch(/UPDATE\s+public\.(invoices|payments|ledger_\w+|tax_\w+|ksef_\w+)\b/i);
   });
 
-  it('rejestr numerów: 00198 zajęte w tym PR, „następny wolny” za nim', () => {
+  it('rejestr numerów: wiersz 00198', () => {
     const registry = readFileSync('docs/koordynacja/CLAUDE-DO-CODEXA.md', 'utf8');
     expect(registry).toMatch(/^\| 00198 \| Claude \(plan kompletnej aplikacji, krok 2\.4/m);
-    // Bez numeru na sztywno: po kolejnych migracjach (gałąź zbiorcza, main) „następny wolny” rośnie.
-    expect(Number(/^\| \*\*(\d{5})\*\* \| — \| następny wolny/m.exec(registry)?.[1])).toBeGreaterThan(198);
   });
 });

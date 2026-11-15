@@ -1409,8 +1409,10 @@ stopa wypadkowa (kwiecień), nowe wzory formularzy i schematy JPK.
 1. Jeden krok to jedna gałąź `claude/kompletna-<krok>-<temat>` od świeżego
    `origin/main` i jeden PR (duży krok: kilka PR po kolei). Naprawy po drodze
    według protokołu z `AGENTS.md`: najpierw czerwony test.
-2. Numer migracji z rejestru w `docs/koordynacja/CLAUDE-DO-CODEXA.md`
-   (8.11.2026: następny wolny **00174**). Nowe tabele z `tenant_id`, RLS
+2. Numer migracji: `node scripts/dev/nastepna-migracja.mjs` (od 00207 bez
+   wiersza w rejestrze `docs/koordynacja/CLAUDE-DO-CODEXA.md`, tabela jest
+   zamrożona; opis i „przed/PO wdrożeniu” w nagłówku pliku migracji,
+   w linii `-- KIEDY WGRAĆ: …`). Nowe tabele z `tenant_id`, RLS
    i testem w `tests/rls-*.test.ts`; nowe kolumny w `tenants` z jawnym
    GRANT SELECT (00112).
 3. Kroki z modułu księgowości za wyłącznikiem `ksiegowosc` (osobny obszar
