@@ -4,9 +4,8 @@
 > scalania GitHuba, a **agent sam scala PR** bez pytania Bartosza
 > (niezmiennik 1 w `AGENTS.md`). Główna droga to **etykieta `scal`**:
 > jedna linia `./scripts/ops/scal-pr.sh N`, ta sama w sesji lokalnej, w Codexie
-> i w chmurze. Wdrożenie i migracje to osobny temat
-> ([`wdrozenie-produkcji.md`](wdrozenie-produkcji.md),
-> [`wgrywanie-migracji.md`](wgrywanie-migracji.md)).
+> i w chmurze. Migracje i wdrożenie robi nocny przebieg
+> ([`nocne-wdrozenie.md`](nocne-wdrozenie.md), „Po scaleniu” niżej).
 > Powiązane: [`filtr.md`](filtr.md).
 
 ## Jak to działa
@@ -137,10 +136,11 @@ gh api -X PATCH repos/FaktWay/FaktWay/pulls/N -f base=main
 
 ## Po scaleniu
 
-Scalenie niczego nie wdraża od razu. Migracje i wdrożenie według
-[`wgrywanie-migracji.md`](wgrywanie-migracji.md) i
+Scalenie niczego nie wdraża od razu: migracje i wdrożenie robi nocny przebieg
+([`nocne-wdrozenie.md`](nocne-wdrozenie.md)). Zasady migracji:
+[`wgrywanie-migracji.md`](wgrywanie-migracji.md), ręczne wdrożenie:
 [`wdrozenie-produkcji.md`](wdrozenie-produkcji.md). W raporcie podajesz PR,
-SHA w `main` i migracje do wgrania.
+SHA w `main` i migracje, które wejdą z nocnym przebiegiem.
 
 ## Konfiguracja jednorazowa (Bartosz)
 
