@@ -298,6 +298,8 @@ export type AuditAction =
   // Kontrahenci — poprawka danych i usunięcie z bazy (audyt bloku 1, F-011).
   | 'contractor.updated'
   | 'contractor.deleted'
+  // Dodanie kontrahenta z formularza w aplikacji na telefon (M10e).
+  | 'contractor.created'
   // Katalog produktów i usług (plan kompletnej aplikacji, krok 2.6): metadane bez cen.
   | 'product.created'
   | 'product.updated'
