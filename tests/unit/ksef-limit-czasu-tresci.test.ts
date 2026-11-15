@@ -244,6 +244,48 @@ describe('LIM-05: treść odpowiedzi KSeF w tym samym limicie co nagłówki', ()
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('429 z Retry-After i zawieszoną treścią → pauza firmy zapisana od razu po nagłówkach, potem 408', async () => {
+    const nip = '1234567890';
+    const env = 'production';
+    const { body } = endlessBody('{"status":');
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
+      new Response(body, { status: 429, headers: { 'content-type': 'application/json', 'retry-after': '120' } }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const call = () => runWithKsefNip(nip, () => ksefFetch('/sessions/online', { method: 'POST', env }));
+
+    const state = await settlesAt(LIMIT_MS, call());
+    expect(shape(state.error)).toMatchObject({ status: 408 });
+
+    // Pauza trwa pełne 120 s od nagłówków: następne żądanie firmy nie idzie do KSeF.
+    const paused = await call().catch((e: unknown) => e);
+    expect(paused).toBeInstanceOf(KsefRateLimitPausedError);
+    expect(shape(paused)).toMatchObject({ status: 429, lokalnaPauza: true, retryAfterMs: 90_000 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('treść zerwana przez sieć przed limitem → błąd sieci jak dotąd (nie 408), audyt ze statusem 0', async () => {
+    const terminated = new TypeError('terminated');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('{"referenceNumber":'));
+        setTimeout(() => controller.error(terminated), 5_000);
+      },
+    }), { status: 201, headers: { 'content-type': 'application/json' } })));
+    const audit = { tenantId: TENANT, action: 'session.open' };
+
+    const state = track(ksefFetch('/sessions/online', { method: 'POST', env: 'test', audit }));
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(state.done).toBe(true);
+    expect(state.error).toBe(terminated);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.waitFor(() => expect(st.auditRows).toHaveLength(1));
+    expect(st.auditRows[0]).toMatchObject({
+      metadata: expect.objectContaining({ httpStatus: 0, error: 'terminated', durationMs: 5_000 }),
+    });
+  });
+
   it('wolna, ale pełna treść w limicie → zwykły wynik, zegar posprzątany', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream<Uint8Array>({
       start(controller) {

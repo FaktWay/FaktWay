@@ -451,6 +451,12 @@ export async function ksefFetch<TResponse = unknown>(
       });
       responseStatus = response.status;
       responseOk = response.ok;
+      retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
+      // L1a: 429 z KSeF zatrzymuje całą firmę na pełny `Retry-After`. Pauza idzie
+      // od razu po nagłówkach, więc działa też wtedy, gdy treść 429 stanie.
+      if (responseStatus === 429 && pauseNip) {
+        await recordKsefRateLimit(env, pauseNip, retryAfterMs);
+      }
       // LIM-05: zegar gaśnie dopiero po całej treści. KSeF, który wysłał
       // nagłówki i stanął, daje po `timeoutMs` ten sam 408 co brak odpowiedzi.
       const responseBody = bodyWithinTimeout(response, controller.signal);
@@ -462,7 +468,6 @@ export async function ksefFetch<TResponse = unknown>(
       }
       clearTimeout(timeoutHandle);
       contentType = response.headers.get('content-type');
-      retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
     }
 
     const responseSize = bytes ? bytes.length : Buffer.byteLength(text, 'utf8');
@@ -490,8 +495,8 @@ export async function ksefFetch<TResponse = unknown>(
     }
 
     if (!responseOk) {
-      // L1a: 429 z KSeF zatrzymuje całą firmę na pełny `Retry-After`.
-      if (responseStatus === 429 && pauseNip) {
+      // L1a dla atrapy E2E; prawdziwy 429 zapisał pauzę już po nagłówkach.
+      if (mocked && responseStatus === 429 && pauseNip) {
         await recordKsefRateLimit(env, pauseNip, retryAfterMs);
       }
       throw new KsefApiError(
