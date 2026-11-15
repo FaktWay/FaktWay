@@ -1,0 +1,25 @@
+name: Eksperyment wylaczenia scalania
+
+# Jednorazowy eksperyment (15.11.2026), PR do zamkniecia: czy token Actions moze wylaczyc
+# auto-merge wlaczony przez czlowieka.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  t:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Poczekaj na wlaczenie scalania przez czlowieka
+        run: sleep 70
+      - name: Wylacz auto-merge tokenem Actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NODE_ID: ${{ github.event.pull_request.node_id }}
+        run: |
+          gh api graphql -f query='mutation($id: ID!) { disablePullRequestAutoMerge(input: {pullRequestId: $id}) { clientMutationId } }' -f id="$NODE_ID"
+          echo "WYLACZONO"
