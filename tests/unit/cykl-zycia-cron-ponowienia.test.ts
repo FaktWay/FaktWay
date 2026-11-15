@@ -1205,3 +1205,71 @@ describe('A5: identyfikatory faktur w logu i Sentry', () => {
     expect(Object.keys(done?.[1] ?? {}).filter((key) => key.endsWith('Ids'))).toEqual([]);
   });
 });
+
+describe('B2a: zwykła faktura tylko do końca następnego dnia roboczego po dacie wystawienia', () => {
+  /** Zwykła faktura z datą wystawienia w kolumnie i w `fa3_data` (jak zapisuje ją wystawienie). */
+  const regularOn = (id: string, code: string, issueDate: string, extra: Row = {}) =>
+    failedRow(id, code, {
+      issue_date: issueDate,
+      fa3_data: { internalNumber: `FV/${id.slice(0, 2)}`, type: 'VAT', issueDate, lines: [{ ordinal: 1 }], seller: { nip: '5260001246' } },
+      ...extra,
+    });
+
+  // Listopad 2026: czas zimowy (UTC+1), 11.11 to święto, 14–15.11 weekend.
+  it.each([
+    ['P_1 w piątek 13.11, sobota 14.11', 1, '2026-11-13', '2026-11-14T11:00:00.000Z'],
+    ['P_1 w piątek 13.11, poniedziałek 16.11 wieczorem', 1, '2026-11-13', '2026-11-16T22:30:00.000Z'],
+    ['P_1 w piątek 13.11, wtorek 17.11', 0, '2026-11-13', '2026-11-17T11:00:00.000Z'],
+    ['P_1 we wtorek 10.11 (w środę święto), czwartek 12.11', 1, '2026-11-10', '2026-11-12T11:00:00.000Z'],
+    ['P_1 we wtorek 10.11 (w środę święto), piątek 13.11', 0, '2026-11-10', '2026-11-13T11:00:00.000Z'],
+  ])('I6 failed INFRA, %s → ponowień: %i', async (_label, expected, issueDate, at) => {
+    vi.setSystemTime(new Date(at));
+    m.tables.invoices = [regularOn(ID1, 'INFRA', issueDate)];
+
+    const report = await runKsefLifecycleReconcile(ctx);
+
+    expect(report).toMatchObject({ requeued: expected, errors: 0 });
+    expect(m.send).toHaveBeenCalledTimes(expected);
+    // Po terminie faktura odpada już w zapytaniu (A5: nie zajmuje paczki), nie w budowaniu zdarzenia.
+    expect(report.skippedIssueDate).toBe(0);
+  });
+
+  it('I7 failed KSEF_PAUSED po zdjęciu hamulca: w terminie wznowiona, po terminie nie', async () => {
+    vi.setSystemTime(new Date('2026-11-17T11:00:00.000Z'));
+    m.tables.invoices = [regularOn(ID1, 'KSEF_PAUSED', '2026-11-13'), regularOn(ID2, 'KSEF_PAUSED', '2026-11-16')];
+
+    const report = await runKsefLifecycleReconcile(ctx);
+
+    expect(report).toMatchObject({ requeued: 1, errors: 0 });
+    expect(m.send).toHaveBeenCalledTimes(1);
+    expect((m.send.mock.calls[0]![0] as { singletonKey: string }).singletonKey).toBe(ID2);
+  });
+
+  it('100 zwykłych po terminie (starsze updated_at) nie zajmują paczki — faktura w terminie zostaje ponowiona', async () => {
+    vi.setSystemTime(new Date('2026-11-17T11:00:00.000Z'));
+    const overdue = Array.from({ length: 100 }, (_, i) =>
+      regularOn(uuidN(i + 1), 'INFRA', '2026-11-13', { updated_at: '2026-11-16T07:00:00.000Z' }));
+    m.tables.invoices = [...overdue, regularOn(ID1, 'INFRA', '2026-11-16')];
+
+    const report = await runKsefLifecycleReconcile(ctx);
+
+    expect(m.send).toHaveBeenCalledTimes(1);
+    expect((m.send.mock.calls[0]![0] as { singletonKey: string }).singletonKey).toBe(ID1);
+    expect(report).toMatchObject({ requeued: 1, skippedIssueDate: 0, errors: 0 });
+  });
+
+  it('termin mija między odczytem a zleceniem: wybrana w poniedziałek 23:59:59, zdarzenie po północy — skippedIssueDate, bez zlecenia', async () => {
+    vi.setSystemTime(new Date('2026-11-16T22:59:59.000Z'));
+    m.tables.invoices = [regularOn(ID1, 'INFRA', '2026-11-13')];
+    m.afterQuery = ({ filters }) => {
+      if (filters.some(([column, value]) => column === 'invoice_kind' && value === 'regular')) {
+        vi.setSystemTime(new Date('2026-11-16T23:00:01.000Z'));
+      }
+    };
+
+    const report = await runKsefLifecycleReconcile(ctx);
+
+    expect(report).toMatchObject({ requeued: 0, skippedIssueDate: 1, errors: 0 });
+    expect(m.send).not.toHaveBeenCalled();
+  });
+});
