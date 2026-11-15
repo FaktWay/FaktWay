@@ -3,6 +3,7 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 import { createClient } from '@/lib/supabase/server';
+import { createSupabaseFetch } from '@/lib/supabase/fetch-timeout';
 import { confirmAccountPassword } from '@/lib/auth/password-check';
 
 export interface ReauthResult {
@@ -45,7 +46,8 @@ export async function reauthenticateWithPassword(
   }
 
   // Limit prób, logowanie na osobnym kliencie i sprzątanie sesji: `lib/auth/password-check.ts`
-  // (to samo dla telefonu, M10b).
+  // (to samo dla telefonu, M10b). Limit czasu jak w kliencie z ciasteczek (LIM-05): logowanie
+  // i wylogowanie sesji tymczasowej to zapisy, po 30 s każde.
   const verifier = () => createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -55,6 +57,7 @@ export async function reauthenticateWithPassword(
         autoRefreshToken: false,
         detectSessionInUrl: false,
       },
+      global: { fetch: createSupabaseFetch() },
     },
   );
   return confirmAccountPassword({ userId: user.id, email: user.email, password, verifier, captchaToken });

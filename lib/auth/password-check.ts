@@ -1,6 +1,6 @@
 import 'server-only';
 
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AuthError, SupabaseClient } from '@supabase/supabase-js';
 
 import { checkPasswordOperationRateLimit } from '@/lib/rate-limit/password';
 import { isGoTrueCaptchaRejection } from '@/lib/security/bot-check';
@@ -10,7 +10,9 @@ import { isGoTrueCaptchaRejection } from '@/lib/security/bot-check';
  * konta), wspólne dla strony (`reauthenticateWithPassword`, konto z ciasteczek,
  * klient z kluczem anon i tokenem Turnstile) i telefonu (M10b, konto z tokenu,
  * klient logowania z kluczem serwisowym jak `POST /logowanie`, plan D16).
- * Logika przeniesiona z `lib/auth/reauth.ts` bez zmian.
+ * Logika przeniesiona z `lib/auth/reauth.ts`. Od LIM-05 brak odpowiedzi GoTrue
+ * (limit czasu, sieć, 5xx, jego limit żądań) to `verification_unavailable`,
+ * a nie złe hasło.
  *
  * Każde wywołanie liczy się do jednego limitu prób hasła konta
  * (`checkPasswordOperationRateLimit`), wspólnego dla strony i telefonu.
@@ -21,6 +23,27 @@ import { isGoTrueCaptchaRejection } from '@/lib/security/bot-check';
 
 export type PasswordCheckError = 'invalid_password' | 'unknown' | 'rate_limited' | 'verification_unavailable';
 export type PasswordCheckResult = { ok: true } | { ok: false; error: PasswordCheckError; retryAfter?: number };
+
+/** Kody limitu żądań samego GoTrue (odpowiedź 429). */
+const GOTRUE_RATE_LIMIT_CODES = new Set(['over_request_rate_limit', 'over_email_send_rate_limit', 'over_sms_send_rate_limit']);
+
+/**
+ * GoTrue nie sprawdził hasła: limit czasu albo sieć (`AuthRetryableFetchError`,
+ * LIM-05), 5xx, jego własny limit żądań albo odpowiedź bez kodu HTTP
+ * (`AuthUnknownError`: ciało nie-JSON, czyli strona błędu po drodze; złe hasło
+ * GoTrue zawsze opisuje w JSON z kodem 400). Klient słyszy wtedy „spróbuj za
+ * chwilę”, a nie „złe hasło”, tak jak w `POST /logowanie` telefonu
+ * (`lib/api/mobile/logowanie.ts`). Odpowiednik `isAuthServiceFailure` z sesji 7
+ * planu skalowania (`lib/auth/gotrue-errors.ts`, jeszcze poza `main`), który
+ * błąd bez kodu uznaje za odmowę: przy scalaniu trzeba wybrać jedną regułę.
+ * Bez importu wartości z `@supabase/supabase-js`, bo wiele testów podmienia
+ * ten moduł w całości.
+ */
+function isGoTrueUnavailable(error: AuthError): boolean {
+  if ('__isAuthError' in error && error.name === 'AuthRetryableFetchError') return true;
+  if (error.status === 429 || (typeof error.code === 'string' && GOTRUE_RATE_LIMIT_CODES.has(error.code))) return true;
+  return typeof error.status !== 'number' || error.status >= 500;
+}
 
 export async function confirmAccountPassword(input: {
   userId: string;
@@ -68,7 +91,8 @@ export async function confirmAccountPassword(input: {
   }
 
   if (error) {
-    return { ok: false, error: isGoTrueCaptchaRejection(error) ? 'verification_unavailable' : 'invalid_password' };
+    const unavailable = isGoTrueUnavailable(error) || isGoTrueCaptchaRejection(error);
+    return { ok: false, error: unavailable ? 'verification_unavailable' : 'invalid_password' };
   }
 
   if (cleanupFailed || typeof temporaryToken !== 'string' || !temporaryToken || data.user?.id !== userId) {
