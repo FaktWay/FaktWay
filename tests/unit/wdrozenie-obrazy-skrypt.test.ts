@@ -587,7 +587,7 @@ describe('coolify-zrodlo.sh', { timeout: SCRIPT_TIMEOUT }, () => {
   });
 });
 
-describe('przeniesienie repo do organizacji FaktWay (14.11.2026)', () => {
+describe('przeniesienie repo do organizacji FaktWay (14.11.2026)', { timeout: SCRIPT_TIMEOUT }, () => {
   // Coolify zostaje na starej nazwie obrazu do pierwszego wdrożenia po
   // przeniesieniu; do starej nazwy GitHub nie przyjmuje już zapisu.
   function oldImageMode(tag = OLD) {
@@ -596,7 +596,7 @@ describe('przeniesienie repo do organizacji FaktWay (14.11.2026)', () => {
   }
   const curlLog = () => (existsSync(fake('curl.log')) ? readFileSync(fake('curl.log'), 'utf8') : '');
 
-  it('--obraz z Coolify na starej nazwie: sprawdza obrazy organizacji i przestawia Coolify na nowe nazwy', () => {
+  itGhcr('--obraz z Coolify na starej nazwie: sprawdza obrazy organizacji i przestawia Coolify na nowe nazwy', () => {
     oldImageMode();
     publish(SHA);
     const r = run('wdroz-produkcje.sh', ['--obraz', SHA]);
@@ -612,7 +612,7 @@ describe('przeniesienie repo do organizacji FaktWay (14.11.2026)', () => {
     expect(curlLog()).not.toContain('/v2/ezior8888-cpu/');
   });
 
-  it('nieudany worker po przeniesieniu: wraca stara nazwa i stary tag', () => {
+  itGhcr('nieudany worker po przeniesieniu: wraca stara nazwa i stary tag', () => {
     oldImageMode();
     publish(SHA);
     write(fake('status-2'), 'failed');
@@ -622,7 +622,7 @@ describe('przeniesienie repo do organizacji FaktWay (14.11.2026)', () => {
     expect(state(1)).toBe(`dockerimage|${OLD_RUNNER}|${OLD}|/Dockerfile|runner`);
   });
 
-  it('nieudana aplikacja po przeniesieniu: aplikacja wraca na starą nazwę, podpowiedź cofnięcia workera ze starą nazwą', () => {
+  itGhcr('nieudana aplikacja po przeniesieniu: aplikacja wraca na starą nazwę, podpowiedź cofnięcia workera ze starą nazwą', () => {
     oldImageMode();
     publish(SHA);
     write(fake('status-1'), 'failed');
@@ -633,7 +633,7 @@ describe('przeniesienie repo do organizacji FaktWay (14.11.2026)', () => {
     expect(state(1)).toBe(`dockerimage|${OLD_RUNNER}|${OLD}|/Dockerfile|runner`);
   });
 
-  it('GHCR_PREFIX ze starą nazwą: powrót na SHA sprzed przeniesienia', () => {
+  itGhcr('GHCR_PREFIX ze starą nazwą: powrót na SHA sprzed przeniesienia', () => {
     imageMode(SHA);
     publish(OLD);
     const r = run('wdroz-produkcje.sh', ['--obraz', OLD], { GHCR_PREFIX: 'ghcr.io/ezior8888-cpu/faktway' });
@@ -652,7 +652,7 @@ describe('przeniesienie repo do organizacji FaktWay (14.11.2026)', () => {
     expect(log()).toEqual([]);
   });
 
-  it('coolify-zrodlo.sh obraz z Coolify na starej nazwie przestawia na nazwę organizacji', () => {
+  itGhcr('coolify-zrodlo.sh obraz z Coolify na starej nazwie przestawia na nazwę organizacji', () => {
     oldImageMode();
     publish(OLD);
     const r = run('coolify-zrodlo.sh', ['obraz', OLD]);
