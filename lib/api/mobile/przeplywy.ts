@@ -128,7 +128,7 @@ export async function cashFlowForMobile(caller: MobileCaller, now: Date = new Da
       const zwolnienie = await readTenantVatExemption(supabase, tenantId);
       if (isSubjectiveVatExemption(zwolnienie)) return pierscien(limitProps(await getVatLimit(supabase, tenantId, now), tryb));
       const pilotaz = tryb !== 'przyklad' && (await czyKsiegowoscWlaczona(supabase, tenantId, 'terminy').then((w) => w.wlaczony, () => false));
-      if (pilotaz) return pierscien(odlozycProps(await czytajOdlozyc(supabase, tenantId, today), Number(today.slice(0, 4))));
+      if (pilotaz) return pierscien(odlozycProps(await czytajOdlozyc(supabase, tenantId, today)));
       return pierscien(podatekProps((await getCashFlowData(supabase, tenantId, now)).taxEstimate, tryb));
     }),
     zOstatnich('zrodla', (inflows, costs) =>
