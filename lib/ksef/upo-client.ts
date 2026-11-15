@@ -131,8 +131,9 @@ export async function downloadUpoFromKsef(
   };
 
   // LIM-05: zegar żądania UPO kasuje dopiero `finally` na końcu, po
-  // przeczytaniu treści odpowiedzi.
+  // przeczytaniu treści odpowiedzi. Tam też czekamy na zapis pauzy po 429.
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let pauseWrite: Promise<unknown> | undefined;
   try {
     let auth;
     try {
@@ -201,15 +202,18 @@ export async function downloadUpoFromKsef(
     const controller = new AbortController();
     timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
 
-    const response = await fetch(upoEndpoint, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${session.accessToken}`,
-        Accept: 'application/xml',
-      },
-      signal: controller.signal,
-      redirect: 'error',
-    });
+    const response = bodyWithinTimeout(
+      await fetch(upoEndpoint, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          Accept: 'application/xml',
+        },
+        signal: controller.signal,
+        redirect: 'error',
+      }),
+      controller.signal,
+    );
 
     if (!response.ok) {
       if (response.status === 404) {
@@ -240,16 +244,23 @@ export async function downloadUpoFromKsef(
         // niżej; UPO wraca z `upo-retry-stale`, gdy wpis ma ponad 24 h i pauza
         // minęła): zmiana jego klasyfikacji to sesja D1 planu „zero zgubionych
         // faktur” (decyzja sesji nadrzędnej L1a).
-        await recordKsefRateLimit(env, auth.nip, parseRetryAfterMs(response.headers.get('retry-after')));
+        // Pamięć procesu dostaje pauzę od razu (część synchroniczna), zapis
+        // w Redisie (do ok. 1 s) idzie równolegle z odczytem treści, a czeka
+        // na niego `finally`. Inaczej 429 tuż przed limitem kończyłoby się
+        // przerwaniem w trakcie zapisu, czyli `TIMEOUT` zamiast `HTTP_429`.
+        // `catch` tylko na wszelki wypadek (funkcja z umowy nie rzuca): bez niego
+        // odrzucenie w trakcie odczytu treści byłoby nieobsłużone.
+        pauseWrite = recordKsefRateLimit(env, auth.nip, parseRetryAfterMs(response.headers.get('retry-after')))
+          .catch(() => undefined);
       }
 
       // Treść odpowiedzi czytamy tylko po kody KSeF. Komunikat idzie do
       // `upo_receipts.last_error`, komunikatu błędu joba (log workera,
       // `inngest_run_log`, Sentry po wyczerpaniu prób), więc treść nigdy:
       // może nieść dane kontrahenta (F-093-UPO).
-      const codes = ksefErrorCodes(await bodyWithinTimeout(response, controller.signal).text());
+      const codes = ksefErrorCodes(await response.text());
       // Audyt po treści: jedna próba to jeden wiersz. Zawieszona treść (także
-      // przy 429, po zapisie pauzy wyżej) daje tylko wiersz 408 z `catch`.
+      // przy 429, z pauzą zapisaną wyżej) daje tylko wiersz 408 z `catch`.
       writeAudit(response.status, `HTTP ${response.status}`);
       return {
         success: false,
@@ -259,7 +270,7 @@ export async function downloadUpoFromKsef(
       };
     }
 
-    const upoXml = await bodyWithinTimeout(response, controller.signal).text();
+    const upoXml = await response.text();
     const upoXmlHash = await sha256(upoXml);
     const acceptanceTimestamp = extractAcceptanceTimestamp(upoXml);
     const upoId = extractUpoId(upoXml);
@@ -292,6 +303,8 @@ export async function downloadUpoFromKsef(
     };
   } finally {
     clearTimeout(timeoutHandle);
+    // Wynik dopiero po zapisie pauzy: ponowienie w innym procesie ją widzi.
+    await pauseWrite;
   }
 }
 

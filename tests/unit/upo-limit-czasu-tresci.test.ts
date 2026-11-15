@@ -36,6 +36,8 @@ const mocks = vi.hoisted(() => ({
   audit: vi.fn(),
   xml: vi.fn(),
   pdf: vi.fn(),
+  /** Redis pauzy po 429: domyślnie wyłączony (pauza tylko w pamięci procesu). */
+  redis: { configured: false, client: null as unknown },
 }));
 
 // Baza.
@@ -52,6 +54,11 @@ vi.mock('@/lib/ksef/session-cache', () => ({
 }));
 vi.mock('@/lib/ksef/upo-storage', () => ({ uploadUpoXml: mocks.xml, uploadUpoPdf: mocks.pdf }));
 vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn(), captureMessage: vi.fn(), addBreadcrumb: vi.fn() }));
+// Redis pauzy (prawdziwy moduł pauzy niżej, tylko magazyn atrapą).
+vi.mock('@/lib/cache/redis', () => ({
+  isRedisConfigured: () => mocks.redis.configured,
+  getRedis: () => mocks.redis.client,
+}));
 
 import { NonRetriableError } from '@/lib/jobs/errors';
 import { runDownloadUpo } from '@/lib/jobs/runners/download-upo';
@@ -254,6 +261,8 @@ beforeEach(() => {
   clock += 3_600_000;
   vi.setSystemTime(clock);
   vi.stubEnv('KSEF_ENV', 'test');
+  mocks.redis.configured = false;
+  mocks.redis.client = null;
   tables = {
     invoices: [{
       id: INVOICE, tenant_id: TENANT, ksef_number: KSEF_NUMBER, ksef_status: 'accepted', ksef_environment: 'test',
@@ -363,6 +372,48 @@ describe('LIM-05 UPO: treść odpowiedzi w tym samym limicie co nagłówki', () 
       retryAfterMs: 90_000,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('429 tuż przed limitem, zapis pauzy w Redisie czeka swój 1 s → dalej HTTP_429 jak dotąd, nie TIMEOUT', async () => {
+    // Zapis pauzy w Redisie nie trzyma odczytu treści: limit żądania mija
+    // w trakcie zapisu, a pełna treść 429 przyszła razem z nagłówkami.
+    mocks.redis.configured = true;
+    mocks.redis.client = {
+      get: vi.fn(async () => null),
+      set: vi.fn(() => new Promise(() => {})),
+      zadd: vi.fn(async () => 1),
+      zremrangebyscore: vi.fn(async () => 0),
+      pexpire: vi.fn(async () => 1),
+    };
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => {
+      const signal = init?.signal;
+      return new Promise<Response>((resolve, reject) => {
+        const headers = setTimeout(() => resolve(new Response('{"errors":[{"code":21405}]}', {
+          status: 429,
+          headers: { 'content-type': 'application/problem+json', 'retry-after': '45' },
+        })), LIMIT_MS - 500);
+        signal?.addEventListener('abort', () => {
+          clearTimeout(headers);
+          reject(signal.reason);
+        }, { once: true });
+      });
+    }));
+
+    // Wynik po zapisie pauzy (nagłówki + 1 s limitu zapisu w Redisie).
+    const state = await settlesAt(LIMIT_MS + 500, download());
+
+    expect(state.value).toEqual({
+      success: false,
+      error: 'KSeF zwrócił HTTP 429 kody:21405',
+      errorCode: 'HTTP_429',
+      retryable: false,
+    });
+    expect(vi.getTimerCount()).toBe(0);
+    // Czas w audycie liczy się dopiero po imporcie modułu dziennika, a zegar
+    // biegł w tym czasie do końca zapisu pauzy: sprawdzamy tylko wiersz.
+    expect(await auditAfter(1)).toEqual([
+      auditRow({ httpStatus: 429, durationMs: expect.any(Number), error: 'HTTP 429' }),
+    ]);
   });
 
   it('runner: zawieszona treść → po 30 s `failed`, jedna próba w `download_attempts`, błąd do ponowienia', async () => {
