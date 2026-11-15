@@ -238,6 +238,21 @@ export function idPrzepisow(json, zbior = new Set()) {
   return zbior;
 }
 
+/**
+ * Obszary z mapy (`obszary` przepisu), dla których rejestr ma choć jedną regułę
+ * `RP-…`. Obszar poza tym zbiorem nie ma czego przytoczyć w karcie R1.
+ */
+export function obszaryPrzepisow(json, zbior = new Set()) {
+  if (Array.isArray(json)) for (const element of json) obszaryPrzepisow(element, zbior);
+  else if (json && typeof json === 'object') {
+    if (typeof json.id === 'string' && /^RP-[A-Z0-9-]+$/.test(json.id) && Array.isArray(json.obszary)) {
+      for (const obszar of json.obszary) if (typeof obszar === 'string') zbior.add(obszar);
+    }
+    for (const wartosc of Object.values(json)) obszaryPrzepisow(wartosc, zbior);
+  }
+  return zbior;
+}
+
 const pasuje = (wzorce, plik) => wzorce.some((wzorzec) => pasujeDoWzorca(wzorzec, plik));
 
 // ---------------------------------------------------------------------------
@@ -249,7 +264,7 @@ const pasuje = (wzorce, plik) => wzorce.some((wzorzec) => pasujeDoWzorca(wzorzec
  *   mapaMain: object | null, mapaPR: object | null,
  *   zapadkaMain?: object | null, zapadkaPR?: object | null,
  *   opis: string, etykiety: string[], zdarzenia: object[], osoby: string[], ostatniPush?: string,
- *   plikiRepo: string[], przepisy: Set<string>,
+ *   plikiRepo: string[], przepisy: Set<string>, obszaryPrzepisow?: Set<string>,
  * }} dane
  */
 export function ocenPR(dane) {
@@ -442,8 +457,26 @@ function bledyKarty(karta, { poziom, wiersze, dane, istnieje, wymaganeZgody }) {
     } else if (dane.przepisy.size > 0) {
       const podane = karta.przepisy.match(/RP-[A-Z0-9-]+/g) ?? [];
       const nieznane = podane.filter((id) => !dane.przepisy.has(id));
-      if (podane.length === 0 && !/nowy przepis/i.test(karta.przepisy)) {
-        blad('karta zmiany: R1 bez id reguły z rejestru', 'Wskaż id reguł (RP-…) z filtr/przepisy/ albo napisz „nowy przepis:” ze źródłem.');
+      // Obszar R1 bez żadnej reguły w rejestrze nie ma czego przytoczyć: wystarczy
+      // uzasadniony brak („brak reguły w rejestrze dla obszaru …”). Gdy choć jeden
+      // obszar R1 w PR ma regułę, id nadal obowiązuje. Bez danych o obszarach
+      // (`obszaryPrzepisow`) straż działa jak dotąd.
+      // Liczą się tylko obszary, które w mapie (PR albo main) mają poziom R1: wiersz
+      // pliku R1 niesie też obszary niższego poziomu (np. `tresci` R2 z regułą).
+      const idObszarowR1 = new Set(
+        [dane.mapaMain, dane.mapaPR].flatMap((mapa) => (mapa?.obszary ?? []).filter((o) => o.poziom === 'R1').map((o) => o.id)),
+      );
+      const obszaryR1 = new Set(wiersze.filter((w) => w.poziom === 'R1').flatMap((w) => w.obszary).filter((obszar) => idObszarowR1.has(obszar)));
+      // Pusty zbiór to brak danych z rejestru, a nie „żaden obszar nie ma reguły”.
+      const znaObszary = dane.obszaryPrzepisow instanceof Set && dane.obszaryPrzepisow.size > 0;
+      const zRegula = znaObszary ? [...obszaryR1].filter((obszar) => dane.obszaryPrzepisow.has(obszar)) : [];
+      const bezReguly = znaObszary && obszaryR1.size > 0 && zRegula.length === 0 && /regu/i.test(karta.przepisy);
+      if (podane.length === 0 && !/nowy przepis/i.test(karta.przepisy) && !bezReguly) {
+        blad(
+          'karta zmiany: R1 bez id reguły z rejestru',
+          'Wskaż id reguł (RP-…) z filtr/przepisy/ albo napisz „nowy przepis:” ze źródłem. Gdy żaden obszar R1 w PR nie ma reguły w rejestrze, napisz „brak reguły w rejestrze dla obszaru …”.' +
+            (zRegula.length > 0 ? ` Obszary R1 z regułą w rejestrze: ${zRegula.join(', ')}. Dla nich wskaż id.` : ''),
+        );
       }
       if (nieznane.length > 0) {
         blad(`karta zmiany: nieznane id w rejestrze: ${nieznane.join(', ')}`, 'Popraw id albo dodaj regułę do rejestru w tym PR (zgoda:wiedza-prawna).');
@@ -532,11 +565,14 @@ function zDysku(sciezka) {
 function przepisyZDysku() {
   const katalog = join(KATALOG_REPO, 'filtr/przepisy');
   const zbior = new Set();
-  if (!existsSync(katalog)) return zbior;
+  const obszary = new Set();
+  if (!existsSync(katalog)) return { zbior, obszary };
   for (const plik of readdirSync(katalog).filter((p) => p.endsWith('.json'))) {
-    idPrzepisow(JSON.parse(readFileSync(join(katalog, plik), 'utf8')), zbior);
+    const json = JSON.parse(readFileSync(join(katalog, plik), 'utf8'));
+    idPrzepisow(json, zbior);
+    obszaryPrzepisow(json, obszary);
   }
-  return zbior;
+  return { zbior, obszary };
 }
 
 /** Zbiera dane PR przez API. Kod z PR nie jest pobierany: tylko JSON mapy, rejestru i zapadki. */
@@ -572,9 +608,13 @@ export async function zbierzDane({ repo, numer, token }) {
       return { blad: `niepoprawny JSON w ${sciezka}` };
     }
   };
-  const przepisy = przepisyZDysku();
+  const { zbior: przepisy, obszary: obszaryReguly } = przepisyZDysku();
   for (const sciezka of zmienioneSciezki) {
-    if (pasujeDoWzorca('filtr/przepisy/*.json', sciezka)) idPrzepisow(await json(sciezka), przepisy);
+    if (pasujeDoWzorca('filtr/przepisy/*.json', sciezka)) {
+      const zPR = await json(sciezka);
+      idPrzepisow(zPR, przepisy);
+      obszaryPrzepisow(zPR, obszaryReguly);
+    }
   }
   const zgody = zDysku(SCIEZKA_ZGOD) ?? { osoby: [] };
   const ostatni = commity.at(-1);
@@ -593,6 +633,7 @@ export async function zbierzDane({ repo, numer, token }) {
       ostatniPush: ostatni?.commit?.committer?.date,
       plikiRepo: plikiRepozytorium(),
       przepisy,
+      obszaryPrzepisow: obszaryReguly,
     },
   };
 }
