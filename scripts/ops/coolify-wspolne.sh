@@ -217,6 +217,7 @@ czekaj_na_obrazy() {
       echo "Brak obrazów $GHCR_PREFIX-{worker,runner}:$sha z etykietą rewizji w GHCR." >&2
       echo "Build robi workflow „Obrazy i wdrożenie” po każdym scaleniu do main (gh run list --workflow obrazy.yml)." >&2
       echo "Ręcznie: gh workflow run obrazy.yml -f ref=$sha -f wdroz=false" >&2
+      echo "Build zielony, a obrazów nie widać: pakiet w GHCR może być prywatny (skrypt czyta bez tokenu). FaktWay, Packages, $(basename "$GHCR_PREFIX")-worker i -runner, Package settings, Change visibility: Public." >&2
       return 1
     fi
     [ "$proba" = 0 ] && echo "   obrazów $sha jeszcze nie ma w GHCR; czekam do $minuty min (co 30 s)"
