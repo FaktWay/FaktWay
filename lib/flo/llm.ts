@@ -24,7 +24,7 @@
  * odbiorem wyników przed 07:30.
  */
 
-import { getAnthropic } from '@/lib/anthropic/client';
+import { ANTHROPIC_REQUEST_LIMITS, getAnthropic } from '@/lib/anthropic/client';
 import {
   assertBudget,
   recordUsage,
@@ -358,20 +358,25 @@ async function callAnthropic(req: {
   system: string;
   user: string;
 }): Promise<ModelCallResult> {
-  const response = await getAnthropic().messages.create({
-    model: req.model,
-    max_tokens: 400,
-    // Znacznik pamięci podręcznej na części stałej. Patrz uwaga przy
-    // SYSTEM_PROMPT: dziś jeszcze za krótkie, żeby cokolwiek dało.
-    system: [
-      {
-        type: 'text',
-        text: req.system,
-        cache_control: { type: 'ephemeral' },
-      },
-    ],
-    messages: [{ role: 'user', content: req.user }],
-  });
+  // LIM-05: treść ma szablon w zapasie, więc długie czekanie nic nie daje.
+  // Krótki limit: po ok. 40 s (2 próby po 20 s) szablon zamiast do 30 min.
+  const response = await getAnthropic().messages.create(
+    {
+      model: req.model,
+      max_tokens: 400,
+      // Znacznik pamięci podręcznej na części stałej. Patrz uwaga przy
+      // SYSTEM_PROMPT: dziś jeszcze za krótkie, żeby cokolwiek dało.
+      system: [
+        {
+          type: 'text',
+          text: req.system,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+      messages: [{ role: 'user', content: req.user }],
+    },
+    ANTHROPIC_REQUEST_LIMITS,
+  );
 
   const text = response.content
     .map((block) => (block.type === 'text' ? block.text : ''))

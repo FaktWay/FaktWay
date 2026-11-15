@@ -192,7 +192,11 @@ describe('czat wsparcia: instrukcje modelu', () => {
         yield { type: 'content_block_delta', delta: { type: 'text_delta', text: 'ok' } };
       },
     }));
-    vi.doMock('@/lib/anthropic/client', () => ({ getAnthropic: () => ({ messages: { stream } }) }));
+    // Prawdziwe stałe modułu (limity czasu z LIM-05), atrapa tylko klienta.
+    vi.doMock('@/lib/anthropic/client', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('@/lib/anthropic/client')>()),
+      getAnthropic: () => ({ messages: { stream } }),
+    }));
     const { streamSupportReply } = await import('@/lib/support/chat');
     for await (const fragment of streamSupportReply([{ role: 'user', content: 'Czy jesteś człowiekiem?' }])) {
       expect(fragment).toBe('ok');
