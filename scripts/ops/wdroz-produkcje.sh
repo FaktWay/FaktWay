@@ -182,7 +182,9 @@ deploy_obraz() {
     exit 1
   elif [ "$rc" != 0 ]; then
     # Bez cofania tagu: wdrożenie może jeszcze skończyć się na nowym obrazie.
-    echo "Tag $name zostaje na $SHA. Po sprawdzeniu w panelu uruchom skrypt ponownie albo cofnij: ./scripts/ops/wdroz-produkcje.sh --obraz <poprzedni sha>" >&2
+    local cofnij_prefiks=""
+    [ "$(poprzedni_obraz "$app_id")" = "$GHCR_PREFIX_DAWNY-$(cel_dockerfile "$app_id")" ] && cofnij_prefiks="GHCR_PREFIX=$GHCR_PREFIX_DAWNY "
+    echo "Tag $name zostaje na $SHA. Po sprawdzeniu w panelu uruchom skrypt ponownie albo cofnij: ${cofnij_prefiks}./scripts/ops/wdroz-produkcje.sh --obraz ${poprzedni:-<poprzedni sha>}" >&2
     exit 1
   fi
   # Stary kontener może chwilę jeszcze być na liście: do minuty na jeden,
