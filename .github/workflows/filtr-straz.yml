@@ -23,9 +23,17 @@ on:
 permissions:
   contents: read
 
+# Anuluje się tylko przebieg z poprzedniego pushu (`synchronize`): ten dotyczy już
+# nieaktualnego SHA. Zdarzenia etykiet i edycji NIE anulują niczego. Wcześniej
+# `scal` nadane tuż po `zgoda:*` anulowało przebieg straży na tym samym SHA, a
+# anulowany przebieg to osobna kontrola, której nowszy zielony nie zastępuje w
+# `statusCheckRollup` (stan FAILURE mimo zielonych wymaganych kontroli).
+# Nie dodawaj tu `if:` pomijającego zadanie dla nieistotnych etykiet: pominięte
+# zadanie GitHub liczy jako zaliczoną wymaganą kontrolę i nowsze „skipped”
+# przykryłoby wcześniejszą czerwoną ocenę.
 concurrency:
-  group: filtr-straz-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: filtr-straz-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action == 'synchronize' && 'push' || github.run_id }}
+  cancel-in-progress: ${{ github.event.action == 'synchronize' }}
 
 jobs:
   straz:

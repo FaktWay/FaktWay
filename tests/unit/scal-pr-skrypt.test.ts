@@ -12,8 +12,9 @@ import { afterEach, describe, expect, it } from 'vitest';
  * Uruchamiane są PRAWDZIWE skrypty z atrapami `gh` (tylko `gh api`, odpowiedzi
  * z plików JSON przepuszczone przez PRAWDZIWY `jq` według wyrażenia z `--jq`,
  * więc wyrażenia ze skryptu są sprawdzane naprawdę) i `sleep` (bez czekania).
- * Atrapa `gh` odrzuca wszystko poza `gh api`: skrypty nie mogą użyć GraphQL
- * (`gh pr …`), bo w sesji chmurowej by nie działały.
+ * Atrapa `gh` przyjmuje `gh api` oraz jedno `gh pr merge` (krok „scalanie z konta
+ * człowieka” w `scal-pr.sh`, który w sesji chmurowej kończy się ostrzeżeniem,
+ * bo GraphQL jest tam zablokowany); `odswiez-pr.sh` nadal używa tylko REST.
  * Plik `<nazwa>.<k>.json` odpowiada na k-te wywołanie danej ścieżki (kolejne
  * odpytania w pętli czekania), a `<nazwa>.json` na pozostałe.
  */
@@ -40,7 +41,12 @@ function itJq(name: string, fn: () => void) {
 }
 
 const FAKE_GH = `#!/usr/bin/env bash
-[ "$1" = api ] || { echo "atrapa gh: oczekiwałem api, jest: $*" >&2; exit 9; }
+if [ "$1" = pr ] && [ "$2" = merge ]; then
+  echo "PRMERGE $3 \${*:4}" >> "$FAKE_DIR/calls.log"
+  if [ -f "$FAKE_DIR/fail-prmerge" ]; then echo "GraphQL: Resource not accessible by integration" >&2; exit 1; fi
+  exit 0
+fi
+[ "$1" = api ] || { echo "atrapa gh: oczekiwałem api albo pr merge, jest: $*" >&2; exit 9; }
 shift
 metoda=GET; wyrazenie=""; sciezka=""; pola=""
 while [ $# -gt 0 ]; do
@@ -185,6 +191,7 @@ describe('scal-pr.sh: odmowy (nic nie jest nadawane)', () => {
       const w = uruchom(SCAL, ['42'], { [PR42]: pr(), [CHECKS]: { check_runs: [kontrola('Vitest (część 1/3)', 1, 'completed', wynik)] } });
       expect(w.status, wynik).toBe(1);
       expect(w.stderr).toContain(`Vitest (część 1/3) (${wynik})`);
+      expect(w.calls.some((c) => c.startsWith('PRMERGE'))).toBe(false);
     }
   });
 
@@ -212,18 +219,84 @@ describe('scal-pr.sh: nadanie etykiety', () => {
     });
     expect(w.status).toBe(0);
     expect(posty(w.calls)).toEqual(['labels[]=scal']);
-    expect(w.calls.every((c) => !c.includes('graphql') && !c.includes('merge'))).toBe(true);
+    expect(w.calls.every((c) => !c.includes('graphql') && !c.includes('--admin'))).toBe(true);
     expect(w.stdout).toContain('etykieta scal nadana');
     expect(w.stdout).toContain('gh api repos/FaktWay/FaktWay/pulls/42');
   });
 
-  itJq('etykieta scal już na PR (np. po wyrzuceniu z kolejki): zdjęta i nadana od nowa', () => {
+  itJq('po etykiecie włącza scalanie z konta człowieka: gh pr merge z SHA głowy, bez --admin i bez wskazania metody', () => {
+    // Auto-merge i wpis do kolejki zrobione przez GITHUB_TOKEN nie uruchamiają kontroli grupy
+    // (#765) i nie wstawiły do kolejki żadnego PR (#757, #759, #760, #761, #767, #769, #785, #786).
+    const w = uruchom(SCAL, ['42'], { [PR42]: pr(), [CHECKS]: ZIELONE });
+    expect(w.status).toBe(0);
+    const merge = w.calls.filter((c) => c.startsWith('PRMERGE'));
+    expect(merge).toEqual([`PRMERGE 42 -R ${REPO} --match-head-commit ${SHA}`]);
+    expect(w.calls.indexOf(`POST repos/${REPO}/issues/42/labels labels[]=scal`)).toBeLessThan(w.calls.indexOf(merge[0]));
+    expect(w.stdout).toContain('scalanie włączone z Twojego konta');
+  });
+
+  itJq('GraphQL zablokowany (sesja chmurowa): ostrzeżenie z SCAL_TOKEN, etykieta zostaje, kod 0', () => {
+    const w = uruchom(SCAL, ['42'], { [PR42]: pr(), [CHECKS]: ZIELONE, 'fail-prmerge': '' });
+    expect(w.status).toBe(0);
+    expect(posty(w.calls)).toEqual(['labels[]=scal']);
+    expect(w.stderr).toContain('ostrzeżenie: nie włączyłem scalania z konta gh');
+    expect(w.stderr).toContain('SCAL_TOKEN');
+    expect(w.stdout).not.toContain('scalanie włączone z Twojego konta');
+  });
+
+  itJq('PR z włączonym scalaniem albo w kolejce: gh pr merge nie jest wołane (zostaje miejsce w kolejce)', () => {
+    const w = uruchom(SCAL, ['42'], { [PR42]: pr({ auto_merge: { enabled_by: { login: 'ezior8888-cpu' } }, labels: etykiety('scal') }), [CHECKS]: ZIELONE });
+    expect(w.status).toBe(0);
+    expect(w.calls.some((c) => c.startsWith('PRMERGE'))).toBe(false);
+    const wKolejce = uruchom(SCAL, ['42'], { [PR42]: pr(), [CHECKS]: ZIELONE, 'events.json': [{ event: 'added_to_merge_queue' }] });
+    expect(wKolejce.status).toBe(0);
+    expect(wKolejce.calls.some((c) => c.startsWith('PRMERGE'))).toBe(false);
+  });
+
+  itJq('etykieta scal już na PR: gh pr merge wystarcza, etykiety nie zdejmuje (zdjęcie to zdarzenie, które workflow obsłuży jako wyłączenie scalania)', () => {
+    // Wyścig z przeglądu: DELETE etykiety przez konto człowieka uruchamia workflow `unlabeled`,
+    // który mógłby wyłączyć scalanie włączone chwilę później przez `gh pr merge`.
     const w = uruchom(SCAL, ['42'], { [PR42]: pr({ labels: etykiety('scal') }), [CHECKS]: ZIELONE });
+    expect(w.status).toBe(0);
+    expect(w.calls.filter((c) => c.startsWith('DELETE') || c.startsWith('POST'))).toEqual([]);
+    expect(w.calls.filter((c) => c.startsWith('PRMERGE'))).toEqual([`PRMERGE 42 -R ${REPO} --match-head-commit ${SHA}`]);
+    expect(w.stdout).toContain('scalanie włączone z Twojego konta');
+  });
+
+  itJq('etykieta scal już na PR, a gh pr merge zawodzi (chmura): etykieta zdjęta i nadana od nowa, żeby workflow z SCAL_TOKEN zadziałał', () => {
+    const w = uruchom(SCAL, ['42'], { [PR42]: pr({ labels: etykiety('scal') }), [CHECKS]: ZIELONE, 'fail-prmerge': '' });
     expect(w.status).toBe(0);
     const iDelete = w.calls.indexOf(`DELETE repos/${REPO}/issues/42/labels/scal`);
     const iPost = w.calls.indexOf(`POST repos/${REPO}/issues/42/labels labels[]=scal`);
     expect(iDelete).toBeGreaterThan(-1);
     expect(iPost).toBeGreaterThan(iDelete);
+    expect(w.stderr).toContain('SCAL_TOKEN');
+  });
+
+  itJq('gh pr merge zawodzi, bo głowa PR zmieniła się po odczycie (ktoś wypchnął commit): nie nadaje etykiety od nowa na nieprzejrzany commit', () => {
+    // Workflow z SCAL_TOKEN bierze SHA z zdarzenia etykiety, więc ponowne nadanie uzbroiłoby scalanie nowego commita.
+    const nowaGlowa = 'b'.repeat(40);
+    const w = uruchom(SCAL, ['42'], {
+      [PR42]: pr({ labels: etykiety('scal') }),
+      'pr-42.2.json': pr({ labels: etykiety('scal'), head: { sha: nowaGlowa, repo: { full_name: REPO } } }),
+      [CHECKS]: ZIELONE,
+      'fail-prmerge': '',
+    });
+    expect(w.status).toBe(1);
+    expect(w.stderr).toMatch(/Głowa PR zmieniła się po odczycie/);
+    expect(w.calls.filter((c) => c.startsWith('DELETE') || c.startsWith('POST'))).toEqual([]);
+  });
+
+  itJq('scalanie włączone wcześniej przez bota (github-actions[bot]) nie liczy się jako „w drodze”: wyłącza je i włącza z konta człowieka', () => {
+    // Auto-merge z tokenu Actions nie wstawia PR do kolejki (docs/runbooks/scalanie-pr.md).
+    const w = uruchom(SCAL, ['42'], {
+      [PR42]: pr({ labels: etykiety('scal'), auto_merge: { enabled_by: { login: 'github-actions[bot]' } } }),
+      [CHECKS]: ZIELONE,
+    });
+    expect(w.status).toBe(0);
+    const merge = w.calls.filter((c) => c.startsWith('PRMERGE'));
+    expect(merge).toEqual([`PRMERGE 42 -R ${REPO} --disable-auto`, `PRMERGE 42 -R ${REPO} --match-head-commit ${SHA}`]);
+    expect(w.stdout).not.toMatch(/już włączone scalanie albo jest w kolejce/);
   });
 
   itJq('scal i włączone automatyczne scalanie: etykiety nie rusza (nie traci miejsca w kolejce)', () => {
@@ -243,15 +316,16 @@ describe('scal-pr.sh: nadanie etykiety', () => {
     expect(w.calls.filter((c) => c.startsWith('POST') || c.startsWith('DELETE'))).toEqual([]);
   });
 
-  itJq('wypadł z kolejki (po wejściu nastąpiło wyjście): scal zdjęta i nadana od nowa', () => {
+  itJq('wypadł z kolejki (po wejściu nastąpiło wyjście): ponowny wpis gh pr merge, etykieta zostaje', () => {
     const w = uruchom(SCAL, ['42'], {
       [PR42]: pr({ labels: etykiety('scal') }),
       [CHECKS]: ZIELONE,
       'events.json': [{ id: 1, event: 'added_to_merge_queue' }, { id: 2, event: 'removed_from_merge_queue' }],
     });
     expect(w.status).toBe(0);
-    expect(w.calls).toContain(`DELETE repos/${REPO}/issues/42/labels/scal`);
-    expect(posty(w.calls)).toEqual(['labels[]=scal']);
+    // Etykieta już jest: wystarczy ponowny wpis kontem człowieka (bez DELETE, które wyłączyłoby scalanie).
+    expect(w.calls.filter((c) => c.startsWith('DELETE') || c.startsWith('POST'))).toEqual([]);
+    expect(w.calls.filter((c) => c.startsWith('PRMERGE'))).toHaveLength(1);
   });
 
   itJq('scalanie włączone poleceniem gh pr merge --auto (bez etykiety): etykiety nie nadaje, --czekaj nie żąda scal', () => {
@@ -469,15 +543,29 @@ describe('odswiez-pr.sh', () => {
   });
 });
 
-describe('skrypty nie używają GraphQL', () => {
-  it('żadnego `gh pr` ani `gh api graphql` w scal-pr.sh i odswiez-pr.sh', () => {
-    for (const plik of [SCAL, ODSWIEZ]) {
-      const tresc = readFileSync(plik, 'utf8')
-        .split('\n')
-        .filter((l) => !l.trimStart().startsWith('#'))
-        .join('\n');
-      expect(tresc, plik).not.toMatch(/\bgh pr (merge|edit|view|close|reopen)\b/);
-      expect(tresc, plik).not.toMatch(/graphql/);
-    }
+describe('GraphQL tylko tam, gdzie jego brak nie psuje skryptu', () => {
+  const bezKomentarzy = (plik: string) =>
+    readFileSync(plik, 'utf8')
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('#'))
+      .join('\n');
+
+  it('odswiez-pr.sh: żadnego `gh pr` ani `gh api graphql` (tylko REST)', () => {
+    const tresc = bezKomentarzy(ODSWIEZ);
+    expect(tresc).not.toMatch(/\bgh pr (merge|edit|view|close|reopen)\b/);
+    expect(tresc).not.toMatch(/graphql/);
+  });
+
+  it('scal-pr.sh: jedyny `gh pr` to merge w kroku „scalanie z konta człowieka” (jego błąd to ostrzeżenie), bez --admin i bez graphql', () => {
+    const tresc = bezKomentarzy(SCAL);
+    expect(tresc).not.toMatch(/\bgh pr (edit|view|close|reopen)\b/);
+    expect(tresc).not.toMatch(/graphql/);
+    expect(tresc).not.toMatch(/--admin/);
+    // Wykonywane są dwa wywołania: włączenie scalania i wyłączenie dawnego scalania bota (`--disable-auto`);
+    // pozostałe wzmianki to podpowiedź w tekście ostrzeżenia (`say`).
+    const wiersze = tresc.split('\n').filter((l) => /\bgh pr merge\b/.test(l) && !l.trimStart().startsWith('say '));
+    expect(wiersze).toHaveLength(2);
+    expect(wiersze.filter((l) => l.includes('--disable-auto'))).toHaveLength(1);
+    expect(tresc).toMatch(/if blad=\$\(gh pr merge "\$NUMER" -R "\$REPO" --match-head-commit "\$sha" 2>&1\); then/);
   });
 });

@@ -4,17 +4,30 @@
 // Jedna ścieżka scalania dla każdego środowiska agenta. Sesja lokalna, Codex
 // i sesja w chmurze (gdzie proxy GitHuba odrzuca GraphQL, więc `gh pr merge`
 // i `gh pr edit` nie działają) robią to samo: nadają etykietę `scal` przez REST
-// (`scripts/ops/scal-pr.sh`). Ten skrypt, po stronie GitHuba, włącza wtedy
-// automatyczne scalanie. Przy włączonej kolejce scalania (ruleset „main -
-// ochrona podstawowa”) GitHub wstawia PR do kolejki, gdy kontrole są zielone,
-// więc agent nie musi czekać na CI.
+// (`scripts/ops/scal-pr.sh`). Sesja lokalna włącza potem scalanie sama (`gh pr
+// merge` z konta człowieka). Ten skrypt, po stronie GitHuba, pilnuje warunków,
+// a scalanie włącza tylko z sekretem SCAL_TOKEN (sesje chmurowe). Przy włączonej
+// kolejce scalania (ruleset „main - ochrona podstawowa”) GitHub wstawia PR do
+// kolejki, gdy kontrole są zielone, więc agent nie musi czekać na CI.
+//
+// TOŻSAMOŚĆ (ustalenie z 15.11.2026): włączenie scalania i wpis do kolejki
+// muszą iść z konta człowieka (sekret `SCAL_TOKEN`, PAT albo token aplikacji),
+// NIE z `GITHUB_TOKEN`. Zdarzenia wywołane `GITHUB_TOKEN` nie tworzą przebiegów
+// workflowów, więc wpis do kolejki zrobiony tym tokenem nie dostaje kontroli
+// grupy (AWAITING_CHECKS bez przebiegów, #765), a scalanie włączone tym
+// tokenem nie wpisało do kolejki żadnego z ok. 10 PR (#757, #759, #760, #761,
+// #767, #769, #785, #786 i dalsze: zawsze ręczny wpis człowieka). Bez sekretu
+// skrypt niczego nie włącza i komentuje, co zrobić. Docs: scalanie-pr.md.
 //
 // Zdarzenia (`pull_request_target`):
-//   labeled `scal`       włącz, ale tylko gdy nadawca jest w filtr/zgody.json,
+//   labeled `scal`       włącz (kontem człowieka, patrz wyżej; cudzego włączenia
+//                        i wpisu w kolejce nie ruszaj), ale tylko gdy nadawca jest w filtr/zgody.json,
 //                        PR jest otwarty, nie jest szkicem, ma bazę `main`,
 //                        głowę z TEGO repozytorium i nie ma etykiety `wstrzymaj`;
 //                        inaczej komentarz z powodem i zdjęcie etykiety;
-//   unlabeled `scal`     wyłącz automatyczne scalanie i wyjmij z kolejki;
+//   unlabeled `scal`     wyłącz automatyczne scalanie i wyjmij z kolejki, chyba że
+//                        etykieta jest już z powrotem na PR (skrypt zdjął i nadał
+//                        ją od nowa: wyłączenie cofnęłoby świeże włączenie);
 //   labeled `wstrzymaj`  to samo (kierunek bezpieczny, nadać może każdy);
 //   synchronize          nowy push na PR z etykietą `scal`: zdejmij ją i wyłącz
 //                        (zgoda dotyczy tego, co przeczytał drugi czytelnik,
@@ -26,7 +39,7 @@
 // domyślnej. Kodu z PR nie pobiera i nie uruchamia. Z PR czyta tylko liczbę,
 // identyfikator węzła, SHA głowy, stan, nazwę repozytorium głowy, nazwę bazy
 // i nazwy etykiet; nic z tego nie trafia do powłoki. Tytułu, opisu ani nazwy
-// gałęzi PR nie czytamy wcale. Token nie trafia do logu ani do komunikatów.
+// gałęzi PR nie czytamy wcale. Token nie trafia do logu ani do komunikatów (wyjątki `fetch` są zastępowane opisem bez treści nagłówka).
 //
 // Użycie (w workflow): node scripts/ci/scalanie-etykieta.mjs
 // Kod wyjścia: 0 dobrze (także „nic do zrobienia” i odmowa), 1 błąd API, 2 użycie.
@@ -40,7 +53,7 @@ export const BOT_WORKFLOWU = 'github-actions[bot]';
 const GALAZ_BAZOWA = 'main';
 
 const ZAPYTANIE_STAN = `query($id: ID!) {
-  node(id: $id) { ... on PullRequest { autoMergeRequest { enabledAt } mergeQueueEntry { id } } }
+  node(id: $id) { ... on PullRequest { autoMergeRequest { enabledAt enabledBy { __typename login } } mergeQueueEntry { id } } }
 }`;
 const MUTACJA_WLACZ = `mutation($id: ID!, $sha: GitObjectID!) {
   enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: MERGE, expectedHeadOid: $sha}) { clientMutationId }
@@ -54,6 +67,13 @@ const MUTACJA_WYLACZ = `mutation($id: ID!) {
 const MUTACJA_Z_KOLEJKI = `mutation($id: ID!) {
   dequeuePullRequest(input: {id: $id}) { clientMutationId }
 }`;
+
+const KOMENTARZ_NIE_WYLACZONO = (/** @type {number} */ numer) =>
+  `Nie udało się wyłączyć scalania automatycznie (błąd API, szczegóły w logu zadania „Scal”): scalanie mogło zostać włączone. Wyłącz je ręcznie: \`gh pr merge ${numer} --disable-auto\`, a gdy PR jest już w kolejce, wyjmij go z kolejki (docs/runbooks/scalanie-pr.md, „Wpis w kolejce stoi w AWAITING_CHECKS”).`;
+
+/** @param {number} numer */
+const KOMENTARZ_BRAK_TOKENU = (numer) =>
+  `Nie włączam scalania z workflow: brak sekretu \`SCAL_TOKEN\` (konto człowieka). Wpis do kolejki zrobiony tokenem Actions nie uruchamia kontroli grupy, więc PR utknąłby w AWAITING_CHECKS. Włącz scalanie kontem człowieka: \`gh pr merge ${numer} --auto\` (robi to \`./scripts/ops/scal-pr.sh ${numer}\` w sesji lokalnej). Etykietę \`${ETYKIETA_SCAL}\` zostawiam. Sekret zakłada Bartosz (docs/runbooks/scalanie-pr.md, „Sekret SCAL_TOKEN”).`;
 
 /**
  * @typedef {{ akcja: 'wlacz' | 'odmow' | 'wylacz' | 'ignoruj', powody: string[], zdejmijEtykiete: boolean, komentarz: string | null }} Decyzja
@@ -134,11 +154,25 @@ function powodyOdmowy(zdarzenie, pr, nadawca, etykiety, osoby) {
 }
 
 /**
+ * `graphql` idzie tokenem Actions (odczyt stanu, wyłączenie scalania, wyjęcie z kolejki: kierunek
+ * bezpieczny nie może zależeć od ważności tokenu człowieka). `graphqlCzlowieka` (tylko z sekretem
+ * SCAL_TOKEN) służy wyłącznie do włączenia scalania i wpisu do kolejki.
  * @typedef {{
  *   rest: (metoda: string, sciezka: string, cialo?: unknown) => Promise<any>,
  *   graphql: (zapytanie: string, zmienne: Record<string, unknown>) => Promise<any>,
+ *   graphqlCzlowieka?: (zapytanie: string, zmienne: Record<string, unknown>) => Promise<any>,
+ *   tozsamosc?: 'czlowiek' | 'bot',
  * }} Api
  */
+
+/**
+ * Włączenie scalania przez `github-actions` (token Actions): GraphQL podaje login bez „[bot]”
+ * (REST ma `github-actions[bot]`). Inne boty (aplikacja GitHub, Renovate) to nie ta pula.
+ * @param {{ __typename?: string, login?: string } | null | undefined} wlaczajacy
+ */
+function czyBot(wlaczajacy) {
+  return /^github-actions(\[bot\])?$/.test(wlaczajacy?.login ?? '');
+}
 
 /**
  * Wykonuje decyzję przez API. Operacje są idempotentne: ponowienie po błędzie
@@ -165,64 +199,170 @@ export async function wykonaj(d, zdarzenie, api) {
   };
 
   if (d.akcja === 'wlacz') {
-    await wlacz(api, pr);
-    await komentarz(
-      `Scalanie włączone przez \`${zdarzenie.sender.login}\`: PR wejdzie do kolejki po zielonych kontrolach. Nowy push je wyłączy.`,
-    );
-    return;
+    const wynik = await wlacz(api, pr);
+    if (wynik === 'brak-tokenu') await komentarz(KOMENTARZ_BRAK_TOKENU(pr.number));
+    else if (wynik === 'wlaczone') {
+      await komentarz(
+        `Scalanie włączone na prośbę \`${zdarzenie.sender.login}\`: PR wejdzie do kolejki po zielonych kontrolach. Nowy push je wyłączy.`,
+      );
+    }
+    return wynik;
   }
   if (d.akcja === 'odmow') {
+    // Skrypt lokalny (`scal-pr.sh`) włącza scalanie sam, z pominięciem tej bramki, więc odmowa
+    // cofa też to, co mogło zostać włączone w międzyczasie. Błąd cofania nie blokuje zdjęcia etykiety.
+    let nieWylaczono = false;
+    try {
+      await wylacz(api, pr);
+    } catch (blad) {
+      nieWylaczono = true;
+      console.warn(`Nie udało się wyłączyć scalania PR #${pr.number} przy odmowie: ${blad instanceof Error ? blad.message : 'nieznany błąd'}`);
+    }
     await zdejmij();
     if (d.komentarz) await komentarz(d.komentarz);
+    if (nieWylaczono) await komentarz(KOMENTARZ_NIE_WYLACZONO(pr.number));
     return;
   }
-  await wylacz(api, pr);
+  // `scal-pr.sh` zdejmuje i nadaje etykietę od nowa (gdy samo `gh pr merge` zawiodło): zdarzenie
+  // `unlabeled` dociera po nadaniu z powrotem i wyłączyłoby scalanie, które właśnie zostało włączone.
+  if (zdarzenie.action === 'unlabeled' && zdarzenie.label?.name === ETYKIETA_SCAL) {
+    /** @type {unknown} */
+    let aktualne = null;
+    try {
+      aktualne = await api.rest('GET', `${sciezkaPR}/labels?per_page=100`);
+    } catch {
+      // Nie umiemy ustalić, czy etykieta wróciła: człowiek zdjął ją, żeby anulować scalanie,
+      // więc przy wątpliwości wyłączamy (kierunek bezpieczny).
+    }
+    if (Array.isArray(aktualne) && aktualne.some((/** @type {{ name: string }} */ l) => l.name === ETYKIETA_SCAL)) return 'ponownie-nadana';
+  }
+  // Etykietę zdejmujemy nawet wtedy, gdy wyłączenie zawiodło (inaczej nowy commit zostałby w drodze
+  // z etykietą po zgodzie na poprzedni SHA); błąd wyłączenia wraca po zdjęciu, więc zadanie jest czerwone.
+  /** @type {unknown} */
+  let bladWylaczenia = null;
+  try {
+    await wylacz(api, pr);
+  } catch (blad) {
+    bladWylaczenia = blad;
+  }
   if (d.zdejmijEtykiete) await zdejmij();
-  if (d.komentarz) await komentarz(d.komentarz);
+  // Gdy wyłączenie zawiodło, komentarz nie może twierdzić, że scalanie wyłączono.
+  if (bladWylaczenia) await komentarz(KOMENTARZ_NIE_WYLACZONO(pr.number));
+  else if (d.komentarz) await komentarz(d.komentarz);
+  if (bladWylaczenia) throw bladWylaczenia;
 }
 
-/** @param {Api} api @param {any} pr */
+/**
+ * Włącza automatyczne scalanie TYLKO tożsamością człowieka (sekret `SCAL_TOKEN`).
+ * Powód (dziennik scalania z 15.11.2026): wpis do kolejki, który zrobił
+ * `GITHUB_TOKEN`, nie uruchamia kontroli grupy (zdarzenia wywołane tym tokenem
+ * nie tworzą przebiegów workflowów), więc PR stoi w AWAITING_CHECKS (#765), a
+ * automatyczne scalanie włączone tym tokenem nie wstawiło do kolejki żadnego
+ * z ok. 10 PR. Bez sekretu nie robimy więc nic i mówimy to wprost.
+ * Cudzego włączenia nie nadpisujemy: człowiek, który włączył scalanie sam
+ * (`gh pr merge --auto`), zostaje wpisem, a wpis w kolejce zostaje w kolejce.
+ * @param {Api} api @param {any} pr
+ * @returns {Promise<'wlaczone' | 'juz-wlaczone' | 'w-kolejce' | 'brak-tokenu'>}
+ */
 async function wlacz(api, pr) {
+  const stan = (await api.graphql(ZAPYTANIE_STAN, { id: pr.node_id }))?.node ?? {};
+  if (stan.mergeQueueEntry) return 'w-kolejce';
+  const wlaczone = stan.autoMergeRequest;
+  if (wlaczone && !czyBot(wlaczone.enabledBy)) return 'juz-wlaczone';
+  if (api.tozsamosc !== 'czlowiek' || !api.graphqlCzlowieka) return 'brak-tokenu';
+  // Dawne włączenie przez bota zdejmujemy, zanim włączy człowiek: nie zakładamy, jak GitHub
+  // potraktuje drugie `enablePullRequestAutoMerge` na PR, który już je ma.
+  if (wlaczone) await api.graphql(MUTACJA_WYLACZ, { id: pr.node_id });
   const zmienne = { id: pr.node_id, sha: pr.head.sha };
   try {
-    await api.graphql(MUTACJA_WLACZ, zmienne);
+    await api.graphqlCzlowieka(MUTACJA_WLACZ, zmienne);
   } catch (blad) {
     // PR już gotowy do scalenia: GitHub odmawia „auto-merge” i każe scalać
     // od razu, a przy kolejce scalania to znaczy wstawić PR do kolejki.
     if (blad instanceof Error && /clean status|already mergeable/i.test(blad.message)) {
-      await api.graphql(MUTACJA_KOLEJKA, zmienne);
-      return;
+      await api.graphqlCzlowieka(MUTACJA_KOLEJKA, zmienne);
+      return 'wlaczone';
     }
     throw blad;
+  }
+  return 'wlaczone';
+}
+
+/**
+ * Wyłączenie idzie najpierw tokenem Actions (nie zależy od ważności PAT; sprawdzone 15.11.2026:
+ * token z `contents: write` i `pull-requests: write` wyłącza scalanie włączone przez człowieka).
+ * Gdy GitHub odmówi (np. dequeue cudzego wpisu, czego nie sprawdzono), powtarzamy kontem
+ * człowieka, jeśli jest.
+ * @param {Api} api @param {string} zapytanie @param {Record<string, unknown>} zmienne
+ */
+async function graphqlZZapasem(api, zapytanie, zmienne) {
+  try {
+    return await api.graphql(zapytanie, zmienne);
+  } catch (blad) {
+    if (!api.graphqlCzlowieka) throw blad;
+    return api.graphqlCzlowieka(zapytanie, zmienne);
   }
 }
 
 /** @param {Api} api @param {any} pr */
 async function wylacz(api, pr) {
-  const stan = (await api.graphql(ZAPYTANIE_STAN, { id: pr.node_id }))?.node ?? {};
-  if (stan.autoMergeRequest) await api.graphql(MUTACJA_WYLACZ, { id: pr.node_id });
+  const stan = (await graphqlZZapasem(api, ZAPYTANIE_STAN, { id: pr.node_id }))?.node ?? {};
+  if (stan.autoMergeRequest) await graphqlZZapasem(api, MUTACJA_WYLACZ, { id: pr.node_id });
   // Wejście `dequeuePullRequest` to identyfikator PR, nie wpisu kolejki.
-  if (stan.mergeQueueEntry) await api.graphql(MUTACJA_Z_KOLEJKI, { id: pr.node_id });
+  if (stan.mergeQueueEntry) await graphqlZZapasem(api, MUTACJA_Z_KOLEJKI, { id: pr.node_id });
 }
 
 /**
  * Klient API na `fetch` (wstrzykiwany w testach). Błąd niesie metodę, ścieżkę
  * i status HTTP albo komunikaty GraphQL; nigdy nagłówków ani tokenu.
- * @param {{ token: string, fetchFn?: typeof fetch }} opcje
- * @returns {Api}
+ * REST (etykiety, komentarze) i `graphql` idą tokenem Actions, więc nasze własne
+ * zdjęcia etykiety mają nadawcę `github-actions[bot]` i workflow je pomija, a
+ * wyłączenie scalania nie zależy od ważności tokenu człowieka. `graphqlCzlowieka`
+ * (włączenie scalania, wpis do kolejki) idzie tokenem człowieka, gdy jest: tylko
+ * wtedy wpis uruchamia kontrole grupy. `tozsamosc` mówi, który to przypadek.
+ * @param {{ token: string, tokenCzlowieka?: string, fetchFn?: typeof fetch }} opcje
+ * @returns {Api & { tozsamosc: 'czlowiek' | 'bot' }}
  */
-export function utworzApi({ token, fetchFn = fetch }) {
-  const naglowki = {
+export function utworzApi({ token, tokenCzlowieka = '', fetchFn = fetch }) {
+  // Sekret wklejony z końcowym znakiem nowej linii psułby nagłówek.
+  const czlowiek = tokenCzlowieka.trim();
+  const naglowki = (/** @type {string} */ t) => ({
     Accept: 'application/vnd.github+json',
-    Authorization: `Bearer ${token}`,
+    Authorization: `Bearer ${t}`,
     'Content-Type': 'application/json',
     'X-GitHub-Api-Version': '2022-11-28',
+  });
+  // Wyjątek `fetch` bywa z treścią nagłówka, czyli z tokenem, a komunikat błędu trafia do
+  // komentarza w publicznym repo: tu dostaje tylko opis bez tokenu.
+  const wywolaj = async (/** @type {string} */ opis, /** @type {string} */ url, /** @type {RequestInit} */ init) => {
+    try {
+      return await fetchFn(url, init);
+    } catch (blad) {
+      // Zostaje rodzaj awarii (nazwa, kod sieci), nie treść: ta bywa z nagłówkiem, czyli z tokenem.
+      const rodzaj = String((blad && /** @type {any} */ (blad).cause?.code) || (blad && /** @type {any} */ (blad).name) || 'Error').replace(/[^A-Za-z0-9_.-]/g, '');
+      throw new Error(`${opis}: błąd połączenia albo odrzucony nagłówek (${rodzaj}; treść pominięta, żeby nie ujawnić tokenu)`);
+    }
+  };
+  /** @param {string} t */
+  const graphqlTokenem = (t) => async (/** @type {string} */ zapytanie, /** @type {Record<string, unknown>} */ zmienne) => {
+    const odpowiedz = await wywolaj('GitHub GraphQL', 'https://api.github.com/graphql', {
+      method: 'POST',
+      headers: naglowki(t),
+      body: JSON.stringify({ query: zapytanie, variables: zmienne }),
+    });
+    if (!odpowiedz.ok) throw new Error(`GitHub GraphQL: HTTP ${odpowiedz.status}`);
+    const json = await odpowiedz.json();
+    if (Array.isArray(json.errors) && json.errors.length > 0) {
+      throw new Error(`GitHub GraphQL: ${json.errors.map((/** @type {{ message: string }} */ e) => e.message).join('; ')}`);
+    }
+    return json.data;
   };
   return {
+    tozsamosc: czlowiek ? 'czlowiek' : 'bot',
     async rest(metoda, sciezka, cialo) {
-      const odpowiedz = await fetchFn(`https://api.github.com${sciezka}`, {
+      const odpowiedz = await wywolaj(`GitHub API ${metoda} ${sciezka}`, `https://api.github.com${sciezka}`, {
         method: metoda,
-        headers: naglowki,
+        headers: naglowki(token),
         body: cialo === undefined ? undefined : JSON.stringify(cialo),
       });
       if (metoda === 'DELETE' && odpowiedz.status === 404) return null;
@@ -230,19 +370,8 @@ export function utworzApi({ token, fetchFn = fetch }) {
       if (odpowiedz.status === 204) return null;
       return odpowiedz.json();
     },
-    async graphql(zapytanie, zmienne) {
-      const odpowiedz = await fetchFn('https://api.github.com/graphql', {
-        method: 'POST',
-        headers: naglowki,
-        body: JSON.stringify({ query: zapytanie, variables: zmienne }),
-      });
-      if (!odpowiedz.ok) throw new Error(`GitHub GraphQL: HTTP ${odpowiedz.status}`);
-      const json = await odpowiedz.json();
-      if (Array.isArray(json.errors) && json.errors.length > 0) {
-        throw new Error(`GitHub GraphQL: ${json.errors.map((/** @type {{ message: string }} */ e) => e.message).join('; ')}`);
-      }
-      return json.data;
-    },
+    graphql: graphqlTokenem(token),
+    ...(czlowiek ? { graphqlCzlowieka: graphqlTokenem(czlowiek) } : {}),
   };
 }
 
@@ -258,13 +387,20 @@ export async function przetworz(zdarzenie, osoby, api) {
   let d = null;
   try {
     d = decyduj(zdarzenie, osoby);
-    await wykonaj(d, zdarzenie, api);
+    const wynik = await wykonaj(d, zdarzenie, api);
+    const wlaczono = {
+      wlaczone: `Włączono automatyczne scalanie PR #${numer} (etykieta ${ETYKIETA_SCAL} od ${zdarzenie.sender?.login}).`,
+      'juz-wlaczone': `PR #${numer}: scalanie już włączone przez człowieka, nie ruszam.`,
+      'w-kolejce': `PR #${numer} jest już w kolejce scalania, nie ruszam.`,
+      'brak-tokenu': `PR #${numer}: brak sekretu SCAL_TOKEN, scalania z workflow nie włączam (komentarz z instrukcją dodany).`,
+    };
     const opis = {
-      wlacz: `Włączono automatyczne scalanie PR #${numer} (etykieta ${ETYKIETA_SCAL} od ${zdarzenie.sender?.login}).`,
+      wlacz: wlaczono[/** @type {keyof typeof wlaczono} */ (wynik ?? 'wlaczone')],
       odmow: `Odmowa dla PR #${numer}: ${d.powody.join('; ')}.`,
       wylacz: `Wyłączono automatyczne scalanie PR #${numer} (${d.powody.join('; ')}).`,
       ignoruj: `Nic do zrobienia dla PR #${numer} (zdarzenie ${zdarzenie?.action ?? '?'}).`,
     };
+    if (wynik === 'ponownie-nadana') return { kod: 0, linie: [`PR #${numer}: etykieta ${ETYKIETA_SCAL} jest z powrotem na PR (zdjęta i nadana od nowa), scalania nie wyłączam.`] };
     return { kod: 0, linie: [opis[d.akcja]] };
   } catch (blad) {
     const komunikat = blad instanceof Error ? blad.message : 'nieznany błąd';
@@ -291,7 +427,7 @@ async function glowna() {
   }
   const zdarzenie = JSON.parse(readFileSync(sciezkaZdarzenia, 'utf8'));
   const zgody = JSON.parse(readFileSync(new URL('../../filtr/zgody.json', import.meta.url), 'utf8'));
-  const wynik = await przetworz(zdarzenie, zgody.osoby ?? [], utworzApi({ token }));
+  const wynik = await przetworz(zdarzenie, zgody.osoby ?? [], utworzApi({ token, tokenCzlowieka: process.env.SCAL_TOKEN ?? '' }));
   for (const linia of wynik.linie) (wynik.kod === 0 ? console.log : console.error)(linia);
   return wynik.kod;
 }

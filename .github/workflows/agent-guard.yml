@@ -18,9 +18,13 @@ on:
 permissions:
   contents: read
 
+# Jak w „Filtr: straż”: anuluje się tylko przebieg z poprzedniego pushu. Zdarzenia
+# etykiet nie anulują niczego, bo anulowany przebieg zostaje na SHA głowy jako
+# osobna, czerwona pozycja `statusCheckRollup`. Bez `if:` na etykiety: pominięte
+# zadanie liczy się jako zaliczone.
 concurrency:
-  group: agent-guard-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: agent-guard-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action == 'synchronize' && 'push' || github.run_id }}
+  cancel-in-progress: ${{ github.event.action == 'synchronize' }}
 
 jobs:
   agent-guard:
