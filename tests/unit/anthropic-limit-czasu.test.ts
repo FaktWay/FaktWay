@@ -248,7 +248,11 @@ describe('LIM-05: czat pomocy (czeka człowiek)', () => {
 
     expect(ms, 'jak długo człowiek czeka na komunikat o błędzie').toBeLessThanOrEqual(41_000);
     expect(proby.map((p) => p.limitS)).toEqual(['20', '20']);
-    expect(wynik?.ok).toBe(false);
+    expect(wynik, 'przerwał limit próby SDK, nie limit całej odpowiedzi').toMatchObject({
+      ok: false,
+      blad: expect.objectContaining({ message: expect.stringMatching(/timed out/i) }),
+    });
+    expect(vi.getTimerCount(), 'limit całej odpowiedzi skasowany po błędzie').toBe(0);
   });
 
   it('odpowiedź, która stanęła w połowie, kończy się błędem po 60 s od pytania', async () => {
@@ -260,6 +264,29 @@ describe('LIM-05: czat pomocy (czeka człowiek)', () => {
     expect(wynik, 'strumień, który stanął po nagłówkach, bez limitu wisi bez końca').toBeDefined();
     expect(ms).toBeLessThanOrEqual(60_000);
     expect(wynik).toMatchObject({
+      ok: false,
+      blad: expect.objectContaining({ message: expect.stringContaining('60 s') }),
+    });
+  });
+
+  it('limit, który minie, gdy nikt nie czeka na fragment, też kończy się błędem, nie uciętą odpowiedzią', async () => {
+    // SDK kończy swoją pętlę bez błędu, gdy przerwanie przyjdzie, a nikt akurat
+    // nie czeka na następny fragment. Tu odbiorca po pierwszym fragmencie
+    // wraca dopiero po 70 s, więc limit 60 s mija właśnie w takiej chwili.
+    podstawTransport(strumien([[0, POCZATEK + fragment('Fakturę korygującą wystawisz')]], false));
+    const { streamSupportReply } = await import('@/lib/support/chat');
+    const tekst: string[] = [];
+    const praca = (async () => {
+      for await (const kawalek of streamSupportReply(PYTANIE)) {
+        tekst.push(kawalek);
+        await new Promise((dalej) => setTimeout(dalej, 70_000));
+      }
+    })();
+
+    const { wynik } = await przesuwajZegar(praca);
+
+    expect(tekst.join('')).toBe('Fakturę korygującą wystawisz');
+    expect(wynik, 'ucięta odpowiedź nie może przejść jako cała').toMatchObject({
       ok: false,
       blad: expect.objectContaining({ message: expect.stringContaining('60 s') }),
     });

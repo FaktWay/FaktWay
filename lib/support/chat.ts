@@ -18,10 +18,10 @@ const MAX_TOKENS = 1024;
 
 /**
  * LIM-05: limit na całą odpowiedź, od wysłania pytania do ostatniego
- * fragmentu. Limit SDK (`ANTHROPIC_REQUEST_LIMITS`) obejmuje tylko początek
- * strumienia, więc odpowiedź, która stanęła w połowie, wisiałaby bez końca.
- * SDK szacuje `MAX_TOKENS` na 28,8 s, tu ok. dwa takie szacunki. Po limicie
- * trasa pokazuje zwykły komunikat o błędzie.
+ * fragmentu, razem z ponowieniem SDK. Limit SDK (`ANTHROPIC_REQUEST_LIMITS`)
+ * obejmuje tylko początek strumienia, więc odpowiedź, która stanęła w połowie,
+ * wisiałaby bez końca. SDK szacuje `MAX_TOKENS` na 28,8 s, tu ok. dwa takie
+ * szacunki. Po limicie trasa pokazuje zwykły komunikat o błędzie.
  */
 export const SUPPORT_REPLY_TIMEOUT_MS = 60_000;
 
@@ -118,6 +118,10 @@ export async function* streamSupportReply(
         yield event.delta.text;
       }
     }
+    // Pętla SDK kończy się bez błędu, gdy przerwanie albo błąd przyjdzie, kiedy
+    // nikt nie czeka na następny fragment. `done()` zgłasza go wtedy, żeby
+    // ucięta odpowiedź nie poszła do zapisu jako cała.
+    await stream.done();
   } catch (e) {
     // SDK zgłasza przerwanie jak rezygnację wywołującego; w Sentry ma być widać limit.
     if (limit.signal.aborted) {

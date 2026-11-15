@@ -191,6 +191,7 @@ describe('czat wsparcia: instrukcje modelu', () => {
       async *[Symbol.asyncIterator]() {
         yield { type: 'content_block_delta', delta: { type: 'text_delta', text: 'ok' } };
       },
+      done: async () => {},
     }));
     // Prawdziwe stałe modułu (limity czasu z LIM-05), atrapa tylko klienta.
     vi.doMock('@/lib/anthropic/client', async (importOriginal) => ({
