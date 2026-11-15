@@ -109,6 +109,11 @@ export const MOBILE_API_ERROR_CODES = [
    * usunięcie szkicu); `message` to zdanie strony z tym, co zrobić. Ponowienie nic nie zmieni.
    */
   'invoice_change_refused',
+  // Kontrahenci (M10e, typy odpowiedzi w `kontrakt-wiecej.ts`): zdanie z serwera mówi, co poprawić.
+  /** 422: dane kontrahenta nie przeszły schematu strony (NIP, nazwa, adres, e-mail); `field` to pole formularza telefonu (`nip`, `nazwa`, `adres1`, `adres2`, `email`). */
+  'contractor_invalid',
+  /** 409: kontrahent z tym NIP jest już zapisany z innymi danymi; `message` nazywa go i mówi, co zrobić. */
+  'contractor_exists',
   /** 500, opis z identyfikatorem żądania. */
   'internal_error',
 ] as const;
@@ -117,7 +122,7 @@ export type MobileApiErrorCode = (typeof MOBILE_API_ERROR_CODES)[number];
 
 /** Każda odmowa: stały kod po angielsku, po którym telefon wybiera swój tekst, i opis po polsku. */
 export interface MobileApiError {
-  /** `field` tylko przy `invoice_invalid`: ścieżka pola formularza, np. `buyerName`, `lines.0.name`. */
+  /** `field` tylko przy `invoice_invalid` (ścieżka pola formularza, np. `buyerName`, `lines.0.name`) i `contractor_invalid` (M10e). */
   error: { code: MobileApiErrorCode; message: string; field?: string };
 }
 

@@ -424,6 +424,8 @@
         "lib/ksef/history-sync/**",
         "lib/jobs/runners/{inbox-polling,ksef-history-sync}.ts",
         "lib/import/*.ts",
+        "lib/api/mobile/import.ts",
+        "app/api/mobile/v1/import/**",
         "lib/ksef/{hwm,history-fetcher}.ts",
         "lib/jobs/runners/{inbox-backfill,bulk-import}.ts",
         "app/actions/import-danych.ts",
@@ -519,6 +521,7 @@
       "sciezki": [
         "lib/exports/{comarch-optima-generator,csv-generators,zip-packager,form-defaults}.ts",
         "lib/jobs/runners/{exports-generate,co-pilot-monthly}.ts",
+        "lib/exports/co-pilot-formats.ts",
         "app/api/portal/exports/generate/**",
         "lib/api/v1/{invoices,expenses}.ts",
         "app/api/v1/invoices/[id]/route.ts",
@@ -572,6 +575,8 @@
       "opis": "Dane kontrahentów: edycja, podgląd, sprawdzanie NIP w formularzu (sama walidacja jest w obszarze kontrahent).",
       "sciezki": [
         "lib/contractors/**",
+        "lib/api/mobile/kontrahenci.ts",
+        "app/api/mobile/v1/kontrahenci/**",
         "hooks/use-nip-validation.ts",
         "app/actions/contractors.ts"
       ]
@@ -600,6 +605,8 @@
         "lib/jobs/runners/self-invoice-payment.ts",
         "lib/stripe/**",
         "lib/billing/**",
+        "lib/api/mobile/abonament.ts",
+        "app/api/mobile/v1/abonament/**",
         "app/(dashboard)/settings/billing/**",
         "app/admin/users/[userId]/billing-actions.ts",
         "lib/admin/refunds.ts",
@@ -656,6 +663,7 @@
       "sciezki": [
         "lib/dashboard/{tax-estimate,vat-limit,costs,monthly-figures,cash-flow,cash-movements,inflows,inflow-terms,sales-history,rankings}.ts",
         "lib/dashboard/receivables*.ts",
+        "lib/api/mobile/kontrahenci.ts",
         "lib/flo/functions/{tax-setaside,tax-deadline,tax-relief,vat-limit,rate-raise,month-close}.ts",
         "lib/flo/{tax-params,tax-profile,metrics,money}.ts",
         "lib/analytics-finance/**",
@@ -763,6 +771,8 @@
       "opis": "Portal księgowej: lista faktur i pliki, które dostaje księgowa klienta.",
       "sciezki": [
         "lib/accountant/**",
+        "lib/api/mobile/ksiegowa.ts",
+        "app/api/mobile/v1/ksiegowa/**",
         "components/accountant/**",
         "app/(dashboard)/settings/accountant/**",
         "app/accountant/**",
@@ -819,7 +829,11 @@
         "mobile/src/app/(zakladki)/(pulpit)/**",
         "mobile/src/app/(zakladki)/ksiegowosc/**",
         "mobile/src/stan/ksiegowosc.tsx",
-        "mobile/src/stan/ustawienia.tsx"
+        "mobile/src/stan/ustawienia.tsx",
+        "mobile/src/app/(zakladki)/wiecej/kontrahenci/**",
+        "mobile/src/stan/kontrahenci.tsx",
+        "mobile/src/app/(zakladki)/wiecej/import.tsx",
+        "mobile/src/app/(zakladki)/wiecej/ustawienia/{abonament,ksiegowa}.tsx"
       ]
     },
     {
@@ -855,6 +869,8 @@
         "lib/feature-flags/**",
         "lib/api/v1/{auth,pagination,scopes,token}.ts",
         "lib/api/mobile/{auth,sesja,kontrakt,tresc}.ts",
+        "lib/api/mobile/{kontrakt-wiecej,karty-wiecej}.ts",
+        "app/api/mobile/v1/{zespol,dziennik}/**",
         "lib/webhooks/{secret-box,signature,types}.ts"
       ]
     },

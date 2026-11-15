@@ -252,8 +252,12 @@ Zasady wyglądu: `ZASADY-DESIGNU.md`, sekcja 10. Pilnuje `tests/unit/mobile-andr
   funkcję dostawcy w efekcie ekranu (np. `firmaTeraz` w `zapytaj`) ustawiaj w
   `useLayoutEffect`, inaczej ekran otwarty linkiem przy zimnym starcie widzi
   jeszcze `null`. Trasy konta bez firmy (`org: 'none'`) wołaj z `bezFirmy: true`.
-- Na danych przykładowych zostają Kontrahenci, Przepływy, Analizy i Import
-  danych; stopka w Więcej mówi o tym klientowi.
+- Od M10e Kontrahenci (lista, karta, dodanie, poprawka, usunięcie), Import
+  danych i karty Księgowa, Zespół, Abonament, Dziennik idą przez API
+  (`stan/odczyt.tsx`: jeden magazyn odczytów, pyta przy każdym otwarciu ekranu
+  i po zapisie; `stan/kontrahenci.tsx`: zapisy z `firmaEkranu`). Typy odpowiedzi
+  w `lib/api/mobile/kontrakt-wiecej.ts` strony. Na danych przykładowych zostają
+  Przepływy i Analizy; stopka w Więcej mówi o tym klientowi.
 - `supabase.auth.onAuthStateChange` woła słuchacza wewnątrz blokady
   `supabase-js`: wywołanie klienta w słuchaczu czeka na samo siebie. Odłóż je
   (`setTimeout(…, 0)`), jak w `stan/dane.tsx`.
