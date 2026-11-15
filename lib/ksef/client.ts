@@ -224,7 +224,10 @@ export interface KsefRequestOptions {
   headers?: Record<string, string>;
   /** Środowisko - domyślnie z env */
   env?: KsefEnvironment;
-  /** Timeout w ms (domyślnie 30s) */
+  /**
+   * Limit czasu w ms (domyślnie 30 s): od wysłania żądania do przeczytania
+   * całej treści odpowiedzi. Przekroczenie to `KsefApiError` 408.
+   */
   timeoutMs?: number;
   /**
    * `bytes` — odpowiedź jako `Buffer` z dokładnymi bajtami (XML faktury do
@@ -347,6 +350,21 @@ async function maybeMockResponse(
 }
 
 /**
+ * Treść odpowiedzi w limicie czasu żądania (LIM-05). Treść płynie przez
+ * strumień pośredni: po sygnale czytanie pada błędem przerwania (`AbortError`,
+ * jak przy braku nagłówków), a źródło jest zamykane, więc gniazdo nie wisi.
+ * Nie polega na tym, że `fetch` sam przerywa treść (atrapy, opakowany `fetch`).
+ * Zwykła treść przechodzi bajt w bajt, także z BOM.
+ */
+function bodyWithinTimeout(response: Response, signal: AbortSignal): Response {
+  if (!response.body) return response;
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  // Błąd przerwania dostaje czytający `readable`; tu tylko wyciszamy odrzucenie.
+  response.body.pipeTo(writable, { signal }).catch(() => {});
+  return new Response(readable);
+}
+
+/**
  * Helper do wywołania endpointu KSeF API.
  * Obsługuje JSON request/response, bearer auth, timeouts, strukturalne błędy.
  */
@@ -431,15 +449,18 @@ export async function ksefFetch<TResponse = unknown>(
         signal: controller.signal,
         redirect: 'error',
       });
-      clearTimeout(timeoutHandle);
       responseStatus = response.status;
       responseOk = response.ok;
+      // LIM-05: zegar gaśnie dopiero po całej treści. KSeF, który wysłał
+      // nagłówki i stanął, daje po `timeoutMs` ten sam 408 co brak odpowiedzi.
+      const responseBody = bodyWithinTimeout(response, controller.signal);
       if (responseType === 'bytes') {
-        bytes = Buffer.from(await response.arrayBuffer());
+        bytes = Buffer.from(await responseBody.arrayBuffer());
         text = bytes.toString('utf8');
       } else {
-        text = await response.text();
+        text = await responseBody.text();
       }
+      clearTimeout(timeoutHandle);
       contentType = response.headers.get('content-type');
       retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
     }
