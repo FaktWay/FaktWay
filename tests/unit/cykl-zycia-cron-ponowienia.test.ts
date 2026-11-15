@@ -239,7 +239,7 @@ function failedRow(id: string, code: string, extra: Row = {}): Row {
   return {
     id, tenant_id: TENANT, direction: 'outgoing', ksef_status: 'failed', invoice_kind: 'regular',
     last_error_code: code, updated_at: OLD, tenants: { nip: '5260001246' }, issue_date: TODAY, special_data: null,
-    fa3_data: { internalNumber: `FV/${id.slice(0, 2)}`, type: 'VAT', lines: [{ ordinal: 1 }], seller: { nip: '5260001246' } },
+    fa3_data: { internalNumber: `FV/${id.slice(0, 2)}`, type: 'VAT', issueDate: TODAY, lines: [{ ordinal: 1 }], seller: { nip: '5260001246' } },
     ...extra,
   };
 }
@@ -729,7 +729,7 @@ describe('A5: paczka liczy działania automatu, nie odczytane wiersze (zagłodze
   /** Brak NIP-u i w firmie, i w `fa3_data.seller` — builder zwraca `no-nip`. */
   const noNip = (id: string, code: string, extra: Row = {}) => failedRow(id, code, {
     tenants: { nip: null },
-    fa3_data: { internalNumber: `FV/${id.slice(0, 2)}`, type: 'VAT', lines: [{ ordinal: 1 }], seller: {} },
+    fa3_data: { internalNumber: `FV/${id.slice(0, 2)}`, type: 'VAT', issueDate: TODAY, lines: [{ ordinal: 1 }], seller: {} },
     ...extra,
   });
   const sentIds = () => m.send.mock.calls.map(([event]) => (event as { singletonKey: string }).singletonKey);
@@ -998,7 +998,7 @@ describe('A5: identyfikatory faktur w logu i Sentry', () => {
   /** Brak NIP-u i w firmie, i w `fa3_data.seller` — builder zwraca `no-nip`. */
   const withoutNip = (id: string, code: string) => failedRow(id, code, {
     tenants: { nip: null },
-    fa3_data: { internalNumber: `FV/${id.slice(0, 2)}`, type: 'VAT', lines: [{ ordinal: 1 }], seller: {} },
+    fa3_data: { internalNumber: `FV/${id.slice(0, 2)}`, type: 'VAT', issueDate: TODAY, lines: [{ ordinal: 1 }], seller: {} },
   });
   /** Faktura I5 po limicie prób z crona (wyzwala zbiorczy Sentry). */
   const needsOperator = (id: string) => {
@@ -1240,7 +1240,7 @@ describe('B2a: zwykła faktura tylko do końca następnego dnia roboczego po dac
 
     const report = await runKsefLifecycleReconcile(ctx);
 
-    expect(report).toMatchObject({ requeued: 1, errors: 0 });
+    expect(report).toMatchObject({ resumedAfterPause: 1, requeued: 0, errors: 0 });
     expect(m.send).toHaveBeenCalledTimes(1);
     expect((m.send.mock.calls[0]![0] as { singletonKey: string }).singletonKey).toBe(ID2);
   });

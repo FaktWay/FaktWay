@@ -12,7 +12,11 @@
  * Dokumenty specjalne (A4b PR2b): korektę, zaliczkę i fakturę rozliczeniową
  * wysyłamy ponownie z kopii na wierszu (ZAL `fa3_data.advanceEnvelope`,
  * KOR/ROZ `special_data`) — tylko w dniu wystawienia (decyzja Bartosza
- * 06.10.2026 b; po północy worker odmawia sam, 00147). KOR_HOLD
+ * 06.10.2026 b; po północy worker odmawia sam, 00147). Zwykłą fakturę (B2a)
+ * — do końca następnego dnia roboczego po dacie wystawienia; po terminie
+ * odmowa `issue-date`, automat jej nie ponawia, a worker odmawia sam. Teksty
+ * każą wtedy usunąć szkic i wystawić fakturę od nowa z dzisiejszą datą
+ * (szkicu z inną datą nie wyślesz, `issueDateNotTodayError`). KOR_HOLD
  * i ROZ_HOLD_RECONCILE nie mają przycisków klienta (decyzja a), a teksty mówią
  * prawdę: automat ich nie wznowi (decyzje 07.10.2026). Kolejność blokad
  * klienta: rodzaj wstrzymany → brak danych → data — inaczej niż builder
@@ -44,17 +48,27 @@ export const KSEF_SEND_MESSAGES = {
   rejected: 'KSeF odrzucił treść tej faktury — wróć do szkicu, popraw i wyślij ponownie.',
   terminal: 'Dokument nie przeszedł kontroli treści — wróć do szkicu i popraw.',
   reconcile: 'Ta faktura wymaga uzgodnienia z KSeF — zajmuje się tym operator FaktWay. Nie wysyłaj jej ponownie.',
-  hold: 'Wysyłka jest wstrzymana przez operatora. Faktura wyjdzie automatycznie po przywróceniu wysyłki.',
+  hold: 'Wysyłka jest wstrzymana przez operatora. Jeśli wróci do końca następnego dnia roboczego po dacie wystawienia (termin przesłania faktury do KSeF), wyślemy fakturę automatycznie. Jeśli faktura nie wyjdzie w tym terminie, wróć do szkicu, usuń go i wystaw fakturę od nowa z dzisiejszą datą.',
   korHold: `Wysyłka korekt do KSeF jest wstrzymana przez FaktWay do czasu poprawki ich kwot — tej korekty teraz nie wyślemy, a po zdjęciu blokady sami jej nie wyślemy. Nie wystawiaj nowej korekty na własną rękę — napisz do pomocy FaktWay (${SUPPORT_EMAIL}), podając numer korekty. Jeśli żadna próba nie dotarła do KSeF, cofniemy ją do szkicu (wtedy usuń szkic i po zdjęciu blokady wystaw korektę od nowa); jeśli mogła dotrzeć — korekta poczeka na zdjęcie blokady.`,
   rozHold: `Wysyłka faktur rozliczeniowych do KSeF jest wstrzymana przez FaktWay do czasu pewnego rozliczania zaliczek — tej faktury teraz nie wyślemy, a po zdjęciu blokady sami jej nie wyślemy. Nie wystawiaj nowej faktury rozliczeniowej na własną rękę — napisz do pomocy FaktWay (${SUPPORT_EMAIL}), podając numer faktury. Jeśli żadna próba nie dotarła do KSeF, cofniemy ją do szkicu (wtedy usuń szkic i po zdjęciu blokady wystaw fakturę rozliczeniową od nowa); jeśli mogła dotrzeć — faktura poczeka na zdjęcie blokady.`,
   incomplete: 'Faktura nie ma kompletnych danych do wysyłki — nie wyślemy jej ponownie. Wróć do szkicu, usuń go i wystaw fakturę od nowa.',
-  transient: 'Błąd po stronie KSeF albo FaktWay — wysyłkę ponowimy automatycznie. Możesz też wysłać teraz.',
+  transient: 'Błąd po stronie KSeF albo FaktWay — wysyłkę ponawiamy automatycznie mniej więcej co godzinę, ale tylko do końca następnego dnia roboczego po dacie wystawienia (termin przesłania faktury do KSeF). Możesz też wysłać teraz. Jeśli faktura nie wyjdzie w tym terminie, wróć do szkicu, usuń go i wystaw fakturę od nowa z dzisiejszą datą.',
   transientManual: `Błąd po stronie KSeF albo FaktWay — tej wysyłki nie ponowimy automatycznie. Wyślij ponownie albo wróć do szkicu; jeśli błąd się powtarza, napisz do pomocy FaktWay (${SUPPORT_EMAIL}).`,
   envUnknown: `Nie możemy teraz potwierdzić środowiska KSeF po stronie FaktWay — tej faktury teraz nie wyślemy. Odśwież stronę za kilka minut; jeśli komunikat się powtarza, napisz do pomocy FaktWay (${SUPPORT_EMAIL}).`,
   setup: 'Brak zweryfikowanego certyfikatu KSeF — uzupełnij ustawienia KSeF, potem wyślij ponownie.',
   notInKsef: 'KSeF nie ma tej faktury — poprzednia wysyłka do niego nie dotarła. Wyślij ją ponownie albo wróć do szkicu.',
   xmlArchiveConflict: 'Tej wysyłki nie wykonaliśmy: w archiwum FaktWay jest już inny plik XML tej próby, a zapisanych plików nie nadpisujemy. Następna próba zapisze własny plik.',
-  issueDatePassed: `Tej wysyłki nie wykonaliśmy: dokument ma datę wystawienia sprzed dzisiaj, a w KSeF dokument wystawia się w dniu wysyłki (szczegóły wyżej). Wróć do szkicu, usuń go i wystaw dokument od nowa z dzisiejszą datą. Jeśli powrót do szkicu jest zablokowany, wcześniejsza próba mogła dotrzeć do KSeF: nie wystawiaj dokumentu ponownie i napisz do pomocy FaktWay (${SUPPORT_EMAIL}) — sprawdzimy go w KSeF.`,
+  // B2a — zwykła faktura; dokumenty specjalne mają własne teksty (`KSEF_SPECIAL_SEND_MESSAGES`, 00147).
+  /** Kod `ISSUE_DATE_PASSED` (worker odmówił; daty w `last_error`, wyżej na karcie). */
+  issueDatePassed: `Tej wysyłki nie wykonaliśmy: termin przesłania faktury do KSeF minął (szczegóły wyżej) — fakturę, która nie wyszła w dniu wystawienia, wysyłamy najpóźniej do końca następnego dnia roboczego. Wróć do szkicu, usuń go i wystaw fakturę od nowa z dzisiejszą datą. Jeśli powrót do szkicu jest zablokowany, wcześniejsza próba mogła dotrzeć do KSeF: nie wystawiaj faktury ponownie i napisz do pomocy FaktWay (${SUPPORT_EMAIL}) — sprawdzimy ją w KSeF.`,
+  /** Termin minął, zanim worker odmówił (fakty z kopii) — na wierszu inny kod, zwykle przejściowy. */
+  sendDeadlinePassed: `Termin przesłania tej faktury do KSeF minął: fakturę, która nie wyszła w dniu wystawienia, wysyłamy najpóźniej do końca następnego dnia roboczego po dacie wystawienia — nie wyślemy jej ponownie i nie ponowimy automatycznie. Wróć do szkicu, usuń go i wystaw fakturę od nowa z dzisiejszą datą. Jeśli powrót do szkicu jest zablokowany, wcześniejsza próba mogła dotrzeć do KSeF: nie wystawiaj faktury ponownie i napisz do pomocy FaktWay (${SUPPORT_EMAIL}) — sprawdzimy ją w KSeF.`,
+  /**
+   * Doklejane do tekstów zwykłej faktury, którą jeszcze wolno wysłać (odpowiednik `sendToday`).
+   * Bez słowa „szkic”: idzie też do odmów kolejki, a faktura zostaje z błędem wysyłki
+   * (strażnik w `ksef-submission-brakes.test.ts`); po terminie drogę opisuje `sendDeadlinePassed`.
+   */
+  sendByDeadline: 'Fakturę wyślesz do KSeF najpóźniej do końca następnego dnia roboczego po dacie wystawienia — po tym terminie trzeba będzie wystawić ją od nowa z dzisiejszą datą.',
   envMismatch: `Tej wysyłki nie wykonaliśmy: zlecenie dotyczyło innego środowiska KSeF (testowego albo produkcyjnego) niż obecne ustawienie FaktWay — szczegóły wyżej. Wróć do szkicu i zdecyduj, czy wysłać fakturę w obecnym środowisku. Jeśli powrót do szkicu jest zablokowany, wcześniejsza próba mogła dotrzeć do KSeF: nie wystawiaj tej faktury ponownie i napisz do pomocy FaktWay (${SUPPORT_EMAIL}) — sprawdzimy ją w KSeF.`,
   // D-A4-1b-3 PR B (decyzje Bartosza 07.10.2026 (3) i (9)): szkic po „numer zajęty” jest wycofany —
   // nie wyślesz go, a zwykłej faktury i zaliczki nie usuniesz (00148), więc tekst nie każe „usuń go”.
@@ -72,6 +86,8 @@ export const KSEF_SEND_MESSAGES = {
   historical: 'Wysyłka nie powiodła się. Możesz wysłać ponownie albo wrócić do szkicu.',
   askManager: 'Poproś właściciela lub administratora firmy.',
   resetDone: 'Faktura wróciła do szkicu. Popraw ją i wyślij ponownie.',
+  /** Toast po „Wróć do szkicu” zwykłej faktury po terminie przesłania (B2a). */
+  resetDoneDeadlinePassed: 'Faktura wróciła do szkicu. Termin przesłania jej do KSeF minął, więc tego szkicu nie wyślesz — usuń go („Usuń szkic”) i wystaw fakturę od nowa z dzisiejszą datą.',
   resetFailed: 'Nie udało się przywrócić szkicu. Spróbuj ponownie.',
   notFound: 'Nie można znaleźć faktury w tej organizacji.',
 } as const;
@@ -170,7 +186,8 @@ export const KSEF_SPECIAL_SEND_MESSAGES = {
  * Toast po „Wróć do szkicu” — szkicu dokumentu specjalnego nie da się wysłać.
  * Przy `KSEF_NUMBER_TAKEN` szkic jest wycofany (wpis `number_taken`, 00148):
  * zwykłej faktury i zaliczki nie usuniesz, korektę i fakturę rozliczeniową tak
- * (C4, decyzja 07.10.2026 (9)). Inne kody — bez zmian.
+ * (C4, decyzja 07.10.2026 (9)). Inne kody — bez zmian, poza zwykłą fakturą po
+ * terminie przesłania (B2a): szkicu z tamtą datą nie wyślesz, więc usuń go.
  */
 export function resetDoneMessage(invoiceKind: string | null, facts: KsefResendFacts, errorCode?: string | null): string {
   const k = specialKindOf(invoiceKind);
@@ -180,7 +197,7 @@ export function resetDoneMessage(invoiceKind: string | null, facts: KsefResendFa
     if (k === 'advance') return S.numberTakenResetDone(k);
     return facts.kindHeld ? S.numberTakenResetDoneDeletableHeld(k) : S.numberTakenResetDoneDeletable(k);
   }
-  if (!k) return KSEF_SEND_MESSAGES.resetDone;
+  if (!k) return facts.issueDatePassed ? KSEF_SEND_MESSAGES.resetDoneDeadlinePassed : KSEF_SEND_MESSAGES.resetDone;
   return facts.kindHeld ? S.resetDoneHeld(k) : S.resetDone(k);
 }
 
@@ -190,7 +207,7 @@ type AuditKind = 'regular' | 'correction' | 'advance' | 'final';
 export function resendPausedMessage(kind: AuditKind): string {
   const k = specialKindOf(kind);
   if (!k) {
-    return 'Wysyłka faktur do KSeF jest chwilowo wstrzymana przez operatora — tej wysyłki nie wykonaliśmy, faktura zostaje z błędem wysyłki. Wyślij ją ponownie, gdy wysyłka zostanie przywrócona.';
+    return `Wysyłka faktur do KSeF jest chwilowo wstrzymana przez operatora — tej wysyłki nie wykonaliśmy, faktura zostaje z błędem wysyłki. Wyślij ją ponownie, gdy wysyłka zostanie przywrócona. ${KSEF_SEND_MESSAGES.sendByDeadline}`;
   }
   const l = KIND_LABEL[k];
   return `Wysyłka faktur do KSeF jest chwilowo wstrzymana przez operatora — tej wysyłki nie wykonaliśmy, ${l.L} zostaje z błędem wysyłki. Wyślij ją ponownie, gdy wysyłka zostanie przywrócona — z zapisanej kopii tylko dziś, w dniu wystawienia; później wróć do szkicu, usuń go i wystaw ${l.A} od nowa z dzisiejszą datą.`;
@@ -207,7 +224,7 @@ export function resendPauseUnknownMessage(kind: AuditKind): string {
 export function resendMissingCredentialsMessage(kind: AuditKind): string {
   const k = specialKindOf(kind);
   if (!k) {
-    return 'Brak certyfikatu KSeF — tej wysyłki nie wykonaliśmy, faktura zostaje z błędem wysyłki. Wgraj certyfikat w Ustawieniach KSeF, potem wyślij fakturę ponownie.';
+    return `Brak certyfikatu KSeF — tej wysyłki nie wykonaliśmy, faktura zostaje z błędem wysyłki. Wgraj certyfikat w Ustawieniach KSeF, potem wyślij fakturę ponownie. ${KSEF_SEND_MESSAGES.sendByDeadline}`;
   }
   const l = KIND_LABEL[k];
   return `Brak certyfikatu KSeF — tej wysyłki nie wykonaliśmy, ${l.L} zostaje z błędem wysyłki. Wgraj certyfikat w Ustawieniach KSeF i wyślij ${l.A} ponownie dziś, w dniu wystawienia; później wróć do szkicu, usuń go i wystaw ${l.A} od nowa z dzisiejszą datą.`;
@@ -234,7 +251,7 @@ export interface ResendInput {
   status: string | null;
   errorCode: string | null;
   invoiceKind: string | null;
-  /** Ponowienie z kopii: dane zapisane, rodzaj wstrzymany, data wystawienia minęła (A4b). */
+  /** Ponowienie z kopii: dane zapisane, rodzaj wstrzymany, termin daty wystawienia minął (A4b, B2a). */
   facts: KsefResendFacts;
   /** `KSEF_ENV` aplikacji poprawny — bez niego nic nie zlecamy. */
   environmentKnown: boolean;
@@ -252,8 +269,12 @@ function sendBlocker(kind: SpecialKind | null, facts: KsefResendFacts): Extract<
       message: kind ? KSEF_SPECIAL_SEND_MESSAGES.incomplete(kind) : KSEF_SEND_MESSAGES.incomplete,
     };
   }
-  if (kind && facts.issueDatePassed) {
-    return { allowed: false, reason: 'issue-date', message: KSEF_SPECIAL_SEND_MESSAGES.issueDatePassed(kind) };
+  if (facts.issueDatePassed) {
+    return {
+      allowed: false,
+      reason: 'issue-date',
+      message: kind ? KSEF_SPECIAL_SEND_MESSAGES.issueDatePassed(kind) : KSEF_SEND_MESSAGES.sendDeadlinePassed,
+    };
   }
   return null;
 }
@@ -263,7 +284,8 @@ function sendBlocker(kind: SpecialKind | null, facts: KsefResendFacts): Extract<
  * do szkicu); `failed` wg klasy kodu: transient i setup tak, brak kodu
  * (historyczny) tak — decyduje człowiek, a runner i tak zaczyna od
  * uzgodnienia; terminal, hold i reconcile nie. Potem środowisko i fakty
- * ponowienia z kopii (dokumenty specjalne tylko w dniu wystawienia).
+ * ponowienia z kopii (dokumenty specjalne tylko w dniu wystawienia, zwykła
+ * faktura do końca następnego dnia roboczego po nim — B2a).
  */
 export function decideResend(input: ResendInput): ResendDecision {
   const kind = specialKindOf(input.invoiceKind);
@@ -306,7 +328,7 @@ export function decideResend(input: ResendInput): ResendDecision {
   if (errorClass === 'hold') {
     if (input.errorCode === SEND_ERROR_CODES.KOR_HOLD) return { allowed: false, reason: 'hold', message: M.korHold };
     if (input.errorCode === SEND_ERROR_CODES.ROZ_HOLD_RECONCILE) return { allowed: false, reason: 'hold', message: M.rozHold };
-    // KSEF_PAUSED: automat (I7) wznowi tylko wiersz z danymi, niewstrzymany i — dokument specjalny — dziś.
+    // KSEF_PAUSED: automat (I7) wznowi tylko wiersz z danymi, niewstrzymany i w terminie daty wystawienia.
     return sendBlocker(kind, input.facts)
       ?? { allowed: false, reason: 'hold', message: kind ? S.paused(kind) : M.hold };
   }
@@ -329,7 +351,7 @@ export function automaticResendExpected(input: {
     && (isAutoRequeueable(input.errorCode) || input.errorCode === SEND_ERROR_CODES.KSEF_PAUSED)
     && input.facts.sendData === 'stored'
     && !input.facts.kindHeld
-    && !(specialKindOf(input.invoiceKind) && input.facts.issueDatePassed);
+    && !input.facts.issueDatePassed;
 }
 
 export interface FailedInvoiceButtons {
@@ -397,8 +419,10 @@ export function failedInvoiceButtons(input: FailedInvoiceButtonsInput): FailedIn
         : errorClass === 'setup'
           ? KSEF_SEND_MESSAGES.setup
           : KSEF_SEND_MESSAGES.historical;
+    // Termin wysyłki: zwykła faktura do końca następnego dnia roboczego (B2a), specjalna dziś;
+    // teksty automatu mówią o nim same.
     info = !kind
-      ? base
+      ? (errorClass === 'transient' && automat ? base : `${base} ${KSEF_SEND_MESSAGES.sendByDeadline}`)
       : errorClass === 'transient' && automat
         ? KSEF_SPECIAL_SEND_MESSAGES.transient(kind)
         : `${base} ${KSEF_SPECIAL_SEND_MESSAGES.sendToday(kind)}`;

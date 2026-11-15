@@ -41,10 +41,11 @@ import {
  * albo operator (`/admin/ksef`). Macierz (od A4b PR2a): każdy kod katalogu
  * × rodzaj dokumentu (FA/KOR/ZAL/ROZ) × dane do ponowienia (kopia na
  * wierszu: ZAL `fa3_data.advanceEnvelope`, KOR/ROZ `special_data`, 00137)
- * × środowisko KSeF (TEST/PROD) × data wystawienia dokumentu specjalnego
- * (dziś / wcześniej) × dowód kontaktu z KSeF × otwarty wpis (`sent`/`intent`).
- * Zwykła faktura ma zawsze dane i „dzisiejszą” datę (reguła daty dotyczy
- * tylko dokumentów specjalnych, decyzja b z 06.10.2026).
+ * × środowisko KSeF (TEST/PROD) × termin daty wystawienia (w terminie / po
+ * nim) × dowód kontaktu z KSeF × otwarty wpis (`sent`/`intent`). Termin:
+ * dokument specjalny tylko w dniu wystawienia (decyzja b z 06.10.2026, 00147),
+ * zwykła faktura do końca następnego dnia roboczego po dacie wystawienia
+ * (B2a, założenie robocze B1(a)). Zwykła faktura ma zawsze dane (`fa3_data`).
  *
  * Wyjścia liczone tymi samymi czystymi modułami, z których korzystają
  * przyciski i akcje (klient i operator: fakty + `environmentKnown`; rodzaj
@@ -75,7 +76,7 @@ interface Scenario {
   sendData: KsefResendFacts['sendData'];
   /** KSEF_ENV aplikacji i workera (operator zna środowisko: `environmentKnown`). */
   env: Env;
-  /** Dokument specjalny z datą wystawienia sprzed dzisiaj (00147, decyzja b). */
+  /** Po terminie daty wystawienia: dokument specjalny sprzed dzisiaj (00147, decyzja b), zwykła faktura po końcu następnego dnia roboczego (B2a). */
   issueDatePassed: boolean;
   evidence: boolean;
   openSubmission: boolean;
@@ -185,14 +186,15 @@ function resetAllowedByRpc(s: Scenario): boolean {
  * Cron `ksef-lifecycle-reconcile` (A4b PR2a): I6 (kody `AUTO_REQUEUE_CODES`)
  * i I7 (`KSEF_PAUSED`) wysyłają od nowa — dokument specjalny tylko z danymi,
  * rodzajem niewstrzymanym w tym środowisku (KOR nie na PROD, ROZ nigdy — C4)
- * i w dniu wystawienia; I5 (A3: otwarty wpis > 48 h, failed/rejected)
- * uzgadnia — z danymi i niewstrzymanym rodzajem, bez względu na datę.
+ * i w dniu wystawienia, zwykła faktura do końca następnego dnia roboczego po
+ * dacie wystawienia (B2a, filtr kandydatów `regularSendableIssueDateFrom`);
+ * I5 (A3: otwarty wpis > 48 h, failed/rejected) uzgadnia — z danymi
+ * i niewstrzymanym rodzajem, bez względu na datę.
  */
 function automaticExit(s: Scenario): boolean {
-  const special = s.kind !== 'regular';
   const { kindHeld } = factsOf(s);
   const canRebuild = s.sendData === 'stored' && !kindHeld;
-  const canSend = canRebuild && !(special && s.issueDatePassed);
+  const canSend = canRebuild && !s.issueDatePassed;
   return (canSend && (isAutoRequeueable(s.code) || s.code === SEND_ERROR_CODES.KSEF_PAUSED))
     || (canRebuild && s.openSubmission && reconcileIsExit(s));
 }
@@ -330,7 +332,7 @@ function scenarios(): Scenario[] {
       const special = kind !== 'regular';
       for (const env of ENVS) {
         for (const sendData of special ? (['stored', 'missing'] as const) : (['stored'] as const)) {
-          for (const issueDatePassed of special ? [false, true] : [false]) {
+          for (const issueDatePassed of [false, true]) {
             // Otwarty wpis jest dowodem kontaktu (00131/00136), więc open ⇒ evidence.
             for (const [evidence, openSubmission] of [[false, false], [true, false], [true, true]] as const) {
               const reasons = code === SEND_ERROR_CODES.KSEF_DUPLICATE_RECONCILE && openSubmission ? DUPLICATE_REASONS : [null];
@@ -357,9 +359,8 @@ const promisesAutomat = (info: string) => /automatycznie/.test(info.replace(/nie
  * I5 tylko uzgadnia otwarty wpis, niczego nie wysyła).
  */
 function automaticResend(s: Scenario): boolean {
-  const special = s.kind !== 'regular';
   const { kindHeld } = factsOf(s);
-  return s.sendData === 'stored' && !kindHeld && !(special && s.issueDatePassed)
+  return s.sendData === 'stored' && !kindHeld && !s.issueDatePassed
     && (isAutoRequeueable(s.code) || s.code === SEND_ERROR_CODES.KSEF_PAUSED);
 }
 
@@ -387,8 +388,11 @@ const LATER_DUPLICATE_REASONS: readonly DuplicateReason[] = [
  *  - otwarty wpis przy danych i niewstrzymanym rodzaju: „Tylko uzgodnij”
  *    operatora i I5 — poza KSEF_DUPLICATE_RECONCILE z werdyktem
  *    deterministycznym (niżej);
- *  - dokument specjalny po dacie wystawienia bez otwartego wpisu, bez szkicu:
- *    pełnej wysyłki nie zlecamy (decyzja b) — B2;
+ *  - dokument po terminie daty wystawienia bez otwartego wpisu, bez szkicu:
+ *    pełnej wysyłki nie zlecamy — dokument specjalny (decyzja b) do B2,
+ *    zwykła faktura (B2a) runbook ksef-error-codes, „ISSUE_DATE_PASSED —
+ *    zwykła faktura” (sprawdzić w KSeF, Bartosz); wcześniej tę drogę dawał
+ *    operatorowi „Wyślij ponownie”, którego po terminie worker by odmówił;
  *  - KSEF_DUPLICATE_RECONCILE (D-A4-1b-3 PR B):
  *    - bez otwartego wpisu (stary 440 sprzed znacznika) — D-A4-1b;
  *    - z otwartym wpisem: pobranie/magazyn/archiwum nieudane i brak zapisu
@@ -422,15 +426,16 @@ function knownDeadEnd(s: Scenario): boolean {
     return LATER_DUPLICATE_REASONS.includes(s.duplicateReason!); // D-A4-1b-2 / runbook
   }
   if (s.openSubmission) return false;
-  if (special && s.issueDatePassed) return noReset; // B2
+  if (s.issueDatePassed) return noReset; // B2 (specjalny), runbook ISSUE_DATE_PASSED (zwykła, B2a)
   return s.evidence && errorClass === 'terminal'; // D-A4-1b
 }
 
 describe('A4: każdy kod katalogu ma wyjście (automat, klient albo operator)', () => {
   it('ślepe uliczki to dokładnie znana lista z sesją albo decyzją', () => {
-    // Wymiary: FA 2 środowiska × 3 (dowód, wpis) + KOR/ZAL/ROZ × 2 dane × 2 środowiska × 2 daty × 3 = 78 na kod.
-    // PR B: KSEF_DUPLICATE_RECONCILE z otwartym wpisem (FA 2 + KOR/ZAL/ROZ 24 = 26) × 10 powodów zamiast 1.
-    expect(scenarios()).toHaveLength(Object.values(SEND_ERROR_CODES).length * 78 + 26 * 9);
+    // Wymiary: FA 2 środowiska × 2 terminy × 3 (dowód, wpis) = 12 (B2a: termin także dla FA)
+    // + KOR/ZAL/ROZ × 2 dane × 2 środowiska × 2 terminy × 3 = 72 — razem 84 na kod.
+    // PR B: KSEF_DUPLICATE_RECONCILE z otwartym wpisem (FA 4 + KOR/ZAL/ROZ 24 = 28) × 10 powodów zamiast 1.
+    expect(scenarios()).toHaveLength(Object.values(SEND_ERROR_CODES).length * 84 + 28 * 9);
     const deadEnds = scenarios()
       .filter((s) => !automaticExit(s) && !clientExit(s) && !operatorExit(s))
       .map(label)
@@ -736,6 +741,43 @@ describe('A4b PR2b: klient — „Wyślij ponownie” z kopii i prawdziwe zdanie
       .map(label)
       .sort();
     expect(unbounded).toEqual([]);
+  });
+
+  it('(c2) B2a: zwykła faktura — każda obietnica automatu ma granicę terminu przesłania (koniec następnego dnia roboczego)', () => {
+    const regular = clientScenarios().filter((s) => s.kind === 'regular');
+    // Strażnik filtra: zdania z obietnicą automatu w ogóle są (inaczej test niczego nie sprawdza).
+    expect(regular.some((s) => promisesAutomat(clientButtons(s)?.info ?? ''))).toBe(true);
+    const unbounded = regular
+      .filter((s) => {
+        const info = clientButtons(s)?.info ?? '';
+        return promisesAutomat(info) && !/do końca następnego dnia roboczego po dacie wystawienia/.test(info);
+      })
+      .map(label)
+      .sort();
+    expect(unbounded).toEqual([]);
+  });
+
+  it('(c3) B2a: zwykła faktura po terminie — bez „Wyślij ponownie” u klienta i operatora, bez automatu; zdanie mówi dlaczego i co zrobić', () => {
+    const passed = scenarios().filter((s) => s.kind === 'regular' && s.issueDatePassed);
+    expect(passed.length).toBeGreaterThan(0);
+    for (const s of passed) {
+      expect(clientButtons(s)?.resend, label(s)).toBe(false);
+      expect(automaticResend(s), label(s)).toBe(false);
+      const operator = operatorInvoiceButtons({
+        direction: 'outgoing', status: 'failed', errorCode: s.code, invoiceKind: s.kind,
+        openSent: s.openSubmission, evidence: s.evidence, facts: factsOf(s), environmentKnown: true,
+      });
+      expect(operator.requeue.enabled, label(s)).toBe(false);
+    }
+    // Zdanie klienta (poza klasą reconcile i hamulcami KOR/ROZ, które mają własne teksty): termin i wyjście.
+    for (const s of clientScenarios().filter((x) => x.kind === 'regular' && x.issueDatePassed)) {
+      const info = clientButtons(s)?.info ?? '';
+      const errorClass = sendErrorClassOf(s.code);
+      if (errorClass === 'reconcile' || errorClass === 'terminal') continue;
+      if (s.code === SEND_ERROR_CODES.KOR_HOLD || s.code === SEND_ERROR_CODES.ROZ_HOLD_RECONCILE) continue;
+      expect(info, label(s)).toMatch(/termin przesłania/i);
+      expect(info, label(s)).toMatch(/wystaw fakturę od nowa z dzisiejszą datą/);
+    }
   });
 
   it('(d) żadne zdanie klienta nie odsyła do „uzgodni operator” (w panelu nie ma takiej ścieżki)', () => {

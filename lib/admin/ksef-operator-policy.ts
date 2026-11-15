@@ -16,7 +16,8 @@
  * z kopii na wierszu (`ksefResendFacts`). Po klasie kodu: środowisko znane →
  * dane zapisane → rodzaj niewstrzymany (KOR na PROD, ROZ wszędzie — C4) →
  * pełna wysyłka tylko w dniu wystawienia (decyzja Bartosza 06.10.2026 b).
- * „Tylko uzgodnij” datę pomija — nie wysyła.
+ * Zwykła faktura (B2a): pełna wysyłka do końca następnego dnia roboczego po
+ * dacie wystawienia. „Tylko uzgodnij” datę pomija — nie wysyła.
  *
  * D-A4-1b-3 PR B (decyzje Bartosza 04.10 i 07.10.2026 (5), (7), (12)):
  * „Zapisz decyzję klienta” (decyzja przekazana przez klienta — operator nie
@@ -98,7 +99,7 @@ export const OPERATOR_MESSAGES = {
   reconcileClass: 'Klasa reconcile: nie wysyłaj od nowa — użyj „Tylko uzgodnij” albo zostaw.',
   duplicateRequeue: 'KSeF ma już fakturę o tym numerze — ponowienie powtórzy 440. Powody no-own-file, known-number i faktflow-original z oceną pliku: decyzja klienta („Zapisz decyzję klienta” po rozmowie z klientem, „Przypomnij klientowi”). faktflow-original w przeglądzie (I5R): „Zapisz fakturę z KSeF w FaktWay” albo „Oddaj decyzję klientowi”. faktflow-original bez oceny pliku albo „do ponownego sprawdzenia” (recheck-needed), pobranie oryginału nieudane (download-*, storage-pending, archive-pending), known-number bez danych, known-stale, known-now: cron „Tylko uzgodnij” po 48 h (możesz od razu „Tylko uzgodnij” przy otwartym wpisie). same-content-other-program, archive-conflict, cross-tenant: runbook KSEF_DUPLICATE_RECONCILE.',
   envMismatchRequeue: 'Faktura była zlecona w innym środowisku KSeF — ponowienie wysłałoby ją w bieżącym. Bez dowodu kontaktu: „Wróć do szkicu”, klient zdecyduje, czy wysłać ją tutaj. Otwarty wpis: „Tylko uzgodnij” uzgadnia w BIEŻĄCYM środowisku — wpisu sprzed przełączenia środowiska nie uzgadniaj tak (runbook: ENV_MISMATCH).',
-  issueDatePassedRequeue: 'Dokument specjalny z datą wystawienia sprzed dzisiaj — worker nie wysyła go z wcześniejszą datą (decyzja 06.10.2026, 00147; do B2). Ten kod powstaje bez otwartego wpisu (worker odmawia po uzgodnieniu, przed plikiem i zamiarem), więc nie ma czego uzgadniać. Bez dowodu kontaktu: „Wróć do szkicu” (klient usuwa szkic i wystawia dokument od nowa z dzisiejszą datą). Z dowodem kontaktu brak wyjścia w panelu do B2 — sprawdź dokument w KSeF i zgłoś go Bartoszowi (runbook ksef-error-codes, „Dokumenty specjalne”).',
+  issueDatePassedRequeue: 'Minął termin wysyłki dla daty wystawienia: dokumentu specjalnego worker nie wysyła z datą wystawienia sprzed dzisiaj (decyzja 06.10.2026, 00147; do B2), a zwykłej faktury — po końcu następnego dnia roboczego po dacie wystawienia (B2a). Ten kod powstaje bez otwartego wpisu (worker odmawia po uzgodnieniu, przed plikiem i zamiarem), więc nie ma czego uzgadniać. Bez dowodu kontaktu: „Wróć do szkicu” (klient usuwa szkic i wystawia dokument od nowa z dzisiejszą datą). Z dowodem kontaktu brak wyjścia w panelu (dokument specjalny do B2) — sprawdź dokument w KSeF i zgłoś go Bartoszowi (runbook ksef-error-codes: „Dokumenty specjalne”, zwykła faktura — „ISSUE_DATE_PASSED — zwykła faktura (B2a)”).',
   notFailedOrRejected: 'Dostępne tylko dla failed / rejected.',
   evidence: 'Faktura ma dowód kontaktu z KSeF (numer albo wpis sent/accepted/duplicate) — nie wraca do szkicu.',
 } as const;
@@ -360,8 +361,15 @@ export function operatorKindHeldMessage(kind: string | null): string {
   }
 }
 
-/** Dokument specjalny po dacie wystawienia — pełnej wysyłki z kopii nie zlecamy (decyzja b). */
+/**
+ * Po terminie daty wystawienia — pełnej wysyłki z kopii nie zlecamy: dokument
+ * specjalny po dniu wystawienia (decyzja b), zwykła faktura po końcu
+ * następnego dnia roboczego po nim (B2a).
+ */
 export function operatorIssueDateMessage(kind: string | null): string {
+  if (kind === 'regular') {
+    return 'Zwykła faktura po terminie przesłania do KSeF (koniec następnego dnia roboczego po dacie wystawienia, B2a) — nie zlecamy pełnej wysyłki: worker odmówiłby jej z kodem ISSUE_DATE_PASSED. Otwarty wpis sent/intent: „Tylko uzgodnij” (nie wysyła, data nie ma znaczenia). Bez dowodu kontaktu i poza klasą reconcile: „Wróć do szkicu” (klient usuwa szkic i wystawia fakturę od nowa z dzisiejszą datą). W pozostałych przypadkach brak wyjścia w panelu — sprawdź fakturę w KSeF i zgłoś ją Bartoszowi (runbook ksef-error-codes, „ISSUE_DATE_PASSED — zwykła faktura (B2a)”).';
+  }
   const label = isSpecialKind(kind) ? OPERATOR_KIND_LABEL[kind] : 'Dokument specjalny';
   return `${label} z datą wystawienia sprzed dzisiaj — nie zlecamy pełnej wysyłki: worker odmówiłby jej z kodem ISSUE_DATE_PASSED (decyzja 06.10.2026, 00147; do B2). Otwarty wpis sent/intent: „Tylko uzgodnij” (nie wysyła, data nie ma znaczenia). Bez dowodu kontaktu i poza klasą reconcile: „Wróć do szkicu”. W pozostałych przypadkach brak wyjścia w panelu do B2 — sprawdź dokument w KSeF i zgłoś go Bartoszowi.`;
 }
@@ -423,7 +431,7 @@ export function operatorRequeueRefusal(
   if (!input.environmentKnown) return refuse('ENV_UNKNOWN', OPERATOR_MESSAGES.envUnknown);
   if (input.facts.sendData === 'missing') return refuse('SEND_DATA_MISSING', operatorLegacyDataMessage(input.invoiceKind));
   if (input.facts.kindHeld) return refuse(kindHeldCode(input.invoiceKind), operatorKindHeldMessage(input.invoiceKind));
-  if (input.invoiceKind !== 'regular' && input.facts.issueDatePassed) {
+  if (input.facts.issueDatePassed) {
     return refuse(SEND_ERROR_CODES.ISSUE_DATE_PASSED, operatorIssueDateMessage(input.invoiceKind));
   }
   return null;
@@ -470,7 +478,8 @@ export function operatorReconcileButton(
 
 /**
  * Zdarzenie z kopii na wierszu nie powstało (`buildKsefRequeueEvent`) — zwykle
- * nieosiągalne po decyzji przycisku, chyba że minęła północ między krokami.
+ * nieosiągalne po decyzji przycisku, chyba że minęła północ między krokami
+ * (koniec dnia wystawienia albo terminu zwykłej faktury, B2a).
  */
 export function operatorRequeueEventRefusal(reason: KsefRequeueRefusal, kind: string | null): OperatorRefusal {
   switch (reason) {

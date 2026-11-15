@@ -3,6 +3,7 @@ import { inspect } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Invoice } from '@/types/invoice';
+import { addDaysToIsoDate, todayInWarsaw } from '@/lib/format/warsaw-date';
 import type { FakeKsef, MemoryDb, Row } from './helpers/ksef-pelna-sciezka';
 
 /**
@@ -206,15 +207,20 @@ const submitJob = getRegisteredJobs().find((j) => j.queue === 'invoice.submit.re
 if (!submitJob) throw new Error('fixture: brak joba invoice.submit.requested w rejestrze');
 const run = wrapHandler(submitJob);
 
+// B2a: zwykła faktura wychodzi do KSeF do końca następnego dnia roboczego po dacie
+// wystawienia, a bezpiecznik runnera i haka sesji liczy od prawdziwego zegara —
+// faktura przechodząca przez wysyłkę ma więc datę „dziś” w Polsce (stała data by się zestarzała).
+const TODAY_PL = todayInWarsaw();
+
 const faktura = (buyer: { nip: string; name: string } = { nip: '5252241585', name: 'Klient' }) => finalizeInvoice({
   internalNumber: NUMBER,
   type: 'VAT',
-  issueDate: '2026-11-02',
-  saleDate: '2026-11-02',
+  issueDate: TODAY_PL,
+  saleDate: TODAY_PL,
   seller: { nip: '5260001246', name: 'ACME', address: { countryCode: 'PL', addressLine1: 'ul. A 1', addressLine2: '00-001 Warszawa' } },
   buyer: { ...buyer, address: { countryCode: 'PL', addressLine1: 'ul. B 2', addressLine2: '02-001 Warszawa' } },
   lines: [{ ordinal: 1, name: 'Usługa', unit: 'usł.', quantity: 1, unitPriceNet: 100, vatRate: '23' }],
-  payment: { currency: 'PLN', dueDate: '2026-11-16', method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
+  payment: { currency: 'PLN', dueDate: addDaysToIsoDate(TODAY_PL, 14)!, method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
 });
 
 /** Plik, który runner wygeneruje dla faktury (ta sama data wytworzenia co w atrapie `claimXmlGeneratedAt`). */
@@ -412,7 +418,7 @@ describe('F-093-440: werdykt „operator” (ta sama treść z innego programu)'
 
     const gross = /<P_15>([^<]*)<\/P_15>/.exec(ourXml(nasza()))![1];
     const klient =
-      `KSeF ma już fakturę o tym numerze (numer KSeF ${K}, z 2026-11-02, dla ${NABYWCA}, NIP ${NIP_NABYWCY}, na ${gross} PLN) ` +
+      `KSeF ma już fakturę o tym numerze (numer KSeF ${K}, z ${TODAY_PL}, dla ${NABYWCA}, NIP ${NIP_NABYWCY}, na ${gross} PLN) ` +
       `z tą samą treścią, wystawioną w programie „${PROGRAM}” — to ta sama sprzedaż. Nie wystawiaj jej ponownie; do uzgodnienia przez operatora.`;
     expect(m.invoice).toMatchObject({ ksef_status: 'failed', last_error_code: 'KSEF_DUPLICATE_RECONCILE', last_error: klient });
     expect(zdarzeniePorazki()?.data).toMatchObject({ errorCode: 'KSEF_DUPLICATE_RECONCILE', error: klient, manualReconciliationRequired: true });

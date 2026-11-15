@@ -12,7 +12,7 @@ import { claimXmlGeneratedAt } from '@/lib/ksef/xml-generated-at';
 import { assertSpecialInvoiceData } from '@/lib/ksef/special-invoice-data';
 import { isRozSubmission, ROZ_SUBMISSION_HOLD_MESSAGE } from '@/lib/ksef/roz-submission-hold';
 import { RECEIPT_ONLY_REGULAR_MESSAGE } from '@/lib/invoices/receipt-invoice';
-import { assertSpecialIssueDateToday } from '@/lib/ksef/special-issue-date';
+import { assertIssueDateSendable } from '@/lib/ksef/special-issue-date';
 import { InvoiceXmlSchemaError, validateInvoiceXml } from '@/lib/xml/validator';
 import { uploadInvoiceXml } from '@/lib/storage/r2';
 
@@ -135,8 +135,10 @@ export async function submitInvoiceFullFlow(
   //    samej próby zastaje 412 i `r2.uploadXmlDocument` porównuje bajty: te same
   //    idą dalej, inne dają `XmlArchiveConflictError` PRZED otwarciem sesji KSeF.
   const attemptId = sendAttemptId ?? null;
-  // Data w `P_1` dokumentu specjalnego (z jego danych, jak generator); zwykła faktura — bez sprawdzenia (B1/B2).
+  // Data w `P_1` z tego samego źródła co generator (wyżej): dokument specjalny — z jego
+  // danych (00147), zwykła faktura — `invoice.issueDate` (B2a).
   const specialIssueDate = correctionData?.issueDate ?? advanceData?.issueDate ?? finalPayload?.finalData.issueDate;
+  const regularInvoice = correctionData == null && advanceData == null && finalPayload == null;
   const uploadResult = await uploadInvoiceXml(
     tenantId,
     invoiceId,
@@ -159,10 +161,12 @@ export async function submitInvoiceFullFlow(
     { tenantId, invoiceId },
     {
       onSessionOpened: async ({ sessionReferenceNumber }) => {
-        // 00147: dokument specjalny tylko w dniu wystawienia — drugie sprawdzenie
-        // tuż przed plikiem i przed zamiarem (uwierzytelnienie i sesja trwają
-        // do kilkudziesięciu sekund). Błąd = bez wysyłki, sesja zamykana.
-        if (specialIssueDate !== undefined) assertSpecialIssueDateToday(specialIssueDate);
+        // Bezpiecznik daty (00147: dokument specjalny tylko w dniu wystawienia;
+        // B2a: zwykła faktura do końca następnego dnia roboczego po nim) — drugie
+        // sprawdzenie tuż przed plikiem i przed zamiarem (uwierzytelnienie i sesja
+        // trwają do kilkudziesięciu sekund). Błąd = bez wysyłki, sesja zamykana.
+        if (regularInvoice) assertIssueDateSendable('regular', invoice.issueDate);
+        else if (specialIssueDate !== undefined) assertIssueDateSendable('special', specialIssueDate);
         await recordKsefSubmissionIntent({
           tenantId,
           invoiceId,
