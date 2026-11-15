@@ -39,10 +39,8 @@ describe('00194: plik, nagłówek i rejestr', () => {
     expect(outsideBodies(sql)).not.toMatch(/\b(DROP\s+(TABLE|COLUMN)|TRUNCATE|DELETE\s+FROM)\b/i);
   });
 
-  it('rejestr: wiersz 00194, „następny wolny” za nim (numer nie wpisany na sztywno)', () => {
+  it('rejestr: wiersz 00194', () => {
     expect(registry).toMatch(/^\| 00194 \| Claude \(plan kompletnej aplikacji, krok 3\.7/m);
-    const next = /^\| \*\*(\d{5})\*\* \| — \| następny wolny/m.exec(registry)?.[1];
-    expect(Number(next)).toBeGreaterThan(194);
   });
 });
 

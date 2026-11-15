@@ -257,6 +257,7 @@
       "opis": "Generator FA(3), adnotacje (MPP, zw, np, oo), walidacja XSD, dane sprzedawcy i nabywcy.",
       "sciezki": [
         "lib/xml/{fa3-generator,fa3-annotations,fa3-p12,validator}.ts",
+        "lib/xml/fa3-limits.ts",
         "lib/xml/schemas/fa3/**",
         "lib/invoices/{annotations,vat-exemption,vat-ue,cash-method,special-data,map-buyer-party,tenant-seller,load-tenant-seller}.ts",
         "lib/ksef/special-invoice-data.ts",
@@ -833,11 +834,12 @@
     {
       "id": "pomocnicze",
       "poziom": "R3",
-      "opis": "Daty i strefa Warszawy, formatowanie kwot, odczyt stronami, schematy formularzy, typy, dziennik audytowy, przełączniki funkcji.",
+      "opis": "Daty i strefa Warszawy, formatowanie kwot, odczyt stronami, schematy formularzy, typy, dziennik audytowy, przełączniki funkcji, odpytywanie o stan zadań.",
       "sciezki": [
         "lib/format/**",
         "lib/accounting/read-complete-pages.ts",
         "lib/pagination/**",
+        "lib/polling/**",
         "lib/schemas/**",
         "types/invoice*.ts",
         "types/**",
@@ -902,7 +904,8 @@
       "sciezki": [
         "scripts/{verify-fa3-all-types,test-fa3-generation,test-jpk-mf,test-ksef-wysylka,test-submit-full,seed-test-invoice}.ts",
         "scripts/verify-migration-00200.sh",
-        "scripts/ops/{kontrola-faktur-ksef,ksef-historia,pojemnosc-db,faktway-inwentarz}.sh"
+        "scripts/ops/{kontrola-faktur-ksef,ksef-historia,pojemnosc-db,faktway-inwentarz}.sh",
+        "scripts/ops/kontrola-go-live-ksef.sh"
       ]
     },
     {
@@ -943,7 +946,7 @@
       "poziom": "R1",
       "opis": "SQL: pochodzenie kosztów i prawo do odliczenia (expenses.is_deductible).",
       "sciezki": [
-        "supabase/migrations/{00034,00123,00127,00128,00175,00177,00196}_*.sql"
+        "supabase/migrations/{00034,00123,00127,00128,00175,00177,00196,00206}_*.sql"
       ]
     },
     {
@@ -1028,11 +1031,11 @@
     {
       "sciezki": [
         "scripts/security/**",
-        "scripts/ops/{rotacja-generuj,rotacja-kluczy,wdroz-produkcje,wgraj-migracje}.sh",
-        "scripts/ops/rotacja-kluczy-sonda.mjs",
+        "scripts/ops/{rotacja-generuj,rotacja-kluczy,wdroz-produkcje,wgraj-migracje,nocne-wdrozenie}.sh",
+        "scripts/ops/{rotacja-kluczy-sonda,kontrola-migracji}.mjs",
         "scripts/{seed-tenant,check-env,test-r2,test-ksef-auth,test-ksef-token,test-ksef-kreator}.ts"
       ],
-      "powod": "Narzędzia operatora i audyty bezpieczeństwa: wdrożenie, migracje (kolejność pilnuje AGENTS.md), rotacja kluczy, kontrola zmiennych, próby połączeń; nie liczą i nie zmieniają danych faktur."
+      "powod": "Narzędzia operatora i audyty bezpieczeństwa: wdrożenie (w tym nocne), migracje (kolejność pilnuje AGENTS.md, a kontrolę zakazanych instrukcji kontrola-migracji.mjs), rotacja kluczy, kontrola zmiennych, próby połączeń; nie liczą i nie zmieniają danych faktur."
     }
   ],
   "sygnaly": {

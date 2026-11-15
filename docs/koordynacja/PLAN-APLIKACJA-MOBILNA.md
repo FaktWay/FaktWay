@@ -224,8 +224,8 @@ a te czytają sesję z ciasteczek. Aplikacja natywna ich nie wywoła. Dlatego:
   trasa sama odrzuca żądanie bez ważnego tokenu (test na brak i zły token).
 - Limity prób jak na stronie (`lib/rate-limit`), wpis w `audit_logs` dla akcji
   istotnych, jak na stronie.
-- Tokeny push urządzeń: nowa tabela z `tenant_id` i RLS (migracja z rejestru
-  w `CLAUDE-DO-CODEXA.md`, w M11).
+- Tokeny push urządzeń: nowa tabela z `tenant_id` i RLS (migracja z numerem
+  z `node scripts/dev/nastepna-migracja.mjs`, w M11).
 
 **Stan po M6 (13.11.2026).** Szkielet w `lib/api/mobile/`, trasy w
 `app/api/mobile/v1/`:

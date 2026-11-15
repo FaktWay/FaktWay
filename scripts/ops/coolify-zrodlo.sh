@@ -91,7 +91,7 @@ for id in "$WORKER_ID" "$WEB_ID"; do
   case "$bp" in
     dockerfile) ;;
     dockerimage)
-      [ "$obraz" = "$(obraz_ghcr "$id")" ] \
+      nasz_obraz "$id" "$obraz" \
         || die "id=$id jest na obcym obrazie „$obraz” (oczekiwany $(obraz_ghcr "$id")). Nic nie zmieniłem; sprawdź aplikację w panelu Coolify."
       ;;
     *) die "id=$id ma build_pack=$bp, a skrypt zna tylko dockerfile i dockerimage. Nic nie zmieniłem." ;;

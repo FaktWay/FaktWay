@@ -54,7 +54,7 @@ uruchamiasz po kolei, nigdy razem.
   - **R2:** Pulpit, Księgowość i dane przykładowe.
   - **R3:** reszta.
 
-  Zmiana w R1 albo R2 to karta w opisie PR i drugi czytelnik (`AGENTS.md` w katalogu głównym, „Żelazny filtr”). Kwoty i dni liczy serwer. `Math.round` na kwocie albo dzień z lokalnego `getDate` w R1 to nowe naruszenie (`node scripts/filtr/reguly.mjs --sprawdz`). Gdy telefon musi coś odtworzyć do podglądu, piszesz wyjątek `// filtr-wyjatek: <reguła> <powód>`, a Bartosz nadaje etykietę `zgoda:wyjatek-filtra`.
+  Zmiana w R1 albo R2 to karta w opisie PR i drugi czytelnik (`AGENTS.md` w katalogu głównym, „Żelazny filtr”). Kwoty i dni liczy serwer. `Math.round` na kwocie albo dzień z lokalnego `getDate` w R1 to nowe naruszenie (`node scripts/filtr/reguly.mjs --sprawdz`). Gdy telefon musi coś odtworzyć do podglądu, piszesz wyjątek `// filtr-wyjatek: <reguła> <powód>`, a etykietę `zgoda:wyjatek-filtra` nadajesz po drugim czytelniku (`AGENTS.md`, „Żelazny filtr”).
 
 ## Pułapki (sprawdzone w symulatorze)
 

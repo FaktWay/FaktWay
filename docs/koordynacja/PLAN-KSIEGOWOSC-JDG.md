@@ -21,7 +21,7 @@ Przygotowanie: 4.11.2026, odczyt kodu `origin/main` @ `7a249d3f` (po #368) i prz
 
 1. `git fetch origin && git log --oneline -1 origin/main`. Gałąź kroku zawsze od świeżego `origin/main`: `claude/ksiegowosc-kN-<temat>`.
 2. Przeczytaj sekcje 1-5 tego planu, krok wskazany w „Następny krok”, `AGENTS.md` (protokół, migracje, scalanie) i `docs/koordynacja/PLAN-FINORA.md` §2.4 (wspólne zasady liczenia).
-3. Numer migracji z rejestru `docs/koordynacja/CLAUDE-DO-CODEXA.md`, wiersz „następny wolny” (4.11.2026: **00164**). Przed nadaniem sprawdź otwarte PR-y i gałęzie zdalne. Wiersz rejestru dopisz w tym samym PR.
+3. Numer migracji: `node scripts/dev/nastepna-migracja.mjs` (sprawdza `origin/main` i otwarte PR; od 00207 migracja nie ma wiersza w rejestrze `docs/koordynacja/CLAUDE-DO-CODEXA.md`, tabela jest zamrożona; opis i „przed/PO wdrożeniu” w nagłówku pliku migracji, w linii `-- KIEDY WGRAĆ: …`).
 4. Przed każdym PR: `pnpm run ci && pnpm build`. W świeżym kontenerze najpierw `xmllint --version` (bez niego padają testy XSD).
 5. Scalanie i wdrożenie tylko na polecenie Bartosza (`AGENTS.md`). Sesja bez `.agents/infra.env` nie wgrywa migracji, tylko pisze w PR „Do wgrania: 00NNN, przed wdrożeniem”.
 6. Wszystko za wyłącznikiem `ksiegowosc` (powstaje w K1). Żaden klient nic nie widzi przed bramą z sekcji 11.

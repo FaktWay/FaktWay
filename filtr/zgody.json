@@ -1,5 +1,5 @@
 {
   "wersja": 1,
-  "opis": "Kto nadaje etykiety zgody filtra (zgoda:zmiana-filtra, zgoda:wiedza-prawna, zgoda:wyjatek-filtra). Straż czyta ten plik z main, więc PR nie dopisze sam siebie; zmiana pliku wymaga zgoda:zmiana-filtra. Agenci etykiet zgody nie nadają.",
-  "osoby": ["ezior8888-cpu"]
+  "opis": "Konta, od których straż przyjmuje etykiety zgody filtra (zgoda:zmiana-filtra, zgoda:wiedza-prawna, zgoda:wyjatek-filtra). Straż czyta ten plik z main, więc PR nie dopisze sam siebie; zmiana pliku wymaga zgoda:zmiana-filtra. Od 14.11.2026 (decyzja Bartosza) etykiety nadaje agent, który zrobił PR, z konta swojego człowieka, po ostatnim pushu i po drugim czytelniku bez otwartych uwag (AGENTS.md, Żelazny filtr). masloigor: sesje Codexa Igora.",
+  "osoby": ["ezior8888-cpu", "masloigor"]
 }
