@@ -1,4 +1,4 @@
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -6,6 +6,7 @@ import { StyleSheet, View } from 'react-native';
 import { PoleTekstowe } from '@/komponenty/formularz';
 import { EkranListy, Sekcja } from '@/komponenty/lista';
 import { PrzyciskGlowny } from '@/komponenty/przycisk-glowny';
+import { PrzyciskPaska } from '@/komponenty/przycisk-paska';
 import { StanPusty } from '@/komponenty/stan-pusty';
 import type { BladApi } from '@/lib/api/bledy';
 import { useKontoFirmy } from '@/stan/dane';
@@ -54,9 +55,7 @@ export default function EkranNowegoKontrahenta() {
 
   return (
     <>
-      <Stack.Toolbar placement="left">
-        <Stack.Toolbar.Button onPress={() => router.back()}>Anuluj</Stack.Toolbar.Button>
-      </Stack.Toolbar>
+      <PrzyciskPaska strona="lewa" tytul="Anuluj" onPress={() => router.back()} />
       <EkranListy keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         <Sekcja naglowek="Kontrahent" stopka="NIP to identyfikator kontrahenta: później go nie zmienisz.">
           <PoleTekstowe etykieta="NIP" wartosc={pola.nip} onZmiana={ustaw('nip')} klawiatura="number-pad" podpowiedz="10 cyfr" blad={bladPola('nip')} />

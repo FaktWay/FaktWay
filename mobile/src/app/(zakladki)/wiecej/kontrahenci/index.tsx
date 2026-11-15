@@ -5,6 +5,7 @@ import { DZIS } from '@/dane-przykladowe';
 import { KONTRAHENCI } from '@/dane-przykladowe/kontrahenci';
 import { Kafle, type Kafel } from '@/komponenty/kafle';
 import { EkranListy, Sekcja, Wiersz } from '@/komponenty/lista';
+import { PrzyciskPaska } from '@/komponenty/przycisk-paska';
 import { StanPusty } from '@/komponenty/stan-pusty';
 import { SzkieletListy } from '@/komponenty/szkielet';
 import type { CzescTelefonu, KafleKontrahentow, KontrahentTelefonu } from '@/lib/api/kontrakt-wiecej';
@@ -12,6 +13,7 @@ import { kwota } from '@/lib/format';
 import { doZaplaty, ileFaktur, statusFaktury } from '@/lib/status-faktury';
 import { useStanFaktur } from '@/stan/faktury';
 import { grosze, useKontrahenci, useZapisKontrahenta } from '@/stan/kontrahenci';
+import { useOpcjeWyszukiwarki } from '@/wyglad/naglowki';
 
 /** Prawdziwe konto (M10e): lista z bazy przez API; dane przykładowe: wersja z M4. */
 export default function EkranKontrahentow() {
@@ -54,6 +56,7 @@ function WierszKontrahenta({ k, onPress }: { k: KontrahentTelefonu; onPress: () 
 }
 
 function EkranKontrahentowZBazy() {
+  const wyszukiwarka = useOpcjeWyszukiwarki();
   const router = useRouter();
   const [szukaj, setSzukaj] = useState('');
   const [fraza, setFraza] = useState('');
@@ -68,14 +71,8 @@ function EkranKontrahentowZBazy() {
 
   return (
     <>
-      <Stack.SearchBar placeholder="Nazwa albo NIP" onChangeText={(e) => setSzukaj(e.nativeEvent.text)} />
-      {dane?.mozeEdytowac ? (
-        <Stack.Toolbar placement="right">
-          <Stack.Toolbar.Button accessibilityLabel="Dodaj kontrahenta" onPress={dodaj}>
-            Dodaj
-          </Stack.Toolbar.Button>
-        </Stack.Toolbar>
-      ) : null}
+      <Stack.SearchBar {...wyszukiwarka} placeholder="Nazwa albo NIP" onChangeText={(e) => setSzukaj(e.nativeEvent.text)} />
+      {dane?.mozeEdytowac ? <PrzyciskPaska strona="prawa" tytul="Dodaj" naGradiencie onPress={dodaj} /> : null}
       <EkranListy gradient={!fraza} keyboardShouldPersistTaps="handled" onOdswiez={odczyt?.odswiez}>
         {!dane ? (
           odczyt?.stan === 'blad' ? (
@@ -118,6 +115,7 @@ function EkranKontrahentowZBazy() {
  * faktur, dane z GUS, należności, zaległości, status VAT).
  */
 function EkranKontrahentowPrzyklad() {
+  const wyszukiwarka = useOpcjeWyszukiwarki();
   const router = useRouter();
   const { faktury, flagi } = useStanFaktur();
   const [szukaj, setSzukaj] = useState('');
@@ -128,7 +126,7 @@ function EkranKontrahentowPrzyklad() {
 
   return (
     <>
-      <Stack.SearchBar placeholder="Nazwa albo NIP" onChangeText={(e) => setSzukaj(e.nativeEvent.text)} />
+      <Stack.SearchBar {...wyszukiwarka} placeholder="Nazwa albo NIP" onChangeText={(e) => setSzukaj(e.nativeEvent.text)} />
       <EkranListy gradient={!szukaj} keyboardShouldPersistTaps="handled">
         {szukaj ? null : (
           <Kafle

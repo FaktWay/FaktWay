@@ -1,4 +1,4 @@
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -14,6 +14,7 @@ import { StanPusty } from '@/komponenty/stan-pusty';
 import { SzkieletListy } from '@/komponenty/szkielet';
 import { WierszFaktury } from '@/komponenty/wiersz-faktury';
 import { potwierdz } from '@/komponenty/potwierdz';
+import { PrzyciskPaska } from '@/komponenty/przycisk-paska';
 import type { BladApi } from '@/lib/api/bledy';
 import type { KontrahentTelefonu } from '@/lib/api/kontrakt-wiecej';
 import { kwota } from '@/lib/format';
@@ -102,11 +103,7 @@ function EkranKontrahentaZBazy({ zapis }: { zapis: ZapisKontrahenta }) {
 
   return (
     <>
-      {dane.mozeEdytowac ? (
-        <Stack.Toolbar placement="right">
-          <Stack.Toolbar.Button onPress={() => (edycja ? setEdycja(false) : zacznijEdycje())}>{edycja ? 'Anuluj' : 'Edytuj'}</Stack.Toolbar.Button>
-        </Stack.Toolbar>
-      ) : null}
+      {dane.mozeEdytowac ? <PrzyciskPaska strona="prawa" tytul={edycja ? 'Anuluj' : 'Edytuj'} naGradiencie onPress={() => (edycja ? setEdycja(false) : zacznijEdycje())} /> : null}
       <EkranListy gradient keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets onOdswiez={edycja ? undefined : odczyt.odswiez}>
         <NaglowekKwoty
           podpis={k.nazwa || `NIP ${k.nip}`}
@@ -208,9 +205,7 @@ function EkranKontrahentaPrzyklad() {
 
   return (
     <>
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button onPress={() => setEdycja(!edycja)}>{edycja ? 'Gotowe' : 'Edytuj'}</Stack.Toolbar.Button>
-      </Stack.Toolbar>
+      <PrzyciskPaska strona="prawa" tytul={edycja ? 'Gotowe' : 'Edytuj'} naGradiencie onPress={() => setEdycja(!edycja)} />
       <EkranListy gradient keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         <NaglowekKwoty
           podpis={nazwa}
