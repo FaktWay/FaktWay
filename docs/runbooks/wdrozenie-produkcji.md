@@ -9,9 +9,9 @@
 ## Kolejność przy pełnym wydaniu
 
 ```
-0. Bartosz w czacie wprost prosi o scalenie / wdrożenie
+0. Bartosz w czacie wprost prosi o wdrożenie (scalenie robi agent przez kolejkę)
 1. pnpm run ci && pnpm build        ← lokalnie, PRZED pushem
-2. PR do main, 11/11 kontroli CI zielone → scalenie („Scalanie PR”)
+2. PR do main, kontrole zielone → kolejka scalania (`scalanie-pr.md`)
 3. migracje „przed wdrożeniem” na db-1 (+ schema_migrations + NOTIFY pgrst
    + weryfikacja) — tylko pliki z main
 4. wdrożenie: worker id=2, potem aplikacja id=1 — po kolei, nie naraz
@@ -158,7 +158,7 @@ jako problemu.
 Build na `app-1` trwa 12–18 min na aplikację, zjada ok. 4,5 GB swapu
 i 08.11.2026 zapchał dysk (ENOSPC). Workflow `.github/workflows/obrazy.yml`
 buduje `runner` i `worker` na maszynie GitHuba po każdym scaleniu do `main`
-i wypycha je do GHCR: `ghcr.io/ezior8888-cpu/faktway-runner:<pełny SHA>`
+i wypycha je do GHCR: `ghcr.io/faktway/faktway-runner:<pełny SHA>`
 i `…-worker:<pełny SHA>` (plus `:main`). Etykieta
 `org.opencontainers.image.revision` i zmienna `APP_COMMIT_SHA` w obrazie =
 SHA. Pakiety są publiczne (repo jest publiczne, w obrazie nie ma sekretów),

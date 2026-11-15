@@ -5,8 +5,12 @@
  *
  * Ten dostawca trzyma dane przykładowe. Na prawdziwym koncie (od M7)
  * `DaneKonta` (`stan/dane.tsx`) podmienia faktury i skrzynkę KSeF na dane z
- * bazy przez `PodmienStan`, a zapisy na tych fakturach odsyła na faktway.pl,
- * dopóki API ich nie ma (M8 wystawienie, M10 zapłata i reszta).
+ * bazy przez `PodmienStan`. Wystawienie zwykłej faktury i wysyłka szkicu idą
+ * od M8 przez API, od M9 wydatki (lista z bazy, wydatek ze zdjęcia, opis
+ * kosztu); reszta zapisów odsyła na faktway.pl do M10.
+ *
+ * Wydatek ze zdjęcia na danych przykładowych: wgranie i odczyt trwają chwilę
+ * i dają zawsze ten sam paragon (`ROZPOZNANY`), jak na stronie w trybie E2E.
  */
 import * as Haptics from 'expo-haptics';
 import { createContext, use, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -14,7 +18,28 @@ import { Share } from 'react-native';
 
 import { DZIS, FAKTURY, KOSZTY, skrzynkaPrzykladowa, type Faktura, type FakturaKosztowa, type Koszt } from '@/dane-przykladowe';
 import { CYKLICZNE, type FakturaCykliczna } from '@/dane-przykladowe/kontrahenci';
+import type { FakturaTelefonu } from '@/lib/api/kontrakt';
 import { kwota } from '@/lib/format';
+import type { FormularzWydatku, StanOdczytuTelefonu } from '@/lib/wydatek/zatwierdzenie';
+
+/**
+ * Wynik zapisu faktury. `uwaga`: zapis się udał, ale coś zostało do zrobienia
+ * (np. szkic zapisany, a kolejka KSeF odmówiła). `pole`: pole formularza z błędem
+ * serwera (`buyerName`, `lines.0.name`).
+ */
+export type WynikZapisu = { ok: true; id: string; uwaga?: string } | { ok: false; komunikat: string; pole?: string };
+
+/** Zapis na prawdziwym koncie (M8): treść dla `POST /faktury`, klucz jednego wypełnienia formularza i firma, w której go otwarto. */
+export type ZapisNaKoncie = { faktura: FakturaTelefonu; klucz: string; firma: string };
+
+/** Plik dokumentu kosztu do wgrania (M9): skan albo zdjęcie z galerii, w plikach aplikacji. */
+export type PlikDokumentu = { uri: string; nazwa: string; typ: string };
+
+/**
+ * Wynik wgrania zdjęcia kosztu. `ponow`: nie wiadomo, czy dotarło (sieć,
+ * przerwa); ponowienie z tym samym kluczem nie zleci drugiego odczytu.
+ */
+export type WynikWgrania = { ok: true; odczytId: string } | { ok: false; komunikat: string; ponow: boolean };
 
 /**
  * Skąd są faktury i skrzynka KSeF na ekranie i w jakim są stanie. Dane
@@ -32,6 +57,10 @@ export type StanDanych = {
   /** Lista ma limit (200 najnowszych): reszta na faktway.pl. */
   fakturyPelne: boolean;
   skrzynkaPelna: boolean;
+  /** Wydatki (M9): 200 najnowszych według daty dokumentu. */
+  wydatkiPelne: boolean;
+  /** Wydatki (M9) nie przyszły, choć faktury tak: zdanie dla listy Kosztów. */
+  wydatkiBlad?: string;
   odswiez: () => Promise<void>;
 };
 
@@ -43,18 +72,24 @@ export type Stan = {
   skrzynka: FakturaKosztowa[];
   /** Oznacza albo cofa zapłatę (z wibracją i paskiem „Cofnij”); jedno miejsce dla gestu, menu i przycisku. */
   przelaczZaplate: (f: Faktura) => void;
-  /** Dodaje fakturę; `wyslij` symuluje wysyłkę do KSeF i przyjęcie po chwili. Zwraca id. */
-  dodajFakture: (f: Faktura, wyslij: boolean) => string;
+  /**
+   * Dodaje fakturę; `wyslij` to „Wyślij do KSeF” (na danych przykładowych przyjęcie po chwili).
+   * Na prawdziwym koncie zapis idzie przez API z `naKoncie` (M8).
+   */
+  dodajFakture: (f: Faktura, wyslij: boolean, naKoncie?: ZapisNaKoncie) => Promise<WynikZapisu>;
   /** Zapisuje poprawiony szkic albo odrzuconą fakturę w miejscu starej; `wyslij` jak w `dodajFakture`. */
   zastapFakture: (id: string, f: Faktura, wyslij: boolean) => void;
   /** Faktura właśnie wysłana z formularza: jej szczegół pokazuje kartę „Wysyłamy do KSeF” → „Przyjęta w KSeF”. */
   potwierdzenie: string | undefined;
-  /** Pasek „Cofnij” nad zakładkami (`PasekCofnij`): co się stało i jak to odwrócić. */
-  cofnij: { id: number; tekst: string; akcja: () => void } | undefined;
-  pokazCofnij: (c: { tekst: string; akcja: () => void } | undefined) => void;
+  /**
+   * Pasek „Cofnij” nad zakładkami (`PasekCofnij`): co się stało i jak to odwrócić.
+   * `przycisk`: inny napis niż „Cofnij” (np. „Ponów” po odmowie serwera, M10a).
+   */
+  cofnij: { id: number; tekst: string; akcja: () => void; przycisk?: string } | undefined;
+  pokazCofnij: (c: { tekst: string; akcja: () => void; przycisk?: string } | undefined) => void;
   pokazPotwierdzenie: (id: string | undefined) => void;
-  /** Wysyła szkic albo odrzuconą fakturę ponownie do KSeF. */
-  wyslijDoKsef: (id: string) => void;
+  /** Wysyła szkic albo odrzuconą fakturę ponownie do KSeF (na prawdziwym koncie szkic przez API, M8). */
+  wyslijDoKsef: (id: string) => Promise<WynikZapisu>;
   /** Cofa odrzuconą fakturę do szkicu. */
   wrocDoSzkicu: (id: string) => void;
   usunSzkic: (id: string) => void;
@@ -62,9 +97,20 @@ export type Stan = {
   zapiszCykliczna: (c: FakturaCykliczna) => void;
   usunCykliczna: (id: string) => void;
   koszty: Koszt[];
-  /** Zapisuje albo dodaje wydatek (opisanie, akceptacja, nowy ze zdjęcia). Zwraca id. */
+  /** Dodaje wydatek wpisany ręcznie (dane przykładowe; na koncie odsyła na faktway.pl do M10). Zwraca id. */
   zapiszKoszt: (k: Koszt) => string;
   usunKoszt: (id: string) => void;
+  /**
+   * Wgrywa zdjęcie albo PDF kosztu i zleca odczyt (M9). `klucz` jeden na zdjęcie:
+   * ponowienie po zerwanym połączeniu oddaje to samo zadanie, bez drugiego kosztu.
+   */
+  wgrajDokument: (plik: PlikDokumentu, klucz: string, firma?: string | null) => Promise<WynikWgrania>;
+  /** Jedno pytanie o stan odczytu (`czekajNaOdczyt` pyta co 2 s), w firmie, w której wgrano zdjęcie. */
+  stanOdczytu: (odczytId: string, firma?: string | null) => Promise<StanOdczytuTelefonu>;
+  /** Lista wydatków od nowa (po odczycie, żeby szczegół widział nowy wydatek). */
+  odswiezWydatki: () => Promise<void>;
+  /** Opis i akceptacja wydatku z formularza (na koncie `POST /wydatki/{id}/zatwierdzenie`, M9). */
+  zatwierdzKoszt: (k: Koszt, f: FormularzWydatku, firma?: string | null) => Promise<WynikZapisu>;
   /** Proste przełączniki ekranów ustawień i list (np. wstrzymane przypomnienia). */
   flagi: Record<string, boolean>;
   ustawFlage: (klucz: string, wartosc: boolean) => void;
@@ -76,6 +122,30 @@ const Kontekst = createContext<Stan | null>(null);
 
 /** Czas „przyjęcia w KSeF” na danych przykładowych. */
 const CZAS_KSEF_MS = 2500;
+
+/** Wgranie i odczyt zdjęcia na danych przykładowych. */
+const CZAS_WGRANIA_MS = 700;
+const CZAS_ODCZYTU_MS = 1200;
+
+/** Odczyt przykładowego paragonu (na stronie: OCR, `use-expense-capture.tsx`). */
+const ROZPOZNANY: Omit<Koszt, 'id'> = {
+  dostawca: 'Stacja Paliw Rondo',
+  nip: '1234567890',
+  opis: '',
+  data: DZIS,
+  netto: 16_260,
+  vat: 3_740,
+  brutto: 20_000,
+  zrodlo: 'zdjecie',
+  doOpisania: true,
+  kategoria: 'Paliwo',
+  kolumna: '13',
+  dokument: 'Paragon',
+  numer: '0051/2026',
+  wKpir: true,
+};
+
+const poczekaj = (ms: number) => new Promise<void>((gotowe) => setTimeout(gotowe, ms));
 
 function numerKsef(f: Faktura): string {
   return `${f.nipKontrahenta}-${f.dataWystawienia.replaceAll('-', '')}-${f.id.toUpperCase().padStart(6, '0')}-A1`;
@@ -90,6 +160,8 @@ export function StanFaktur({ children }: { children: ReactNode }) {
   const [cofnij, setCofnij] = useState<Stan['cofnij']>();
   const licznik = useRef(0);
   const zegary = useRef(new Set<ReturnType<typeof setTimeout>>());
+  /** Odczyty przykładowe: kiedy wgrane i jaki wydatek dały. */
+  const odczyty = useRef(new Map<string, { od: number; wydatekId?: string }>());
 
   const wartosc = useMemo<Stan>(() => {
     const zmien = (id: string, zmiana: Partial<Faktura>) =>
@@ -116,6 +188,7 @@ export function StanFaktur({ children }: { children: ReactNode }) {
         bezSieci: false,
         fakturyPelne: true,
         skrzynkaPelna: true,
+        wydatkiPelne: true,
         // Dane przykładowe: odświeżenie tylko pokazuje kręciołek.
         odswiez: () => new Promise<void>((gotowe) => setTimeout(gotowe, 800)),
       },
@@ -135,7 +208,7 @@ export function StanFaktur({ children }: { children: ReactNode }) {
         const id = `n${licznik.current}`;
         setFaktury((lista) => [{ ...f, id, statusKsef: wyslij ? 'wysylanie' : 'robocza' }, ...lista]);
         if (wyslij) przyjmijPoChwili(id);
-        return id;
+        return Promise.resolve({ ok: true, id });
       },
       zastapFakture: (id, f, wyslij) => {
         setFaktury((lista) => lista.map((x) => (x.id === id ? { ...f, id, statusKsef: wyslij ? 'wysylanie' : 'robocza', blad: undefined } : x)));
@@ -148,6 +221,7 @@ export function StanFaktur({ children }: { children: ReactNode }) {
       wyslijDoKsef: (id) => {
         zmien(id, { statusKsef: 'wysylanie', blad: undefined });
         przyjmijPoChwili(id);
+        return Promise.resolve({ ok: true, id });
       },
       wrocDoSzkicu: (id) => zmien(id, { statusKsef: 'robocza', blad: undefined }),
       usunSzkic: (id) => setFaktury((lista) => lista.filter((f) => !(f.id === id && f.statusKsef === 'robocza'))),
@@ -162,6 +236,49 @@ export function StanFaktur({ children }: { children: ReactNode }) {
         return id;
       },
       usunKoszt: (id) => setKoszty((lista) => lista.filter((x) => x.id !== id)),
+      wgrajDokument: async () => {
+        await poczekaj(CZAS_WGRANIA_MS);
+        licznik.current += 1;
+        const odczytId = `odczyt-${licznik.current}`;
+        odczyty.current.set(odczytId, { od: Date.now() });
+        return { ok: true, odczytId };
+      },
+      stanOdczytu: async (odczytId) => {
+        const o = odczyty.current.get(odczytId);
+        if (!o) return { stan: 'brak' };
+        if (o.wydatekId) return { stan: 'gotowy', wydatekId: o.wydatekId };
+        if (Date.now() - o.od < CZAS_ODCZYTU_MS) return { stan: 'trwa' };
+        // Jak worker na serwerze: odczyt zapisuje wydatek „do opisania”.
+        const wydatekId = `w${Date.now()}`;
+        o.wydatekId = wydatekId;
+        setKoszty((lista) => [{ ...ROZPOZNANY, id: wydatekId }, ...lista]);
+        return { stan: 'gotowy', wydatekId };
+      },
+      odswiezWydatki: () => Promise.resolve(),
+      zatwierdzKoszt: async (k, f) => {
+        setKoszty((lista) =>
+          lista.map((x) =>
+            x.id === k.id
+              ? {
+                  ...x,
+                  dostawca: f.dostawca.trim(),
+                  nip: f.nip.trim() || undefined,
+                  numer: f.numer.trim(),
+                  data: f.data,
+                  netto: f.netto,
+                  vat: f.vat,
+                  brutto: f.brutto,
+                  kolumna: f.kolumna,
+                  kategoria: f.kategoria,
+                  wKpir: f.wKpir,
+                  opis: f.notatki.trim(),
+                  doOpisania: false,
+                }
+              : x,
+          ),
+        );
+        return { ok: true, id: k.id };
+      },
       flagi,
       ustawFlage: (klucz, v) => setFlagi((f) => ({ ...f, [klucz]: v })),
       wyczysc: () => {
@@ -170,6 +287,7 @@ export function StanFaktur({ children }: { children: ReactNode }) {
         setFaktury(FAKTURY);
         setCykliczne(CYKLICZNE);
         setKoszty(KOSZTY);
+        odczyty.current.clear();
         setFlagi({});
         setPotwierdzenie(undefined);
         setCofnij(undefined);
@@ -191,7 +309,7 @@ export function PodmienStan({ zmiana, children }: { zmiana: (stan: Stan) => Stan
   return <Kontekst value={zmiana(wyzej)}>{children}</Kontekst>;
 }
 
-/** Systemowy arkusz udostępniania z opisem faktury (PDF dochodzi w M10). */
+/** Systemowy arkusz udostępniania z opisem faktury (dane przykładowe; na prawdziwym koncie PDF z serwera, `lib/pdf-faktury.ts`). */
 export function udostepnijFakture(f: Faktura): void {
   void Share.share({ message: `Faktura ${f.numer} dla ${f.kontrahent}, ${kwota(f.brutto, f.waluta)}.` });
 }

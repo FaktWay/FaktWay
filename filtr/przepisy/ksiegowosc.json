@@ -265,18 +265,28 @@
       ],
       "kod": [
         "lib/ksiegowosc/ewidencja.ts#zbudujEwidencje",
-        "lib/ksiegowosc/kpir.ts#zbudujKpir"
+        "lib/ksiegowosc/kpir.ts#zbudujKpir",
+        "lib/ksiegowosc/ewidencja.ts#pokrycieFakturDoParagonu"
       ],
       "testy": [
         "tests/unit/ksiegowosc-ewidencja.test.ts > FP nie jest drugim przychodem",
-        "tests/unit/ksiegowosc-kpir.test.ts > faktura do paragonu poza przychodem z brakiem"
+        "tests/unit/ksiegowosc-kpir.test.ts > faktura do paragonu poza przychodem z brakiem",
+        "tests/unit/faktura-do-paragonu-pokrycie-kasy.test.ts > niezmiennik: FP nigdy nie jest wierszem przychodu i nigdy nie znika",
+        "tests/unit/faktura-do-paragonu-pokrycie-kasy.test.ts > raport kasy w kolumnie 7 za miesiąc paragonu: FP poza księgą",
+        "tests/unit/faktura-do-paragonu-pokrycie-kasy.test.ts > odczyt z bazy: rodzaj wpisu ręcznego i FP z fa3_data docierają do reguły"
       ],
       "parametry": [],
       "niezmienniki": [],
       "pewnosc": "wysoka",
       "wzorzec": null,
-      "interpretacja": null,
-      "do_rozstrzygniecia": null,
+      "interpretacja": "Raport kasy to wpis ręczny „Raport z kasy rejestrującej” (w KPiR w kolumnie 7). FP jest poza ewidencją i KPiR, gdy raporty kasy z miesiąca dnia przychodu FP (dnia paragonu) są nie niższe niż suma faktur do paragonów z tego miesiąca (netto w złotych); bez raportu kasy, przy niższej kwocie oraz przy FP w walucie, korekcie, zaliczce albo z kwotą nie większą niż 0 jest brak z wyjściem.",
+      "do_rozstrzygniecia": {
+        "kto": "księgowa",
+        "pytanie": "Czy porównanie raportów kasy z miesiąca paragonu z sumą faktur do paragonów z tego miesiąca (kwoty netto) wystarcza, żeby uznać, że sprzedaż z FP weszła już do ewidencji i KPiR? Rodzaj wpisu „Raport z kasy rejestrującej” ma w formularzu wartość domyślną, więc o pokryciu decydują też kwoty.",
+        "przypadki": [
+          "G30"
+        ]
+      },
       "sprawdzil": {
         "ksiegowa": null,
         "prawnik": null
@@ -284,7 +294,67 @@
       "odczyt": "2026-11-09",
       "zrodlo_planu": "§4 pkt 2",
       "stan": "dziala",
-      "uwagi": "Od kroku 1.2 planu kompletnej aplikacji (#509) FP daje brak miesiąca w ewidencji i KPiR (brakFakturyDoParagonu), dopóki FaktWay nie sprawdza, czy raport kasy obejmuje tę sprzedaż."
+      "uwagi": "Krok 1.2 planu kompletnej aplikacji: od #509 FP dawała zawsze brak; od części 2 reguła pokrycia raportem kasy (miesiąc i kwoty), przyjęta według rekomendacji, do potwierdzenia przez księgową (G30)."
+    },
+    {
+      "id": "RP-FP-02",
+      "regula": "Faktura do paragonu (FP) w JPK_V7M: wiersz ewidencji sprzedaży z oznaczeniem TypDokumentu FP w okresie wystawienia, z pełnymi kwotami w polach K_; kwoty FP nie wchodzą do PodatekNalezny ani do części deklaracyjnej, bo sprzedaż z paragonu wykazuje raport z kasy (RO). FaktWay nie wykazuje raportów z kasy, więc FP z paragonem z miesiąca pliku daje odmowę.",
+      "podstawa": [
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 109 ust. 3d"
+        },
+        {
+          "akt": "schemat JPK_V7M(3), CRWDE 2025/12/19/14090 (lib/exports/schemas/jpk-v7m3/schemat.xsd)",
+          "przepis": "TDowoduSprzedazy (RO, WEW, FP) według § 10 ust. 5 rozporządzenia MFiR z 15.10.2019 (Dz.U. 2019 poz. 1988); opis pola PodatekNalezny"
+        },
+        {
+          "akt": "MF, Pytania i odpowiedzi JPK_VAT z deklaracją",
+          "przepis": "oznaczenia dokumentów, pytania 15, 17, 18, 20, 22, 23",
+          "url": "https://www.podatki.gov.pl/podatki-firmowe/jednolity-plik-kontrolny/jpk_vat-z-deklaracja/pytania-i-odpowiedzi"
+        }
+      ],
+      "obowiazuje": {
+        "od": "2026-02-01",
+        "do": null
+      },
+      "obszary": [
+        "jpk.vat-fa",
+        "ksiegowosc.vat"
+      ],
+      "kod": [
+        "lib/exports/jpk-v7m-generator.ts#generateJpkV7m",
+        "lib/exports/jpk-v7m-generator.ts#summarizeJpkV7m"
+      ],
+      "testy": [
+        "tests/unit/faktura-do-paragonu-jpk-v7m.test.ts > niezmiennik: FP nie zmienia deklaracji ani PodatekNalezny",
+        "tests/unit/faktura-do-paragonu-jpk-v7m.test.ts > FP z paragonem z poprzedniego miesiąca: TypDokumentu FP po NrKSeF",
+        "tests/unit/faktura-do-paragonu-jpk-v7m.test.ts > paragon z miesiąca pliku"
+      ],
+      "parametry": [],
+      "niezmienniki": [],
+      "pewnosc": "wysoka",
+      "wzorzec": {
+        "poziom": 4,
+        "opis": "MF, pytania i odpowiedzi JPK_VAT z deklaracją: FP za okres wystawienia, poza sumami kontrolnymi, „w pełnych wartościach”, sprzedaż z kasy zapisem zbiorczym RO; opis PodatekNalezny w XSD JPK_V7M(3) i strażnik pliku (FILTR-RT-JPK-02, FILTR-RT-JPK-05)",
+        "sprawdzono": "2026-11-13"
+      },
+      "interpretacja": "Plik jest za miesiąc wystawienia, więc FP ze sprzedażą (paragonem) z tego samego miesiąca wymagałaby w pliku raportu z kasy z tą sprzedażą: odmowa z wyjściem (JpkV7mReceiptSaleInPeriodError). FP z paragonem z wcześniejszego miesiąca: wiersz FP bez podatku należnego. Korekta FP i FP z innym oznaczeniem z pliku KSeF (TP, GTU, procedury): odmowa jak dotąd.",
+      "do_rozstrzygniecia": {
+        "kto": "księgowa",
+        "pytanie": "Czy JPK_V7M za miesiąc wystawienia FP do paragonu z wcześniejszego miesiąca jest kompletny bez wierszy RO, gdy w tym miesiącu nie było sprzedaży z kasy, i czy wiersz FP ma pełne kwoty w polach K_10-K_36?",
+        "przypadki": [
+          "G30"
+        ]
+      },
+      "sprawdzil": {
+        "ksiegowa": null,
+        "prawnik": null
+      },
+      "odczyt": "2026-11-13",
+      "zrodlo_planu": "PLAN-KOMPLETNA-APLIKACJA 1.2",
+      "stan": "dziala",
+      "uwagi": "Szkic w docs/koordynacja/REJESTR-PRZEPISOW-KOMPLETNA.md. JPK_FA(4), CSV i EDI++ nie mają oznaczenia FP i dalej odmawiają; JPK_V7M za miesiąc paragonu nie widzi FP wystawionej później (osobne ustalenie kroku 1.2, część 2)."
     },
     {
       "id": "RP-WAL-01",
@@ -994,7 +1064,7 @@
     },
     {
       "id": "RP-RYCZ-STAWKI-02",
-      "regula": "Przy kilku stawkach odliczenia dzieli się proporcjonalnie do przychodu z każdej stawki (co do grosza); podstawę każdej stawki i ryczałt z sumy zaokrągla się do pełnych złotych.",
+      "regula": "Przy kilku stawkach odliczenia dzieli się proporcjonalnie do przychodu z każdej stawki, dokładnie, bez zaokrąglania części do groszy; podstawę każdej stawki (przychód minus jej część odliczeń) i ryczałt z sumy zaokrągla się do pełnych złotych.",
       "podstawa": [
         {
           "akt": "ustawa o zryczałtowanym podatku dochodowym od niektórych przychodów osiąganych przez osoby fizyczne",
@@ -1009,17 +1079,19 @@
         "ksiegowosc.silniki"
       ],
       "kod": [
-        "lib/ksiegowosc/ryczalt.ts#rozdzielProporcjonalnie",
         "lib/ksiegowosc/ryczalt.ts#ryczaltMiesiaca"
       ],
       "testy": [
         "tests/unit/ksiegowosc-silniki.test.ts > dwie stawki: odliczenia proporcjonalnie do przychodu",
-        "tests/unit/ksiegowosc-silniki.test.ts > podział co do grosza",
-        "tests/filtr/roznicowe/skladki-ryczalt.test.ts > remis reszt przy podziale odliczeń",
+        "tests/filtr/roznicowe/skladki-ryczalt.test.ts > części odliczeń dokładne",
+        "tests/filtr/niezmienniki/ryczalt.test.ts > kontrprzykład z nocnego przebiegu",
+        "tests/filtr/niezmienniki/ryczalt.test.ts > odliczenia nie giną przy podziale na stawki",
+        "tests/filtr/niezmienniki/ryczalt.test.ts > każda podstawa osobno",
         "tests/filtr/roznicowe/skladki-ryczalt.test.ts > ryczałt, odliczenia, podstawy i ujemne na kolejne miesiące"
       ],
       "parametry": [],
       "niezmienniki": [
+        "NZ-RYCZ-02",
         "NZ-RYCZ-05"
       ],
       "pewnosc": "srednia",
@@ -1027,9 +1099,10 @@
       "interpretacja": null,
       "do_rozstrzygniecia": {
         "kto": "księgowa",
-        "pytanie": "Czy podział składek społecznych proporcjonalnie do przychodu z każdej stawki jest akceptowany (G4)?",
+        "pytanie": "Przy kilku stawkach: czy odliczenia dzielić proporcjonalnie do przychodu stawek (tak liczy program), czy według wyboru podatnika (np. najpierw od stawki najwyższej)? Jeśli proporcjonalnie: czy część stawki musi być kwotą w groszach (np. jeśli tak wykazuje się ją w PIT-28), czy wolno liczyć podstawę z części dokładnej, jak program od FZ-007? Przykład: 12 % i 8,5 %, po 1 000,50 zł przychodu, 1 gr odliczeń: dokładnie obie podstawy po 1 000 zł, w groszach 1 000 zł (12 %) i 1 001 zł (8,5 %). Różnica to 1 zł w ok. 0,1-0,2 % miesięcy z kilkoma stawkami, zawsze na korzyść podatnika względem groszy. Jeśli w groszach: jak rozdzielić grosze z reszty, skoro rozdawanie ich po groszu obniżało ryczałt przy większym przychodzie (FZ-007)? (G4)",
         "przypadki": [
-          "G4"
+          "G4",
+          "FZ-007"
         ]
       },
       "sprawdzil": {
@@ -1039,7 +1112,7 @@
       "odczyt": "2026-11-09",
       "zrodlo_planu": "§5 „Ryczałt: kilka stawek (K4)”",
       "stan": "dziala",
-      "uwagi": null
+      "uwagi": "FZ-007 (13.11.2026, nocny filtr #649): podział co do grosza z resztami po groszu przestawiał grosze między stawkami, gdy przybywało przychodu, i ryczałt spadał o 1 zł (NZ-RYCZ-02); podstawy liczy się z dokładnej części, a dawny podział (rozdzielProporcjonalnie) usunięto. Nowa reguła zmienia ryczałt w ok. 0,1-0,2 % miesięcy z kilkoma stawkami, o 1 zł w dół."
     },
     {
       "id": "RP-RYCZ-ODL-01",
@@ -2747,7 +2820,8 @@
       ],
       "testy": [
         "tests/unit/ksiegowosc-mikrorachunek.test.ts > wektor z oficjalnego generatora MF",
-        "tests/unit/ksiegowosc-mikrorachunek.test.ts > niepoprawny NIP nie daje numeru"
+        "tests/unit/ksiegowosc-mikrorachunek.test.ts > niepoprawny NIP nie daje numeru",
+        "tests/filtr/roznicowe/mikrorachunek.test.ts > mikrorachunek z NIP kontra wyrocznia"
       ],
       "parametry": [],
       "niezmienniki": [

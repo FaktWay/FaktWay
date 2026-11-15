@@ -30,8 +30,9 @@ uruchamiasz po kolei, nigdy razem.
 | `src/wyglad/` | paleta (`paleta.ts`, bez React Native, kontrast sprawdza `tests/unit/mobile-kontrast.test.ts`; `kolory.ts` wybiera jasną albo ciemną), czcionki i skala tekstu, odstępy i kształty, opcje pasków (`naglowki.ts`), ikony paska (`ikony-paska.ts`); jedyne miejsce na wartości wyglądu |
 | `assets/fonts/`, `assets/zakladki/`, `assets/pasek/` | Outfit (OFL, `LICENCJE.txt`; IBM Plex Mono usunięty w M4c, D15); ikony Remix zakładek i paska jako obrazy szablonowe |
 | `scripts/ikony-remix.cjs` | generuje `src/komponenty/ikony-remix.ts` z pakietu `@remixicon/react` strony; nową ikonę dopisz tam |
-| `src/lib/` | formatowanie i logika bez interfejsu; `api/` (od M7): kontrakt API strony (reeksport, `metro.config.js`), klient z ponowieniem po 401 (`rdzen.ts`, bez React Native), podpięcie pod sesję (`polaczenie.ts`); `dane/`: mapowanie wierszy bazy na model ekranów, zapytania do bazy, dane z poprzedniego otwarcia w plikach. Pliki bez React Native (`api/rdzen.ts`, `api/bledy.ts`, `dane/mapowanie.ts`, `dane/pamiec.ts`, `logowanie/token.ts`, `status-faktury.ts`) importują względnie, bo czytają je testy strony (`tests/unit/mobile-*.test.ts`) |
+| `src/lib/` | formatowanie i logika bez interfejsu; `api/` (od M7): kontrakt API strony (reeksport, `metro.config.js`), klient z ponowieniem po 401 (`rdzen.ts`, bez React Native), podpięcie pod sesję (`polaczenie.ts`); `dane/`: mapowanie wierszy bazy na model ekranów, zapytania do bazy, dane z poprzedniego otwarcia w plikach; `faktura/` (od M8): formularz faktury na treść `POST /faktury`, pole błędu serwera, nabywcy z ostatnich faktur, klucz zapisu; `wydatek/` (od M9): formularz sprawdzenia odczytu na treść `POST /wydatki/{id}/zatwierdzenie`, czekanie na odczyt; `skaner.ts` (od M9): skaner dokumentów. Pliki bez React Native (`api/rdzen.ts`, `api/bledy.ts`, `dane/mapowanie.ts`, `dane/pamiec.ts`, `faktura/wystawienie.ts`, `wydatek/zatwierdzenie.ts`, `logowanie/token.ts`, `status-faktury.ts`) importują względnie, bo czytają je testy strony (`tests/unit/mobile-*.test.ts`) |
 | `src/dane-przykladowe/` | dane do etapów M2 do M4 (zmyślone firmy, NIP testowy) |
+| `modules/` | lokalne moduły natywne Expo (autolinking z `./modules`, bez paczki z npm): od M9 `skaner-dokumentow` (VisionKit `VNDocumentCameraViewController`, tylko iOS; nakładka JS w `src/lib/skaner.ts`). Zmiana w Swift wymaga nowego buildu |
 
 ## Expo zmienia się z każdym SDK: nie ufaj pamięci
 
@@ -48,6 +49,12 @@ uruchamiasz po kolei, nigdy razem.
 - Po dodaniu biblioteki z kodem natywnym potrzebny jest nowy build (`pnpm run ios`);
   Expo Go nie pokazuje natywnych zakładek ani efektu szkła, więc go nie używamy.
 - Teksty po polsku, nazwa produktu tylko „FaktWay” (pilnuje `tests/unit/nazwa-produktu.test.ts`).
+- `src/` jest na mapie żelaznego filtra (`filtr/mapa-ryzyka.json`, obszary `mobile.*`).
+  - **R1:** formularz faktury, `lib/faktura/`, `lib/dane/mapowanie.ts`, `stan/dane.tsx` i Koszty.
+  - **R2:** Pulpit, Księgowość i dane przykładowe.
+  - **R3:** reszta.
+
+  Zmiana w R1 albo R2 to karta w opisie PR i drugi czytelnik (`AGENTS.md` w katalogu głównym, „Żelazny filtr”). Kwoty i dni liczy serwer. `Math.round` na kwocie albo dzień z lokalnego `getDate` w R1 to nowe naruszenie (`node scripts/filtr/reguly.mjs --sprawdz`). Gdy telefon musi coś odtworzyć do podglądu, piszesz wyjątek `// filtr-wyjatek: <reguła> <powód>`, a etykietę `zgoda:wyjatek-filtra` nadajesz po drugim czytelniku (`AGENTS.md`, „Żelazny filtr”).
 
 ## Pułapki (sprawdzone w symulatorze)
 
@@ -119,6 +126,13 @@ uruchamiasz po kolei, nigdy razem.
   z narzędzia symulatora: przeciągnij go (`swipe` o 35 pt w bok).
 - `pod install` (też w `expo prebuild`) pada na kodowaniu bez UTF-8 w
   powłoce: najpierw `export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8`.
+- PDF przez `Share.share({ url })` z pliku w `Paths.cache`: arkusz iOS pokazuje
+  miniaturę, „Podgląd”, „Drukuj” i „Zachowaj w Plikach” bez nowej paczki
+  natywnej. Arkusz zamyka przeciągnięcie w dół od jego górnej krawędzi, nie
+  dotknięcie obok.
+- Stan wspólny dla kilku ekranów (lista i arkusz nad nią) trzymaj w jednym
+  magazynie (`useSyncExternalStore`, wzór `stan/naleznosci.tsx`): osobny
+  `useState` w każdym ekranie zostawia pod arkuszem stary stan.
 
 ## Dane z bazy i API (od M7)
 
@@ -138,11 +152,58 @@ uruchamiasz po kolei, nigdy razem.
   `Paths.cache/faktway-dane/`, z kontem i firmą w każdym zapisie. Wylogowanie,
   „Zaloguj się na inne konto” i koniec sesji z serwera czyszczą je razem ze
   stanem w pamięci (`sesja.tsx`, `wyczyscDane`).
-- Zapisy na prawdziwych fakturach (zapłata, wystawienie, e-mail, PDF) jeszcze
-  nie mają API: na prawdziwym koncie telefon mówi, gdzie to zrobić, i otwiera
-  stronę (`komponenty/na-stronie.tsx`). Nie udawaj zapisu w pamięci.
-- Ekrany poza Fakturami i skrzynką KSeF (Pulpit, Wydatki, Księgowość, Więcej)
-  zostają na danych przykładowych do M8 i M10; stopka w Więcej mówi o tym klientowi.
+- Od M8 wystawienie zwykłej faktury VAT (szkic albo „Wyślij do KSeF”) i
+  wysyłka szkicu idą przez API (`stan/dane.tsx`: `dodajFakture`, `wyslijDoKsef`;
+  treść żądania z formularza w `lib/faktura/wystawienie.ts`, bez React
+  Native, testy `tests/unit/mobile-faktura-wystawienie.test.ts`). Każdy zapis
+  niesie `klucz` (UUID jednego wypełnienia formularza, nagłówek
+  `Idempotency-Key`): ponowienie po zerwanym połączeniu oddaje tę samą
+  fakturę. Zasady faktury sprawdza serwer schematem strony; odmowa
+  `invoice_invalid` ma `field`, a `poleFormularza` kładzie zdanie pod polem.
+  Zdania serwera idą przez `bezDlugichMyslnikow` (strona je ma, aplikacja nie).
+- Od M10a zapłata i cofnięcie (`stan/dane.tsx`, `przelaczZaplate`), należności
+  „Po terminie” (`stan/naleznosci.tsx`, jeden magazyn dla listy i ekranu
+  przypomnienia), przypomnienie (podgląd, zgoda, wstrzymanie), PDF
+  (`stan/pdf.ts`, `lib/pdf-faktury.ts`) i „Sprawdź teraz”
+  (`komponenty/sprawdz-ksef.tsx`) idą przez API. Nowe ekrany wołają API przez
+  `useKontoFirmy().zapytaj` (firma z wyboru, reakcje na koniec sesji, kod 2FA
+  i utratę firmy jak przy zapisach M8). Kwoty z API są w złotych: na ekranie
+  `kwota(grosze(x))`, bo model telefonu trzyma grosze.
+- Pozostałe zapisy na prawdziwych fakturach (zmiana szkicu, korekta, zaliczka,
+  rozliczenie, ponowna wysyłka odrzuconej, e-mail, XML, cykliczne) nie mają
+  jeszcze API: telefon mówi, gdzie to zrobić, i otwiera stronę
+  (`komponenty/na-stronie.tsx`). Nie udawaj zapisu w pamięci.
+- Od M9 wydatki: lista z bazy (`pobierzWydatki`, 200 najnowszych według daty
+  dokumentu, ze śladu odczytu tylko klucze waluty), wydatek ze zdjęcia
+  (`wgrajDokument` z kluczem na zdjęcie, `stanOdczytu`, `zatwierdzKoszt` w
+  `stan/dane.tsx`). Waluta kwot to kopia reguły strony (`walutaKwotWydatku`,
+  zgodność sprawdza `tests/unit/mobile-wydatki.test.ts`). Wpis ręczny,
+  usunięcie i opis kosztu z KSeF odsyłają na stronę (`wydatekNaStronie`).
+- Treść wiadomości z serwera (np. przypomnienie o zapłacie) pokazujemy bez
+  zmian, także z długimi myślnikami: serwer sprawdza przy zgodzie, czy zdanie o
+  płatności, która mogła już wyjść, zostało w treści. `bezDlugichMyslnikow` tylko
+  dla komunikatów błędów.
+- Od M10b księgowość „Ten miesiąc” (`stan/ksiegowosc.tsx`: zatwierdzenie,
+  zapłata; kwoty z API w groszach), ustawienia Firma, KSeF, Przypomnienia
+  (`stan/ustawienia.tsx`, `GET /ustawienia`, do odczytu) i Bezpieczeństwo
+  (2FA z `GET /konto`), wybór firmy (`POST /firma`) i usunięcie konta
+  (`konto/usuniecie`) idą przez API. Zmiana ustawień otwiera stronę
+  (`otworzStrone(sciezka, poPowrocie)`: po zamknięciu przeglądarki ekran
+  wczytuje dane od nowa). Na prawdziwym koncie wiersze Więcej według roli jak
+  zakładki strony; karty bez API (`strona` w pozycji) otwierają faktway.pl.
+- Zapis z ekranu niesie `firmaEkranu`. Ekran otwierany na wierzchu (arkusz,
+  przelew) trzyma firmę z otwarcia (`useState`), korzeń zakładki bierze firmę
+  bieżących danych, bo zostaje otwarty po zmianie firmy i nie da się go
+  zamknąć.
+- Magazyn na poziomie modułu (`useSyncExternalStore`) rejestruje czyszczenie w
+  `stan/czyszczenie.ts` (`czyscPrzyKoncuSesji`); `sesja.tsx` czyści je razem z
+  resztą danych konta.
+- Zwykłe efekty dzieci biegną przed efektami dostawcy. Ref czytany przez
+  funkcję dostawcy w efekcie ekranu (np. `firmaTeraz` w `zapytaj`) ustawiaj w
+  `useLayoutEffect`, inaczej ekran otwarty linkiem przy zimnym starcie widzi
+  jeszcze `null`. Trasy konta bez firmy (`org: 'none'`) wołaj z `bezFirmy: true`.
+- Na danych przykładowych zostają Kontrahenci, Przepływy, Analizy i Import
+  danych; stopka w Więcej mówi o tym klientowi.
 - `supabase.auth.onAuthStateChange` woła słuchacza wewnątrz blokady
   `supabase-js`: wywołanie klienta w słuchaczu czeka na samo siebie. Odłóż je
   (`setTimeout(…, 0)`), jak w `stan/dane.tsx`.
@@ -181,3 +242,46 @@ uruchamiasz po kolei, nigdy razem.
   `xcrun simctl pbcopy <udid>`.
 - Pytanie systemu o Face ID robi aplikację „nieaktywną” jak przełącznik
   aplikacji; zasłona (`Zaslona`) pomija je przez `pytanieSystemu` z sesji.
+
+## Wysyłka do KSeF TEST z symulatora (od M8)
+
+- Pełna droga potrzebuje strony (`next dev`), workera pg-boss i bazy z
+  migracjami gałęzi. Migracji z niescalonej gałęzi nie wgrywaj na wspólną bazę
+  dev: osobny stos Supabase (`--workdir`, porty 573xx, pamięć projektu
+  „rls-lokalnie-osobny-stos”).
+- Firma z fikcyjnym NIP z poprawną sumą kontrolną (`1234567890` jej nie ma, a
+  KSeF TEST sprawdza NIP) i certyfikat samopodpisany jak w
+  `scripts/test-ksef-wysylka.ts` (`makeSelfSignedCertificate`,
+  `prepareKsefCredentials`, `encryptCredentials`), plus `ksef_verified_at` i
+  `ksef_verified_environment = 'test'`.
+- `pnpm worker:dev` nie czyta `.env.local` (Next czyta): bez
+  `node --env-file=.env.local --import ./lib/jobs/server-only-hook.mjs --import tsx lib/jobs/worker.ts`
+  worker nie odszyfruje certyfikatu („KSEF_CREDENTIALS_ENCRYPTION_KEY nie jest
+  ustawione”). Zmienne powłoki mają pierwszeństwo przed plikiem.
+- Worker wgrywa XML do S3 przed wysyłką; lokalnie bez `R2_*` wystarczy
+  atrapa S3 w stylu ścieżek (`R2_ENDPOINT`, `R2_FORCE_PATH_STYLE=true`).
+- Metro uruchomione z `CI=1` nie przeładowuje zmian w kodzie: po edycji
+  uruchom je od nowa bez `CI`.
+- Narzędzie symulatora nie wpisze polskich znaków (wkleja, a symulator nie
+  przyjmuje wklejenia z Maca); w obchodzie pisz bez nich albo dotknij
+  podpowiedzi klawiatury.
+
+## Wydatek ze zdjęcia w symulatorze (od M9)
+
+- Symulator nie ma aparatu: `skanerDostepny()` daje `false`. Na prawdziwym
+  koncie „Skanuj dokument” proponuje galerię; na danych przykładowych daje
+  przykładowy paragon. Zdjęcie do galerii symulatora:
+  `xcrun simctl addmedia <udid> paragon.jpg` (dane zmyślone, nigdy prawdziwy
+  paragon firmy). Skaner sprawdza się tylko na iPhonie z aparatem.
+- Pełna droga potrzebuje strony (`next dev`), workera (odczyt OCR to zdarzenie
+  `ocr/process-photo`) i bazy z migracjami gałęzi (00202). Worker uruchamiasz
+  jak przy KSeF (wyżej), a odczyt woła model z `ANTHROPIC_API_KEY` z
+  `.env.local` strony; bez klucza zostaje `E2E_MOCK_ANTHROPIC=1` (stała
+  odpowiedź modelu, nie odczyt zdjęcia).
+- Plik zdjęcia idzie do magazynu S3 (`R2_*`): lokalnie atrapa w stylu
+  ścieżek (`R2_ENDPOINT=http://127.0.0.1:<port>`, `R2_FORCE_PATH_STYLE=true`,
+  dowolne `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
+  `R2_BUCKET_NAME`) w zmiennych powłoki strony i workera. Nie wgrywaj zdjęć
+  do magazynu z `.env.local`, póki nie wiesz, dokąd wskazuje.
+- `POST /wydatki/zdjecie` jest poza proxy (`proxy.ts`); w dzienniku `next dev`
+  nie ma więc wpisu proxy dla tego żądania, tylko trasy.

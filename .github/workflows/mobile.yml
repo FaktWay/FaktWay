@@ -1,19 +1,18 @@
 # Aplikacja mobilna FaktWay (Expo) w mobile/: typy i eslint.
-# Uruchamia się tylko, gdy PR albo push zmienia mobile/ (albo ten plik).
-# Kontrola NIEWYMAGANA w ochronie `main` (plan aplikacji mobilnej, sekcja 4.4),
-# więc 11 wymaganych kontroli strony się nie zmienia.
+# Od kolejki scalania (14.11.2026) kontrola jest wymagana w ochronie `main`,
+# więc uruchamia się przy każdym PR i grupie z kolejki: wymagana kontrola
+# z filtrem ścieżek nie zgłosiłaby się w PR bez zmian w mobile/ i blokowała
+# go bez końca (`merge_group` filtrów ścieżek nie obsługuje). Trwa ok. 30 s.
 name: Mobile
 
 on:
   pull_request:
-    paths:
-      - 'mobile/**'
-      - '.github/workflows/mobile.yml'
   push:
     branches: [main]
     paths:
       - 'mobile/**'
       - '.github/workflows/mobile.yml'
+  merge_group:
 
 permissions:
   contents: read

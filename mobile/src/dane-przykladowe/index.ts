@@ -4,6 +4,7 @@
  * `lib/dane/mapowanie.ts`). Firmy są zmyślone, NIP to testowy `1234567890`
  * (AGENTS.md, „KSeF-specific”). Kwoty w groszach.
  */
+import { cena, kwota } from '../lib/format';
 
 /** „Dziś” dla danych przykładowych, żeby terminy i zaległości się nie rozjeżdżały. */
 export const DZIS = '2026-11-09';
@@ -23,6 +24,8 @@ export type Pozycja = {
   stawkaVat: number;
   /** Stawka do pokazania, gdy nie jest liczbą procent („zw”, „np”, „oo”). */
   stawkaOpis?: string;
+  /** Cena netto dokładnie jak na fakturze (do 4 miejsc, „33,3333”), gdy grosze w `cenaNetto` ją zaokrąglają (dane z bazy, M8). */
+  cenaTekst?: string;
   /** Kwoty pozycji zapisane na fakturze (dane z bazy); bez nich liczymy z ilości i ceny. */
   netto?: number;
   vat?: number;
@@ -59,6 +62,14 @@ export type Faktura = {
   waluta?: string;
   sprzedawca?: Strona;
   adresKontrahenta?: string;
+  /**
+   * Rodzaj nabywcy z bazy (M8): firma z polskim NIP, osoba prywatna bez numeru
+   * identyfikacyjnego albo `inny` (firma z UE, osoba z PESEL lub dokumentem),
+   * którego telefon nie wystawia i nie kopiuje (strona tak).
+   */
+  nabywcaTyp?: 'firma' | 'osoba' | 'inny';
+  /** Adres nabywcy w dwóch wierszach jak na fakturze (dane z bazy): do nowej faktury dla tego kontrahenta (M8). */
+  adresKontrahentaLinie?: { linia1: string; linia2: string };
   emailKontrahenta?: string;
   dataSprzedazy?: string;
   bank?: string;
@@ -103,6 +114,15 @@ export function vatPozycji(p: Pozycja): number {
 
 export function bruttoPozycji(p: Pozycja): number {
   return p.brutto ?? nettoPozycji(p) + vatPozycji(p);
+}
+
+/**
+ * Cena jednostkowa do pokazania: dokładna z faktury („33,3333 zł”), gdy ją
+ * mamy (`cenaTekst`), inaczej z groszy.
+ */
+export function cenaPozycji(p: Pozycja, waluta = 'PLN'): string {
+  const z = p.cenaTekst ? Number(p.cenaTekst.replace(/\s/g, '').replace(',', '.')) : NaN;
+  return Number.isFinite(z) ? cena(z, waluta) : kwota(p.cenaNetto, waluta);
 }
 
 /** „23%” albo „zw”, „np”, „oo”. */
@@ -234,15 +254,22 @@ export type FakturaKosztowa = {
 };
 
 export type ZrodloKosztu = 'ksef' | 'zdjecie' | 'reczny' | 'import';
-export type KolumnaKpir = '10' | '11' | '12' | '13' | '15';
+/** Kolumny KPiR jak w formularzu kosztu strony (`KPIR_OPTIONS`); 7, 8 i 16 tylko gdy już są przy koszcie z bazy. */
+export type KolumnaKpir = '7' | '8' | '10' | '11' | '12' | '13' | '15' | '16';
 
 export const NAZWA_KOLUMNY: Record<KolumnaKpir, string> = {
+  '7': 'Kol. 7',
+  '8': 'Kol. 8',
   '10': 'Kol. 10: Towary handlowe i materiały',
   '11': 'Kol. 11: Koszty uboczne zakupu',
   '12': 'Kol. 12: Wynagrodzenia',
   '13': 'Kol. 13: Pozostałe wydatki',
   '15': 'Kol. 15: Koszty B+R',
+  '16': 'Kol. 16',
 };
+
+/** Kolumny do wyboru przy koszcie: bez 7 i 8 (przychód) i 16, chyba że koszt już ją ma. */
+export const KOLUMNY_KOSZTU: KolumnaKpir[] = ['10', '11', '12', '13', '15'];
 
 export const NAZWA_ZRODLA: Record<ZrodloKosztu, string> = { ksef: 'KSeF', zdjecie: 'Zdjęcie', reczny: 'Ręcznie', import: 'Import' };
 
@@ -269,6 +296,16 @@ export type Koszt = {
   /** Data przyjęcia w KSeF (skrzynka). */
   otrzymano?: string;
   wKpir: boolean;
+  /**
+   * VAT w groszach, gdy jest zapisany osobno (koszt z bazy, M9). Bez niego VAT
+   * to brutto minus netto (dane przykładowe).
+   */
+  vat?: number;
+  /**
+   * Waluta kwot (koszt z bazy, M9): `PLN` albo kod waluty, gdy kwoty nie są
+   * jeszcze w złotych (dokument w walucie bez kursu NBP), jak lista strony.
+   */
+  walutaKwot?: string;
 };
 
 /** Id trasy `/koszty/[id]` dla wydatku wpisywanego ręcznie, jeszcze niezapisanego. */

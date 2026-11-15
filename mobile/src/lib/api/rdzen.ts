@@ -10,7 +10,7 @@
  * nie przejdzie. Brak internetu nigdy nie kończy sesji.
  */
 import { bladApi, bladTelefonu, type BladApi } from './bledy';
-import { MOBILE_ACTIVE_ORG_HEADER } from './kontrakt';
+import { MOBILE_ACTIVE_ORG_HEADER, MOBILE_IDEMPOTENCY_HEADER } from './kontrakt';
 
 /** Token dostępu z sesji telefonu albo powód, dla którego go nie ma. */
 export type Token = { token: string } | { brak: 'sesja' | 'polaczenie' };
@@ -18,12 +18,16 @@ export type Token = { token: string } | { brak: 'sesja' | 'polaczenie' };
 /** Wynik odświeżenia sesji: nowy token, brak sieci albo sesja nie do uratowania. */
 export type Odswiezenie = 'ok' | 'polaczenie' | 'koniec';
 
+/** `body`: JSON albo formularz z plikiem (M9); `limitMs`: dłuższy limit czasu dla wgrania pliku. */
+export type OpcjePobrania = { method: string; headers: Record<string, string>; body?: string | FormData; limitMs?: number };
+
 export type Zaleznosci = {
   /** `EXPO_PUBLIC_API_URL`, np. `http://localhost:3000`; bez niego API jest niedostępne. */
   adres: string | undefined;
   token: () => Promise<Token>;
   odswiez: () => Promise<Odswiezenie>;
-  pobierz: (adres: string, opcje: { method: string; headers: Record<string, string>; body?: string }) => Promise<{
+  /** Metoda, nie pole z funkcją: atrapy w testach mogą przyjmować węższe `body` (sam JSON). */
+  pobierz(adres: string, opcje: OpcjePobrania): Promise<{
     ok: boolean;
     status: number;
     headers: { get: (nazwa: string) => string | null };
@@ -33,7 +37,20 @@ export type Zaleznosci = {
 
 export type Wynik<T> = { ok: true; dane: T; status: number } | { ok: false; blad: BladApi };
 
-export type OpcjeZapytania = { metoda?: 'GET' | 'POST'; firma?: string | null; cialo?: unknown };
+export type OpcjeZapytania = {
+  metoda?: 'GET' | 'POST';
+  firma?: string | null;
+  cialo?: unknown;
+  /** Zapis (M8): `Idempotency-Key`, ten sam w każdym ponowieniu tego zapisu. */
+  klucz?: string;
+  /**
+   * Plik (M9, `POST /wydatki/zdjecie`): `multipart/form-data` zamiast JSON. Nagłówek
+   * `Content-Type` z granicą części ustawia sam `fetch`, więc klient go nie podaje.
+   */
+  formularz?: FormData;
+  /** Limit czasu tego żądania (wgranie pliku trwa dłużej niż zwykłe 15 s). */
+  limitMs?: number;
+};
 
 export const BRAK_ADRESU_API = 'Aplikacja nie ma adresu serwera FaktWay (EXPO_PUBLIC_API_URL).';
 
@@ -57,12 +74,13 @@ export function adresTrasy(adres: string, sciezka: string): string {
 }
 
 /** Nagłówki żądania do API: token zawsze, firma przy trasach z danymi firmy. */
-export function naglowki(token: string, firma?: string | null, zCialem = false): Record<string, string> {
+export function naglowki(token: string, firma?: string | null, zCialem = false, klucz?: string): Record<string, string> {
   return {
     Authorization: `Bearer ${token}`,
     Accept: 'application/json',
     ...(zCialem ? { 'Content-Type': 'application/json' } : {}),
     ...(firma ? { [MOBILE_ACTIVE_ORG_HEADER]: firma } : {}),
+    ...(klucz ? { [MOBILE_IDEMPOTENCY_HEADER]: klucz } : {}),
   };
 }
 
@@ -89,14 +107,15 @@ export function utworzKlienta(z: Zaleznosci) {
   return function zapytaj<T>(sciezka: string, opcje: OpcjeZapytania = {}): Promise<Wynik<T>> {
     const adres = z.adres;
     if (!adres) return Promise.resolve({ ok: false, blad: bladTelefonu('serwer', BRAK_ADRESU_API) });
-    const zCialem = opcje.cialo !== undefined;
+    const zCialem = opcje.cialo !== undefined && opcje.formularz === undefined;
     return zPonowieniem<T>(z, async (token) => {
       let odp: Awaited<ReturnType<Zaleznosci['pobierz']>>;
       try {
         odp = await z.pobierz(adresTrasy(adres, sciezka), {
           method: opcje.metoda ?? 'GET',
-          headers: naglowki(token, opcje.firma, zCialem),
-          ...(zCialem ? { body: JSON.stringify(opcje.cialo) } : {}),
+          headers: naglowki(token, opcje.firma, zCialem, opcje.klucz),
+          ...(opcje.formularz !== undefined ? { body: opcje.formularz } : zCialem ? { body: JSON.stringify(opcje.cialo) } : {}),
+          ...(opcje.limitMs !== undefined ? { limitMs: opcje.limitMs } : {}),
         });
       } catch {
         return { ok: false, blad: bladTelefonu('polaczenie') };
