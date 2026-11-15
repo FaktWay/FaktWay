@@ -129,6 +129,8 @@ export interface SekcjaHistoriiKsef {
   tempo: string[];
   /** „Pobieranie historii stoi…”: alarm u nas, klient nic nie robi. */
   stoi: string | null;
+  /** Sprzedaż z KSeF spoza FaktWay nie trafia do należności ani przypomnień (zdanie strony). */
+  nota: string | null;
 }
 
 export interface HistoriaKsefTelefonu {
@@ -137,8 +139,11 @@ export interface HistoriaKsefTelefonu {
   podtytul: string;
   /** Bez certyfikatu albo bez potwierdzenia: zdanie strony; pobieranie i tak nie ruszy. */
   certyfikat: 'brak' | 'niepotwierdzony' | 'gotowy';
-  /** Komunikaty nad sekcjami (wstrzymanie, błąd certyfikatu, limit KSeF, zmiany po eksporcie). */
-  komunikaty: Array<{ tekst: string; odcien: OdcienTelefonu }>;
+  /**
+   * Komunikaty nad sekcjami (wstrzymanie, błąd certyfikatu, limit KSeF, zmiany po eksporcie).
+   * `doUstawienKsef`: klient naprawi to sam w ustawieniach KSeF (link strony „Przejdź do ustawień KSeF”).
+   */
+  komunikaty: Array<{ tekst: string; odcien: OdcienTelefonu; doUstawienKsef?: boolean }>;
   sekcje: SekcjaHistoriiKsef[];
   /** Stanu nie dało się wczytać (zdanie strony). */
   blad: string | null;
@@ -202,6 +207,7 @@ export interface KsiegowaOdpowiedz {
     biuro: string | null;
     email: string | null;
     dw: string[];
+    /** Formaty paczki, które naprawdę wyjdą (jak wysyłka Co-Pilota: wstrzymane zamienione, JPK_FA bez urzędu jako CSV). */
     formaty: string[];
     dzienWysylki: number | null;
     zakres: { wystawione: boolean; otrzymane: boolean; korekty: boolean };

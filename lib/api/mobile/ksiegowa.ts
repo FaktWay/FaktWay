@@ -5,6 +5,7 @@ import type { NextResponse } from 'next/server';
 import type { MobileCaller } from '@/lib/api/mobile/auth';
 import type { DostepKsiegowej, KsiegowaOdpowiedz, PaczkaKsiegowej } from '@/lib/api/mobile/kontrakt-wiecej';
 import { MobileUpstreamError, mobileError, mobileJson } from '@/lib/api/mobile/responses';
+import { formatsWithoutUnaddressedJpkFa, parseFormats } from '@/lib/exports/co-pilot-formats';
 import { readTenantTaxOffice } from '@/lib/exports/tax-office';
 import { taxOfficeName } from '@/lib/exports/tax-offices';
 
@@ -107,7 +108,9 @@ export async function accountantForMobile(caller: MobileCaller, now: Date = new 
           biuro: tekst(u.accountant_company),
           email: tekst(u.accountant_email),
           dw: lista(u.cc_emails),
-          formaty: lista(u.preferred_formats).map((f) => FORMATY[f] ?? f),
+          // Co naprawdę wyjdzie, jak w wysyłce: wstrzymany format zastępuje to, co program księgowej
+          // importuje, a bez urzędu skarbowego JPK_FA staje się uniwersalnym CSV.
+          formaty: formatsWithoutUnaddressedJpkFa(parseFormats(lista(u.preferred_formats)), urzad).map((f) => FORMATY[f] ?? f),
           dzienWysylki: typeof u.send_day_of_month === 'number' ? u.send_day_of_month : null,
           zakres: {
             wystawione: Boolean(u.include_issued_invoices),

@@ -55,6 +55,11 @@ function SekcjaHistorii({ s }: { s: SekcjaHistoriiKsef }) {
           {t(l)}
         </Tekst>
       ))}
+      {s.nota ? (
+        <Tekst styl="caption1" kolor="etykietaDrugorzedna">
+          {t(s.nota)}
+        </Tekst>
+      ) : null}
     </View>
   );
 }
@@ -97,6 +102,8 @@ function EkranImportuZBazy({ odczyt }: { odczyt: StanOdczytu<ImportOdpowiedz> })
         ))}
         {h.certyfikat !== 'gotowy' ? (
           <Wiersz tytul={h.certyfikat === 'brak' ? 'Wgraj certyfikat KSeF' : 'Wgraj certyfikat ponownie'} akcja onPress={() => router.push('/wiecej/ustawienia/ksef')} />
+        ) : h.komunikaty.some((k) => k.doUstawienKsef) ? (
+          <Wiersz tytul="Przejdź do ustawień KSeF" akcja onPress={() => router.push('/wiecej/ustawienia/ksef')} />
         ) : null}
       </Sekcja>
 

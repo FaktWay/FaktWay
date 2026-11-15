@@ -9,14 +9,15 @@ import {
   formatWarsawDay,
   IMPORT_HISTORY_COLUMNS,
   IMPORT_HISTORY_LIMIT,
+  importStatValues,
   INTERRUPTED_LEGACY_NOTE,
   isInterruptedLegacyImport,
   jobStatusGroup,
   progressPercent,
   runningStep,
+  showsImportStats,
   sourceDetail,
   sourceLabel,
-  summarizeImports,
   type ImportHistoryJob,
   type ImportStatusGroup,
 } from '@/components/import-danych/import-model';
@@ -35,17 +36,18 @@ import {
   rateLimitText,
   rateLines,
   READ_FAILURE_TEXT,
+  RECEIVABLES_NOTE,
   retiredDraftLine,
   SECTION_TITLES,
+  showsReceivablesNote,
   STUCK_TEXT,
   UNCONFIRMED_CERTIFICATE_TEXT,
   type HistoryBadge,
 } from '@/components/import-danych/ksef-history-model';
 import type { MobileCaller } from '@/lib/api/mobile/auth';
-import type { HistoriaKsefTelefonu, ImportOdpowiedz, ImportTelefonu, KafelImportu, OdcienTelefonu, SekcjaHistoriiKsef } from '@/lib/api/mobile/kontrakt-wiecej';
+import type { HistoriaKsefTelefonu, ImportOdpowiedz, ImportTelefonu, OdcienTelefonu, SekcjaHistoriiKsef } from '@/lib/api/mobile/kontrakt-wiecej';
 import { MobileUpstreamError, mobileJson } from '@/lib/api/mobile/responses';
 import { formatPlInt } from '@/lib/format/pl';
-import { formatWarsawDateTime } from '@/lib/format/warsaw-date';
 import { countLabel } from '@/lib/i18n/plural';
 import { hasConfiguredKsefProof } from '@/lib/ksef/claim-environment';
 import { readKsefHistorySyncStatus, type KsefHistoryStreamStatus, type KsefHistorySyncStatus } from '@/lib/ksef/history-sync/status';
@@ -66,34 +68,6 @@ import { readKsefHistorySyncStatus, type KsefHistoryStreamStatus, type KsefHisto
 const BADGE_TONE: Record<HistoryBadge['tone'], OdcienTelefonu> = { ok: 'ok', wait: 'ostrzezenie', muted: 'neutralny' };
 const STATUS_IMPORTU: Record<ImportStatusGroup, string> = { completed: 'Gotowe', running: 'W toku', failed: 'Błąd', cancelled: 'Anulowano' };
 
-/** Kafle jak `importStats` strony (`import-center.tsx`), z tych samych sum `summarizeImports`. */
-function kafle(jobs: readonly ImportHistoryJob[], ksef: KsefHistorySyncStatus | null): KafelImportu[] {
-  const summary = summarizeImports(jobs);
-  const partialNote = summary.partial ? `z ostatnich ${IMPORT_HISTORY_LIMIT} importów` : null;
-  let historia: KafelImportu;
-  if (ksef) {
-    const sales = ksef.outgoing.counts.imported + summary.legacyKsefIssued;
-    const purchases = ksef.incoming.counts.imported + summary.legacyKsefReceived;
-    historia = { podpis: 'Historia z KSeF', wartosc: formatPlInt(sales + purchases), nota: `sprzedaż ${formatPlInt(sales)} · zakupy ${formatPlInt(purchases)}` };
-  } else {
-    // Stanu nie znamy: nie pokazujemy liczby mniejszej niż prawdziwa.
-    historia = { podpis: 'Historia z KSeF', wartosc: null, nota: 'nie udało się wczytać' };
-  }
-  const lastFetch = ksef?.outgoing.lastSuccessAt ?? ksef?.incoming.lastSuccessAt ?? null;
-  return [
-    historia,
-    { podpis: 'Zaimportowane z plików', wartosc: formatPlInt(summary.fileInvoices), nota: partialNote },
-    { podpis: 'Nowi kontrahenci', wartosc: formatPlInt(summary.fileContractors), nota: partialNote ? `z importów plików, ${partialNote}` : 'z importów plików' },
-    { podpis: 'Ostatnie pobranie z KSeF', wartosc: lastFetch ? formatWarsawDateTime(lastFetch) : null, nota: null },
-  ];
-}
-
-/** Kafle tylko, gdy jest jakikolwiek import albo synchronizacja (`showsImportStats` i `hasKsefHistory` strony). */
-function maHistorie(ksef: KsefHistorySyncStatus | null): boolean {
-  if (!ksef) return false;
-  return ksef.outgoing.phase !== 'waiting' || ksef.incoming.phase !== 'waiting' || ksef.outgoing.counts.imported + ksef.incoming.counts.imported > 0;
-}
-
 /** Sekcja „Sprzedaż” albo „Zakupy”, jak `StreamSection` strony. */
 function sekcja(stream: KsefHistoryStreamStatus, status: KsefHistorySyncStatus, paused: boolean, blocked: boolean, now: Date): SekcjaHistoriiKsef {
   const progress = progressInfo(stream);
@@ -105,6 +79,7 @@ function sekcja(stream: KsefHistoryStreamStatus, status: KsefHistorySyncStatus, 
     postep: progress ? { podpis: progress.label, procent: progress.percent } : null,
     tempo: rateLines(stream, paused || blocked),
     stoi: stuck ? STUCK_TEXT : null,
+    nota: showsReceivablesNote(stream) ? RECEIVABLES_NOTE : null,
   };
 }
 
@@ -131,7 +106,7 @@ function historiaKsef(hasCertificate: boolean, certificateConfirmed: boolean, st
   const komunikaty: HistoriaKsefTelefonu['komunikaty'] = [];
   if (status.clientPausedAt) komunikaty.push({ tekst: pausedText(status.clientPausedAt, blocked), odcien: 'neutralny' });
   const error = errorMessage(status.error);
-  if (error) komunikaty.push({ tekst: error.text, odcien: error.tone === 'destructive' ? 'blad' : 'ostrzezenie' });
+  if (error) komunikaty.push({ tekst: error.text, odcien: error.tone === 'destructive' ? 'blad' : 'ostrzezenie', ...(error.settingsLink ? { doUstawienKsef: true } : {}) });
   const rateLimit = paused || blocked ? null : rateLimitText(status.rateLimitedUntil, now);
   if (rateLimit) komunikaty.push({ tekst: rateLimit, odcien: 'ostrzezenie' });
   const notice = exportNotice(status.periodsChangedAfterExport);
@@ -197,7 +172,7 @@ export async function importForMobile(caller: MobileCaller, now: Date = new Date
   const jobs = history.error ? null : ((history.data ?? []) as unknown as ImportHistoryJob[]);
 
   const odpowiedz: ImportOdpowiedz = {
-    kafle: jobs && (jobs.length > 0 || maHistorie(status)) ? kafle(jobs, status) : null,
+    kafle: jobs && showsImportStats(jobs, status) ? importStatValues(jobs, status).map((k) => ({ podpis: k.label, wartosc: k.value, nota: k.note })) : null,
     historiaKsef: historiaKsef(Boolean(t.has_ksef_credentials), hasConfiguredKsefProof(t.ksef_verified_at, t.ksef_verified_environment), status, now),
     importy: jobs ? jobs.map(importTelefonu) : null,
     programy: FILE_SOURCES.map((s) => s.label),

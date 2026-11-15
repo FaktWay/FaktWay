@@ -3,7 +3,6 @@ import 'server-only';
 import type { NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { customerErrorDetail } from '@/components/dashboard/pulpit/pulpit-grid';
 import type { MobileCaller } from '@/lib/api/mobile/auth';
 import type {
   KafleKontrahentow,
@@ -36,6 +35,7 @@ import {
   receivablesByNip,
   type ContractorReceivables,
 } from '@/lib/contractors/overview';
+import { customerErrorDetail } from '@/lib/dashboard/customer-error';
 import { getReceivables, RECEIVABLES_NOTE, type Receivables } from '@/lib/dashboard/receivables';
 import { sanitizeSearch } from '@/lib/invoices/list-query';
 import { isUuid } from '@/lib/supabase/active-org';

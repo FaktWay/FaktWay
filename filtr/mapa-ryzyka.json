@@ -515,6 +515,7 @@
       "sciezki": [
         "lib/exports/{comarch-optima-generator,csv-generators,zip-packager,form-defaults}.ts",
         "lib/jobs/runners/{exports-generate,co-pilot-monthly}.ts",
+        "lib/exports/co-pilot-formats.ts",
         "app/api/portal/exports/generate/**",
         "lib/api/v1/{invoices,expenses}.ts",
         "app/api/v1/invoices/[id]/route.ts",

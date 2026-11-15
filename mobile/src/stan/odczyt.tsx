@@ -2,9 +2,14 @@
  * Odczyty z API dla ekranów Więcej (M10e): kontrahenci, import danych i karty
  * Księgowa, Zespół, Abonament, Dziennik. Jeden magazyn na konto, firmę i
  * ścieżkę (wzór `stan/ustawienia.tsx`): lista i szczegół otwarte razem pytają
- * raz i widzą tę samą odpowiedź; po zapisie ekran oznacza odczyt jako
- * nieaktualny (`oznaczNieaktualne`) i magazyn pyta od nowa, pokazując do tego
- * czasu poprzednie dane.
+ * raz i widzą tę samą odpowiedź.
+ *
+ * Każde otwarcie ekranu pyta serwer od nowa, a do odpowiedzi pokazuje dane z
+ * poprzedniego pytania (stan importu, dziennik i zmiany ze strony nie stoją
+ * przez całą sesję). Po zapisie ekran oznacza odczyty jako nieaktualne
+ * (`oznaczNieaktualne`): magazyn pyta jeszcze raz, a odpowiedź na pytanie
+ * wysłane przed zapisem odrzuca (`wersja`), żeby nowy kontrahent nie zniknął
+ * z listy.
  *
  * Na danych przykładowych `useOdczyt` zwraca `null`: ekran pokazuje wtedy swoją
  * wersję przykładową. Czyszczenie przy końcu sesji: `stan/czyszczenie.ts`.
@@ -22,13 +27,16 @@ export type StanOdczytu<T> = {
   odswiez: () => Promise<void>;
 };
 
-type Wpis = { stan: StanOdczytu<unknown>['stan']; dane?: unknown; blad?: string; nieaktualne?: boolean };
+/** `wersja` rośnie przy każdym `oznaczNieaktualne`: odpowiedź z wcześniejszej wersji jest nieaktualna. */
+type Wpis = { stan: StanOdczytu<unknown>['stan']; dane?: unknown; blad?: string; wersja: number };
 
 const wpisy = new Map<string, Wpis>();
 const sluchacze = new Set<() => void>();
-const LADOWANIE: Wpis = { stan: 'ladowanie' };
+const LADOWANIE: Wpis = { stan: 'ladowanie', wersja: 0 };
 /** Klucze, dla których zapytanie już idzie. */
 const wToku = new Set<string>();
+/** Rośnie przy końcu sesji: odpowiedź na pytanie poprzedniego konta niczego nie zapisze. */
+let epoka = 0;
 
 function ustaw(klucz: string, wpis: Wpis): void {
   wpisy.set(klucz, wpis);
@@ -41,7 +49,9 @@ function subskrybuj(sluchacz: () => void): () => void {
 }
 
 czyscPrzyKoncuSesji(() => {
+  epoka += 1;
   wpisy.clear();
+  wToku.clear();
   for (const s of sluchacze) s();
 });
 
@@ -51,14 +61,14 @@ function kluczOdczytu(konto: string, firma: string, sciezka: string): string {
 
 /**
  * Po zapisie: odczyty tej firmy, których ścieżka spełnia `ktore` (np. lista
- * kontrahentów z wyszukiwaniami), pobiorą się od nowa przy najbliższym rysowaniu.
+ * kontrahentów z wyszukiwaniami), pobiorą się od nowa.
  */
 export function oznaczNieaktualne(konto: string, firma: string, ktore: (sciezka: string) => boolean): void {
   const poczatek = kluczOdczytu(konto, firma, '');
   let zmiana = false;
   for (const [klucz, wpis] of wpisy) {
-    if (klucz.startsWith(poczatek) && ktore(klucz.slice(poczatek.length)) && !wpis.nieaktualne) {
-      wpisy.set(klucz, { ...wpis, nieaktualne: true });
+    if (klucz.startsWith(poczatek) && ktore(klucz.slice(poczatek.length))) {
+      wpisy.set(klucz, { ...wpis, wersja: wpis.wersja + 1 });
       zmiana = true;
     }
   }
@@ -67,13 +77,14 @@ export function oznaczNieaktualne(konto: string, firma: string, ktore: (sciezka:
 
 /** Wynik zapisu od razu w odczycie (np. kontrahent po poprawce), bez czekania na drugie pytanie. */
 export function wpiszOdczyt<T>(konto: string, firma: string, sciezka: string, dane: T): void {
-  ustaw(kluczOdczytu(konto, firma, sciezka), { stan: 'gotowe', dane });
+  const klucz = kluczOdczytu(konto, firma, sciezka);
+  ustaw(klucz, { stan: 'gotowe', dane, wersja: (wpisy.get(klucz)?.wersja ?? 0) + 1 });
 }
 
 /**
  * `GET /api/mobile/v1/{sciezka}` w wybranej firmie. `sciezka: null`: jeszcze
- * nie pytamy (np. fraza wyszukiwania w trakcie pisania). Błąd przy starych
- * danych zostawia dane i dopisuje zdanie (`blad`), bez szkieletu.
+ * nie pytamy. Błąd przy starych danych zostawia dane i dopisuje zdanie
+ * (`blad`), bez szkieletu.
  */
 export function useOdczyt<T>(sciezka: string | null): StanOdczytu<T> | null {
   const k = useKontoFirmy();
@@ -81,26 +92,34 @@ export function useOdczyt<T>(sciezka: string | null): StanOdczytu<T> | null {
   const klucz = k?.konto && firma && sciezka !== null ? kluczOdczytu(k.konto.konto.id, firma, sciezka) : undefined;
   const wpis = useSyncExternalStore(subskrybuj, () => (klucz ? (wpisy.get(klucz) ?? LADOWANIE) : LADOWANIE));
 
-  const pobierz = async (kl: string, sc: string) => {
+  const pobierz = async (kl: string, sc: string): Promise<void> => {
     if (!k || wToku.has(kl)) return;
+    const start = { epoka, wersja: (wpisy.get(kl) ?? LADOWANIE).wersja };
     wToku.add(kl);
+    let jeszczeRaz = false;
     try {
       const w = await k.zapytaj<T>(sc);
-      const byl = wpisy.get(kl);
-      if (w.ok) ustaw(kl, { stan: 'gotowe', dane: w.dane });
-      else ustaw(kl, { stan: byl?.dane ? 'gotowe' : 'blad', dane: byl?.dane, blad: w.blad.komunikat });
+      if (start.epoka !== epoka) return;
+      const teraz = wpisy.get(kl) ?? LADOWANIE;
+      // Zapis w trakcie pytania: odpowiedź jest sprzed zapisu, pytamy jeszcze raz.
+      if (teraz.wersja !== start.wersja) {
+        jeszczeRaz = true;
+        return;
+      }
+      if (w.ok) ustaw(kl, { stan: 'gotowe', dane: w.dane, wersja: teraz.wersja });
+      else ustaw(kl, { stan: teraz.dane !== undefined ? 'gotowe' : 'blad', dane: teraz.dane, blad: w.blad.komunikat, wersja: teraz.wersja });
     } finally {
-      wToku.delete(kl);
+      if (start.epoka === epoka) wToku.delete(kl);
     }
+    if (jeszczeRaz) await pobierz(kl, sc);
   };
   const pobierzTeraz = useEffectEvent((kl: string, sc: string) => pobierz(kl, sc));
-  const nieaktualne = Boolean(wpis.nieaktualne);
+  const wersja = wpis.wersja;
+  // Każde otwarcie ekranu i każdy zapis (nowa wersja) pyta serwer; do odpowiedzi zostają stare dane.
   useEffect(() => {
     if (!klucz || sciezka === null) return;
-    // Pierwsze otwarcie, nieaktualne po zapisie albo powrót do odczytu z błędem.
-    if (wpisy.get(klucz)?.stan === 'gotowe' && !wpisy.get(klucz)?.nieaktualne) return;
     void pobierzTeraz(klucz, sciezka);
-  }, [klucz, sciezka, nieaktualne]);
+  }, [klucz, sciezka, wersja]);
 
   if (!k) return null;
   return {

@@ -235,7 +235,16 @@ describe('GET /api/mobile/v1/import', () => {
     expect(stoi.historiaKsef.komunikaty.map((k: { tekst: string }) => k.tekst).join(' ')).toContain('Czekają na rozstrzygnięcie: 2 faktury');
   });
 
-  it('stan historii nieczytelny: kafel „—” i zdanie strony; historia importów nieczytelna: `importy: null`', async () => {
+  it('odrzucony certyfikat: „Wymaga działania” i komunikat z wyjściem do ustawień KSeF; sprzedaż z KSeF z notką o należnościach', async () => {
+    fake.history.mockResolvedValue({ ok: true, status: historyStatus({ error: { code: 'credentials', at: '2026-11-15T08:00:00Z', certificateExpiry: null } }) });
+    const body = await (await importRoute(req('import'))).json();
+    expect(body.historiaKsef.odznaka.etykieta).toBe('Wymaga działania');
+    expect(body.historiaKsef.komunikaty).toContainEqual(expect.objectContaining({ doUstawienKsef: true }));
+    expect(body.historiaKsef.sekcje[0].nota).toContain('nie liczymy w należnościach');
+    expect(body.historiaKsef.sekcje[1].nota).toBeNull();
+  });
+
+  it('stan historii nieczytelny: kafel bez wartości i zdanie strony; historia importów nieczytelna: `importy: null`', async () => {
     fake.history.mockResolvedValue({ ok: false });
     const body = await (await importRoute(req('import'))).json();
     expect(body.historiaKsef.blad).toBe('Nie udało się wczytać stanu pobierania z KSeF.');
@@ -261,6 +270,16 @@ describe('GET /api/mobile/v1/ksiegowa', () => {
     ]);
     expect(JSON.stringify(body)).not.toContain('NIE-WOLNO');
     expect(reads.find((r) => r.path === '/rest/v1/accountant_access')?.select).not.toContain('token');
+  });
+
+  it('formaty: to, co wyjdzie w paczce (wstrzymane zamienione jak w wysyłce, bez urzędu JPK_FA jako CSV), nie surowy zapis', async () => {
+    tables.accountant_settings = [{ ...tables.accountant_settings![0], preferred_formats: ['symfonia', 'comarch_optima', 'kpir_excel'] }];
+    const zUrzedem = await (await ksiegowaRoute(req('ksiegowa'))).json();
+    expect(zUrzedem.coPilot.formaty).toEqual(['JPK_FA(4)', 'CSV uniwersalny', 'KPiR Excel']);
+    tables.tenants = [{ ...tables.tenants![0], tax_office_code: null }];
+    const bezUrzedu = await (await ksiegowaRoute(req('ksiegowa'))).json();
+    expect(bezUrzedu.urzad).toBeNull();
+    expect(bezUrzedu.coPilot.formaty).toEqual(['CSV uniwersalny', 'KPiR Excel']);
   });
 
   it('administrator i członek: 403, jak zakładka strony tylko dla właściciela, bez odczytu', async () => {

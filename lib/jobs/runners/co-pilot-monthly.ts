@@ -13,7 +13,7 @@ import {
 } from '@/lib/jobs/events';
 import { jpkFaBlocker } from '@/lib/exports/jpk-fa-readiness';
 import { readTenantTaxOffice } from '@/lib/exports/tax-office';
-import { replacementForFormat } from '@/lib/exports/suspended-formats';
+import { formatsWithCsvInsteadOfJpkFa, formatsWithoutUnaddressedJpkFa, parseFormats } from '@/lib/exports/co-pilot-formats';
 import { readAllById } from '@/lib/pagination/keyset';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { downloadFromR2, getSignedInvoiceUrl } from '@/lib/storage/r2';
@@ -21,16 +21,6 @@ import type { Database } from '@/types/database';
 
 type ExportFormat = Database['public']['Enums']['export_format_enum'];
 type AccountantSettingsRow = Database['public']['Tables']['accountant_settings']['Row'];
-
-const VALID_FORMATS: readonly ExportFormat[] = [
-  'jpk_fa',
-  'kpir_excel',
-  'comarch_optima',
-  'insert_subiekt',
-  'symfonia',
-  'wapro',
-  'csv_universal',
-] as const;
 
 const DEV_TO_OVERRIDE = process.env.RESEND_DEV_TO_OVERRIDE?.trim() || null;
 
@@ -56,44 +46,9 @@ const POLL_DELAYS_SEC: readonly number[] = [
 ] as const;
 const POLL_MAX_ATTEMPTS = 30;
 
-function isExportFormat(v: string): v is ExportFormat {
-  return (VALID_FORMATS as readonly string[]).includes(v);
-}
-
-/**
- * Formaty z ustawień paczki. Wstrzymany format (`suspended-formats.ts`)
- * zamienia się w to, co program księgowej naprawdę importuje (Symfonia,
- * Wapro → JPK_FA; reszta → uniwersalny CSV) — ustawienia zapisane przed
- * wstrzymaniem nie mogą wysłać pliku, którego program nie przyjmie. JPK_FA
- * przechodzi dalej przez bramki gotowości i w razie odmowy staje się CSV.
- */
-export function parseFormats(formats: string[] | null | undefined): ExportFormat[] {
-  return [
-    ...new Set(
-      (formats ?? [])
-        .filter(isExportFormat)
-        // Symfonia/Wapro → JPK_FA (to importują), reszta wstrzymanych → CSV.
-        .map((f) => replacementForFormat(f)),
-    ),
-  ];
-}
-
-/**
- * Bez urzędu skarbowego firmy JPK_FA odmawia (#67) — w paczce zastępuje go
- * uniwersalny CSV, zamiast wywracać całą paczkę dla księgowej.
- */
-export function formatsWithoutUnaddressedJpkFa<F extends string>(
-  formats: readonly F[],
-  taxOfficeCode: string | null,
-): F[] {
-  return taxOfficeCode ? [...formats] : formatsWithCsvInsteadOfJpkFa(formats);
-}
-
-/** JPK_FA → uniwersalny CSV (bez dubla, gdy CSV już jest w paczce). */
-export function formatsWithCsvInsteadOfJpkFa<F extends string>(formats: readonly F[]): F[] {
-  if (!formats.includes('jpk_fa' as F)) return [...formats];
-  return [...new Set(formats.map((f) => (f === 'jpk_fa' ? ('csv_universal' as F) : f)))];
-}
+// Formaty paczki (wstrzymane, JPK_FA bez urzędu): `lib/exports/co-pilot-formats.ts`,
+// wspólne z kartą „Księgowa” w aplikacji na telefon (M10e).
+export { formatsWithCsvInsteadOfJpkFa, formatsWithoutUnaddressedJpkFa, parseFormats };
 
 /** Dzień miesiąca (1–31) w kalendarzu Europe/Warsaw. */
 function dayOfMonthInWarsaw(d: Date): number {
