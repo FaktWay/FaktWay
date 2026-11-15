@@ -325,8 +325,12 @@ po scaleniu B2a z planu zero zgubionych faktur (zmienia
 `business-metrics.ts`). JOB-07 (limit czasu joba) po G1 z planu zero
 zgubionych faktur, bo oba zmieniają uruchamianie jobów. Osobne ustalenie
 z #758: pętle OFFSET w `lib/exports/jpk-fa-readiness.ts`. Próba 14 na KSeF
-TEST: środa 18.11.2026, gdy #781 i poprawka UPO będą już na produkcji;
-potrzebny certyfikat testowy (`.ksef-test-certs/`, poza gitem). Na decyzję
+TEST: środa 18.11.2026, gdy #781 i poprawka UPO będą w `main`, rano (poza
+oknem serwisowym TEST 16:00–18:00). Bez sekretów: fikcyjny NIP i certyfikat
+samopodpisany tworzy skrypt, jak w `pnpm ksef:test-wysylka`
+(`docs/runbooks/ksef-test-wysylka.md`). Logi tego nie zastąpią, bo
+`lib/ksef/session-cache.ts` nie zapisuje, czy było odświeżenie, czy pełne
+logowanie. Na decyzję
 Bartosza czekają `load-tenant-seller` i fail-open `assertSensitiveMfa`
 (#783, ustalenia 1 i 13). Dalej 24 (`Dockerfile`; #193 i #197 zostają
 szkicami), po pomiarze 15 i 16.
