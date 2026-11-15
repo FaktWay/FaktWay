@@ -1,5 +1,8 @@
 import type { FileImportSource } from '@/lib/import/file-sources';
+import { formatPlInt } from '@/lib/format/pl';
+import { formatWarsawDateTime } from '@/lib/format/warsaw-date';
 import { countLabel } from '@/lib/i18n/plural';
+import type { KsefHistorySyncStatus } from '@/lib/ksef/history-sync/status';
 import type { Database } from '@/types/database';
 
 /**
@@ -255,4 +258,59 @@ export function summarizeImports(jobs: readonly ImportHistoryJob[], limit = IMPO
     lastCompleted: jobs.find((job) => jobStatusGroup(job) === 'completed') ?? null,
     partial: jobs.length >= limit,
   };
+}
+
+/** Czy synchronizacja historii z KSeF już coś ma (strumień albo pobrane faktury). */
+export function hasKsefHistory(status: KsefHistorySyncStatus | null): boolean {
+  if (!status) return false;
+  return (
+    status.outgoing.phase !== 'waiting' ||
+    status.incoming.phase !== 'waiting' ||
+    status.outgoing.counts.imported + status.incoming.counts.imported > 0
+  );
+}
+
+/** Kafle pokazujemy, gdy jest jakikolwiek import albo synchronizacja z KSeF. */
+export function showsImportStats(jobs: readonly ImportHistoryJob[], ksefHistory: KsefHistorySyncStatus | null): boolean {
+  return jobs.length > 0 || hasKsefHistory(ksefHistory);
+}
+
+export type ImportStatKey = 'ksef' | 'files' | 'contractors' | 'lastFetch';
+
+export interface ImportStatValue {
+  key: ImportStatKey;
+  label: string;
+  /** `null`: wartości nie znamy (strona pisze kreskę). */
+  value: string | null;
+  note: string | null;
+}
+
+/**
+ * Kafle centrum importu: historia z KSeF (automatyczna + dawny ręczny import),
+ * faktury z plików, nowi kontrahenci z plików i ostatnie pobranie z KSeF.
+ * Naprawione faktury (`repaired`) nie są nowymi, kafel ich nie liczy. Strona
+ * (`importStats`) i aplikacja na telefon (`GET /api/mobile/v1/import`, M10e).
+ */
+export function importStatValues(jobs: readonly ImportHistoryJob[], ksefHistory: KsefHistorySyncStatus | null): ImportStatValue[] {
+  const summary = summarizeImports(jobs);
+  const partialNote = summary.partial ? `z ostatnich ${IMPORT_HISTORY_LIMIT} importów` : null;
+
+  let ksefTile: ImportStatValue;
+  if (ksefHistory) {
+    const sales = ksefHistory.outgoing.counts.imported + summary.legacyKsefIssued;
+    const purchases = ksefHistory.incoming.counts.imported + summary.legacyKsefReceived;
+    ksefTile = { key: 'ksef', label: 'Historia z KSeF', value: formatPlInt(sales + purchases), note: `sprzedaż ${formatPlInt(sales)} · zakupy ${formatPlInt(purchases)}` };
+  } else {
+    // Stanu nie znamy: nie pokazujemy liczby mniejszej niż prawdziwa.
+    ksefTile = { key: 'ksef', label: 'Historia z KSeF', value: null, note: 'nie udało się wczytać' };
+  }
+
+  const lastFetch = ksefHistory?.outgoing.lastSuccessAt ?? ksefHistory?.incoming.lastSuccessAt ?? null;
+
+  return [
+    ksefTile,
+    { key: 'files', label: 'Zaimportowane z plików', value: formatPlInt(summary.fileInvoices), note: partialNote },
+    { key: 'contractors', label: 'Nowi kontrahenci', value: formatPlInt(summary.fileContractors), note: partialNote ? `z importów plików, ${partialNote}` : 'z importów plików' },
+    { key: 'lastFetch', label: 'Ostatnie pobranie z KSeF', value: lastFetch ? formatWarsawDateTime(lastFetch) : null, note: null },
+  ];
 }

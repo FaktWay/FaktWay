@@ -3,12 +3,73 @@ import { useState } from 'react';
 import { ActionSheetIOS, Alert, Platform } from 'react-native';
 
 import { CZLONKOWIE, ZAPROSZENIA } from '@/dane-przykladowe/ustawienia';
+import { EkranOdczytu } from '@/komponenty/ekran-odczytu';
 import { PoleTekstowe, PoleWyboru } from '@/komponenty/formularz';
 import { EkranListy, Sekcja, Wiersz } from '@/komponenty/lista';
+import { MA_ADRES_STRONY, otworzStrone } from '@/komponenty/na-stronie';
+import type { ZespolOdpowiedz } from '@/lib/api/kontrakt-wiecej';
 import { dataPelna } from '@/lib/format';
+import { dzienZnacznika } from '@/lib/wiecej';
+import { useOdczyt, type StanOdczytu } from '@/stan/odczyt';
+
+export default function EkranZespolu() {
+  const odczyt = useOdczyt<ZespolOdpowiedz>('zespol');
+  return odczyt ? <EkranZespoluZBazy odczyt={odczyt} /> : <EkranZespoluPrzyklad />;
+}
+
+/** Role jak `ROLE_LABEL` zespołu na stronie. */
+const ROLA: Record<string, string> = { owner: 'właściciel', admin: 'admin', member: 'członek', accountant: 'księgowy' };
+
+const data = (iso: string | null) => {
+  const d = dzienZnacznika(iso);
+  return d ? dataPelna(d) : '';
+};
+
+/**
+ * Zespół na prawdziwym koncie (M10e): członkowie, zaproszenia i prośby o
+ * dostęp z `GET /zespol`, do odczytu (właściciel albo administrator, jak
+ * zakładka strony). Bez adresów e-mail członków: telefon pyta bazę tylko
+ * tokenem użytkownika. Zaproszenia i role na faktway.pl (M10c).
+ */
+function EkranZespoluZBazy({ odczyt }: { odczyt: StanOdczytu<ZespolOdpowiedz> }) {
+  return (
+    <EkranOdczytu odczyt={odczyt} tytulBledu="Nie udało się wczytać zespołu" szkielet="Wczytujemy zespół">
+      {(d) => (
+        <>
+          {d.prosby.length > 0 ? (
+            <Sekcja naglowek={`Prośby o dostęp (${d.prosby.length})`}>
+              {d.prosby.map((r) => (
+                <Wiersz key={r.id} tytul={r.imie} podtytul={[r.wiadomosc, `Wysłano ${data(r.utworzono)}`].filter(Boolean).join('\n')} />
+              ))}
+            </Sekcja>
+          ) : null}
+
+          {d.zaproszenia.length > 0 ? (
+            <Sekcja naglowek={`Zaproszenia oczekujące (${d.zaproszenia.length})`}>
+              {d.zaproszenia.map((z) => (
+                <Wiersz key={z.id} tytul={z.email} podtytul={`Rola ${ROLA[z.rola] ?? z.rola} · wygasa ${data(z.wygasa)}`} />
+              ))}
+            </Sekcja>
+          ) : null}
+
+          <Sekcja naglowek={`Członkowie (${d.czlonkowie.length})`} stopka="Adresy e-mail członków, zaproszenia i zmiany ról na faktway.pl.">
+            {d.czlonkowie.map((c) => (
+              <Wiersz
+                key={c.id}
+                tytul={c.ty ? `${c.imie} (Ty)` : c.imie}
+                podtytul={[ROLA[c.rola] ?? c.rola, c.dolaczyl ? `dołączył(a) ${data(c.dolaczyl)}` : null].filter(Boolean).join(' · ')}
+              />
+            ))}
+            {MA_ADRES_STRONY ? <Wiersz tytul="Zmień na faktway.pl" ikona="global-line" akcja onPress={() => otworzStrone('/settings/team', () => void odczyt.odswiez())} /> : null}
+          </Sekcja>
+        </>
+      )}
+    </EkranOdczytu>
+  );
+}
 
 /** Zespół: zaproszenia, prośby o dostęp, członkowie z rolami (`team-management.tsx`). */
-export default function EkranZespolu() {
+function EkranZespoluPrzyklad() {
   const [email, setEmail] = useState('');
   const [rola, setRola] = useState('członek');
   const [blad, setBlad] = useState<string>();

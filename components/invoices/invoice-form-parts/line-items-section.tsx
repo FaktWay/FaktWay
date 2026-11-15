@@ -13,13 +13,15 @@ import { calculateLineItem } from '@/lib/xml/invoice-calculator';
 
 import { FieldErrorText, fieldErrorProps } from './field-error-text';
 import { labelClass, LINE_GRID, vatSelectClass } from './constants';
+import { LineCodesFields } from './line-codes-fields';
 import { ProductNameInput } from './product-name-input';
 
 /**
  * Sekcja „Pozycje”: wiersze siatki od 1360 px albo karty
  * (`useLinesDesktopLayout`), dodawanie i usuwanie pozycji. Sumy liczy
  * formularz (`toLineItems`) i pokazuje pod sekcją. Pole nazwy podpowiada
- * produkty z katalogu (`ProductNameInput`, krok 2.6, część 2a).
+ * produkty z katalogu (`ProductNameInput`, krok 2.6, część 2a); PKWiU
+ * pozycji pod wierszem albo w karcie (`LineCodesFields`, część 2b-1).
  */
 export function LineItemsSection({
   form,
@@ -68,65 +70,68 @@ export function LineItemsSection({
                 vatRate: w?.vatRate ?? '23',
               });
               return (
-                <div key={field.id} className={cn(LINE_GRID, 'items-start')}>
-                  <ProductNameInput form={form} index={index} ariaLabel={`Nazwa pozycji ${index + 1}`} vatExempt={vatExempt} />
-                  <Input
-                    aria-label={`Jednostka pozycji ${index + 1}`}
-                    {...form.register(`lines.${index}.unit`)}
-                  />
-                  <Input
-                    type="number"
-                    step="0.0001"
-                    inputMode="decimal"
-                    aria-label={`Ilość pozycji ${index + 1}`}
-                    className="text-right tabular-nums"
-                    {...form.register(`lines.${index}.quantity`, {
-                      valueAsNumber: true,
-                    })}
-                  />
-                  <Input
-                    type="number"
-                    step="0.01"
-                    inputMode="decimal"
-                    aria-label={`Cena netto pozycji ${index + 1}`}
-                    className="text-right tabular-nums"
-                    {...form.register(`lines.${index}.unitPriceNet`, {
-                      valueAsNumber: true,
-                    })}
-                  />
-                  <select
-                    className={vatSelectClass}
-                    aria-label={`Stawka VAT pozycji ${index + 1}`}
-                    {...fieldErrorProps('lines-vat-rate', !!bladStawki(index))}
-                    title={bladStawki(index)}
-                    {...form.register(`lines.${index}.vatRate`)}
-                  >
-                    <option value="23">23%</option>
-                    <option value="8">8%</option>
-                    <option value="5">5%</option>
-                    <option value="0">0%</option>
-                    <option value="zw">zw</option>
-                    <option value="oo">oo</option>
-                    <option value="np">np</option>
-                    <option value="np_ii">np. II (usługa dla firmy z UE)</option>
-                  </select>
-                  <span className="mt-1.5 text-right text-sm tabular-nums">
-                    <span className="block font-medium">{formatPlMoney(calc.grossAmount)} zł</span>
-                    <span className="text-muted-foreground block text-xs">
-                      netto {formatPlMoney(calc.netAmount)} zł
+                <div key={field.id} className="space-y-1">
+                  <div className={cn(LINE_GRID, 'items-start')}>
+                    <ProductNameInput form={form} index={index} ariaLabel={`Nazwa pozycji ${index + 1}`} vatExempt={vatExempt} />
+                    <Input
+                      aria-label={`Jednostka pozycji ${index + 1}`}
+                      {...form.register(`lines.${index}.unit`)}
+                    />
+                    <Input
+                      type="number"
+                      step="0.0001"
+                      inputMode="decimal"
+                      aria-label={`Ilość pozycji ${index + 1}`}
+                      className="text-right tabular-nums"
+                      {...form.register(`lines.${index}.quantity`, {
+                        valueAsNumber: true,
+                      })}
+                    />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      inputMode="decimal"
+                      aria-label={`Cena netto pozycji ${index + 1}`}
+                      className="text-right tabular-nums"
+                      {...form.register(`lines.${index}.unitPriceNet`, {
+                        valueAsNumber: true,
+                      })}
+                    />
+                    <select
+                      className={vatSelectClass}
+                      aria-label={`Stawka VAT pozycji ${index + 1}`}
+                      {...fieldErrorProps('lines-vat-rate', !!bladStawki(index))}
+                      title={bladStawki(index)}
+                      {...form.register(`lines.${index}.vatRate`)}
+                    >
+                      <option value="23">23%</option>
+                      <option value="8">8%</option>
+                      <option value="5">5%</option>
+                      <option value="0">0%</option>
+                      <option value="zw">zw</option>
+                      <option value="oo">oo</option>
+                      <option value="np">np</option>
+                      <option value="np_ii">np. II (usługa dla firmy z UE)</option>
+                    </select>
+                    <span className="mt-1.5 text-right text-sm tabular-nums">
+                      <span className="block font-medium">{formatPlMoney(calc.grossAmount)} zł</span>
+                      <span className="text-muted-foreground block text-xs">
+                        netto {formatPlMoney(calc.netAmount)} zł
+                      </span>
                     </span>
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`Usuń pozycję ${index + 1}`}
-                    disabled={fields.length === 1}
-                    onClick={() => remove(index)}
-                    className="hover:text-destructive"
-                  >
-                    <RiCloseLine className="size-4" />
-                  </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Usuń pozycję ${index + 1}`}
+                      disabled={fields.length === 1}
+                      onClick={() => remove(index)}
+                      className="hover:text-destructive"
+                    >
+                      <RiCloseLine className="size-4" />
+                    </Button>
+                  </div>
+                  <LineCodesFields form={form} index={index} />
                 </div>
               );
             })}
@@ -241,6 +246,8 @@ export function LineItemsSection({
                     </FieldErrorText>
                   ) : null}
                 </div>
+
+                <LineCodesFields form={form} index={index} />
 
                 <div className="border-border flex items-center justify-between border-t pt-3">
                   <span className="text-muted-foreground text-xs">Brutto</span>

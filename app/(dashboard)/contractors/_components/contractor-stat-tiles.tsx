@@ -16,12 +16,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   countActiveContractors,
   countContractorsWithOverdue,
+  foreignCurrencyNote,
   needsVatCheck,
   readContractorKeys,
 } from '@/lib/contractors/overview';
 import { getReceivables, RECEIVABLES_NOTE } from '@/lib/dashboard/receivables';
 import { formatPlInt } from '@/lib/format/pl';
-import { plural } from '@/lib/i18n/plural';
 import type { PageContext } from '@/lib/supabase/page-context';
 
 /**
@@ -47,14 +47,8 @@ export const loadContractorKeys = cache((supabase: PageContext['supabase'], tena
 export const loadReceivables = cache((supabase: PageContext['supabase'], tenantId: string) =>
   getReceivables(supabase, tenantId));
 
-/**
- * Faktury w walucie obcej nie wchodzą do należności (§2.4 pkt 6 i 11) —
- * mówimy o tym wprost, żeby „0,00 zł” nie wyglądało na prawdziwe zero
- * (wzór: kafel „Do zapłaty” listy faktur).
- */
-export function foreignCurrencyNote(count: number): string | null {
-  return count > 0 ? `Pominięto ${formatPlInt(count)} ${plural(count, ['fakturę', 'faktury', 'faktur'])} w walucie obcej` : null;
-}
+/** Notka o fakturach w walucie obcej: `lib/contractors/overview.ts` (ta sama dla telefonu, M10e). */
+export { foreignCurrencyNote } from '@/lib/contractors/overview';
 
 /** Karta błędu jednego kafla: tekst wyjątku + wyjście do przepływów. */
 export function ContractorTileError({ label, message }: { label: string; message: string }) {
