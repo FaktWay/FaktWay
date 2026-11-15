@@ -78,7 +78,8 @@ async function main(): Promise<void> {
   // Dłuższe limity czasu Supabase niż w żądaniach (plan skalowania, sesja 5).
   enableWorkerSupabaseTimeouts();
   // Sygnał z czasu wczytywania modułów dociera tu, zanim worker połączy się z bazą.
-  // Od tego miejsca po zatrzymaniu start nie robi niczego nowego (G1-START).
+  // Dalej start sprawdza zatrzymanie przed każdym work(), schedule() i healthcheckiem;
+  // krok w toku, np. zapytanie do bazy, kończy się normalnie (G1-START).
   await receiveQueuedSignals();
   if (shutdownRequested()) return;
   const boss = await startBoss();

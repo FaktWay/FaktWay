@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer as createTcpServer, type AddressInfo, type Socket } from 'node:net';
 import { join } from 'node:path';
@@ -21,7 +21,8 @@ import { CRON_JOBS } from '@/lib/jobs/queues';
 // `sygnalDoPid1()`: bez handlera przepada, z handlerem czeka na obrót pętli
 // zdarzeń, jak w Node.
 
-type Operacja = 'work' | 'schedule';
+/** Wywołania pg-boss, które zapisuje atrapa. Joby biorą `work()` i `schedule()`. */
+type Operacja = 'work' | 'schedule' | 'createQueue' | 'updateQueue';
 
 const h = vi.hoisted(() => {
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -29,8 +30,6 @@ const h = vi.hoisted(() => {
     sleep,
     /** Kolejki zdarzeń z atrapy paczki handlerów, w kolejności rejestracji. */
     kolejki: ['fixture.pierwsza', 'fixture.druga', 'fixture.trzecia'],
-    /** Ile pierwszych cronów z `CRON_JOBS` rejestruje atrapa, żeby worker je planował. */
-    cronow: 2,
     jobMs: 60_000,
     pg: {
       instancje: 0,
@@ -40,12 +39,12 @@ const h = vi.hoisted(() => {
       startWisi: false,
       startPada: false,
       zapytanieMs: 50,
-      /** `work()` i `schedule()` po kolei, z informacją, czy sygnał już poszedł. */
-      operacje: [] as { co: 'work' | 'schedule'; kolejka: string; poSygnale: boolean }[],
+      /** Wywołania pg-boss po kolei (`Operacja`), z informacją, czy sygnał już poszedł. */
+      operacje: [] as { co: Operacja; kolejka: string; poSygnale: boolean }[],
       /** Kolejka → id joba, który worker pobiera zaraz po `work()`. */
       jobNaStarcie: new Map<string, string>(),
-      /** Po zapisaniu operacji: tu test wysyła sygnał w wybranym miejscu startu. */
-      po: null as ((co: 'work' | 'schedule', kolejka: string) => void) | null,
+      /** Po `work()` i `schedule()`: tu test wysyła sygnał w wybranym miejscu startu. */
+      po: null as ((co: Operacja, kolejka: string) => void) | null,
     },
     sygnal: { wyslany: false, przyWczytywaniu: null as (() => void) | null },
     http: { listen: vi.fn(), close: vi.fn() },
@@ -95,9 +94,11 @@ vi.mock('pg-boss', () => ({
     }
 
     async work(kolejka: string, _opcje: unknown, handler: Handler) {
+      // Zapis przed odmową: liczy się już sama próba brania jobów po sygnale.
+      // pg-boss odmawia dopiero po `manager.stop()`, a ten idzie w `stop()` po awaicie.
+      this.zapisz('work', kolejka);
       // `dist/manager.js:1160-1163`
       if (this.zatrzymany) throw new Error('Workers are disabled. pg-boss is stopped');
-      this.zapisz('work', kolejka);
       const id = h.pg.jobNaStarcie.get(kolejka);
       if (id) {
         const job: Promise<unknown> = handler([{ id, data: {} }]).finally(() => this.aktywne.delete(job));
@@ -115,11 +116,13 @@ vi.mock('pg-boss', () => ({
       await this.zapytanie();
     }
 
-    createQueue() {
+    createQueue(kolejka: string) {
+      this.zapisz('createQueue', kolejka);
       return this.zapytanie();
     }
 
-    updateQueue() {
+    updateQueue(kolejka: string) {
+      this.zapisz('updateQueue', kolejka);
       return this.zapytanie();
     }
 
@@ -193,7 +196,7 @@ function atrapyPaczekZeSkutkami() {
   vi.doMock('@/lib/jobs/handlers/package-a', async () => {
     const { registerJob } = await import('@/lib/jobs/registry');
     for (const queue of h.kolejki) registerJob({ queue, handler: () => h.sleep(h.jobMs) });
-    for (const cron of CRON_JOBS.slice(0, h.cronow)) registerJob({ queue: cron.queue, handler: async () => null });
+    for (const queue of CRONY) registerJob({ queue, handler: async () => null });
     return {};
   });
   vi.doMock('@/lib/jobs/handlers/package-c', () => {
@@ -211,7 +214,12 @@ const ZAPAS_NA_WYJSCIE_MS = 1_000;
 /** Dłużej niż start atrapy i cały czas łaski: po tym czasie wynik jest przesądzony. */
 const DO_ROZSTRZYGNIECIA_MS = 15_000;
 
-const CRONY = CRON_JOBS.slice(0, h.cronow).map((cron) => cron.queue);
+/**
+ * Crony, które rejestruje atrapa: pierwszy i ostatni z `CRON_JOBS`. Przy ostatnim
+ * pętla cronów się kończy, więc sygnał w jego trakcie łapie dopiero sprawdzenie
+ * przed healthcheckiem.
+ */
+const CRONY = [CRON_JOBS[0]!.queue, CRON_JOBS.at(-1)!.queue];
 
 type Sygnal = 'SIGTERM' | 'SIGINT';
 type Sluchacz = (signal: NodeJS.Signals) => void;
@@ -227,20 +235,27 @@ const nasze = (sygnal: Sygnal) => sluchacze(sygnal).filter((sluchacz) => !obce[s
 
 /**
  * Docker wysyła sygnał do PID 1 kontenera. Bez handlera jądro go odrzuca, więc
- * przepada. Z handlerem libuv kolejkuje go, a Node woła słuchaczy JS dopiero
- * w obrocie pętli zdarzeń (faza poll, przed `setImmediate` z tego obrotu), nigdy
- * w środku synchronicznego kodu, np. wczytywania modułów.
+ * przepada. Z handlerem libuv zapisuje go do potoku sygnałów, a Node woła
+ * słuchaczy JS w fazie poll pętli zdarzeń, nigdy w środku synchronicznego kodu,
+ * np. wczytywania modułów. Zwykle to najbliższa faza poll, przed `setImmediate`
+ * zaplanowanym w tym samym kodzie.
+ *
+ * `obrotPozniej`: kod wykonał się w fazie poll (tak bywa z wejściem, które loader
+ * wczytuje asynchronicznie). Ta faza poll ma już swoją porcję zdarzeń, więc
+ * słuchacz dostaje sygnał dopiero w fazie poll następnego obrotu, po pierwszym
+ * `setImmediate`.
  */
-function sygnalDoPid1(sygnal: Sygnal) {
+function sygnalDoPid1(sygnal: Sygnal, { obrotPozniej = false } = {}) {
   h.sygnal.wyslany = true;
   pierwszySygnalO ??= Date.now();
   if (nasze(sygnal).length === 0) {
     zgubione.push(sygnal);
     return;
   }
-  setImmediate(() => {
+  const dostarcz = () => {
     for (const sluchacz of nasze(sygnal)) sluchacz(sygnal);
-  });
+  };
+  setImmediate(obrotPozniej ? () => setImmediate(dostarcz) : dostarcz);
 }
 
 const czekaj = (ms: number) => vi.advanceTimersByTimeAsync(ms);
@@ -253,16 +268,18 @@ async function uruchomWorker() {
   await import('@/lib/jobs/worker');
 }
 
-/** Zamknięcie po sygnale: kod 0 przed czasem łaski, nic nowego po sygnale i bez fałszywej awarii startu. */
+/** Zamknięcie po sygnale: kod 0 przed czasem łaski, bez brania jobów po sygnale i bez fałszywej awarii startu. */
 async function oczekujZamknieciaWBudzecie() {
   const { WORKER_SHUTDOWN_BUDGET: budzet, getBoss } = await import('@/lib/jobs/boss');
   expect(zgubione, 'sygnał przepadł: proces nie miał jeszcze handlera').toEqual([]);
   expect(wyjscia.length, 'proces nie wyszedł sam: po czasie łaski dostałby SIGKILL').toBeGreaterThan(0);
   expect(wyjscia.map((w) => w.kod)).toEqual(wyjscia.map(() => 0));
   expect(wyjscia[0]!.o - pierwszySygnalO!).toBeLessThanOrEqual(budzet.containerGraceMs - ZAPAS_NA_WYJSCIE_MS);
+  // Krok zaczęty, zanim sygnał dotarł do procesu (np. zakładanie kolejki), może
+  // się skończyć. Nowego `work()` ani `schedule()` po sygnale już nie ma.
   expect(
-    h.pg.operacje.filter((o) => o.poSygnale),
-    'po sygnale worker zakładał kolejki albo crony: kolejka wzięłaby joby',
+    h.pg.operacje.filter((o) => (o.co === 'work' || o.co === 'schedule') && o.poSygnale),
+    'po sygnale worker wołał work() albo schedule(): zamykany proces brałby joby',
   ).toEqual([]);
   expect(() => getBoss()).toThrow(/zamyka/);
   expect(h.sentry.report).not.toHaveBeenCalled();
@@ -329,6 +346,18 @@ describe('worker w procesie (atrapy pg-boss i paczek)', () => {
       },
     );
 
+    it('sygnał z wczytywania, gdy wejście wykonało się w fazie poll (słuchacz obrót pętli później): worker nie łączy się z bazą', async () => {
+      h.sygnal.przyWczytywaniu = () => sygnalDoPid1('SIGTERM', { obrotPozniej: true });
+
+      await uruchomWorker();
+      await czekaj(DO_ROZSTRZYGNIECIA_MS);
+
+      await oczekujZamknieciaWBudzecie();
+      expect(h.pg.instancje, 'worker zaczął start pg-boss, zanim sygnał z wczytywania dotarł do zamykania').toBe(0);
+      expect(h.pg.operacje).toEqual([]);
+      expect(h.http.listen).not.toHaveBeenCalled();
+    });
+
     it('w trakcie startu pg-boss: zamyka instancję po starcie, bez kolejek i healthchecku', async () => {
       await uruchomWorker();
       await czekaj(h.pg.startMs / 2);
@@ -377,16 +406,19 @@ describe('worker w procesie (atrapy pg-boss i paczek)', () => {
       expect(przerwany).toContain(pierwsza);
     });
 
-    it('w trakcie planowania cronów: bez następnych cronów i bez healthchecku', async () => {
+    it.each([
+      ['pierwszego', 1],
+      ['ostatniego', 2],
+    ] as const)('w trakcie planowania %s cronu: bez następnych cronów i bez healthchecku', async (_ktory, ile) => {
       h.pg.po = (co, kolejka) => {
-        if (co === 'schedule' && kolejka === CRONY[0]) sygnalDoPid1('SIGTERM');
+        if (co === 'schedule' && kolejka === CRONY[ile - 1]) sygnalDoPid1('SIGTERM');
       };
 
       await uruchomWorker();
       await czekaj(DO_ROZSTRZYGNIECIA_MS);
 
       await oczekujZamknieciaWBudzecie();
-      expect(planowaneCrony()).toEqual([CRONY[0]]);
+      expect(planowaneCrony()).toEqual(CRONY.slice(0, ile));
       expect(h.pg.stopy).toBe(1);
       expect(h.http.listen).not.toHaveBeenCalled();
     });
@@ -468,22 +500,57 @@ describe('worker.ts: kolejność, której atrapy nie widzą (G1-START)', () => {
   });
 });
 
-// Prawdziwy proces z flagami z CMD w Dockerfile. Sygnałów POSIX nie da się wysłać
-// na Windowsie (tam kill to TerminateProcess), więc ten test biegnie w CI na Linuksie.
+// Prawdziwy Node z flagami z CMD w Dockerfile. Sygnałów POSIX nie da się wysłać
+// na Windowsie (tam kill to TerminateProcess), więc te testy biegną w CI na Linuksie.
 // Proces nie jest tu PID 1: bez handlera SIGTERM zabiłby go od razu (kod null),
-// z handlerem kończy się sam, kodem 0. Baza przyjmuje połączenie i milczy, więc
-// start pg-boss wisi, a zamykanie musi się zmieścić w czasie łaski.
+// z handlerem kończy się sam, kodem 0.
 const dockerfile = readFileSync(join(process.cwd(), 'Dockerfile'), 'utf8');
 const etapWorker = dockerfile.split(/^FROM /m).find((etap) => /^\S+ AS worker\b/.test(etap));
 const cmd: string[] = JSON.parse(etapWorker?.match(/^CMD (\[.*\])$/m)?.[1] ?? '[]');
+const WEJSCIE = 'lib/jobs/worker.ts';
+/** Wejście wczytywane jak `worker.ts`, które w trakcie wczytywania wysyła sobie SIGTERM. */
+const SONDA_SYGNALU = 'tests/fixtures/worker-sygnal-sonda.ts';
 /** Czas łaski z karty G1 (`WORKER_SHUTDOWN_BUDGET.containerGraceMs`, pilnuje `stopboss-czas-laski.test.ts`). */
 const CZAS_LASKI_MS = 10_000;
+/** Proces jak w obrazie workera: NODE_ENV=production, bez NODE_OPTIONS z Vitest. */
+const ENV_OBRAZU = { ...process.env, NODE_OPTIONS: '', NODE_ENV: 'production' };
 
-describe.skipIf(process.platform === 'win32')('prawdziwy worker z flagami z Dockerfile (G1-START)', () => {
-  it('SIGTERM, gdy baza milczy przy starcie: sam kończy się kodem 0 przed czasem łaski', async () => {
+describe.skipIf(process.platform === 'win32')('prawdziwy Node z flagami z Dockerfile (G1-START)', () => {
+  it('sonda: sygnał z czasu wczytywania wejścia dociera do zamykania przed bramką receiveQueuedSignals()', () => {
+    expect(cmd.at(-1)).toBe(WEJSCIE);
+    const wynik = spawnSync(process.execPath, [...cmd.slice(1, -1), SONDA_SYGNALU], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: ENV_OBRAZU,
+      timeout: 170_000,
+      // Sonda ma handler SIGTERM, więc domyślny sygnał po limicie czasu by jej nie zakończył.
+      killSignal: 'SIGKILL',
+    });
+    const wyjscie = `${wynik.stdout}${wynik.stderr}`;
+    expect({ status: wynik.status, signal: wynik.signal }, wyjscie).toEqual({ status: 0, signal: null });
+    const linia = wynik.stdout.trim().split('\n').at(-1) ?? '';
+    expect(linia, wyjscie).toMatch(/^\{.*\}$/);
+    const pomiar = JSON.parse(linia) as Record<string, unknown>;
+    // Do logu CI: czy na tym Node i tsx wejście wykonało się w fazie poll, czyli
+    // czy jeden obrót pętli by nie wystarczył (bramka czeka dwa, `shutdown-signals.ts`).
+    console.info(
+      `G1-START, sonda na Node ${process.version}: po pierwszym obrocie pętli sygnał ${
+        pomiar.poJednymObrocie ? 'już był' : 'jeszcze nie dotarł (wejście w fazie poll)'
+      }`,
+    );
+    expect(pomiar).toMatchObject({ przedPetla: null, poBramce: 'SIGTERM', shutdownRequested: true });
+  }, 180_000);
+
+  it('SIGTERM, gdy start pg-boss czeka na milczącą bazę: twardy limit zamykania i kod 0 przed czasem łaski', async () => {
     const polaczenia: Socket[] = [];
+    let polaczyl: () => void = () => {};
+    const pierwszePolaczenie = new Promise<void>((resolve) => {
+      polaczyl = () => resolve();
+    });
+    // Baza przyjmuje połączenie i milczy, więc start pg-boss wisi.
     const baza = createTcpServer((socket) => {
       polaczenia.push(socket);
+      polaczyl();
     });
     await new Promise<void>((resolve) => baza.listen(0, '127.0.0.1', resolve));
     const { port } = baza.address() as AddressInfo;
@@ -491,9 +558,7 @@ describe.skipIf(process.platform === 'win32')('prawdziwy worker z flagami z Dock
     const worker = spawn(process.execPath, cmd.slice(1), {
       cwd: process.cwd(),
       env: {
-        ...process.env,
-        NODE_OPTIONS: '',
-        NODE_ENV: 'production',
+        ...ENV_OBRAZU,
         JOBS_BACKEND: 'pgboss',
         JOBS_PGBOSS_SCHEMA: '',
         WORKER_ONLY_CRONS: '',
@@ -504,20 +569,21 @@ describe.skipIf(process.platform === 'win32')('prawdziwy worker z flagami z Dock
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let wyjscie = '';
+    const dopisz = (kawalek: Buffer) => {
+      wyjscie += kawalek.toString('utf8');
+    };
+    worker.stdout.on('data', dopisz);
+    worker.stderr.on('data', dopisz);
     const koniec = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
       worker.on('exit', (code, signal) => resolve({ code, signal }));
     });
 
     try {
-      await new Promise<void>((resolve, reject) => {
-        const dopisz = (kawalek: Buffer) => {
-          wyjscie += kawalek.toString('utf8');
-          if (wyjscie.includes('Worker startuje')) resolve();
-        };
-        worker.stdout.on('data', dopisz);
-        worker.stderr.on('data', dopisz);
-        void koniec.then(() => reject(new Error(`worker skończył się przed startem:\n${wyjscie}`)));
-      });
+      // Z bazą łączy się dopiero start pg-boss, po bramce sygnałów w `main()`.
+      // SIGTERM trafia więc zawsze w ten sam stan: start czeka na milczącą bazę,
+      // a `stop()` pg-boss czeka na start, aż utnie go twardy limit z #577.
+      const przedPolaczeniem = await Promise.race([pierwszePolaczenie.then(() => null), koniec]);
+      expect(przedPolaczeniem, `worker skończył się, zanim połączył się z bazą:\n${wyjscie}`).toBeNull();
 
       const wyslanyO = Date.now();
       worker.kill('SIGTERM');
@@ -531,6 +597,7 @@ describe.skipIf(process.platform === 'win32')('prawdziwy worker z flagami z Dock
       expect(wynik, wyjscie).toEqual({ code: 0, signal: null });
       expect(czasMs, wyjscie).toBeLessThan(CZAS_LASKI_MS);
       expect(wyjscie).toContain('SIGTERM — graceful shutdown');
+      expect(wyjscie).toMatch(/pg-boss nie zamknął się w \d+ s/);
       expect(wyjscie).not.toContain('Worker padł przy starcie');
     } finally {
       worker.kill('SIGKILL');

@@ -31,7 +31,10 @@ function receive(signal: ShutdownSignal): void {
 process.on('SIGTERM', () => receive('SIGTERM'));
 process.on('SIGINT', () => receive('SIGINT'));
 
-/** Czy przyszło już zatrzymanie: start sprawdza to przed każdym nowym krokiem. */
+/**
+ * Czy zatrzymanie już dotarło. Start sprawdza to przed połączeniem z bazą oraz
+ * przed każdym `work()`, `schedule()` i healthcheckiem; krok w toku kończy się normalnie.
+ */
 export function shutdownRequested(): boolean {
   return firstSignal !== null;
 }
@@ -46,10 +49,14 @@ export function onShutdownSignal(next: ShutdownHandler): void {
 }
 
 /**
- * Jeden obrót pętli zdarzeń. Node woła słuchaczy sygnałów w fazie poll, przed
- * `setImmediate`, więc sygnał z czasu wczytywania modułów dociera do zamykania,
- * zanim worker połączy się z bazą.
+ * Dwa obroty pętli zdarzeń: sygnał z czasu wczytywania modułów dociera do
+ * zamykania, zanim worker połączy się z bazą. Node woła słuchaczy sygnałów
+ * w fazie poll. Gdy wejście wykonało się przed pętlą albo w innej fazie, sygnał
+ * dociera w najbliższej fazie poll, przed pierwszym `setImmediate`. Gdy wykonało
+ * się w fazie poll (loader wczytał je asynchronicznie; zależy od wersji Node
+ * i tsx), dociera dopiero w fazie poll następnego obrotu: po pierwszym
+ * `setImmediate`, przed drugim.
  */
 export function receiveQueuedSignals(): Promise<void> {
-  return new Promise((resolve) => setImmediate(resolve));
+  return new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
 }
