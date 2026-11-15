@@ -23,7 +23,7 @@ export default function EkranKontrahentow() {
 const OPOZNIENIE_SZUKANIA_MS = 350;
 
 function kafelZ<T extends { wartosc: number }>(c: CzescTelefonu<T>, klucz: string, podpis: string, ostrzezenie = false): Kafel {
-  if (!c.ok) return { klucz, podpis, wartosc: '—', opis: 'Nie policzyliśmy', opisKolor: 'ostrzezenie' };
+  if (!c.ok) return { klucz, podpis, wartosc: 'Brak', opis: 'Nie policzyliśmy', opisKolor: 'ostrzezenie' };
   return { klucz, podpis, wartosc: String(c.dane.wartosc), ...(ostrzezenie && c.dane.wartosc > 0 ? { opisKolor: 'ostrzezenie' as const } : {}) };
 }
 

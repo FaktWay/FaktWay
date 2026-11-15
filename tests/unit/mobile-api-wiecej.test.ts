@@ -239,7 +239,7 @@ describe('GET /api/mobile/v1/import', () => {
     fake.history.mockResolvedValue({ ok: false });
     const body = await (await importRoute(req('import'))).json();
     expect(body.historiaKsef.blad).toBe('Nie udało się wczytać stanu pobierania z KSeF.');
-    expect(body.kafle[0]).toEqual({ podpis: 'Historia z KSeF', wartosc: '—', nota: 'nie udało się wczytać' });
+    expect(body.kafle[0]).toEqual({ podpis: 'Historia z KSeF', wartosc: null, nota: 'nie udało się wczytać' });
     failing = 'import_jobs';
     const bezListy = await (await importRoute(req('import'))).json();
     expect(bezListy.importy).toBeNull();
@@ -326,8 +326,8 @@ describe('GET /api/mobile/v1/dziennik', () => {
   it('wpisy jak zakładka strony: nazwa zdarzenia, zasób, adres; kolumny jawnie', async () => {
     const body = await (await dziennikRoute(req('dziennik', { token: TOKEN.member }))).json();
     expect(body.wpisy).toEqual([
-      { id: '7', kiedy: expect.stringContaining('15.11.2026'), akcja: 'Zalogowanie', zasob: '—', ip: '203.0.113.5' },
-      { id: '6', kiedy: expect.stringContaining('14.11.2026'), akcja: 'contractor.updated', zasob: 'contractor:cccccccc…', ip: '—' },
+      { id: '7', kiedy: expect.stringContaining('15.11.2026'), akcja: 'Zalogowanie', zasob: null, ip: '203.0.113.5' },
+      { id: '6', kiedy: expect.stringContaining('14.11.2026'), akcja: 'contractor.updated', zasob: 'contractor:cccccccc…', ip: null },
     ]);
     const read = reads.find((r) => r.path === '/rest/v1/audit_logs');
     expect(read?.select).toBe('id,action,entity_type,entity_id,ip_address,created_at');

@@ -111,7 +111,7 @@ function EkranKontrahentaZBazy({ zapis }: { zapis: ZapisKontrahenta }) {
         <NaglowekKwoty
           podpis={k.nazwa || `NIP ${k.nip}`}
           podpisWyrozniony
-          wartosc={n ? kwota(grosze(n.doZaplaty)) : '—'}
+          wartosc={n ? kwota(grosze(n.doZaplaty)) : 'Brak danych'}
           status={
             !n
               ? `Nie policzyliśmy należności${dane.bladNaleznosci ? `: ${dane.bladNaleznosci}` : ''}`

@@ -20,9 +20,12 @@ import type {
   ZmianaKontrahentaOdpowiedz,
 } from '@/lib/api/kontrakt-wiecej';
 import { useKontoFirmy } from '@/stan/dane';
-import { oznaczNieaktualne, useOdczyt, usunOdczyt, wpiszOdczyt, type StanOdczytu } from '@/stan/odczyt';
+import { oznaczNieaktualne, useOdczyt, wpiszOdczyt, type StanOdczytu } from '@/stan/odczyt';
 
 export const SCIEZKA_KONTRAHENTOW = 'kontrahenci';
+
+/** Lista kontrahentów z wyszukiwaniami, bez kart pojedynczych kontrahentów. */
+const listaKontrahentow = (sciezka: string) => sciezka === SCIEZKA_KONTRAHENTOW || sciezka.startsWith(`${SCIEZKA_KONTRAHENTOW}?`);
 
 /** Lista firmy; `fraza` szuka w bazie po nazwie i NIP (jak strona), `null` w trakcie pisania. */
 export function useKontrahenci(fraza: string | null): StanOdczytu<KontrahenciOdpowiedz> | null {
@@ -49,7 +52,7 @@ export function useZapisKontrahenta(): ZapisKontrahenta | null {
   const poZapisie = (firma: string | null, id: string, karta?: KontrahentOdpowiedz) => {
     if (!konto || !firma) return;
     if (karta) wpiszOdczyt(konto, firma, `${SCIEZKA_KONTRAHENTOW}/${id}`, karta);
-    oznaczNieaktualne(konto, firma, SCIEZKA_KONTRAHENTOW);
+    oznaczNieaktualne(konto, firma, listaKontrahentow);
   };
 
   return {
@@ -67,10 +70,8 @@ export function useZapisKontrahenta(): ZapisKontrahenta | null {
       const w = await k.zapytaj<UsuniecieKontrahentaOdpowiedz>(`${SCIEZKA_KONTRAHENTOW}/${id}/usuniecie`, { metoda: 'POST', firmaEkranu });
       // Ponowienie po zerwanym połączeniu: kontrahenta już nie ma, czyli usunięcie się udało.
       const wynik: Wynik<UsuniecieKontrahentaOdpowiedz> = !w.ok && w.blad.kod === 'not_found' ? { ok: true, dane: { usuniety: true }, status: 200 } : w;
-      if (wynik.ok && konto && firmaEkranu) {
-        usunOdczyt(konto, firmaEkranu, `${SCIEZKA_KONTRAHENTOW}/${id}`);
-        oznaczNieaktualne(konto, firmaEkranu, SCIEZKA_KONTRAHENTOW);
-      }
+      // Tylko lista: karta zamyka się w animacji i pytałaby w tle o usuniętego (404).
+      if (wynik.ok && konto && firmaEkranu) oznaczNieaktualne(konto, firmaEkranu, listaKontrahentow);
       return wynik;
     },
   };

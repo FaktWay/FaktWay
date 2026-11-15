@@ -22,7 +22,7 @@ export default async function AuditPage() {
     id: String(log.id),
     when: formatWarsawDateTime(log.created_at as string),
     action: auditActionLabel(String(log.action)),
-    resource: auditResourceLabel(log.entity_type as string | null, log.entity_id as string | null),
+    resource: auditResourceLabel(log.entity_type as string | null, log.entity_id as string | null) ?? '—',
     ip: log.ip_address != null ? String(log.ip_address) : '—',
   }));
 

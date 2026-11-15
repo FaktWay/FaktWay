@@ -20,7 +20,7 @@ function EkranDziennikaZBazy({ odczyt }: { odczyt: StanOdczytu<DziennikOdpowiedz
         ) : (
           <Sekcja naglowek="Historia aktywności" stopka={`${d.wpisy.length} ${d.wpisy.length === 1 ? 'wpis' : 'wpisów'} (najwyżej 200), od najnowszych.`}>
             {d.wpisy.map((w) => (
-              <Wiersz key={w.id} tytul={w.akcja} podtytul={`${w.kiedy} · ${w.zasob} · IP ${w.ip}`} zaznaczalna />
+              <Wiersz key={w.id} tytul={w.akcja} podtytul={[w.kiedy, w.zasob, w.ip ? `IP ${w.ip}` : null].filter(Boolean).join(' · ')} zaznaczalna />
             ))}
           </Sekcja>
         )

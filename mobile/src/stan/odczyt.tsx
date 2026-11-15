@@ -50,14 +50,14 @@ function kluczOdczytu(konto: string, firma: string, sciezka: string): string {
 }
 
 /**
- * Po zapisie: odczyty tej firmy, których ścieżka zaczyna się od `prefiks`
- * (np. `kontrahenci`), pobiorą się od nowa przy najbliższym rysowaniu.
+ * Po zapisie: odczyty tej firmy, których ścieżka spełnia `ktore` (np. lista
+ * kontrahentów z wyszukiwaniami), pobiorą się od nowa przy najbliższym rysowaniu.
  */
-export function oznaczNieaktualne(konto: string, firma: string, prefiks: string): void {
-  const poczatek = kluczOdczytu(konto, firma, prefiks);
+export function oznaczNieaktualne(konto: string, firma: string, ktore: (sciezka: string) => boolean): void {
+  const poczatek = kluczOdczytu(konto, firma, '');
   let zmiana = false;
   for (const [klucz, wpis] of wpisy) {
-    if (klucz.startsWith(poczatek) && !wpis.nieaktualne) {
+    if (klucz.startsWith(poczatek) && ktore(klucz.slice(poczatek.length)) && !wpis.nieaktualne) {
       wpisy.set(klucz, { ...wpis, nieaktualne: true });
       zmiana = true;
     }
@@ -68,11 +68,6 @@ export function oznaczNieaktualne(konto: string, firma: string, prefiks: string)
 /** Wynik zapisu od razu w odczycie (np. kontrahent po poprawce), bez czekania na drugie pytanie. */
 export function wpiszOdczyt<T>(konto: string, firma: string, sciezka: string, dane: T): void {
   ustaw(kluczOdczytu(konto, firma, sciezka), { stan: 'gotowe', dane });
-}
-
-/** Odczyt usunięty z pamięci (np. usunięty kontrahent). */
-export function usunOdczyt(konto: string, firma: string, sciezka: string): void {
-  if (wpisy.delete(kluczOdczytu(konto, firma, sciezka))) for (const s of sluchacze) s();
 }
 
 /**

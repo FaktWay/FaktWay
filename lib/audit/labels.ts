@@ -100,7 +100,7 @@ export function auditActionLabel(action: string): string {
   return ACTION_LABELS[action] ?? action;
 }
 
-/** Zasób wpisu jak na stronie: `typ:pierwsze 8 znaków…` albo „—”. */
-export function auditResourceLabel(entityType: string | null | undefined, entityId: string | null | undefined): string {
-  return entityType && entityId ? `${entityType}:${String(entityId).slice(0, 8)}…` : '—';
+/** Zasób wpisu jak na stronie: `typ:pierwsze 8 znaków…`; `null`, gdy wpis go nie ma (strona pisze wtedy kreskę). */
+export function auditResourceLabel(entityType: string | null | undefined, entityId: string | null | undefined): string | null {
+  return entityType && entityId ? `${entityType}:${String(entityId).slice(0, 8)}…` : null;
 }

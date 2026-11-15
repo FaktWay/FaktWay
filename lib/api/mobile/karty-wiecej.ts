@@ -35,7 +35,7 @@ export async function auditLogForMobile(caller: MobileCaller): Promise<NextRespo
       kiedy: formatWarsawDateTime(w.created_at),
       akcja: auditActionLabel(String(w.action)),
       zasob: auditResourceLabel(w.entity_type, w.entity_id),
-      ip: w.ip_address != null ? String(w.ip_address) : '—',
+      ip: w.ip_address != null ? String(w.ip_address) : null,
     })),
   };
   return mobileJson(odpowiedz, 200, caller.headers);

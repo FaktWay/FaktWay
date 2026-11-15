@@ -115,7 +115,8 @@ export type OdcienTelefonu = 'ok' | 'ostrzezenie' | 'blad' | 'neutralny';
 
 export interface KafelImportu {
   podpis: string;
-  wartosc: string;
+  /** `null`: wartości nie znamy (stan historii nieczytelny, jeszcze bez pobrania); strona pisze wtedy kreskę. */
+  wartosc: string | null;
   nota: string | null;
 }
 
@@ -249,5 +250,6 @@ export interface AbonamentOdpowiedz {
 
 /** `GET /api/mobile/v1/dziennik`: ostatnie 200 wpisów, jak zakładka strony. */
 export interface DziennikOdpowiedz {
-  wpisy: Array<{ id: string; kiedy: string; akcja: string; zasob: string; ip: string }>;
+  /** `zasob` i `ip` są `null`, gdy wpis ich nie ma (strona pisze wtedy kreskę). */
+  wpisy: Array<{ id: string; kiedy: string; akcja: string; zasob: string | null; ip: string | null }>;
 }

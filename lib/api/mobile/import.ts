@@ -77,14 +77,14 @@ function kafle(jobs: readonly ImportHistoryJob[], ksef: KsefHistorySyncStatus | 
     historia = { podpis: 'Historia z KSeF', wartosc: formatPlInt(sales + purchases), nota: `sprzedaż ${formatPlInt(sales)} · zakupy ${formatPlInt(purchases)}` };
   } else {
     // Stanu nie znamy: nie pokazujemy liczby mniejszej niż prawdziwa.
-    historia = { podpis: 'Historia z KSeF', wartosc: '—', nota: 'nie udało się wczytać' };
+    historia = { podpis: 'Historia z KSeF', wartosc: null, nota: 'nie udało się wczytać' };
   }
   const lastFetch = ksef?.outgoing.lastSuccessAt ?? ksef?.incoming.lastSuccessAt ?? null;
   return [
     historia,
     { podpis: 'Zaimportowane z plików', wartosc: formatPlInt(summary.fileInvoices), nota: partialNote },
     { podpis: 'Nowi kontrahenci', wartosc: formatPlInt(summary.fileContractors), nota: partialNote ? `z importów plików, ${partialNote}` : 'z importów plików' },
-    { podpis: 'Ostatnie pobranie z KSeF', wartosc: lastFetch ? formatWarsawDateTime(lastFetch) : '—', nota: null },
+    { podpis: 'Ostatnie pobranie z KSeF', wartosc: lastFetch ? formatWarsawDateTime(lastFetch) : null, nota: null },
   ];
 }
 

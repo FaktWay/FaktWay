@@ -81,7 +81,7 @@ function EkranImportuZBazy({ odczyt }: { odczyt: StanOdczytu<ImportOdpowiedz> })
   const h = dane.historiaKsef;
   return (
     <EkranListy onOdswiez={odczyt.odswiez}>
-      {dane.kafle ? <Kafle kafle={dane.kafle.map((k, i) => ({ klucz: String(i), podpis: k.podpis, wartosc: k.wartosc }))} /> : null}
+      {dane.kafle ? <Kafle kafle={dane.kafle.map((k, i) => ({ klucz: String(i), podpis: k.podpis, wartosc: k.wartosc ?? 'Brak' }))} /> : null}
       {dane.kafle ? <Sekcja stopka={dane.kafle.map((k) => (k.nota ? `${k.podpis}: ${k.nota}` : null)).filter(Boolean).join('. ')} /> : null}
       {odczyt.blad ? <Sekcja stopka={`Nie udało się odświeżyć: ${odczyt.blad}`} /> : null}
 
