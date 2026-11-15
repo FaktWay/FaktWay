@@ -19,7 +19,6 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { downloadFromR2, getSignedInvoiceUrl } from '@/lib/storage/r2';
 import type { Database } from '@/types/database';
 
-type ExportFormat = Database['public']['Enums']['export_format_enum'];
 type AccountantSettingsRow = Database['public']['Tables']['accountant_settings']['Row'];
 
 const DEV_TO_OVERRIDE = process.env.RESEND_DEV_TO_OVERRIDE?.trim() || null;
