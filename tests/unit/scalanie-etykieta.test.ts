@@ -166,6 +166,8 @@ function atrapa(opcje: {
   bladDisable?: string;
   bladGraphql?: string;
   bladCzlowieka?: string;
+  bladActions?: string;
+  bladGetEtykiet?: string;
   bladKomentarza?: string;
   etykietyNaPR?: string[];
   tozsamosc?: 'czlowiek' | 'bot';
@@ -176,6 +178,7 @@ function atrapa(opcje: {
     wywolania.push({ rodzaj: 'graphql', kanal, zapytanie, zmienne });
     if (opcje.bladGraphql) throw new Error(opcje.bladGraphql);
     if (kanal === 'czlowiek' && opcje.bladCzlowieka) throw new Error(opcje.bladCzlowieka);
+    if (kanal === 'actions' && opcje.bladActions) throw new Error(opcje.bladActions);
     if (zapytanie.includes('enablePullRequestAutoMerge') && opcje.bladEnable) throw new Error(opcje.bladEnable);
     if (zapytanie.includes('disablePullRequestAutoMerge') && opcje.bladDisable) throw new Error(opcje.bladDisable);
     if (zapytanie.includes('autoMergeRequest') && zapytanie.includes('query')) {
@@ -189,7 +192,8 @@ function atrapa(opcje: {
     async rest(metoda: string, sciezka: string, cialo?: unknown) {
       wywolania.push({ rodzaj: 'rest', metoda, sciezka, cialo });
       if (metoda === 'POST' && opcje.bladKomentarza) throw new Error(opcje.bladKomentarza);
-      if (metoda === 'GET' && sciezka.endsWith('/labels')) return (opcje.etykietyNaPR ?? []).map((name) => ({ name }));
+      if (metoda === 'GET' && sciezka.includes('/labels') && opcje.bladGetEtykiet) throw new Error(opcje.bladGetEtykiet);
+      if (metoda === 'GET' && sciezka.includes('/labels')) return (opcje.etykietyNaPR ?? []).map((name) => ({ name }));
       return null;
     },
     graphql: (zapytanie: string, zmienne: Record<string, unknown>) => graf('actions', zapytanie, zmienne),
@@ -321,6 +325,48 @@ describe('wykonaj', () => {
     const { api, wywolania } = atrapa({ etykietyNaPR: [], stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'x' } }, mergeQueueEntry: null } });
     await wykonaj(decyduj(z, OSOBY), z, api);
     expect(mutacje(wywolania).some((q) => q.includes('disablePullRequestAutoMerge'))).toBe(true);
+  });
+
+  it('unlabeled scal: błąd odczytu etykiet nie blokuje wyłączenia (człowiek zdjął scal, żeby anulować, więc przy wątpliwości wyłączamy)', async () => {
+    const z = zdarzenie({ action: 'unlabeled', labele: [] });
+    const { api, wywolania } = atrapa({ bladGetEtykiet: 'GitHub API GET: HTTP 502', stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'x' } }, mergeQueueEntry: null } });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    expect(mutacje(wywolania).some((q) => q.includes('disablePullRequestAutoMerge'))).toBe(true);
+  });
+
+  it('wylacz po błędzie: komentarz mówi, że scalania NIE wyłączono i jak to zrobić ręcznie, zamiast twierdzić, że wyłączone', async () => {
+    const z = zdarzenie({ action: 'synchronize', label: '', labele: [ETYKIETA_SCAL] });
+    const { api, wywolania } = atrapa({ bladDisable: 'HTTP 502', stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'x' } }, mergeQueueEntry: null } });
+    await expect(wykonaj(decyduj(z, OSOBY), z, api)).rejects.toThrow(/502/);
+    const tresc = (wywolania.find((w) => w.metoda === 'POST')?.cialo as { body: string }).body;
+    expect(tresc).toContain('gh pr merge 42 --disable-auto');
+    expect(tresc).toMatch(/nie udało się wyłączyć/i);
+    expect(tresc).not.toMatch(/scalanie wyłączone, nadaj/i);
+  });
+
+  it('odmow po błędzie wyłączenia: komentarz ostrzega, że scalanie mogło zostać włączone', async () => {
+    const z = zdarzenie({ sender: 'obcy' });
+    const { api, wywolania } = atrapa({ bladDisable: 'HTTP 502', stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'obcy' } }, mergeQueueEntry: null } });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    const komentarze = wywolania.filter((w) => w.metoda === 'POST').map((w) => (w.cialo as { body: string }).body);
+    expect(komentarze[0]).toContain('zgody.json'); // powód odmowy
+    expect(komentarze[1]).toContain('gh pr merge 42 --disable-auto'); // ostrzeżenie o niewyłączonym scalaniu
+    expect(wywolania.some((w) => w.metoda === 'DELETE')).toBe(true);
+  });
+
+  it('wylacz: gdy kanał Actions zawodzi (np. odmowa dequeue cudzego wpisu), powtarza kanałem człowieka', async () => {
+    const z = zdarzenie({ action: 'synchronize', label: '', labele: [ETYKIETA_SCAL] });
+    const { api, wywolania } = atrapa({ bladActions: 'Resource not accessible by integration', stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'x' } }, mergeQueueEntry: null } });
+    await expect(wykonaj(decyduj(z, OSOBY), z, api)).resolves.toBeUndefined();
+    const dis = wywolania.filter((w) => w.zapytanie?.includes('disablePullRequestAutoMerge'));
+    expect(dis.map((w) => w.kanal)).toEqual(['actions', 'czlowiek']);
+  });
+
+  it('wlacz: inny bot niż github-actions (np. aplikacja GitHub, Renovate) nie jest „dawnym włączeniem przez Actions”: zostaje nietknięty', async () => {
+    const z = zdarzenie();
+    const { api, wywolania } = atrapa({ stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'Bot', login: 'renovate' } }, mergeQueueEntry: null } });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    expect(mutacje(wywolania)).toEqual([]);
   });
 
   it('odmow wyłącza też scalanie włączone w międzyczasie (skrypt lokalny omija bramkę workflow)', async () => {
@@ -457,6 +503,7 @@ describe('utworzApi', () => {
       expect(blad).toBeInstanceOf(Error);
       expect(blad.message).not.toContain('ghp_TAJNYTOKEN123');
       expect(blad.message).toMatch(/GitHub/);
+      expect(blad.message).toContain('TypeError'); // rodzaj awarii zostaje do diagnozy, treść nagłówka nie
     }
   });
 
@@ -519,6 +566,13 @@ describe('workflow scalanie-na-etykiete.yml', () => {
     for (const uses of yml.match(/uses: \S+/g) ?? []) expect(uses).toMatch(/@[0-9a-f]{40}/);
     expect(yml).toMatch(/timeout-minutes: 5/);
     expect(yml).toMatch(/cancel-in-progress: false/);
+  });
+
+  it('zadanie ma contents: write i pull-requests: write (bez contents: write token Actions nie wyłączy scalania: sprawdzone eksperymentem 15.11.2026, „Resource not accessible by integration”)', () => {
+    const zadanie = yml.slice(yml.indexOf('\njobs:'));
+    expect(zadanie).toMatch(/^ {6}contents: write/m);
+    expect(zadanie).toMatch(/^ {6}pull-requests: write/m);
+    expect(zadanie).toMatch(/^ {6}issues: write/m);
   });
 
   it('przekazuje sekret SCAL_TOKEN (konto człowieka) obok tokenu Actions', () => {

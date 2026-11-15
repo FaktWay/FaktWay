@@ -217,6 +217,10 @@ else
       # zdarzenia. Samo `gh pr merge` wystarcza i niczego nie zdejmuje: zdjęcie etykiety to
       # zdarzenie `unlabeled`, które wyłączyłoby scalanie włączone chwilę później.
       if ! scalanie_z_konta; then
+        # Workflow z SCAL_TOKEN bierze SHA ze zdarzenia etykiety, więc ponowne nadanie uzbroiłoby
+        # scalanie commita, którego nie przejrzano, gdyby głowa zmieniła się po odczycie.
+        nowa_glowa=$(odczytaj_pr | cut -d'|' -f6) || nowa_glowa=""
+        [ "$nowa_glowa" = "$sha" ] || die "Głowa PR zmieniła się po odczycie (${sha:0:7} → ${nowa_glowa:0:7}). Etykiety nie nadaję od nowa; uruchom skrypt jeszcze raz."
         say "   etykieta scal już była, a scalanie nie włączyło się: zdejmuję i nadaję etykietę od nowa (workflow z sekretem SCAL_TOKEN włączy scalanie)"
         gh api -X DELETE "repos/$REPO/issues/$NUMER/labels/scal" >/dev/null 2>&1 || true
         dodaj_etykiete scal || die "Nie nadałem etykiety scal (brak uprawnień? konto musi być na liście filtr/zgody.json)."

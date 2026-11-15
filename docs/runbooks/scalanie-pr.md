@@ -73,8 +73,11 @@ zdejmowania etykiety (zdjęcie to zdarzenie `unlabeled`, które wyłączyłoby �
 włączone scalanie). Etykietę zdejmuje i nadaje od nowa dopiero wtedy, gdy
 `gh pr merge` zawiedzie (chmura), bo GitHub nie wysyła zdarzenia dla etykiety,
 która już jest. Scalanie włączone wcześniej przez workflow (autor `github-actions`)
-skrypt wyłącza i włącza od nowa z Twojego konta: to najprostsza naprawa PR
-zostawionych w stanie sprzed tej zmiany (`./scripts/ops/scal-pr.sh N`).
+skrypt wyłącza i włącza od nowa z Twojego konta (`./scripts/ops/scal-pr.sh N`).
+To naprawia PR zostawiony w stanie sprzed tej zmiany, o ile nie ma konfliktu
+(PR `dirty`: najpierw `git merge origin/main` i push; push zdejmie `scal`, więc
+potem skrypt od nowa) i nie został już wpisany do kolejki przez bota (wtedy ręcznie,
+patrz „Wpis w kolejce stoi w AWAITING_CHECKS”).
 
 PR wymagający etykiet zgody (straż ich żąda), po drugim czytelniku:
 
@@ -105,6 +108,16 @@ Stan po fakcie:
 gh api repos/FaktWay/FaktWay/pulls/776 --jq '{state, merged, merge_commit_sha}'
 ```
 
+## Przejście na nowy sposób (od scalenia tej zmiany do `main`)
+
+`pull_request_target` bierze workflow z `main`, więc dopóki zmiana nie wejdzie do
+`main`, na każdy PR działa STARY „Scalanie na etykietę” (scalanie włącza bot, a przy
+PR już gotowym wpisuje go do kolejki, czyli wpis, który utknie). Dla PR otwartych w
+tym czasie, także dla samego PR ze zmianą, nie nadawaj `scal`: etykiety zgody
+(jeśli straż ich żąda) i `gh pr merge N --match-head-commit SHA` z konta
+człowieka. Po wejściu zmiany do `main` PR dociągają `main` (`git merge origin/main`),
+żeby mieć nowy `scal-pr.sh`; sesja ze starym skryptem dostanie stare zachowanie.
+
 ## Dlaczego PR nie wchodził do kolejki (ustalone 15.11.2026)
 
 Objaw: PR z `scal`, włączonym auto-merge, `mergeStateStatus` CLEAN i zielonymi
@@ -129,6 +142,15 @@ tokenem `GITHUB_TOKEN` (`github-actions[bot]`).
   konta człowieka na PR z oczekującymi kontrolami; ostatnia kontrola skończyła
   się 16:57:11 UTC, a PR wszedł do kolejki sam o 16:57:44 UTC (`actor` człowiek).
   Ten sam PR, ten sam stan kontroli, inna tożsamość.
+
+- Drugi eksperyment (15.11, PR #793, zamknięty): token Actions z `contents: write`
+  i `pull-requests: write` wyłącza scalanie włączone przez człowieka
+  (`auto_merge_disabled` przez `github-actions[bot]`); z samym `contents: read`
+  dostaje „Resource not accessible by integration”. Sam push scalania NIE wyłącza
+  (auto-merge człowieka przetrwał push), więc wyłączenie po pushu robi wyłącznie
+  workflow „Scalanie na etykietę” (`synchronize`) i dlatego jego zadanie ma te dwa
+  uprawnienia. Nie sprawdzono, czy token Actions wyjmie z kolejki wpis człowieka
+  (kod próbuje wtedy konta człowieka, jeśli jest sekret).
 
 Czego nie wiemy: dokumentacja GitHuba nie opisuje, dlaczego auto-merge włączony
 przez bota nie wpisuje PR do kolejki (nie wpisał w żadnym z 10 PR). Wniosek

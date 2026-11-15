@@ -68,6 +68,9 @@ const MUTACJA_Z_KOLEJKI = `mutation($id: ID!) {
   dequeuePullRequest(input: {id: $id}) { clientMutationId }
 }`;
 
+const KOMENTARZ_NIE_WYLACZONO = (/** @type {number} */ numer) =>
+  `Nie udało się wyłączyć scalania automatycznie (błąd API, szczegóły w logu zadania „Scal”): scalanie mogło zostać włączone. Wyłącz je ręcznie: \`gh pr merge ${numer} --disable-auto\`, a gdy PR jest już w kolejce, wyjmij go z kolejki (docs/runbooks/scalanie-pr.md, „Wpis w kolejce stoi w AWAITING_CHECKS”).`;
+
 /** @param {number} numer */
 const KOMENTARZ_BRAK_TOKENU = (numer) =>
   `Nie włączam scalania z workflow: brak sekretu \`SCAL_TOKEN\` (konto człowieka). Wpis do kolejki zrobiony tokenem Actions nie uruchamia kontroli grupy, więc PR utknąłby w AWAITING_CHECKS. Włącz scalanie kontem człowieka: \`gh pr merge ${numer} --auto\` (robi to \`./scripts/ops/scal-pr.sh ${numer}\` w sesji lokalnej). Etykietę \`${ETYKIETA_SCAL}\` zostawiam. Sekret zakłada Bartosz (docs/runbooks/scalanie-pr.md, „Sekret SCAL_TOKEN”).`;
@@ -163,12 +166,12 @@ function powodyOdmowy(zdarzenie, pr, nadawca, etykiety, osoby) {
  */
 
 /**
- * Włączenie scalania przez bota: GraphQL podaje `__typename` Bot i login bez „[bot]”
- * (REST ma `github-actions[bot]`), więc nie porównujemy samego loginu.
+ * Włączenie scalania przez `github-actions` (token Actions): GraphQL podaje login bez „[bot]”
+ * (REST ma `github-actions[bot]`). Inne boty (aplikacja GitHub, Renovate) to nie ta pula.
  * @param {{ __typename?: string, login?: string } | null | undefined} wlaczajacy
  */
 function czyBot(wlaczajacy) {
-  return wlaczajacy?.__typename === 'Bot' || /^github-actions(\[bot\])?$/.test(wlaczajacy?.login ?? '');
+  return /^github-actions(\[bot\])?$/.test(wlaczajacy?.login ?? '');
 }
 
 /**
@@ -208,19 +211,29 @@ export async function wykonaj(d, zdarzenie, api) {
   if (d.akcja === 'odmow') {
     // Skrypt lokalny (`scal-pr.sh`) włącza scalanie sam, z pominięciem tej bramki, więc odmowa
     // cofa też to, co mogło zostać włączone w międzyczasie. Błąd cofania nie blokuje zdjęcia etykiety.
+    let nieWylaczono = false;
     try {
       await wylacz(api, pr);
     } catch (blad) {
+      nieWylaczono = true;
       console.warn(`Nie udało się wyłączyć scalania PR #${pr.number} przy odmowie: ${blad instanceof Error ? blad.message : 'nieznany błąd'}`);
     }
     await zdejmij();
     if (d.komentarz) await komentarz(d.komentarz);
+    if (nieWylaczono) await komentarz(KOMENTARZ_NIE_WYLACZONO(pr.number));
     return;
   }
   // `scal-pr.sh` zdejmuje i nadaje etykietę od nowa (gdy samo `gh pr merge` zawiodło): zdarzenie
   // `unlabeled` dociera po nadaniu z powrotem i wyłączyłoby scalanie, które właśnie zostało włączone.
   if (zdarzenie.action === 'unlabeled' && zdarzenie.label?.name === ETYKIETA_SCAL) {
-    const aktualne = await api.rest('GET', `${sciezkaPR}/labels`);
+    /** @type {unknown} */
+    let aktualne = null;
+    try {
+      aktualne = await api.rest('GET', `${sciezkaPR}/labels?per_page=100`);
+    } catch {
+      // Nie umiemy ustalić, czy etykieta wróciła: człowiek zdjął ją, żeby anulować scalanie,
+      // więc przy wątpliwości wyłączamy (kierunek bezpieczny).
+    }
     if (Array.isArray(aktualne) && aktualne.some((/** @type {{ name: string }} */ l) => l.name === ETYKIETA_SCAL)) return 'ponownie-nadana';
   }
   // Etykietę zdejmujemy nawet wtedy, gdy wyłączenie zawiodło (inaczej nowy commit zostałby w drodze
@@ -233,7 +246,9 @@ export async function wykonaj(d, zdarzenie, api) {
     bladWylaczenia = blad;
   }
   if (d.zdejmijEtykiete) await zdejmij();
-  if (d.komentarz) await komentarz(d.komentarz);
+  // Gdy wyłączenie zawiodło, komentarz nie może twierdzić, że scalanie wyłączono.
+  if (bladWylaczenia) await komentarz(KOMENTARZ_NIE_WYLACZONO(pr.number));
+  else if (d.komentarz) await komentarz(d.komentarz);
   if (bladWylaczenia) throw bladWylaczenia;
 }
 
@@ -273,12 +288,28 @@ async function wlacz(api, pr) {
   return 'wlaczone';
 }
 
+/**
+ * Wyłączenie idzie najpierw tokenem Actions (nie zależy od ważności PAT; sprawdzone 15.11.2026:
+ * token z `contents: write` i `pull-requests: write` wyłącza scalanie włączone przez człowieka).
+ * Gdy GitHub odmówi (np. dequeue cudzego wpisu, czego nie sprawdzono), powtarzamy kontem
+ * człowieka, jeśli jest.
+ * @param {Api} api @param {string} zapytanie @param {Record<string, unknown>} zmienne
+ */
+async function graphqlZZapasem(api, zapytanie, zmienne) {
+  try {
+    return await api.graphql(zapytanie, zmienne);
+  } catch (blad) {
+    if (!api.graphqlCzlowieka) throw blad;
+    return api.graphqlCzlowieka(zapytanie, zmienne);
+  }
+}
+
 /** @param {Api} api @param {any} pr */
 async function wylacz(api, pr) {
-  const stan = (await api.graphql(ZAPYTANIE_STAN, { id: pr.node_id }))?.node ?? {};
-  if (stan.autoMergeRequest) await api.graphql(MUTACJA_WYLACZ, { id: pr.node_id });
+  const stan = (await graphqlZZapasem(api, ZAPYTANIE_STAN, { id: pr.node_id }))?.node ?? {};
+  if (stan.autoMergeRequest) await graphqlZZapasem(api, MUTACJA_WYLACZ, { id: pr.node_id });
   // Wejście `dequeuePullRequest` to identyfikator PR, nie wpisu kolejki.
-  if (stan.mergeQueueEntry) await api.graphql(MUTACJA_Z_KOLEJKI, { id: pr.node_id });
+  if (stan.mergeQueueEntry) await graphqlZZapasem(api, MUTACJA_Z_KOLEJKI, { id: pr.node_id });
 }
 
 /**
@@ -306,8 +337,10 @@ export function utworzApi({ token, tokenCzlowieka = '', fetchFn = fetch }) {
   const wywolaj = async (/** @type {string} */ opis, /** @type {string} */ url, /** @type {RequestInit} */ init) => {
     try {
       return await fetchFn(url, init);
-    } catch {
-      throw new Error(`${opis}: błąd połączenia albo odrzucony nagłówek (treść pominięta, żeby nie ujawnić tokenu)`);
+    } catch (blad) {
+      // Zostaje rodzaj awarii (nazwa, kod sieci), nie treść: ta bywa z nagłówkiem, czyli z tokenem.
+      const rodzaj = String((blad && /** @type {any} */ (blad).cause?.code) || (blad && /** @type {any} */ (blad).name) || 'Error').replace(/[^A-Za-z0-9_.-]/g, '');
+      throw new Error(`${opis}: błąd połączenia albo odrzucony nagłówek (${rodzaj}; treść pominięta, żeby nie ujawnić tokenu)`);
     }
   };
   /** @param {string} t */

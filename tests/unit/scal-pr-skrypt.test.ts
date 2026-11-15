@@ -273,6 +273,20 @@ describe('scal-pr.sh: nadanie etykiety', () => {
     expect(w.stderr).toContain('SCAL_TOKEN');
   });
 
+  itJq('gh pr merge zawodzi, bo głowa PR zmieniła się po odczycie (ktoś wypchnął commit): nie nadaje etykiety od nowa na nieprzejrzany commit', () => {
+    // Workflow z SCAL_TOKEN bierze SHA z zdarzenia etykiety, więc ponowne nadanie uzbroiłoby scalanie nowego commita.
+    const nowaGlowa = 'b'.repeat(40);
+    const w = uruchom(SCAL, ['42'], {
+      [PR42]: pr({ labels: etykiety('scal') }),
+      'pr-42.2.json': pr({ labels: etykiety('scal'), head: { sha: nowaGlowa, repo: { full_name: REPO } } }),
+      [CHECKS]: ZIELONE,
+      'fail-prmerge': '',
+    });
+    expect(w.status).toBe(1);
+    expect(w.stderr).toMatch(/Głowa PR zmieniła się po odczycie/);
+    expect(w.calls.filter((c) => c.startsWith('DELETE') || c.startsWith('POST'))).toEqual([]);
+  });
+
   itJq('scalanie włączone wcześniej przez bota (github-actions[bot]) nie liczy się jako „w drodze”: wyłącza je i włącza z konta człowieka', () => {
     // Auto-merge z tokenu Actions nie wstawia PR do kolejki (docs/runbooks/scalanie-pr.md).
     const w = uruchom(SCAL, ['42'], {
