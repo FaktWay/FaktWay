@@ -10,8 +10,8 @@ import { validateInvoiceXml } from '@/lib/xml/validator';
  * faktury z jawnym typem kodu (nie zgadywanym po długości). Kod idzie
  * z formularza (albo katalogu) przez schemat (klient i serwer) do faktury
  * (`fa3_data`) i do pliku FA(3): `PKWiU` po nazwie (P_7), przed jednostką
- * (P_8A), jak w typie FaWiersz schematu. GTU pozycji dojdzie razem z GTU
- * w JPK_V7M (część 2b-2); do tego czasu schemat je pomija.
+ * (P_8A), jak w typie FaWiersz schematu. GTU pozycji (część 2b-2):
+ * `tests/unit/pozycje-gtu.test.ts`.
  */
 
 const DZIS = '2026-11-14';
@@ -85,19 +85,6 @@ describe('faktura z formularza: PKWiU w pozycjach', () => {
     expect(invoice.lines[0]).toMatchObject({ pkwiuCode: '85.59.13.0' });
     expect(invoice.lines[1]).not.toHaveProperty('pkwiuCode');
     expect(invoice.lines[2]).not.toHaveProperty('pkwiuCode');
-  });
-
-  it('GTU w żądaniu (formularz go jeszcze nie ma) schemat pomija: ani w fakturze, ani w pliku (do części 2b-2)', () => {
-    const invoice = fakturaZFormularza([{ ...pozycja, pkwiuCode: '85.59.13.0', gtuCode: 'GTU_12' } as InvoiceFormValues['lines'][number]]);
-    expect(invoice.lines[0]).not.toHaveProperty('gtuCode');
-    const xml = generateFA3Xml(invoice, { generatedAt: new Date(`${DZIS}T10:00:00Z`) });
-    expect(xml).not.toContain('<GTU>');
-    // Akcje przekazują dalej także niesparsowane wartości: budowanie mapuje pola jawnie.
-    const zSurowych = buildInvoiceFromForm(
-      form([{ ...pozycja, gtuCode: 'GTU_12' } as InvoiceFormValues['lines'][number]]), TENANT, null, false,
-    );
-    expect(zSurowych.lines[0]).not.toHaveProperty('gtuCode');
-    expect(generateFA3Xml(zSurowych, { generatedAt: new Date(`${DZIS}T10:00:00Z`) })).not.toContain('<GTU>');
   });
 });
 

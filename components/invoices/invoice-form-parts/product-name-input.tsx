@@ -88,6 +88,8 @@ export function ProductNameInput({
   const request = useRef(0);
   /** PKWiU wstawione z katalogu do tej pozycji (do cofnięcia przy produkcie bez PKWiU). */
   const catalogPkwiu = useRef<string | null>(null);
+  /** GTU wstawione z katalogu do tej pozycji (do cofnięcia przy produkcie bez GTU). */
+  const catalogGtu = useRef<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -157,8 +159,7 @@ export function ProductNameInput({
     if (p.vatRate && !keepExemptRate) form.setValue(`lines.${index}.vatRate`, p.vatRate, opts);
     // Krok 2.6, część 2b-1: PKWiU z katalogu, gdy produkt je ma. Produkt bez
     // PKWiU zostawia kod wpisany ręcznie, ale cofa kod wstawiony z katalogu
-    // (inaczej przy nazwie produktu B zostałoby PKWiU produktu A). GTU
-    // z katalogu dojdzie z polem GTU pozycji i JPK_V7M (część 2b-2).
+    // (inaczej przy nazwie produktu B zostałoby PKWiU produktu A).
     if (p.pkwiuCode) {
       form.setValue(`lines.${index}.pkwiuCode`, p.pkwiuCode, opts);
       catalogPkwiu.current = p.pkwiuCode;
@@ -167,6 +168,18 @@ export function ProductNameInput({
         form.setValue(`lines.${index}.pkwiuCode`, '', opts);
       }
       catalogPkwiu.current = null;
+    }
+    // Część 2b-2: GTU z katalogu tak samo. Oznaczenie z katalogu idzie do
+    // pliku FA(3) i do JPK_V7M, więc produkt bez GTU nie może zostawić GTU
+    // poprzedniego produktu; oznaczenie wybrane ręcznie zostaje.
+    if (p.gtuCode) {
+      form.setValue(`lines.${index}.gtuCode`, p.gtuCode, opts);
+      catalogGtu.current = p.gtuCode;
+    } else if (catalogGtu.current !== null) {
+      if (form.getValues(`lines.${index}.gtuCode`) === catalogGtu.current) {
+        form.setValue(`lines.${index}.gtuCode`, '', opts);
+      }
+      catalogGtu.current = null;
     }
     setItems([]);
     close();

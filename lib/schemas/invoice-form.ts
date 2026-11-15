@@ -24,6 +24,8 @@ import {
   type ReceiptRuleField,
 } from '@/lib/invoices/receipt-invoice';
 import {
+  GTU_CODE_MESSAGE,
+  GTU_CODES,
   PKWIU_LENGTH_MESSAGE,
   PKWIU_MAX_LENGTH,
   PKWIU_PATTERN,
@@ -217,12 +219,14 @@ export const lineItemSchema = z.object({
     .refine((v) => hasAtMostDecimals(v, 4), 'Cena — najwyżej 4 miejsca po przecinku'),
   vatRate: vatRateEnum,
   // Krok 2.6, część 2b-1: PKWiU pozycji z jawnym typem; puste pole = brak kodu.
-  // GTU dojdzie razem z GTU w JPK_V7M (2b-2); do tego czasu schemat go pomija.
   pkwiuCode: z
     .string()
     .optional()
     .refine((v) => v === undefined || v.trim().length <= PKWIU_MAX_LENGTH, PKWIU_LENGTH_MESSAGE)
     .refine((v) => v === undefined || v.trim() === '' || v.trim().length > PKWIU_MAX_LENGTH || PKWIU_PATTERN.test(v.trim()), PKWIU_PATTERN_MESSAGE),
+  // Krok 2.6, część 2b-2: oznaczenie GTU pozycji (FA(3) `GTU`, wiersz faktury
+  // w JPK_V7M), tylko kod z listy; puste pole = brak oznaczenia.
+  gtuCode: z.union([z.literal(''), z.enum(GTU_CODES)], { message: GTU_CODE_MESSAGE }).optional(),
 });
 
 export const invoiceFormSchema = z
@@ -475,7 +479,8 @@ export const invoiceFormSchema = z
   .superRefine((d, ctx) => {
     if (d.receiptInvoice !== true) return;
     const buyerKind = receiptBuyerKindOfForm(d);
-    const lines = d.lines.map((l, i) => ({ ...l, ordinal: i + 1, ...calculateLineItem(l) }));
+    // Tylko sumy: puste pole GTU (tekst '') to brak oznaczenia.
+    const lines = d.lines.map((l, i) => ({ ...l, ordinal: i + 1, gtuCode: l.gtuCode || undefined, ...calculateLineItem(l) }));
     const reported = new Set<string>();
     for (const issue of receiptInvoiceIssues({
       receipt: receiptFromFormValues(d, buyerKind),

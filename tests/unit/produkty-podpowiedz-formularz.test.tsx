@@ -24,7 +24,9 @@ vi.mock('@/app/actions/produkty', () => ({ suggestProductsAction: m.suggest }));
 
 import { InvoiceForm } from '@/components/invoices/invoice-form';
 import { LINES_LAYOUT_MEDIA } from '@/components/invoices/invoice-form-parts/constants';
+import { GTU_CODES } from '@/lib/invoices/line-codes';
 import type { ProductSuggestion } from '@/lib/produkty/model';
+import type { InvoiceFormValues } from '@/lib/schemas/invoice-form';
 
 /**
  * Podpowiedź produktów z katalogu w polu nazwy pozycji (plan kompletnej
@@ -35,11 +37,13 @@ import type { ProductSuggestion } from '@/lib/produkty/model';
  */
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-const SZKOLENIE: ProductSuggestion = { id: 'p1', name: 'Szkolenie BHP', unit: 'godz.', priceNet: 150, vatRate: '8', pkwiuCode: null };
-const KONSULTACJA: ProductSuggestion = { id: 'p2', name: 'Konsultacja szkoleniowa', unit: 'usł.', priceNet: null, vatRate: null, pkwiuCode: null };
-// Krok 2.6, część 2b-1: produkt z PKWiU w katalogu.
+const SZKOLENIE: ProductSuggestion = { id: 'p1', name: 'Szkolenie BHP', unit: 'godz.', priceNet: 150, vatRate: '8', pkwiuCode: null, gtuCode: null };
+const KONSULTACJA: ProductSuggestion = {
+  id: 'p2', name: 'Konsultacja szkoleniowa', unit: 'usł.', priceNet: null, vatRate: null, pkwiuCode: null, gtuCode: null,
+};
+// Krok 2.6, część 2b: produkt z PKWiU (2b-1) i GTU (2b-2) w katalogu.
 const SZKOLENIE_Z_KODAMI: ProductSuggestion = {
-  id: 'p3', name: 'Szkolenie z kodami', unit: 'godz.', priceNet: 200, vatRate: '23', pkwiuCode: '85.59.13.0',
+  id: 'p3', name: 'Szkolenie z kodami', unit: 'godz.', priceNet: 200, vatRate: '23', pkwiuCode: '85.59.13.0', gtuCode: 'GTU_12',
 };
 
 let container: HTMLDivElement;
@@ -77,14 +81,24 @@ const czekaj = (ms: number) => act(async () => {
   await new Promise((r) => setTimeout(r, ms));
 });
 
-async function pokaz(siatka: boolean, opcjeFormularza: { vatExempt?: boolean } = {}) {
+async function pokaz(siatka: boolean, opcjeFormularza: { vatExempt?: boolean; initialValues?: Partial<InvoiceFormValues> } = {}) {
   ustawUklad(siatka);
   await act(async () => {
-    root.render(<InvoiceForm tenantId={TENANT} initialValues={{}} vatExempt={opcjeFormularza.vatExempt} />);
+    root.render(
+      <InvoiceForm tenantId={TENANT} initialValues={opcjeFormularza.initialValues ?? {}} vatExempt={opcjeFormularza.vatExempt} />,
+    );
   });
 }
 
 const ustawWartosc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+const ustawWybor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!;
+
+async function wybierz(pole: HTMLSelectElement, wartosc: string) {
+  await act(async () => {
+    ustawWybor.call(pole, wartosc);
+    pole.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
 
 async function wpisz(pole: HTMLInputElement, tekst: string, ms = 300) {
   await act(async () => {
@@ -264,17 +278,89 @@ describe('podpowiedź produktów w polu nazwy pozycji', () => {
     expect(p.nazwa.value).toBe('Szk');
   });
 
-  it('karty: produkt z PKWiU wstawia kod, a pole PKWiU pozycji się pokazuje; GTU w formularzu dopiero z JPK_V7M', async () => {
+  it('karty: produkt z PKWiU i GTU wstawia oba kody, a pola PKWiU i GTU pozycji się pokazują', async () => {
     m.suggest.mockResolvedValue({ ok: true, items: [SZKOLENIE_Z_KODAMI] });
     await pokaz(false);
     const p = pola(false);
     expect(container.querySelector('#line-0-pkwiu')).toBeNull();
+    expect(container.querySelector('#line-0-gtu')).toBeNull();
     await wpisz(p.nazwa, 'Szk');
     klawisz(p.nazwa, 'ArrowDown');
     klawisz(p.nazwa, 'Enter');
     await czekaj(10);
     expect(container.querySelector<HTMLInputElement>('#line-0-pkwiu')?.value).toBe('85.59.13.0');
+    expect(container.querySelector<HTMLSelectElement>('#line-0-gtu')?.value).toBe('GTU_12');
+  });
+
+  it('siatka: przycisk „Dodaj GTU do pozycji 1” pokazuje listę GTU tej pozycji (same kody i „Brak”) i ustawia w niej kursor', async () => {
+    await pokaz(true);
     expect(container.querySelector('#line-0-gtu')).toBeNull();
+    const przycisk = container.querySelector<HTMLButtonElement>('button[aria-label="Dodaj GTU do pozycji 1"]');
+    expect(przycisk?.textContent).toBe('Dodaj GTU');
+    act(() => przycisk?.click());
+    const lista = container.querySelector<HTMLSelectElement>('select[aria-label="GTU pozycji 1"]');
+    expect(lista?.id).toBe('line-0-gtu');
+    expect(document.activeElement).toBe(lista);
+    expect([...lista!.options].map((o) => [o.value, o.textContent])).toEqual([
+      ['', 'Brak'],
+      ...GTU_CODES.map((c) => [c, c]),
+    ]);
+    expect(lista!.value).toBe('');
+    // PKWiU tej pozycji zostaje zwinięte: każde pole ma swój przycisk.
+    expect(container.querySelector('#line-0-pkwiu')).toBeNull();
+  });
+
+  it('po produkcie z GTU produkt bez GTU cofa kod z katalogu, a kod wybrany ręcznie zostawia', async () => {
+    m.suggest.mockResolvedValue({ ok: true, items: [SZKOLENIE_Z_KODAMI, SZKOLENIE] });
+    await pokaz(false);
+    const p = pola(false);
+    const wybierzProdukt = async (ktory: number) => {
+      await wpisz(p.nazwa, 'Szk');
+      for (let i = 0; i <= ktory; i++) klawisz(p.nazwa, 'ArrowDown');
+      klawisz(p.nazwa, 'Enter');
+      await czekaj(10);
+    };
+    const gtu = () => container.querySelector<HTMLSelectElement>('#line-0-gtu');
+    await wybierzProdukt(0);
+    expect(gtu()?.value).toBe('GTU_12');
+    await wybierzProdukt(1);
+    expect(p.nazwa.value).toBe('Szkolenie BHP');
+    // Pole raz pokazane zostaje, kod z katalogu cofnięty.
+    expect(gtu()?.value).toBe('');
+    await wybierzProdukt(0);
+    await wybierz(gtu()!, 'GTU_06');
+    await wybierzProdukt(1);
+    expect(gtu()?.value).toBe('GTU_06');
+  });
+
+  it('wybrane GTU idzie z formularza do akcji zapisu szkicu w pozycji', async () => {
+    m.saveDraft.mockResolvedValue({ success: false, error: 'stop' });
+    await pokaz(false, {
+      initialValues: {
+        internalNumber: 'FV/9/11/2026',
+        buyerNip: '5252241585',
+        buyerName: 'Klient Sp. z o.o.',
+        buyerAddressLine1: 'ul. B 2',
+        buyerAddressLine2: '00-002 Warszawa',
+        paymentMethod: 'transfer',
+        bankAccount: 'PL61109010140000071219812874',
+        lines: [
+          { name: 'Doradztwo', unit: 'godz.', quantity: 1, unitPriceNet: 500, vatRate: '23' },
+          { name: 'Dojazd', unit: 'usł.', quantity: 1, unitPriceNet: 50, vatRate: '23' },
+        ],
+      },
+    });
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Dodaj GTU do pozycji 1"]')?.click());
+    await wybierz(container.querySelector<HTMLSelectElement>('#line-0-gtu')!, 'GTU_12');
+    const szkic = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Szkic');
+    await act(async () => {
+      szkic?.click();
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(m.saveDraft).toHaveBeenCalledTimes(1);
+    const lines = (m.saveDraft.mock.calls[0]![0] as InvoiceFormValues).lines;
+    expect(lines[0]).toMatchObject({ name: 'Doradztwo', gtuCode: 'GTU_12' });
+    expect(lines[1]?.gtuCode ?? '').toBe('');
   });
 
   it('produkt bez PKWiU zostawia PKWiU wpisane w pozycji', async () => {

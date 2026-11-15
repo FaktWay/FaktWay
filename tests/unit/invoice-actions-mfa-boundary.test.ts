@@ -269,8 +269,8 @@ describe('metoda kasowa firmy (P_16)', () => {
   });
 });
 
-describe('prefill: PKWiU pozycji z dokumentu faktury (krok 2.6, część 2b-1)', () => {
-  it('poprawny kod wraca do pozycji o tym samym numerze; niepoprawny i GTU nie', async () => {
+describe('prefill: kody pozycji z dokumentu faktury (krok 2.6, część 2b)', () => {
+  it('poprawne PKWiU i GTU wracają do pozycji o tym samym numerze; niepoprawne nie', async () => {
     lineRows = [
       { ordinal: 1, name: 'Szkolenie', unit: 'godz.', quantity: 2, unit_price_net: 150, vat_rate: '23' },
       { ordinal: 2, name: 'Materiały', unit: 'szt', quantity: 1, unit_price_net: 20, vat_rate: '23' },
@@ -278,12 +278,13 @@ describe('prefill: PKWiU pozycji z dokumentu faktury (krok 2.6, część 2b-1)',
     ];
     // Kolejność w dokumencie inna niż w wierszach: dopasowanie po numerze pozycji.
     fa3Lines = [
-      { ordinal: 2, pkwiuCode: '85.59.A' },
+      { ordinal: 2, pkwiuCode: '85.59.A', gtuCode: 'GTU_14' },
       { ordinal: 1, pkwiuCode: ' 85.59.13.0 ', gtuCode: 'GTU_12' },
+      { ordinal: 3, gtuCode: 'gtu_06' },
     ];
     const prefill = await prefillFromLastInvoiceAction();
     expect(prefill?.values.lines).toEqual([
-      { name: 'Szkolenie', unit: 'godz.', quantity: 2, unitPriceNet: 150, vatRate: '23', pkwiuCode: '85.59.13.0' },
+      { name: 'Szkolenie', unit: 'godz.', quantity: 2, unitPriceNet: 150, vatRate: '23', pkwiuCode: '85.59.13.0', gtuCode: 'GTU_12' },
       { name: 'Materiały', unit: 'szt', quantity: 1, unitPriceNet: 20, vatRate: '23' },
       { name: 'Dojazd', unit: 'usł.', quantity: 1, unitPriceNet: 50, vatRate: '23' },
     ]);

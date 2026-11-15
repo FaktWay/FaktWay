@@ -7,6 +7,7 @@ import {
   type KsefExpenseForPlnReport,
 } from '@/lib/expenses/ksef-currency-review';
 import { isReceiptInvoiceFa3 } from '@/lib/invoices/receipt-invoice';
+import { GTU_CODES, isGtuCode } from '@/lib/invoices/line-codes';
 import { fetchSettledAdvancesNet } from '@/lib/invoices/settled-advances';
 import { parseVatUe } from '@/lib/invoices/vat-ue';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -324,25 +325,48 @@ async function mapRowsToJpkInvoices(
 ): Promise<JpkInvoice[]> {
   if (rows.length === 0) return [];
 
-  // Parents (numery faktur korygowanych) i linie pozycji są niezależne —
-  // jeden SELECT po `invoices`, drugi po `invoice_line_items`. Promise.all
-  // ścina latencję per direction o ~50% przy paczkach miesięcznych.
-  const [parentNumberById, linesByInvoiceId] = await Promise.all([
-    fetchParentInvoiceNumbers(supabase, rows, tenantId, environment),
+  // Parents (faktury korygowane: numer i GTU pozycji) i linie pozycji są
+  // niezależne — jeden SELECT po `invoices`, drugi po `invoice_line_items`.
+  // Promise.all ścina latencję per direction o ~50% przy paczkach miesięcznych.
+  const [parentById, linesByInvoiceId] = await Promise.all([
+    fetchParentInvoices(supabase, rows, tenantId, environment),
     resolveLinesForInvoices(supabase, rows),
   ]);
 
   return rows.map((row) =>
-    mapInvoiceRow(row, linesByInvoiceId.get(row.id) ?? [], parentNumberById),
+    mapInvoiceRow(row, linesByInvoiceId.get(row.id) ?? [], parentById),
   );
 }
 
-async function fetchParentInvoiceNumbers(
+/** Faktura korygowana: numer i oznaczenia GTU jej pozycji (krok 2.6, część 2b-2). */
+interface ParentInvoice {
+  number: string;
+  gtu: string[];
+}
+
+/**
+ * Oznaczenia GTU pozycji z dokumentu faktury (`fa3_data`), tak jak są zapisane:
+ * `lines[].gtuCode` faktury FaktWay i `ksefMarkers.gtu` faktury z importu.
+ * Kody z listy w kolejności XSD JPK_V7M, inne (np. „(element złożony)” z pliku)
+ * na końcu: każde oznaczenie się liczy, także nieczytelne.
+ */
+export function gtuMarkingsOfFa3(fa3: unknown): string[] {
+  if (!isRecordJson(fa3)) return [];
+  const fromLines = Array.isArray(fa3.lines)
+    ? fa3.lines.flatMap((l) => (isRecordJson(l) && typeof l.gtuCode === 'string' && l.gtuCode.trim() ? [l.gtuCode.trim()] : []))
+    : [];
+  const markers = isRecordJson(fa3.ksefMarkers) && Array.isArray(fa3.ksefMarkers.gtu) ? fa3.ksefMarkers.gtu : [];
+  const fromFile = markers.filter((c): c is string => typeof c === 'string' && c.trim().length > 0).map((c) => c.trim());
+  const all = new Set([...fromLines, ...fromFile]);
+  return [...GTU_CODES.filter((c) => all.has(c)), ...[...all].filter((c) => !isGtuCode(c))];
+}
+
+async function fetchParentInvoices(
   supabase: ReturnType<typeof createAdminClient>,
   rows: InvoiceRow[],
   tenantId: string,
   environment: KsefEnvironment,
-): Promise<Map<string, string>> {
+): Promise<Map<string, ParentInvoice>> {
   const ids = [
     ...new Set(
       rows
@@ -350,16 +374,17 @@ async function fetchParentInvoiceNumbers(
         .filter((id): id is string => typeof id === 'string' && id.length > 0),
     ),
   ];
-  const map = new Map<string, string>();
+  const map = new Map<string, ParentInvoice>();
   if (ids.length === 0) return map;
 
   // Bound the IN-list as well as the response; corrections can reference
-  // parents outside the exported period.
+  // parents outside the exported period. `fa3_data`: GTU pozycji faktury
+  // korygowanej (krok 2.6, część 2b-2), cały dokument, bez aliasów ścieżek.
   for (let from = 0; from < ids.length; from += 100) {
     const batch = ids.slice(from, from + 100);
     const { data, count, error } = await supabase
       .from('invoices')
-      .select('id, internal_number, ksef_number', { count: 'exact' })
+      .select('id, internal_number, ksef_number, fa3_data', { count: 'exact' })
       .eq('tenant_id', tenantId)
       .eq('direction', rows[0]!.direction)
       .eq('ksef_status', 'accepted')
@@ -371,7 +396,7 @@ async function fetchParentInvoiceNumbers(
     }
     for (const p of data) {
       if (!batch.includes(p.id)) throw new Error('Linked invoice not found in organization');
-      map.set(p.id, p.internal_number ?? p.ksef_number ?? '');
+      map.set(p.id, { number: p.internal_number ?? p.ksef_number ?? '', gtu: gtuMarkingsOfFa3(p.fa3_data) });
     }
   }
   // A parent UUID is writable invoice data, not proof of ownership.
@@ -440,7 +465,7 @@ async function resolveLinesForInvoices(
 function mapInvoiceRow(
   row: InvoiceRow,
   lines: JpkInvoiceLine[],
-  parentNumberById: Map<string, string>,
+  parentById: Map<string, ParentInvoice>,
 ): JpkInvoice {
   // Obie strony dokumentu. Faktury ze skrzynki KSeF nie mają `seller_data`
   // ani `buyer_data` — strony leżą w metadanych w `fa3_data` (seller:
@@ -484,9 +509,11 @@ function mapInvoiceRow(
   const sellerAddress = formatBuyerAddress(sellerData) || undefined;
 
   let correctedNumber: string | undefined;
+  let correctedGtu: string[] = [];
   if (row.invoice_kind === 'correction' && row.parent_invoice_id) {
-    correctedNumber =
-      parentNumberById.get(row.parent_invoice_id) ?? undefined;
+    const parent = parentById.get(row.parent_invoice_id);
+    correctedNumber = parent?.number;
+    correctedGtu = parent?.gtu ?? [];
   }
 
   // C5c: faktura z importu KSeF — pola pozycji z pliku (P_9B / P_11A…) dla JPK_FA.
@@ -520,6 +547,7 @@ function mapInvoiceRow(
 
     correctedInvoiceNumber: correctedNumber,
     correctionReason: row.correction_reason ?? undefined,
+    ...(correctedGtu.length ? { correctedInvoiceGtu: correctedGtu } : {}),
     ...correctionStatesFields(row),
     ksefNumber: row.ksef_number ?? undefined,
     annotations: annotationsFromFa3(row.fa3_data),
@@ -709,6 +737,9 @@ function linesFromFa3Data(fa3: Json | null): JpkInvoiceLine[] {
       vatRate: String(o.vatRate ?? '23'),
       vatAmount:
         typeof o.vatAmount === 'number' && Number.isFinite(o.vatAmount) ? o.vatAmount : undefined,
+      // Krok 2.6, część 2b-2: GTU pozycji z dokumentu faktury (JPK_V7M, `gtuOfRow`).
+      // Kod spoza listy nie przeszedłby XSD FA(3), więc przyjęta faktura go nie ma.
+      ...(isGtuCode(o.gtuCode) ? { gtuCode: o.gtuCode } : {}),
     });
   }
   return out;
