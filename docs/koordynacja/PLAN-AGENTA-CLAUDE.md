@@ -276,9 +276,9 @@ aktualizacji z `main` (03.10 po południu: #187–#189 i #192 zaktualizowane).
    PostgreSQL 16 (`/usr/lib/postgresql/16/bin`); komplet migracji repo
    wchodzi na czystą bazę z atrapami Supabase (role, `auth.*`,
    `supabase_migrations`, `pgboss.job`) — tak sprawdzono SQL dla B4.
-   **Numery migracji:** rejestr na `main` nie wystarcza — sprawdź też
-   gałęzie zdalne (`git ls-tree -r --name-only <gałąź> supabase/migrations`;
-   03.10 szkic #190 zajął 00129).
+   **Numery migracji:** `main` nie wystarcza — `node scripts/dev/nastepna-migracja.mjs`
+   sprawdza też otwarte PR (ręcznie: `git ls-tree -r --name-only <gałąź>
+   supabase/migrations`; 03.10 szkic #190 zajął 00129).
    **Numery spraw `C-xx`:** przed nadaniem sprawdź `grep "^### C-"
    docs/koordynacja/CLAUDE-DO-CODEXA.md` — sesje Bartosza też je nadają
    (03.10 kolizja „C-18”).

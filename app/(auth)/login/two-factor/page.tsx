@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
 // Lib Imports
+import { AUTH_BUSY_MESSAGE } from '@/lib/auth/gotrue-errors'
 import { safeRedirectPath } from '@/lib/auth/safe-redirect'
 import { getVerifiedMfaState } from '@/lib/auth/verified-mfa'
 import { SUPPORT_EMAIL } from '@/lib/site'
@@ -33,6 +34,8 @@ const ERROR_MESSAGES: Record<string, string> = {
     'Nie możemy teraz sprawdzić kodu. Spróbuj ponownie za chwilę.',
   rate_limited:
     'Zbyt wiele prób. Poczekaj chwilę i spróbuj ponownie.',
+  // Limit GoTrue (429), plan skalowania 3000, sesja 7.
+  auth_busy: AUTH_BUSY_MESSAGE,
   unknown: 'Coś poszło nie tak. Spróbuj ponownie.',
 }
 

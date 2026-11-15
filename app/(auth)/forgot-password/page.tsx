@@ -26,6 +26,8 @@ const ERROR_MESSAGES: Record<string, string> = {
     'Zbyt wiele prób resetu hasła. Poczekaj chwilę i spróbuj ponownie.',
   bot_check_failed:
     'Nie udało się potwierdzić, że nie jesteś botem. Odśwież stronę i spróbuj ponownie.',
+  // Limit żądań GoTrue (429), plan skalowania 3000, sesja 7.
+  auth_busy: 'Wysyłka linków do resetu hasła jest chwilowo przeciążona. Spróbuj ponownie za minutę.',
 }
 
 const SUCCESS_MESSAGES: Record<string, string> = {
