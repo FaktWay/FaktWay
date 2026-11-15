@@ -56,6 +56,9 @@ function logMembershipQueryFailed(step: string, error: { code?: string }): void 
   console.warn('[auth] Zapytanie o członkostwo nie powiodło się', { flow: 'akcja', step, code: error.code ?? null });
 }
 
+/** Zaproszenie bez pewności, kto już jest członkiem firmy: nic nie zapisujemy. */
+const MEMBERS_CHECK_RETRY_MESSAGE = 'Nie można sprawdzić członków firmy. Spróbuj ponownie.';
+
 // ═══════════════════════════════════════════════════════════════
 // Typy
 // ═══════════════════════════════════════════════════════════════
@@ -123,7 +126,9 @@ function formatTenantInsertError(err: {
  * Konto z Google albo prosto z GoTrue powstaje poza naszym formularzem —
  * bez firmy nic w aplikacji nie zrobi, więc to tu zamykamy rejestrację.
  * Klient z aktywnym członkostwem dodaje kolejne firmy jak dotąd.
- * Błąd odczytu członkostw przy zamkniętej rejestracji = odmowa (fail-closed).
+ * Błąd odczytu członkostw przy zamkniętej rejestracji = odmowa (fail-closed),
+ * ale z prawdziwym powodem: „spróbuj ponownie”, a nie „wstrzymane” (plan
+ * skalowania 3000, sesja 7).
  */
 async function firstCompanyBlocked(
   admin: ReturnType<typeof createAdminClient>,
@@ -135,7 +140,11 @@ async function firstCompanyBlocked(
     .select('organization_id', { count: 'exact', head: true })
     .eq('user_id', userId)
     .eq('status', 'active');
-  if (error || !count) return FIRST_COMPANY_CLOSED_MESSAGE;
+  if (error) {
+    logMembershipQueryFailed('firstCompanyBlocked', error);
+    return MEMBERSHIP_RETRY_MESSAGE;
+  }
+  if (!count) return FIRST_COMPANY_CLOSED_MESSAGE;
   return null;
 }
 
@@ -649,11 +658,19 @@ export async function inviteMemberAction(params: {
   // obecnego członka zmieniłoby mu rolę po akceptacji (plan skalowania 3000, sesja 7).
   if (existingError) {
     logMembershipQueryFailed('inviteMember', existingError);
-    return { success: false, error: 'Nie można sprawdzić członków firmy. Spróbuj ponownie.' };
+    return { success: false, error: MEMBERS_CHECK_RETRY_MESSAGE };
   }
   if (existing && existing.length > 0) {
     // E-maile członków po identyfikatorach — nie z pierwszych 200 kont (AUD-125).
     const emails = await emailsForUserIds(admin, existing.map((m) => m.user_id));
+    // Członkostwo zawsze wskazuje istniejące konto (kaskada memberships → users
+    // → auth.users), więc brak e-maila to awaria albo limit GoTrue, a nie
+    // „nie jest członkiem” (plan skalowania 3000, sesja 7).
+    const missing = existing.filter((m) => !emails.has(m.user_id)).length;
+    if (missing > 0) {
+      console.warn('[auth] Nie udało się odczytać e-maili członków firmy', { flow: 'akcja', step: 'inviteMember', missing });
+      return { success: false, error: MEMBERS_CHECK_RETRY_MESSAGE };
+    }
     if ([...emails.values()].some((e) => e.toLowerCase() === email)) {
       return { success: false, error: 'Ten użytkownik jest już członkiem' };
     }

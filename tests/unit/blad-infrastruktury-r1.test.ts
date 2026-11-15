@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
  * | Plik (obszar) | Było przy awarii | Jest |
  * |---|---|---|
  * | `lib/uploads/server.ts` (`retencja`) | limit GoTrue i błąd członkostwa: 403 „brak dostępu”; tokenu nie da się potwierdzić: 503 bez końca | 503 „spróbuj ponownie”; 401 „zaloguj się” |
- * | `app/actions/organizations.ts` (`ustawienia.firma`) | „Brak dostępu”, „Tylko właściciel”, druga „Moja firma”, zaproszenie i prośba dla obecnego członka, „nie” w audycie | „spróbuj ponownie”, bez zapisu; w audycie „nie wiadomo” |
+ * | `app/actions/organizations.ts` (`ustawienia.firma`) | „Brak dostępu”, „Tylko właściciel”, „wstrzymane”, druga „Moja firma”, zaproszenie (także przy awarii GoTrue) i prośba dla obecnego członka, „nie” w audycie | „spróbuj ponownie”, bez zapisu; w audycie „nie wiadomo” |
  * | `upo-actions.ts` (`ksef.offline-upo`) | awaria GoTrue: „Niezalogowany”; błąd bazy: „Faktura nie znaleziona” | „spróbuj ponownie” |
  *
  * Test używa PRAWDZIWYCH klientów z `lib/supabase/server` (`@supabase/ssr`
@@ -46,6 +46,7 @@ import {
   skipOnboardingWithoutNipAction,
 } from '@/app/actions/organizations';
 import { POST as postExpense } from '@/app/api/uploads/expense/route';
+import { sendEmail } from '@/lib/email/send';
 import { ACTIVE_ORG_COOKIE } from '@/lib/supabase/active-org';
 import { authorizeUpload } from '@/lib/uploads/server';
 
@@ -67,7 +68,9 @@ const MEMBERSHIP_RETRY = 'Nie udało się sprawdzić dostępu do firmy. Spróbuj
 const MEMBERS_RETRY = 'Nie można sprawdzić członków firmy. Spróbuj ponownie.';
 const INVOICE_RETRY = 'Nie udało się odczytać faktury. Spróbuj ponownie za chwilę.';
 const UPLOAD_SESSION_EXPIRED = 'Sesja wygasła. Zaloguj się ponownie i wgraj plik jeszcze raz.';
+const FIRST_COMPANY_CLOSED = 'Zakładanie nowych firm jest chwilowo wstrzymane. Możesz zaakceptować zaproszenie albo spróbować później.';
 const MEMBERSHIP_LOG = '[auth] Zapytanie o członkostwo nie powiodło się';
+const MEMBER_EMAILS_LOG = '[auth] Nie udało się odczytać e-maili członków firmy';
 const NIP_CHECK_LOG = '[firmy] Sprawdzenie NIP-u nowej firmy nie powiodło się';
 const INVOICE_LOG = '[upo] Odczyt faktury nie powiódł się';
 
@@ -408,6 +411,58 @@ describe('akcje firm: błąd zapytania to „spróbuj ponownie” bez zapisu, a 
       nip: NIP, name: 'Firma Testowa', nip_duplicate: true, ksef_verified_duplicate: true,
     });
     expect(logged(NIP_CHECK_LOG)).toEqual([]);
+  });
+
+  it.each([
+    ['nowa firma', () => createOrganizationAction(company)],
+    ['„Pomiń NIP” bez szkicu', () => skipOnboardingWithoutNipAction()],
+  ])('%s przy zamkniętej rejestracji: błąd zliczenia firm klienta to „spróbuj ponownie”, a nie „wstrzymane”', async (_name, run) => {
+    tables.global_feature_flags = [{ enabled: true }];
+    failures.push({ path: '/rest/v1/memberships', select: 'organization_id', respond: statementTimeout });
+    await expect(run()).resolves.toEqual({ success: false, error: MEMBERSHIP_RETRY });
+    expect(writes).toEqual([]);
+    expect(logged(MEMBERSHIP_LOG)).toEqual([{ flow: 'akcja', step: 'firstCompanyBlocked', code: '57014' }]);
+  });
+
+  it('zamknięta rejestracja: pierwsza firma dalej dostaje „wstrzymane”, a klient z firmą zakłada kolejną', async () => {
+    tables.global_feature_flags = [{ enabled: true }];
+    tables.memberships = [];
+    await expect(createOrganizationAction(company)).resolves.toEqual({ success: false, error: FIRST_COMPANY_CLOSED });
+    expect(writes).toEqual([]);
+
+    tables.memberships = [ownerMembership];
+    await expect(createOrganizationAction(company)).rejects.toMatchObject({
+      digest: expect.stringContaining(';/onboarding/import-source;'),
+    });
+    expect(writes.filter((w) => w.table === 'tenants')).toEqual([
+      { method: 'POST', table: 'tenants', body: expect.objectContaining({ nip: NIP }) },
+    ]);
+    expect(logged(MEMBERSHIP_LOG)).toEqual([]);
+  });
+
+  it.each([...GOTRUE_DOWN, ['limit 429', rateLimited] as [string, Respond]])(
+    'zaproszenie: awaria GoTrue przy odczycie e-maili członków (%s) to „spróbuj ponownie”, a nie zaproszenie dla obecnego członka',
+    async (_name, respond) => {
+      vi.mocked(sendEmail).mockClear();
+      failures.push({ path: `/auth/v1/admin/users/${userId}`, respond });
+      await expect(inviteMemberAction({ email: USER_EMAIL, role: 'member' })).resolves.toEqual({
+        success: false, error: MEMBERS_RETRY,
+      });
+      expect(writes).toEqual([]);
+      expect(sendEmail).not.toHaveBeenCalled();
+      expect(logged(MEMBER_EMAILS_LOG)).toEqual([{ flow: 'akcja', step: 'inviteMember', missing: 1 }]);
+      expect(wholeLog()).not.toMatch(/eyJ|@example\.test/);
+    },
+  );
+
+  it('zaproszenie: nowa osoba przy działającym GoTrue dostaje zaproszenie jak dotąd', async () => {
+    vi.mocked(sendEmail).mockClear();
+    await expect(inviteMemberAction({ email: 'nowa-osoba@example.test', role: 'member' })).resolves.toEqual({
+      success: true, invitationId: 'fixture-organization_invitations',
+    });
+    expect(writes.filter((w) => w.table === 'organization_invitations').map((w) => w.method)).toEqual(['PATCH', 'POST']);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(logged(MEMBER_EMAILS_LOG)).toEqual([]);
   });
 
   it('zaproszenie: błąd odczytu członków to „spróbuj ponownie”, a nie zaproszenie dla obecnego członka', async () => {
