@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 // Raport nocnego zespołu na Telegram (docs/runbooks/nocny-zespol.md, „Raport na Telegram”).
 //
-// Token bota i czat czyta ze zmiennych środowiska sesji: TELEGRAM_BOT_TOKEN
-// i TELEGRAM_CHAT_ID (jeden identyfikator albo kilka po przecinku). Tekst bierze
+// Ten sam bot i te same czaty co nocne wdrożenie (scripts/ops/nocne-wdrozenie.sh,
+// docs/runbooks/nocne-wdrozenie.md): zmienne środowiska sesji TELEGRAM_BOT_TOKEN
+// i TELEGRAM_CHAT_IDS (kilka identyfikatorów po przecinku; dawna nazwa
+// TELEGRAM_CHAT_ID też działa), te same wartości co w /etc/faktway-nocne.env.
+// Funkcji `telegram()` z nocnego wdrożenia nie da się użyć z chmury (żyje na
+// ops-1 w skrypcie wdrożenia) i ucina tekst na 3900 znakach, a koniec raportu
+// („czeka na Ciebie”) jest najważniejszy. Tekst bierze
 // z pliku (argument) albo ze standardowego wejścia. Wiadomość dłuższą niż 4096
 // znaków (limit Bot API) dzieli na części: najpierw na pustych liniach, potem
 // na końcach linii, potem na spacjach, i numeruje je „(1/3)”. Wysyła zwykły
@@ -68,15 +73,15 @@ export function podziel(tekst, limit = LIMIT_ZNAKOW) {
   return czesci.map((czesc, i) => `(${i + 1}/${czesci.length}) ${czesc}`);
 }
 
-/** Identyfikatory czatów z TELEGRAM_CHAT_ID: liczby (grupy z minusem), kilka po przecinku. */
+/** Identyfikatory czatów z TELEGRAM_CHAT_IDS: liczby (grupy z minusem), kilka po przecinku. */
 export function czytajCzaty(wartosc) {
   const czaty = String(wartosc ?? '')
     .split(',')
     .map((czat) => czat.trim())
     .filter(Boolean);
-  if (czaty.length === 0) return { blad: 'Brak TELEGRAM_CHAT_ID: ustaw identyfikator czatu w zmiennych środowiska sesji.' };
+  if (czaty.length === 0) return { blad: 'Brak TELEGRAM_CHAT_IDS: ustaw identyfikatory czatów w zmiennych środowiska sesji.' };
   if (czaty.some((czat) => !/^-?\d+$/.test(czat))) {
-    return { blad: 'TELEGRAM_CHAT_ID: identyfikator czatu to liczba (kilka po przecinku).' };
+    return { blad: 'TELEGRAM_CHAT_IDS: identyfikator czatu to liczba (kilka po przecinku).' };
   }
   return { czaty };
 }
@@ -211,7 +216,7 @@ export async function glowna(argv, zaleznosci = {}) {
     bledy('TELEGRAM_BOT_TOKEN ma zły format (oczekiwane: liczba, dwukropek i znaki tokenu z BotFathera).');
     return 2;
   }
-  const { czaty, blad } = czytajCzaty(env.TELEGRAM_CHAT_ID);
+  const { czaty, blad } = czytajCzaty(env.TELEGRAM_CHAT_IDS || env.TELEGRAM_CHAT_ID);
   if (!czaty) {
     bledy(blad);
     return 2;

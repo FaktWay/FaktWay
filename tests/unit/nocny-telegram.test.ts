@@ -22,7 +22,7 @@ import {
  */
 
 const TOKEN = '123456789:AAFake_token-for-tests_0123456789';
-const env = { TELEGRAM_BOT_TOKEN: TOKEN, TELEGRAM_CHAT_ID: '111222333' };
+const env = { TELEGRAM_BOT_TOKEN: TOKEN, TELEGRAM_CHAT_IDS: '111222333' };
 
 type Wywolanie = { url: string; body: { chat_id: string; text: string; parse_mode?: string; link_preview_options?: unknown } };
 
@@ -125,8 +125,8 @@ describe('czytajCzaty i ukryjToken', () => {
   });
 
   it('brak albo zły identyfikator to błąd z nazwą zmiennej', () => {
-    expect(czytajCzaty('').blad).toMatch(/TELEGRAM_CHAT_ID/);
-    expect(czytajCzaty(undefined).blad).toMatch(/TELEGRAM_CHAT_ID/);
+    expect(czytajCzaty('').blad).toMatch(/TELEGRAM_CHAT_IDS/);
+    expect(czytajCzaty(undefined).blad).toMatch(/TELEGRAM_CHAT_IDS/);
     expect(czytajCzaty('111,@kanal').blad).toMatch(/liczba/);
   });
 
@@ -157,7 +157,7 @@ describe('wysyłka', () => {
     const { fetch, wywolania } = atrapaFetch(ok());
     const tekst = akapity(30);
     const czesci = podziel(tekst);
-    const wynik = await uruchom([], { env: { ...env, TELEGRAM_CHAT_ID: '111,-100222' }, wejscie: tekst, fetch });
+    const wynik = await uruchom([], { env: { ...env, TELEGRAM_CHAT_IDS: '111,-100222' }, wejscie: tekst, fetch });
     expect(wynik.kod).toBe(0);
     expect(wywolania.map((w) => w.body.chat_id)).toEqual([...czesci.map(() => '111'), ...czesci.map(() => '-100222')]);
     expect(wywolania.slice(0, czesci.length).map((w) => w.body.text)).toEqual(czesci);
@@ -213,6 +213,13 @@ describe('wysyłka', () => {
 });
 
 describe('wejście i konfiguracja', () => {
+  it('te same zmienne co nocne wdrożenie (TELEGRAM_CHAT_IDS), dawna TELEGRAM_CHAT_ID jako zapas', async () => {
+    const { fetch, wywolania } = atrapaFetch(ok());
+    expect((await uruchom([], { env: { TELEGRAM_BOT_TOKEN: TOKEN, TELEGRAM_CHAT_ID: '444' }, wejscie: 'x', fetch })).kod).toBe(0);
+    expect((await uruchom([], { env: { TELEGRAM_BOT_TOKEN: TOKEN, TELEGRAM_CHAT_IDS: '555', TELEGRAM_CHAT_ID: '444' }, wejscie: 'x', fetch })).kod).toBe(0);
+    expect(wywolania.map((w) => w.body.chat_id)).toEqual(['444', '555']);
+  });
+
   it('czyta raport z pliku', async () => {
     const katalog = mkdtempSync(join(tmpdir(), 'nocny-telegram-'));
     const plik = join(katalog, 'raport.txt');
@@ -234,7 +241,7 @@ describe('wejście i konfiguracja', () => {
   it.each([
     ['brak tokenu', { TELEGRAM_CHAT_ID: '111' }, /TELEGRAM_BOT_TOKEN/],
     ['zły format tokenu', { TELEGRAM_BOT_TOKEN: 'proxy-injected', TELEGRAM_CHAT_ID: '111' }, /zły format/],
-    ['brak czatu', { TELEGRAM_BOT_TOKEN: TOKEN }, /TELEGRAM_CHAT_ID/],
+    ['brak czatu', { TELEGRAM_BOT_TOKEN: TOKEN }, /TELEGRAM_CHAT_IDS/],
   ])('%s: kod 2, nic nie wysyła, token nie trafia do wyjścia', async (_nazwa, zmienne, komunikat) => {
     const { fetch } = atrapaFetch(ok());
     const wynik = await uruchom([], { env: zmienne, wejscie: 'raport', fetch });

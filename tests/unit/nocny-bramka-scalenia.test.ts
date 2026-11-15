@@ -10,10 +10,11 @@ import {
   KONTROLE_WYMAGANE,
   KROK_TESTU_NA_BAZIE,
   WIEDZA_I_ZLOTE,
+  SCIEZKI_BRAMKI,
   glowna,
   kategoriaPliku,
-  numeryPR,
   ocenPR,
+  oznaczDoScalenia,
   polaczWymagane,
   pominieteTesty,
   repoZAdresu,
@@ -31,9 +32,9 @@ import {
  * osobno zmienia wynik na NIE. GitHub i git przez atrapy.
  */
 
-const REPO = 'wlasciciel/repo';
+const REPO = 'FaktWay/FaktWay';
 const SHA = 'a'.repeat(40);
-const SHA_SKLADOWEJ = 'b'.repeat(40);
+const INNE_SHA = 'd'.repeat(40);
 const CODEOWNERS = parseCodeowners('/lib/ksef/ @wlasciciel\n/supabase/migrations/ @wlasciciel\n/AGENTS.md @wlasciciel\n');
 
 const OPIS = [
@@ -139,8 +140,9 @@ describe('ocenPR: stan PR', () => {
     ['usunięty fork', { head: { ref: 'agent/nocny-x', sha: SHA, repo: null } }, 'fork'],
     ['gałąź człowieka', { head: { ref: 'claude/n01-lista', sha: SHA, repo: { full_name: REPO } } }, 'nie zaczyna się od agent/nocny-'],
     ['gałąź agenta z issue', { head: { ref: 'agent/issue-12', sha: SHA, repo: { full_name: REPO } } }, 'nie zaczyna się od agent/nocny-'],
-    ['etykieta zgody', { labels: [{ name: 'zgoda:obszar-wrazliwy' }] }, 'zgodę daje człowiek'],
-    ['etykieta zgody filtra', { labels: [{ name: 'zgoda:wiedza-prawna' }] }, 'zgodę daje człowiek'],
+    ['etykieta zgody', { labels: [{ name: 'zgoda:obszar-wrazliwy' }] }, 'zgód nie nadaje'],
+    ['etykieta zgody filtra', { labels: [{ name: 'zgoda:wiedza-prawna' }] }, 'zgód nie nadaje'],
+    ['etykieta wstrzymaj', { labels: [{ name: 'wstrzymaj' }] }, 'ktoś zatrzymał scalanie'],
     ['GitHub jeszcze liczy', { mergeable: null, mergeable_state: 'unknown' }, 'jeszcze liczy'],
     ['konflikt', { mergeable: false, mergeable_state: 'dirty' }, 'konflikt z main'],
     ['gałąź za main', { mergeable: true, mergeable_state: 'behind' }, 'za main'],
@@ -224,7 +226,7 @@ describe('ocenPR: pliki', () => {
     expect(wynik.wynik).toBe('NIE');
     expect(wynik.powody.join('\n')).toContain('Obszar wrażliwy z .github/CODEOWNERS: lib/ksef/submit.ts');
     expect(wynik.linia).toBe(
-      `po przeczytaniu zmian: gh pr edit 900 --add-label zgoda:obszar-wrazliwy && sleep 30 && gh pr checks 900 --watch && gh pr merge 900 --merge --match-head-commit ${SHA}`,
+      'po przeczytaniu zmian: gh pr edit 900 --add-label zgoda:obszar-wrazliwy && sleep 30 && ./scripts/ops/scal-pr.sh 900 --czekaj',
     );
   });
 
@@ -234,7 +236,7 @@ describe('ocenPR: pliki', () => {
       pr: pr({ changed_files: 3, labels: [{ name: 'zgoda:obszar-wrazliwy' }] }),
     });
     expect(wynik.wynik).toBe('NIE');
-    expect(wynik.linia).toBe(`po przeczytaniu zmian: gh pr checks 900 --watch && gh pr merge 900 --merge --match-head-commit ${SHA}`);
+    expect(wynik.linia).toBe('po przeczytaniu zmian: ./scripts/ops/scal-pr.sh 900 --czekaj');
   });
 
   it('fork albo cudza gałąź z obszarem wrażliwym: bez linii do scalenia', () => {
@@ -346,11 +348,12 @@ describe('ocenPR: kontrole', () => {
   });
 
   it('niewymagana kontrola: neutral i skipped przechodzą, failure i cancelled nie', () => {
-    const z = (conclusion: string) => [...przebiegi(), { id: 5000, name: 'Mobile (typy i eslint)', status: 'completed', conclusion }];
+    // „Filtr (TZ UTC)”: job macierzy filtra, niewymagany (wymagany jest „Filtr: testy prawne”).
+    const z = (conclusion: string) => [...przebiegi(), { id: 5000, name: 'Filtr (TZ UTC)', status: 'completed', conclusion }];
     expect(ocena({ przebiegi: z('neutral') }).wynik).toBe('TAK');
     expect(ocena({ przebiegi: z('skipped') }).wynik).toBe('TAK');
-    expect(powody({ przebiegi: z('failure') })).toContain('Mobile (typy i eslint): failure');
-    expect(powody({ przebiegi: z('cancelled') })).toContain('Mobile (typy i eslint): cancelled');
+    expect(powody({ przebiegi: z('failure') })).toContain('Filtr (TZ UTC): failure');
+    expect(powody({ przebiegi: z('cancelled') })).toContain('Filtr (TZ UTC): cancelled');
   });
 
   it('stare statusy commita: najnowszy na kontekst musi być success', () => {
@@ -374,80 +377,6 @@ describe('ocenPR: kontrole', () => {
     expect(wymagane).toEqual([...KONTROLE_WYMAGANE, 'Nowa kontrola']);
     expect(powody({ wymagane })).toContain('Brak kontroli na głowie PR: Nowa kontrola');
     expect(polaczWymagane(null)).toEqual(KONTROLE_WYMAGANE);
-  });
-});
-
-describe('ocenPR: PR zbiorczy', () => {
-  const OPIS_ZBIORCZEGO = `## Składowe\n\n| PR | Gałąź |\n|---|---|\n| #901 | \`agent/nocny-2026-11-18-n01\` |\n| #902 | \`agent/nocny-2026-11-18-n02\` |\n\n${OPIS}`;
-  const testDrugi = { filename: 'tests/unit/drugi.test.ts', status: 'added', changes: 5, patch: "@@\n+it('x', () => {});" };
-  const kodDrugi = { filename: 'components/invoices/drugi.tsx', status: 'modified', changes: 2, patch: '@@\n+x' };
-
-  function skladowa(numer: number, pliki: Obiekt[], zmiany: Obiekt = {}): Obiekt {
-    const test = pliki.find((p) => String(p.filename).startsWith('tests/'))?.filename;
-    return {
-      numer,
-      pr: pr({ number: numer, head: { ref: `agent/nocny-2026-11-18-n0${numer - 900}`, sha: SHA_SKLADOWEJ, repo: { full_name: REPO } }, body: `## Najpierw test\n\n\`${test}\`` }),
-      pliki,
-      przebiegi: [{ id: 1, name: 'Test-first (agent)', status: 'completed', conclusion: 'success' }],
-      krokiTestFirst: kroki,
-      zawarta: true,
-      ...zmiany,
-    };
-  }
-
-  const zbiorczy = (skladowe: Obiekt[], pliki: Obiekt[] = [PLIK_TESTU, PLIK_KODU, testDrugi, kodDrugi]) => ({
-    pr: pr({ head: { ref: 'agent/nocny-2026-11-18', sha: SHA, repo: { full_name: REPO } }, body: OPIS_ZBIORCZEGO, changed_files: pliki.length }),
-    pliki,
-    skladowe,
-  });
-  const dobre = () => [skladowa(901, [PLIK_TESTU, PLIK_KODU]), skladowa(902, [testDrugi, kodDrugi])];
-
-  it('numery składowych z sekcji, bez encji HTML i kotwic adresów', () => {
-    expect(numeryPR(sekcjaOpisu(OPIS_ZBIORCZEGO, /^##\s+Składowe\b/i))).toEqual([901, 902]);
-    expect(numeryPR('#12 i #13, &#14; https://x/pull/15#issuecomment-1, znowu #12')).toEqual([12, 13]);
-  });
-
-  it('dobre składowe dają TAK', () => {
-    expect(ocena(zbiorczy(dobre())).powody).toEqual([]);
-  });
-
-  it.each([
-    ['głowa składowej poza PR zbiorczym', { zawarta: false }, 'nie jest w PR zbiorczym'],
-    ['test składowej nie ruszył na kodzie bazowym', { krokiTestFirst: [{ name: KROK_TESTU_NA_BAZIE, conclusion: 'skipped' }] }, 'pominął test na kodzie bazowym'],
-    ['Test-first składowej czerwony', { przebiegi: [{ id: 1, name: 'Test-first (agent)', status: 'completed', conclusion: 'failure' }] }, 'nie jest zielony'],
-    ['składowa nieczytelna', { blad: 'GitHub API repos/x/pulls/902: HTTP 404' }, 'HTTP 404'],
-  ])('%s to NIE', (_nazwa, zmiany, oczekiwany) => {
-    const [pierwsza] = dobre();
-    const wynik = ocena(zbiorczy([pierwsza, skladowa(902, [testDrugi, kodDrugi], zmiany)]));
-    expect(wynik.wynik).toBe('NIE');
-    expect(wynik.powody.join('\n')).toContain(`Składowa #902: `);
-    expect(wynik.powody.join('\n')).toContain(oczekiwany);
-  });
-
-  it('składowa szkic, z obcej gałęzi albo bez sekcji testu to NIE', () => {
-    const [pierwsza, druga] = dobre();
-    const zPr = (zmiany: Obiekt) => ({ ...druga, pr: { ...(druga.pr as Obiekt), ...zmiany } });
-    expect(ocena(zbiorczy([pierwsza, zPr({ draft: true })])).powody.join('\n')).toContain('Składowa #902: PR jest szkicem.');
-    expect(ocena(zbiorczy([pierwsza, zPr({ head: { ref: 'claude/x', sha: SHA_SKLADOWEJ, repo: { full_name: REPO } } })])).powody.join('\n')).toContain(
-      'Składowa #902: Gałąź claude/x',
-    );
-    expect(ocena(zbiorczy([pierwsza, zPr({ body: 'bez sekcji' })])).powody.join('\n')).toContain('Składowa #902: Opis bez sekcji');
-  });
-
-  it('plik PR zbiorczego spoza składowych to NIE', () => {
-    const obcy = { filename: 'lib/inny.ts', status: 'modified', changes: 1, patch: '@@\n+x' };
-    const wynik = ocena(zbiorczy(dobre(), [PLIK_TESTU, PLIK_KODU, testDrugi, kodDrugi, obcy]));
-    expect(wynik.powody).toEqual(['Pliki PR zbiorczego spoza składowych: lib/inny.ts.']);
-  });
-
-  it('etykieta zgody na składowej to NIE (zgoda zmienia wynik jej kontroli)', () => {
-    const [pierwsza, druga] = dobre();
-    const zZgoda = { ...druga, pr: { ...(druga.pr as Obiekt), labels: [{ name: 'zgoda:bez-testu' }] } };
-    expect(ocena(zbiorczy([pierwsza, zZgoda])).powody.join('\n')).toContain('Składowa #902: Etykiety zgody na PR (zgoda:bez-testu)');
-  });
-
-  it('sekcja „Składowe” bez numerów to NIE', () => {
-    expect(ocena({ ...zbiorczy([]) }).powody).toContain('Sekcja „Składowe” bez numerów PR (#N).');
   });
 });
 
@@ -564,12 +493,13 @@ describe('GitHub przez gh api i git', () => {
     const git = vi.fn((argumenty: string[]) => (argumenty[0] === 'diff' ? '' : ''));
     expect(sprawdzZrodlo(git)).toEqual({ zgodne: true });
     expect(git.mock.calls[0][0]).toEqual(['fetch', '--quiet', 'origin', 'main']);
-    expect(git.mock.calls[1][0]).toEqual(['diff', '--name-only', 'origin/main', '--', 'scripts/nocny', 'scripts/filtr', 'scripts/ci/agent-guard.mjs', '.github/CODEOWNERS']);
+    expect(git.mock.calls[1][0]).toEqual(['diff', '--name-only', 'origin/main', '--', ...SCIEZKI_BRAMKI]);
+    expect(SCIEZKI_BRAMKI).toContain('scripts/ops/scal-pr.sh');
 
     const zmieniona = vi.fn((argumenty: string[]) => (argumenty[0] === 'diff' ? 'scripts/nocny/bramka-scalenia.mjs\n' : ''));
     expect(sprawdzZrodlo(zmieniona)).toMatchObject({ zgodne: false, powod: expect.stringContaining('scripts/nocny/bramka-scalenia.mjs') });
 
-    expect(git.mock.calls[2][0]).toEqual(['ls-files', '--others', '--exclude-standard', '--', 'scripts/nocny', 'scripts/filtr', 'scripts/ci/agent-guard.mjs', '.github/CODEOWNERS']);
+    expect(git.mock.calls[2][0]).toEqual(['ls-files', '--others', '--exclude-standard', '--', ...SCIEZKI_BRAMKI]);
     const nowyModul = vi.fn((argumenty: string[]) => (argumenty[0] === 'ls-files' ? 'scripts/filtr/nowy.mjs\n' : ''));
     expect(sprawdzZrodlo(nowyModul)).toMatchObject({ zgodne: false, powod: expect.stringContaining('scripts/filtr/nowy.mjs') });
 
@@ -591,17 +521,14 @@ describe('GitHub przez gh api i git', () => {
 });
 
 describe('glowna', () => {
-  function router(stan: { pr?: Obiekt[]; scal?: unknown; zgloszenia?: unknown[] } = {}) {
+  function router(stan: { pr?: Obiekt[]; zgloszenia?: unknown[] } = {}) {
     const odpowiedziPr = stan.pr ?? [pr()];
     let ktoryPr = 0;
     const api = vi.fn(async (sciezka: string, opcje?: { metoda?: string; pola?: Record<string, string> }) => {
       if (sciezka === `repos/${REPO}`) return { full_name: REPO };
       if (sciezka.startsWith(`repos/${REPO}/issues?`)) return stan.zgloszenia ?? [];
       if (sciezka === `repos/${REPO}/actions/variables/NOCNY_STOP`) return null;
-      if (sciezka === `repos/${REPO}/pulls/900/merge`) {
-        if (stan.scal instanceof Error) throw stan.scal;
-        return stan.scal ?? { merged: true, sha: 'c'.repeat(40), message: 'Pull Request successfully merged' };
-      }
+      if (sciezka === `repos/${REPO}/issues/900/labels/scal` && opcje?.metoda === 'DELETE') return [];
       if (sciezka === `repos/${REPO}/pulls/900`) return odpowiedziPr[Math.min(ktoryPr++, odpowiedziPr.length - 1)];
       if (sciezka.startsWith(`repos/${REPO}/pulls/900/files?`)) return [PLIK_TESTU, PLIK_KODU];
       if (sciezka.startsWith(`repos/${REPO}/commits/${SHA}/check-runs?`)) return { total_count: KONTROLE_WYMAGANE.length, check_runs: przebiegi() };
@@ -613,7 +540,9 @@ describe('glowna', () => {
     return api;
   }
 
-  async function uruchom(argv: string[], api: (sciezka: string, opcje?: { metoda?: string; pola?: Record<string, string> }) => Promise<unknown>) {
+  type Api = (sciezka: string, opcje?: { metoda?: string; pola?: Record<string, string> }) => Promise<unknown>;
+
+  async function uruchom(argv: string[], api: Api, uruchomScal: (numer: number) => string = vi.fn(() => '✔ etykieta scal nadana')) {
     const wyjscie: string[] = [];
     const bledy: string[] = [];
     const czekaj = vi.fn(async () => {});
@@ -625,40 +554,69 @@ describe('glowna', () => {
       wypisz: (tekst: string) => wyjscie.push(tekst),
       bledy: (tekst: string) => bledy.push(tekst),
       czekaj,
+      uruchomScal,
     });
     return { kod, wyjscie: wyjscie.join('\n'), bledy: bledy.join('\n'), czekaj };
   }
 
-  it('TAK bez --scal: kod 0, niczego nie scala', async () => {
-    const api = router();
-    const wynik = await uruchom(['900'], api);
+  it('TAK bez --scal: kod 0, etykiety scal nie nadaje', async () => {
+    const skrypt = vi.fn(() => '');
+    const wynik = await uruchom(['900'], router(), skrypt);
     expect(wynik.kod).toBe(0);
-    expect(wynik.wyjscie).toContain(`TAK: #900 można scalić (gałąź agent/nocny-2026-11-18-n01-lista, głowa ${SHA})`);
-    expect(api.mock.calls.some((c) => String(c[0]).endsWith('/merge'))).toBe(false);
+    expect(wynik.wyjscie).toContain(`TAK: #900 spełnia warunki nocy (gałąź agent/nocny-2026-11-18-n01-lista, głowa ${SHA})`);
+    expect(skrypt).not.toHaveBeenCalled();
   });
 
-  it('TAK z --scal: scala metodą merge z SHA ocenionej głowy', async () => {
+  it('TAK z --scal: woła scal-pr.sh dla tego PR i sprawdza głowę przed i po', async () => {
     const api = router();
-    const wynik = await uruchom(['#900', '--scal'], api);
+    const skrypt = vi.fn(() => '✔ etykieta scal nadana');
+    const wynik = await uruchom(['#900', '--scal'], api, skrypt);
     expect(wynik.kod).toBe(0);
-    expect(api).toHaveBeenCalledWith(`repos/${REPO}/pulls/900/merge`, { metoda: 'PUT', pola: { merge_method: 'merge', sha: SHA } });
-    expect(wynik.wyjscie).toContain(`SCALONE: #900 (commit scalenia ${'c'.repeat(40)})`);
+    expect(skrypt).toHaveBeenCalledWith(900);
+    expect(api.mock.calls.filter((c) => c[0] === `repos/${REPO}/pulls/900`)).toHaveLength(3);
+    expect(wynik.wyjscie).toContain('✔ etykieta scal nadana');
+    expect(wynik.wyjscie).toContain(`SCAL: #900 ma etykietę scal; kolejka scalania scali go po zielonych kontrolach (głowa ${SHA}).`);
   });
 
-  it('NIE z --scal: niczego nie scala, kod 1', async () => {
-    const api = router({ pr: [pr({ draft: true })] });
-    const wynik = await uruchom(['900', '--scal'], api);
+  it('NIE z --scal: scal-pr.sh nie rusza, kod 1', async () => {
+    const skrypt = vi.fn(() => '');
+    const wynik = await uruchom(['900', '--scal'], router({ pr: [pr({ draft: true })] }), skrypt);
     expect(wynik.kod).toBe(1);
     expect(wynik.wyjscie).toContain('NIE: #900 czeka na Bartosza.');
-    expect(api.mock.calls.some((c) => String(c[0]).endsWith('/merge'))).toBe(false);
+    expect(skrypt).not.toHaveBeenCalled();
   });
 
-  it('GitHub odmawia scalenia (np. głowa się zmieniła): kod 1 z powodem', async () => {
-    const api = router({ scal: new BladApi(`repos/${REPO}/pulls/900/merge`, 409, 'gh: Head branch was modified (HTTP 409)') });
-    const wynik = await uruchom(['900', '--scal'], api);
+  it('scal-pr.sh odmawia: kod 1 z jego powodem', async () => {
+    const skrypt = vi.fn(() => {
+      throw Object.assign(new Error('exit 1'), { stderr: '✘ PR #900 ma etykietę wstrzymaj. Zdejmij ją, gdy wolno scalać. Nic nie zmieniłem.\n', stdout: '' });
+    });
+    const wynik = await uruchom(['900', '--scal'], router(), skrypt);
     expect(wynik.kod).toBe(1);
-    expect(wynik.wyjscie).toContain('NIE: GitHub odmówił scalenia #900');
-    expect(wynik.wyjscie).toContain('HTTP 409');
+    expect(wynik.wyjscie).toContain('NIE: etykiety scal na #900 nie ma: scripts/ops/scal-pr.sh odmówił: ✘ PR #900 ma etykietę wstrzymaj');
+  });
+
+  it('nowy commit po ocenie: scal-pr.sh nie rusza', async () => {
+    const skrypt = vi.fn(() => '');
+    const zmieniony = pr({ head: { ref: 'agent/nocny-2026-11-18-n01-lista', sha: INNE_SHA, repo: { full_name: REPO } } });
+    const wynik = await uruchom(['900', '--scal'], router({ pr: [pr(), zmieniony] }), skrypt);
+    expect(wynik.kod).toBe(1);
+    expect(skrypt).not.toHaveBeenCalled();
+    expect(wynik.wyjscie).toContain('głowa PR zmieniła się po ocenie (dddddddd)');
+  });
+
+  it('nowy commit w trakcie nadawania scal: zdejmuje etykietę', async () => {
+    const zmieniony = pr({ head: { ref: 'agent/nocny-2026-11-18-n01-lista', sha: INNE_SHA, repo: { full_name: REPO } } });
+    const api = router({ pr: [pr(), pr(), zmieniony] });
+    const wynik = await uruchom(['900', '--scal'], api, vi.fn(() => '✔ etykieta scal nadana'));
+    expect(wynik.kod).toBe(1);
+    expect(api).toHaveBeenCalledWith(`repos/${REPO}/issues/900/labels/scal`, { metoda: 'DELETE', dopusc404: true });
+    expect(wynik.wyjscie).toContain('etykietę zdjąłem');
+  });
+
+  it('scal-pr.sh działa tylko na FaktWay/FaktWay', async () => {
+    const api = vi.fn(async () => pr());
+    await expect(oznaczDoScalenia({ api, repo: 'inny/repo', numer: 900, sha: SHA, uruchomScal: vi.fn() })).rejects.toThrow('działa tylko na FaktWay/FaktWay');
+    expect(api).not.toHaveBeenCalled();
   });
 
   it('mergeable liczone w tle: czeka i pyta ponownie', async () => {
@@ -670,7 +628,7 @@ describe('glowna', () => {
 
   it('--json daje ocenę do odczytu przez sesję', async () => {
     const wynik = await uruchom(['900', '--json'], router());
-    expect(JSON.parse(wynik.wyjscie)).toMatchObject({ wynik: 'TAK', numer: 900, sha: SHA, powody: [], scalone: null });
+    expect(JSON.parse(wynik.wyjscie)).toMatchObject({ wynik: 'TAK', numer: 900, sha: SHA, powody: [], scal: null, odmowa: null });
   });
 
   it('--wylacznik: 0 gdy wyłączony, 1 gdy włączony', async () => {
@@ -680,12 +638,12 @@ describe('glowna', () => {
     expect(stop.wyjscie).toContain('STOP: wyłącznik włączony (otwarte zgłoszenie #7 z etykietą nocny:stop)');
   });
 
-  it('wyłącznik włączony blokuje też scalenie', async () => {
-    const api = router({ zgloszenia: [{ number: 7 }] });
-    const wynik = await uruchom(['900', '--scal'], api);
+  it('wyłącznik włączony blokuje też etykietę scal', async () => {
+    const skrypt = vi.fn(() => '');
+    const wynik = await uruchom(['900', '--scal'], router({ zgloszenia: [{ number: 7 }] }), skrypt);
     expect(wynik.kod).toBe(1);
     expect(wynik.wyjscie).toContain('Wyłącznik nocnego zespołu jest włączony');
-    expect(api.mock.calls.some((c) => String(c[0]).endsWith('/merge'))).toBe(false);
+    expect(skrypt).not.toHaveBeenCalled();
   });
 
   it.each([[[]], [['900', '901']], [['--wylacznik', '900']], [['900', '--nieznany']], [['900', '--repo', 'zla nazwa']]])(

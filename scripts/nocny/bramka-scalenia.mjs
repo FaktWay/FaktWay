@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 // Bramka scalenia nocnego zespołu (docs/runbooks/nocny-zespol.md, „Bramki scalenia”).
 //
-// Nocna sesja scala PR sama tylko przy TAK z tej bramki (decyzja Bartosza
-// z 14.11.2026, „Pełny automat”; AGENTS.md, niezmiennik 1). Każde NIE trafia
-// do raportu jako „czeka na Bartosza”. TAK wymaga naraz:
+// Nocna sesja nadaje PR etykietę `scal` tylko przy TAK z tej bramki i tylko
+// przez nią (decyzja Bartosza z 14.11.2026, „Pełny automat”; AGENTS.md,
+// niezmiennik 1). Agent w dzień scala przez `scripts/ops/scal-pr.sh` od razu;
+// noc najpierw przechodzi ostrzejsze warunki niżej, a dopiero potem bramka woła
+// ten sam skrypt, a kolejka scalania GitHuba scala PR po zielonych kontrolach.
+// Każde NIE trafia do raportu jako „czeka na Bartosza”. TAK wymaga naraz:
 //    1. wyłącznik nocnego zespołu jest wyłączony;
 //    2. pliki bramki są takie jak w origin/main (PR nie zmieni reguł, którymi
 //       jest oceniany);
 //    3. PR jest otwarty, nie jest szkicem, idzie do main z tego repozytorium,
-//       z gałęzi zaczynającej się od `agent/nocny-`;
-//    4. na PR nie ma etykiet `zgoda:*`: zgodę daje człowiek, więc on też scala;
+//       z gałęzi zaczynającej się od `agent/nocny-`, bez etykiety `wstrzymaj`;
+//    4. na PR nie ma etykiet `zgoda:*`: nocny zespół zgód nie nadaje (etap 1),
+//       więc PR z zgodą prowadzi człowiek;
 //    5. żadnego pliku z migracji, zasad i infrastruktury, wiedzy prawnej
 //       i złotych plików ani z obszarów `.github/CODEOWNERS` (etap 1);
 //    6. jest nowy albo zmieniony test w tests/, żaden test nie znika i nie
@@ -19,19 +23,18 @@
 //       kontrole wymagane (lista niżej i ruleset main) są obecne i mają wynik
 //       `success`; „Test-first (agent)” naprawdę uruchomił nowe testy na
 //       kodzie bazowym;
-//    9. GitHub mówi, że PR da się scalić od razu (`mergeable`, stan `clean`);
-//   10. PR zbiorczy (sekcja „Składowe”): każda składowa spełnia 3, 6 i 7,
-//       jej „Test-first (agent)” uruchomił testy na kodzie bazowym, jej głowa
-//       jest w PR zbiorczym, a każdy plik PR zbiorczego pochodzi ze składowej.
+//    9. GitHub mówi, że PR nie ma konfliktu (`mergeable`, stan `clean`).
+// Przy `--scal` bramka sprawdza tuż przed i tuż po `scal-pr.sh`, że głowa PR to
+// wciąż ocenione SHA; nowy commit w tym czasie zdejmuje `scal` (ocena od nowa).
 //
 // GitHub tylko przez REST (`gh api`): w sesji w chmurze proxy GitHuba odrzuca
 // GraphQL, więc `gh pr view`, `gh pr merge` i `gh issue` tam nie działają.
 //
 // Użycie:
 //   node scripts/nocny/bramka-scalenia.mjs <numer PR> [--repo właściciel/nazwa] [--json]
-//   node scripts/nocny/bramka-scalenia.mjs <numer PR> --scal   przy TAK scala metodą merge z SHA głowy
+//   node scripts/nocny/bramka-scalenia.mjs <numer PR> --scal   przy TAK: ./scripts/ops/scal-pr.sh <numer PR>
 //   node scripts/nocny/bramka-scalenia.mjs --wylacznik          czy noc może pracować
-// Kod wyjścia: 0 TAK (przy --scal: scalone) albo wyłącznik wyłączony;
+// Kod wyjścia: 0 TAK (przy --scal: etykieta `scal` nadana) albo wyłącznik wyłączony;
 //              1 NIE albo wyłącznik włączony; 2 błąd (traktuj jak NIE i jak stop).
 
 import { execFileSync } from 'node:child_process';
@@ -48,6 +51,11 @@ export const ETYKIETA_STOP = 'nocny:stop';
 export const ZMIENNA_STOP = 'NOCNY_STOP';
 export const PREFIKS_ZGODY = 'zgoda:';
 export const ETYKIETA_OBSZARU = 'zgoda:obszar-wrazliwy';
+export const ETYKIETA_SCAL = 'scal';
+export const ETYKIETA_WSTRZYMAJ = 'wstrzymaj';
+/** `scripts/ops/scal-pr.sh` ma to repozytorium wpisane na stałe. */
+export const REPO_KOLEJKI = 'FaktWay/FaktWay';
+export const SKRYPT_SCALANIA = 'scripts/ops/scal-pr.sh';
 
 /** Muszą być na głowie PR z wynikiem `success`; dochodzą do nich wymagane z rulesetu main. */
 export const KONTROLE_WYMAGANE = [
@@ -58,6 +66,7 @@ export const KONTROLE_WYMAGANE = [
   'Agent guard',
   'Filtr: straż',
   'Filtr: testy prawne',
+  'Mobile (typy i eslint)',
   'Secret scan',
   'Offline security inventory',
   'dependency-review',
@@ -113,10 +122,9 @@ export const ZASADY_I_INFRASTRUKTURA = [
 export const WIEDZA_I_ZLOTE = [...WIEDZA, '**/__snapshots__/**', 'tests/**/*zlote*', 'docs/ksiegowosc/ZLOTE-*'];
 
 /** Pliki, które bramka czyta z kopii lokalnej: muszą być takie jak w origin/main. */
-export const SCIEZKI_BRAMKI = ['scripts/nocny', 'scripts/filtr', 'scripts/ci/agent-guard.mjs', '.github/CODEOWNERS'];
+export const SCIEZKI_BRAMKI = ['scripts/nocny', 'scripts/filtr', 'scripts/ci/agent-guard.mjs', '.github/CODEOWNERS', SKRYPT_SCALANIA];
 
 export const NAGLOWEK_TESTU = /^##\s+(?:Najpierw test|Czerwony test)\b/i;
-export const NAGLOWEK_SKLADOWYCH = /^##\s+Składowe\b/i;
 
 const TEST = /^tests\/.+\.test\.tsx?$/;
 const POMINIECIE_TESTU = /\b(?:describe|it|test|suite)\s*\.\s*(?:skip|only)\b|\b(?:xit|xtest|xdescribe|fit|fdescribe)\s*\(/;
@@ -126,7 +134,7 @@ const SHA = /^[0-9a-f]{40}$/;
 const STANY_SCALENIA = {
   clean: 'gotowy do scalenia',
   dirty: 'konflikt z main',
-  behind: 'gałąź za main: zaktualizuj ją i poczekaj na CI',
+  behind: 'gałąź za main: scal do niej origin/main i poczekaj na CI',
   blocked: 'blokada rulesetu main (wymagana kontrola nie jest zielona)',
   unstable: 'czerwona kontrola spoza wymaganych',
   draft: 'szkic',
@@ -239,12 +247,6 @@ export function ocenOpis(opis, testy) {
   return null;
 }
 
-/** Numery PR (`#123`) z tekstu, bez powtórzeń, w kolejności. */
-export function numeryPR(tekst) {
-  const numery = [...(tekst ?? '').matchAll(/(?<![\w/&])#(\d+)\b/g)].map((m) => Number(m[1]));
-  return [...new Set(numery)];
-}
-
 /** Najnowszy przebieg każdej kontroli (największe id: ponowienie i nowe zdarzenie dostają nowe). */
 export function najnowszePrzebiegi(przebiegi) {
   const najnowsze = new Map();
@@ -321,8 +323,8 @@ export function ocenKontrole({ przebiegi, statusy, wymagane, krokiTestFirst }) {
   return powody;
 }
 
-/** Stan PR (otwarty, szkic, baza, fork, gałąź, etykiety zgody, możliwość scalenia). */
-export function ocenStanPR(pr, { skladowa = false } = {}) {
+/** Czy to otwarty PR nocnego zespołu z tego repozytorium do main (bez etykiet i stanu scalenia). */
+export function ocenGalaz(pr) {
   const powody = [];
   if (pr.state !== 'open') powody.push(`PR nie jest otwarty (${pr.merged ? 'już scalony' : `stan: ${pr.state}`}).`);
   if (pr.draft) powody.push('PR jest szkicem.');
@@ -332,11 +334,18 @@ export function ocenStanPR(pr, { skladowa = false } = {}) {
     powody.push('PR spoza tego repozytorium (fork): nocny zespół scala tylko własne gałęzie.');
   }
   if (!pr.head?.ref?.startsWith(PREFIKS_GALEZI)) powody.push(`Gałąź ${pr.head?.ref ?? '?'} nie zaczyna się od ${PREFIKS_GALEZI}.`);
-  // Także na składowej: zgoda na niej (np. zgoda:bez-testu) zmienia wynik jej kontroli.
-  const zgody = (pr.labels ?? []).map((etykieta) => etykieta.name).filter((nazwa) => nazwa?.startsWith(PREFIKS_ZGODY));
-  if (zgody.length > 0) powody.push(`Etykiety zgody na PR (${zgody.join(', ')}): zgodę daje człowiek, więc PR scala człowiek.`);
-  if (skladowa) return powody;
+  return powody;
+}
 
+/** Stan PR: gałąź, etykiety (`zgoda:*`, `wstrzymaj`) i możliwość scalenia. */
+export function ocenStanPR(pr) {
+  const powody = ocenGalaz(pr);
+  const etykiety = (pr.labels ?? []).map((etykieta) => etykieta.name);
+  const zgody = etykiety.filter((nazwa) => nazwa?.startsWith(PREFIKS_ZGODY));
+  if (zgody.length > 0) {
+    powody.push(`Etykiety zgody na PR (${zgody.join(', ')}): nocny zespół zgód nie nadaje, taki PR prowadzi człowiek.`);
+  }
+  if (etykiety.includes(ETYKIETA_WSTRZYMAJ)) powody.push(`Etykieta ${ETYKIETA_WSTRZYMAJ}: ktoś zatrzymał scalanie tego PR.`);
   if (pr.mergeable === null || pr.mergeable === undefined) {
     powody.push('GitHub jeszcze liczy, czy PR da się scalić. Sprawdź za minutę.');
   } else if (pr.mergeable === false || pr.mergeable_state !== 'clean') {
@@ -345,49 +354,16 @@ export function ocenStanPR(pr, { skladowa = false } = {}) {
   return powody;
 }
 
-/** Składowe PR zbiorczego. `skladowe`: null, gdy PR nie jest zbiorczy. */
-export function ocenSkladowe(skladowe, plikiZbiorczego) {
-  if (!skladowe) return [];
-  if (skladowe.length === 0) return ['Sekcja „Składowe” bez numerów PR (#N).'];
-  const powody = [];
-  const zeSkladowych = new Set();
-  for (const skladowa of skladowe) {
-    const kto = `Składowa #${skladowa.numer}`;
-    if (skladowa.blad) {
-      powody.push(`${kto}: ${skladowa.blad}`);
-      continue;
-    }
-    for (const plik of skladowa.pliki) {
-      zeSkladowych.add(plik.filename);
-      if (plik.previous_filename) zeSkladowych.add(plik.previous_filename);
-    }
-    for (const powod of ocenStanPR(skladowa.pr, { skladowa: true })) powody.push(`${kto}: ${powod}`);
-    const { testy } = ocenPliki(skladowa.pliki);
-    if (testy.length === 0) powody.push(`${kto}: brak nowego albo zmienionego testu w tests/.`);
-    const opis = ocenOpis(skladowa.pr.body, testy);
-    if (opis) powody.push(`${kto}: ${opis}`);
-    const test = ocenTestNaBazie(najnowszePrzebiegi(skladowa.przebiegi).get(KONTROLA_TEST_FIRST), skladowa.krokiTestFirst);
-    if (test) powody.push(`${kto}: ${test}`);
-    if (!skladowa.zawarta) powody.push(`${kto}: jej głowa ${(skladowa.pr.head?.sha ?? '?').slice(0, 8)} nie jest w PR zbiorczym.`);
-  }
-  const obce = plikiZbiorczego.map((plik) => plik.filename).filter((nazwa) => !zeSkladowych.has(nazwa));
-  if (obce.length > 0) powody.push(`Pliki PR zbiorczego spoza składowych: ${lista(obce)}.`);
-  return powody;
-}
-
 /** Jedna linia do wykonania przez Bartosza, gdy da się ją podać; inaczej null. */
-export function liniaDlaBartosza({ numer, sha, kategorie, etykiety }) {
+export function liniaDlaBartosza({ numer, kategorie, etykiety }) {
   if (kategorie.migracje.length + kategorie.zasady.length + kategorie.wiedza.length > 0) {
     return `zmiana poza zasięgiem nocnego zespołu, przejrzyj ją i zdecyduj: gh pr view ${numer} --web`;
   }
   if (kategorie.wrazliwe.length === 0) return null;
-  const scal = `gh pr checks ${numer} --watch && gh pr merge ${numer} --merge --match-head-commit ${sha}`;
+  const scal = `./${SKRYPT_SCALANIA} ${numer} --czekaj`;
   if (etykiety.includes(ETYKIETA_OBSZARU)) return `po przeczytaniu zmian: ${scal}`;
+  // `sleep`: „Agent guard” liczy się od nowa po nadaniu etykiety, a scal-pr.sh odmawia przy czerwonej kontroli.
   return `po przeczytaniu zmian: gh pr edit ${numer} --add-label ${ETYKIETA_OBSZARU} && sleep 30 && ${scal}`;
-}
-
-function wlasnyOtwarty(pr) {
-  return ocenStanPR(pr, { skladowa: true }).filter((powod) => !powod.startsWith('Etykiety zgody')).length === 0;
 }
 
 /** Ocena całego PR. Zwraca { wynik: 'TAK'|'NIE', numer, sha, galaz, powody, uwagi, linia }. */
@@ -416,7 +392,6 @@ export function ocenPR(dane) {
       krokiTestFirst: dane.krokiTestFirst,
     }),
   );
-  powody.push(...ocenSkladowe(dane.skladowe, dane.pliki));
 
   const wynik = powody.length === 0 ? 'TAK' : 'NIE';
   const etykiety = (dane.pr.labels ?? []).map((etykieta) => etykieta.name);
@@ -428,7 +403,7 @@ export function ocenPR(dane) {
     powody,
     uwagi,
     // Linia tylko dla własnego, otwartego PR nocnego zespołu: forka ani cudzej gałęzi nie podsuwamy do scalenia.
-    linia: wynik === 'NIE' && wlasnyOtwarty(dane.pr) ? liniaDlaBartosza({ numer: dane.pr.number, sha: dane.pr.head?.sha, kategorie: pliki.kategorie, etykiety }) : null,
+    linia: wynik === 'NIE' && ocenGalaz(dane.pr).length === 0 ? liniaDlaBartosza({ numer: dane.pr.number, kategorie: pliki.kategorie, etykiety }) : null,
   };
 }
 
@@ -436,7 +411,7 @@ export function ocenPR(dane) {
 export function opisOceny(ocena) {
   const linie = [];
   if (ocena.wynik === 'TAK') {
-    linie.push(`TAK: #${ocena.numer} można scalić (gałąź ${ocena.galaz}, głowa ${ocena.sha}).`);
+    linie.push(`TAK: #${ocena.numer} spełnia warunki nocy (gałąź ${ocena.galaz}, głowa ${ocena.sha}).`);
   } else {
     linie.push(`NIE: #${ocena.numer} czeka na Bartosza.`, 'Powody:', ...ocena.powody.map((powod) => `- ${powod}`));
   }
@@ -593,23 +568,6 @@ async function krokiTestu({ api, repo, przebiegi, uwagi, kto }) {
   }
 }
 
-async function zbierzSkladowe({ api, repo, numery, glowa, uwagi }) {
-  const skladowe = [];
-  for (const numer of numery) {
-    try {
-      const pr = await api(`repos/${repo}/pulls/${numer}`);
-      const pliki = await wszystkieStrony(api, `repos/${repo}/pulls/${numer}/files`);
-      const przebiegi = await wszystkieStrony(api, `repos/${repo}/commits/${pr.head.sha}/check-runs?filter=all`, 'check_runs');
-      const krokiTestFirst = await krokiTestu({ api, repo, przebiegi, uwagi, kto: `Składowa #${numer}` });
-      const porownanie = await api(`repos/${repo}/compare/${pr.head.sha}...${glowa}?per_page=1`);
-      skladowe.push({ numer, pr, pliki, przebiegi, krokiTestFirst, zawarta: ['ahead', 'identical'].includes(porownanie?.status) });
-    } catch (blad) {
-      skladowe.push({ numer, blad: blad instanceof Error ? blad.message : 'nie da się odczytać' });
-    }
-  }
-  return skladowe;
-}
-
 const czekajMs = (ms) => new Promise((gotowe) => setTimeout(gotowe, ms));
 
 /** Wszystko, czego potrzebuje `ocenPR`, z GitHub (REST) i gita. */
@@ -634,11 +592,6 @@ export async function zbierzDane({ numer, repo, api, git, codeowners, czekaj = c
     uwagi.push(`Rulesetu main nie da się odczytać (${blad instanceof Error ? blad.message : 'błąd'}): bramka sprawdza własną listę kontroli.`);
   }
   const krokiTestFirst = await krokiTestu({ api, repo, przebiegi, uwagi, kto: `#${numer}` });
-  const sekcja = sekcjaOpisu(pr.body, NAGLOWEK_SKLADOWYCH);
-  const skladowe =
-    sekcja === null
-      ? null
-      : await zbierzSkladowe({ api, repo, numery: numeryPR(sekcja).filter((n) => n !== numer), glowa: sha, uwagi });
   return {
     zrodlo,
     wylacznik,
@@ -648,18 +601,45 @@ export async function zbierzDane({ numer, repo, api, git, codeowners, czekaj = c
     statusy,
     wymagane,
     krokiTestFirst,
-    skladowe,
     codeowners: parseCodeowners(codeowners ?? ''),
     uwagi,
   };
 }
 
-/** Scalenie metodą merge pod warunkiem, że głowa PR to wciąż ocenione SHA (REST, bez GraphQL). */
-export async function scal({ api, repo, numer, sha }) {
-  if (!SHA.test(sha ?? '')) throw new Error('brak pełnego SHA głowy, bez niego bramka nie scala');
-  const wynik = await api(`repos/${repo}/pulls/${numer}/merge`, { metoda: 'PUT', pola: { merge_method: 'merge', sha } });
-  if (!wynik?.merged) throw new Error(wynik?.message ?? 'GitHub nie potwierdził scalenia');
-  return wynik.sha;
+function uruchomSkryptScalania(numer) {
+  return execFileSync('bash', [join(KATALOG_REPO, SKRYPT_SCALANIA), String(numer)], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 10 * 60_000,
+  });
+}
+
+/**
+ * Etykieta `scal` przez `scripts/ops/scal-pr.sh` (bez `--zgoda`: nocny zespół
+ * zgód nie nadaje). Głowa PR musi być ocenionym SHA tuż przed skryptem i tuż
+ * po nim; nowy commit w tym czasie zdejmuje `scal`, bo bramka go nie oceniła.
+ * Zwraca wyjście skryptu. Rzuca błąd z powodem, gdy etykiety nie ma.
+ */
+export async function oznaczDoScalenia({ api, repo, numer, sha, uruchomScal = uruchomSkryptScalania }) {
+  if (repo !== REPO_KOLEJKI) throw new Error(`${SKRYPT_SCALANIA} działa tylko na ${REPO_KOLEJKI}, a bramka oceniła ${repo}`);
+  if (!SHA.test(sha ?? '')) throw new Error('brak pełnego SHA głowy, bez niego bramka nie nadaje scal');
+  const przed = await api(`repos/${repo}/pulls/${numer}`);
+  if (przed?.head?.sha !== sha) {
+    throw new Error(`głowa PR zmieniła się po ocenie (${String(przed?.head?.sha ?? '?').slice(0, 8)}): uruchom bramkę jeszcze raz`);
+  }
+  let wyjscie;
+  try {
+    wyjscie = uruchomScal(numer);
+  } catch (blad) {
+    const tekst = `${blad?.stderr ?? ''}\n${blad?.stdout ?? ''}`.trim() || String(blad?.message ?? 'nieznany błąd');
+    throw new Error(`${SKRYPT_SCALANIA} odmówił: ${tekst.split('\n').slice(-3).join(' ').slice(0, 400)}`);
+  }
+  const po = await api(`repos/${repo}/pulls/${numer}`);
+  if (po?.head?.sha !== sha) {
+    await api(`repos/${repo}/issues/${numer}/labels/${ETYKIETA_SCAL}`, { metoda: 'DELETE', dopusc404: true });
+    throw new Error(`nowy commit w trakcie nadawania ${ETYKIETA_SCAL}: etykietę zdjąłem, uruchom bramkę jeszcze raz`);
+  }
+  return String(wyjscie ?? '').trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -706,6 +686,7 @@ export async function glowna(argv, zaleznosci = {}) {
     wypisz = (tekst) => console.log(tekst),
     bledy = (tekst) => console.error(tekst),
     czekaj = czekajMs,
+    uruchomScal = uruchomSkryptScalania,
   } = zaleznosci;
   const opcje = czytajArgumenty(argv);
   if ('blad' in opcje) {
@@ -718,7 +699,8 @@ export async function glowna(argv, zaleznosci = {}) {
     return 2;
   }
   try {
-    // Pełna nazwa repozytorium: po zmianie nazwy stary adres przekierowuje GET, ale nie PUT scalenia.
+    // Pełna nazwa repozytorium: stary adres (sprzed przeniesienia do organizacji) przekierowuje tylko GET,
+    // a `--scal` porównuje ją z repozytorium, na którym działa scal-pr.sh.
     repo = (await api(`repos/${repo}`))?.full_name ?? repo;
     if (opcje.wylacznik) {
       const wylacznik = await sprawdzWylacznik({ api, repo });
@@ -728,20 +710,23 @@ export async function glowna(argv, zaleznosci = {}) {
     }
     const dane = await zbierzDane({ numer: opcje.numer, repo, api, git, codeowners: czytajCodeowners(), czekaj });
     const ocena = ocenPR(dane);
-    let scalone = null;
+    let scal = null;
     let odmowa = null;
     if (ocena.wynik === 'TAK' && opcje.scal) {
       try {
-        scalone = await scal({ api, repo, numer: ocena.numer, sha: ocena.sha });
+        scal = await oznaczDoScalenia({ api, repo, numer: ocena.numer, sha: ocena.sha, uruchomScal });
       } catch (blad) {
         odmowa = blad instanceof Error ? blad.message : 'nieznany błąd';
       }
     }
-    if (opcje.json) wypisz(JSON.stringify({ ...ocena, scalone, odmowa }, null, 2));
+    if (opcje.json) wypisz(JSON.stringify({ ...ocena, scal, odmowa }, null, 2));
     else {
       wypisz(opisOceny(ocena));
-      if (scalone) wypisz(`SCALONE: #${ocena.numer} (commit scalenia ${scalone}).`);
-      if (odmowa) wypisz(`NIE: GitHub odmówił scalenia #${ocena.numer}: ${odmowa}`);
+      if (scal !== null) {
+        if (scal) wypisz(scal);
+        wypisz(`SCAL: #${ocena.numer} ma etykietę ${ETYKIETA_SCAL}; kolejka scalania scali go po zielonych kontrolach (głowa ${ocena.sha}).`);
+      }
+      if (odmowa) wypisz(`NIE: etykiety ${ETYKIETA_SCAL} na #${ocena.numer} nie ma: ${odmowa}`);
     }
     if (odmowa) return 1;
     return ocena.wynik === 'TAK' ? 0 : 1;
