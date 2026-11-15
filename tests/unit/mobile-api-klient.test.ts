@@ -88,6 +88,7 @@ describe('kody błędów kontraktu', () => {
       deletion_blocked: 'odmowa',
       deletion_in_progress: 'odmowa',
       settlement_refused: 'odmowa',
+      invoice_change_refused: 'odmowa',
       // Kontrahenci (M10e): zdanie serwera, przy `contractor_invalid` pod polem.
       contractor_invalid: 'odmowa',
       contractor_exists: 'odmowa',

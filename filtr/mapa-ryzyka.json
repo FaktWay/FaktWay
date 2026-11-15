@@ -238,8 +238,11 @@
         "lib/noty/**",
         "lib/api/v1/invoice-create.ts",
         "lib/invoices/{issue-regular,send-draft}.ts",
+        "lib/invoices/{ksef-resend,delete-draft,lookup-buyer}.ts",
         "lib/api/mobile/{faktury,schematy}.ts",
+        "lib/api/mobile/{faktury-wspolne,faktury-rodzaje,schematy-rodzaje}.ts",
         "app/api/mobile/v1/faktury/**",
+        "app/api/mobile/v1/gus/**",
         "supabase/migrations/00201_*.sql",
         "app/api/v1/invoices/route.ts",
         "app/api/noty/**",
@@ -286,6 +289,7 @@
         "lib/ksef/fa3-correction-generator.ts",
         "lib/invoices/correction-{amount-change,parents,annotations,picker}.ts",
         "components/invoices/correction-actions.ts",
+        "lib/invoices/issue-correction.ts",
         "components/invoices/correction-form.tsx",
         "supabase/migrations/{00133,00135}_*.sql"
       ]
@@ -297,6 +301,7 @@
       "sciezki": [
         "lib/ksef/fa3-advance-generator.ts",
         "lib/invoices/{settled-advances,advance-settlement}.ts",
+        "lib/invoices/{issue-advance,issue-final}.ts",
         "components/invoices/final-actions.ts"
       ]
     },
@@ -794,6 +799,7 @@
         "mobile/src/lib/faktura/**",
         "mobile/src/lib/dane/mapowanie.ts",
         "mobile/src/stan/dane.tsx",
+        "mobile/src/stan/faktury-rodzaje.tsx",
         "mobile/src/lib/kwota-z-pola.ts"
       ]
     },

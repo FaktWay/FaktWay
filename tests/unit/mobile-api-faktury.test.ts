@@ -308,8 +308,9 @@ describe('POST /api/mobile/v1/faktury', () => {
     expect(writes).toEqual([]);
   });
 
-  it('pole spoza kontraktu (faktura cykliczna, nabywca z UE): 400 invalid_request bez zapisu', async () => {
-    for (const extra of [{ recurringInvoiceId: '3f0f6a2e-1111-4111-8111-000000000009' }, { buyerIsEu: true }]) {
+  it('pole spoza kontraktu (faktura cykliczna, waluta): 400 invalid_request bez zapisu', async () => {
+    // Nabywca z UE był tu przykładem do M8b; od M8b jest w kontrakcie (`buyerIsEu`, `tests/unit/mobile-api-faktury-rodzaje.test.ts`).
+    for (const extra of [{ recurringInvoiceId: '3f0f6a2e-1111-4111-8111-000000000009' }, { currency: 'EUR' }]) {
       const response = await wystaw({ wyslij: true, faktura: { ...faktura(), ...extra } });
       expect(response.status).toBe(400);
       expect((await errorOf(response)).code).toBe('invalid_request');
@@ -557,7 +558,7 @@ describe('GET /api/mobile/v1/faktury/podpowiedz', () => {
     });
     const response = await podpowiedzRoute(request);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ numer: null, seria: null, dzis: DZIS, zwolnienieVat: false });
+    expect(await response.json()).toEqual({ numer: null, seria: null, dzis: DZIS, zwolnienieVat: false, wysylkaWstrzymana: null });
   });
 
   it('firma z serią domyślną: numer z licznika i id serii (jak formularz strony)', async () => {
@@ -566,6 +567,6 @@ describe('GET /api/mobile/v1/faktury/podpowiedz', () => {
     const request = new Request('https://app.example.test/api/mobile/v1/faktury/podpowiedz', {
       headers: { authorization: `Bearer ${TOKEN_A}`, 'x-active-org': ORG_A, 'x-real-ip': '198.51.100.10' },
     });
-    expect(await (await podpowiedzRoute(request)).json()).toEqual({ numer: 'FV/5/11/2026', seria: SERIA, dzis: DZIS, zwolnienieVat: false });
+    expect(await (await podpowiedzRoute(request)).json()).toEqual({ numer: 'FV/5/11/2026', seria: SERIA, dzis: DZIS, zwolnienieVat: false, wysylkaWstrzymana: null });
   });
 });

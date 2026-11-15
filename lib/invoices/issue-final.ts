@@ -1,0 +1,480 @@
+import 'server-only';
+
+import { revalidatePath } from 'next/cache';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+import { logAudit } from '@/lib/audit/log';
+import { readTenantCashMethodForIssuance } from '@/lib/invoices/cash-method';
+import { issueDateNotTodayError } from '@/lib/invoices/issue-date';
+import { findAdvancesAlreadySettled } from '@/lib/invoices/settled-advances';
+import { finalSpecialData, specialDataInsertError } from '@/lib/invoices/special-data';
+import {
+  settlementRowFromAdvance,
+  type AdvanceInvoiceDbRow,
+} from '@/lib/invoices/advance-settlement';
+import { ROZ_SUBMISSION_HOLD_MESSAGE } from '@/lib/ksef/roz-submission-hold';
+import { formatJobSendError } from '@/lib/jobs/error-message';
+import {
+  settlementVatSummaries,
+  type AdvanceInvoiceSettlementRow,
+} from '@/lib/ksef/fa3-advance-generator';
+import {
+  calculateFinalInvoiceTotals,
+  calculateInvoiceTotals,
+} from '@/lib/invoices/calculator';
+import { matchesTenantSeller, sellerFromTenantProfile } from '@/lib/invoices/tenant-seller';
+import {
+  numberConflictOf,
+  numberRefusalText,
+  numberRequestOf,
+  saveWithInvoiceNumber,
+  type NumberColumns,
+  type NumberedResult,
+} from '@/lib/numeracja/nadanie';
+import {
+  buyerPartyFromBuyerData,
+  sellerPartyFromSellerData,
+} from '@/lib/invoices/map-buyer-party';
+import {
+  finalInvoiceSchema,
+  type FinalInvoiceSchemaIn,
+} from '@/lib/validators/invoice-validators';
+import {
+  calculateLineItem,
+  roundToCents,
+} from '@/lib/xml/invoice-calculator';
+import type {
+  Invoice,
+  InvoiceLineItem,
+  PaymentMethod,
+  SellerParty,
+  VatRate,
+} from '@/types/invoice';
+import type { BuyerData, FinalInvoiceData, InvoiceLine, SellerData } from '@/types/invoice-types';
+
+/**
+ * Faktura rozliczająca zaliczki (ROZ) z wartości formularza (plan aplikacji
+ * mobilnej, etap M8b; wzór `lib/invoices/issue-regular.ts`). Do M8b ta logika
+ * siedziała w `components/invoices/final-actions.ts`; teraz akcje strony i
+ * trasa telefonu wołają te same funkcje, a wołający podaje sesję i firmę
+ * (`FinalContextSource`). Kolejność kroków i komunikaty bez zmian; wysyłka ROZ
+ * nadal wstrzymana (`ROZ_SUBMISSION_HOLD_MESSAGE`).
+ */
+
+export type FinalIssueResult =
+  | { success: true; invoiceId: string; offline?: boolean }
+  | { success: false; error: string; invoiceId?: string };
+
+function zodIssuesMessage(err: {
+  issues: readonly { path: PropertyKey[]; message: string }[];
+}): string {
+  return err.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(' · ');
+}
+
+interface TenantSnap {
+  id: string;
+  nip: string;
+  name: string;
+  address: {
+    countryCode?: string;
+    addressLine1?: string;
+    addressLine2?: string;
+  } | null;
+}
+
+/**
+ * Sesja i firma zapisu: akcja strony (`requireUserAndActiveOrg` z
+ * `expectedTenantId`, UX-01) albo trasa telefonu (`authenticateMobileRequest`).
+ * Wołane leniwie wewnątrz `try`, jak przed wydzieleniem.
+ */
+export interface FinalIssueContext {
+  supabase: SupabaseClient;
+  userId: string;
+  tenant: TenantSnap;
+}
+
+export type FinalContextSource = () => Promise<FinalIssueContext>;
+
+function normalizeBank(raw: string | undefined): string | undefined {
+  if (!raw?.trim()) return undefined;
+  return raw.replace(/\s+/g, '');
+}
+
+function paymentMethodFa(m: FinalInvoiceSchemaIn['paymentMethod']): PaymentMethod {
+  if (m === 'compensation') return 'other';
+  return m as PaymentMethod;
+}
+
+function requireTenantSeller(supplied: SellerData, tenant: TenantSnap): SellerData {
+  const seller = sellerFromTenantProfile({
+    nip: tenant.nip,
+    name: tenant.name,
+    address_json: tenant.address,
+  });
+  if (!seller) {
+    throw new Error('Uzupełnij poprawne dane sprzedawcy w ustawieniach firmy przed wystawieniem faktury.');
+  }
+  if (!matchesTenantSeller(supplied, seller)) {
+    throw new Error('Dane sprzedawcy zmieniły się lub nie należą do tej firmy. Odśwież formularz.');
+  }
+  return seller;
+}
+
+function invoiceLineItemsFromDomain(lines: InvoiceLine[]): InvoiceLineItem[] {
+  return lines.map((line, idx) => {
+    const calc = calculateLineItem({
+      quantity: line.quantity,
+      unitPriceNet: line.unitPriceNet,
+      vatRate: line.vatRate as VatRate,
+    });
+    return {
+      ordinal: idx + 1,
+      name: line.name,
+      unit: line.unit,
+      quantity: line.quantity,
+      unitPriceNet: line.unitPriceNet,
+      vatRate: line.vatRate as VatRate,
+      ...calc,
+    };
+  });
+}
+
+function buildFinalEnvelope(
+  parsed: FinalInvoiceSchemaIn,
+  advancesSum: number,
+  cashMethod: boolean,
+): FinalInvoiceData {
+  const bankNorm = normalizeBank(parsed.bankAccount ?? '');
+  const buyer = parsed.buyer as BuyerData;
+  const seller = parsed.seller as SellerData;
+
+  return {
+    invoiceType: 'final',
+    internalNumber: parsed.internalNumber,
+    issueDate: parsed.issueDate,
+    paymentMethod: parsed.paymentMethod,
+    paymentDueDate: parsed.paymentDueDate,
+    bankAccount: bankNorm,
+    notes: parsed.notes?.trim()?.length ? parsed.notes.trim() : undefined,
+    seller,
+    buyer,
+    taxAnnotations: {
+      cashMethod: cashMethod ? 1 : 2,
+      splitPayment: parsed.splitPayment ? 1 : 2,
+    },
+    advanceInvoiceIds: parsed.advanceInvoiceIds,
+    totalAdvances: advancesSum,
+    lines: parsed.lines.map((l) => ({
+      ...l,
+      vatRate: l.vatRate as InvoiceLine['vatRate'],
+    })),
+  };
+}
+
+function ghostFinalInvoice(envelope: FinalInvoiceData): Invoice {
+  const preparedLines = invoiceLineItemsFromDomain(envelope.lines);
+  const totals = calculateInvoiceTotals(preparedLines);
+
+  const roundedAdvancesSum = envelope.advanceInvoiceIds.length
+    ? roundToCents(envelope.totalAdvances)
+    : 0;
+
+  const finalTotals = calculateFinalInvoiceTotals(envelope.lines, roundedAdvancesSum);
+
+  const seller: SellerParty = sellerPartyFromSellerData(envelope.seller);
+  const buyer = buyerPartyFromBuyerData(envelope.buyer);
+
+  return {
+    internalNumber: envelope.internalNumber,
+    type: 'ROZ',
+    issueDate: envelope.issueDate,
+    seller,
+    buyer,
+    lines: preparedLines,
+    netTotal: totals.netTotal,
+    vatTotal: totals.vatTotal,
+    grossTotal: totals.grossTotal,
+    payment: {
+      amountDue: finalTotals.amountDue,
+      currency: 'PLN',
+      dueDate: envelope.paymentDueDate,
+      method: paymentMethodFa(envelope.paymentMethod),
+      bankAccount: normalizeBank(envelope.bankAccount),
+    },
+    annotations: envelope.taxAnnotations,
+    notes: envelope.notes,
+  };
+}
+
+/**
+ * Nabywca do porównania zaliczki z fakturą rozliczającą (F12-D4): NIP (same
+ * cyfry), bez niego numer VAT-UE, bez niego nazwa. Faktura rozliczająca
+ * (art. 106f ust. 3 ustawy o VAT) obejmuje zaliczki tego samego nabywcy.
+ */
+function kluczNabywcy(nip: unknown, dane: unknown): string {
+  const n = typeof nip === 'string' ? nip.replace(/\D/g, '') : '';
+  if (n) return `nip:${n}`;
+  const o = dane && typeof dane === 'object' && !Array.isArray(dane) ? (dane as Record<string, unknown>) : {};
+  const vatUe = typeof o.vatUeNumber === 'string' ? o.vatUeNumber.replace(/\s/g, '').toUpperCase() : '';
+  if (vatUe) return `ue:${vatUe}`;
+  const nazwa = typeof o.name === 'string' ? o.name.replace(/\s+/g, ' ').trim().toLowerCase() : '';
+  return `nazwa:${nazwa}`;
+}
+
+async function fetchSettlementRows(
+  supabase: SupabaseClient,
+  tenantId: string,
+  ids: string[],
+  /** `kluczNabywcy` nabywcy faktury rozliczającej. */
+  nabywca: string,
+): Promise<AdvanceInvoiceSettlementRow[] | { error: string }> {
+  if (!ids.length) return { error: 'Brak zaliczek do rozliczenia.' };
+
+  const { data, error } = await supabase
+    .from('invoices')
+    .select(
+      'id, internal_number, ksef_number, issue_date, advance_amount, gross_total, net_total, vat_total, fa3_data, invoice_kind, buyer_nip, buyer_data',
+    )
+    .eq('tenant_id', tenantId)
+    .eq('direction', 'outgoing')
+    .eq('ksef_status', 'accepted')
+    .in('id', ids);
+
+  if (error || !data) {
+    return { error: error?.message ?? 'Odczyt faktur zaliczkowych nie powiódł się.' };
+  }
+
+  if (data.length !== ids.length) {
+    return { error: 'Nie znaleziono wszystkich wybranych zaliczek albo są z innej firmy.' };
+  }
+
+  for (const row of data) {
+    if (row.invoice_kind !== 'advance') {
+      return {
+        error: `Dokument ${row.internal_number ?? row.id.slice(0, 8)} nie jest fakturą zaliczkową.`,
+      };
+    }
+    if (kluczNabywcy(row.buyer_nip, row.buyer_data) !== nabywca) {
+      return {
+        error: `Zaliczkę ${row.internal_number ?? row.id.slice(0, 8)} wystawiono dla innego nabywcy, a faktura rozliczająca obejmuje tylko zaliczki tego samego nabywcy (art. 106f ust. 3 ustawy o VAT). Wybierz zaliczki tego nabywcy albo zmień nabywcę.`,
+      };
+    }
+  }
+
+  const byId = new Map(data.map((r) => [r.id as string, r]));
+
+  const rows: AdvanceInvoiceSettlementRow[] = [];
+  for (const id of ids) {
+    const r = byId.get(id);
+    if (!r) continue;
+    const amt = Number(r.advance_amount ?? r.gross_total ?? 0);
+    if (!(amt > 0)) {
+      return { error: `Faktura zaliczkowa ${r.internal_number ?? id} nie ma kwoty rozliczenia.` };
+    }
+    // Ze stawką i rozbiciem — ROZ odejmuje zaliczkę w jej stawce (art. 106f ust. 3).
+    rows.push(settlementRowFromAdvance(r as AdvanceInvoiceDbRow));
+  }
+
+  return rows;
+}
+
+/**
+ * `numberColumns` (krok 2.5, 00199): seria, okres, licznik i klucz zapisu;
+ * bez serii pusty obiekt (wiersz jak dotąd). Odmowę numeru przez bazę wynik
+ * niesie w `numberConflict` dla `saveWithInvoiceNumber`.
+ */
+async function insertFinalDraft(
+  supabase: SupabaseClient,
+  tenantId: string,
+  ghost: Invoice,
+  envelope: FinalInvoiceData,
+  settlement: AdvanceInvoiceSettlementRow[],
+  numberColumns: NumberColumns = {},
+): Promise<NumberedResult<FinalIssueResult>> {
+  const { data: inserted, error: invErr } = await supabase
+    .from('invoices')
+    .insert({
+      ...numberColumns,
+      tenant_id: tenantId,
+      direction: 'outgoing',
+      ksef_status: 'draft',
+      internal_number: ghost.internalNumber,
+      invoice_kind: 'final',
+      invoice_type: 'ROZ',
+      issue_date: ghost.issueDate,
+      seller_nip: ghost.seller.nip,
+      buyer_nip: ghost.buyer.nip ?? null,
+      seller_data: ghost.seller,
+      buyer_data: ghost.buyer,
+      payment_data: ghost.payment,
+      payment_due_date: ghost.payment.dueDate,
+      currency: 'PLN',
+      net_total: ghost.netTotal,
+      vat_total: ghost.vatTotal,
+      gross_total: ghost.grossTotal,
+      advance_invoice_ids: envelope.advanceInvoiceIds,
+      notes: envelope.notes ?? null,
+      fa3_data: ghost,
+      // A4b (00137): dane zdarzenia wysyłki ROZ (dziś szkic; wysyłka wstrzymana do C4).
+      special_data: finalSpecialData(envelope, settlement),
+    })
+    .select('id')
+    .single();
+
+  if (invErr || !inserted) {
+    const numberConflict = numberConflictOf(invErr);
+    return {
+      success: false,
+      error: specialDataInsertError(invErr, `faktury rozliczającej ${ghost.internalNumber}`)
+        ?? numberRefusalText(invErr) ?? invErr?.message ?? 'Nie udało się zapisać faktury rozliczającej',
+      ...(numberConflict ? { numberConflict } : {}),
+    };
+  }
+
+  const invoiceId = inserted.id as string;
+
+  const { error: linesErr } = await supabase.from('invoice_line_items').insert(
+    ghost.lines.map((l) => ({
+      invoice_id: invoiceId,
+      ordinal: l.ordinal,
+      name: l.name,
+      unit: l.unit,
+      quantity: l.quantity,
+      unit_price_net: l.unitPriceNet,
+      net_amount: l.netAmount,
+      vat_rate: l.vatRate,
+      vat_amount: l.vatAmount,
+      gross_amount: l.grossAmount,
+    })),
+  );
+
+  if (linesErr) {
+    await supabase.from('invoices').delete().eq('id', invoiceId);
+    return { success: false, error: `Błąd zapisu pozycji: ${linesErr.message}` };
+  }
+
+  return { success: true, invoiceId };
+}
+
+async function resolveFinalPayload(
+  supabase: SupabaseClient,
+  tenantId: string,
+  parsed: FinalInvoiceSchemaIn,
+): Promise<{ envelope: FinalInvoiceData; settlement: AdvanceInvoiceSettlementRow[] } | { error: string }> {
+  const settlement = await fetchSettlementRows(supabase, tenantId, parsed.advanceInvoiceIds, kluczNabywcy('nip' in parsed.buyer ? parsed.buyer.nip : null, parsed.buyer));
+  if ('error' in settlement) return settlement;
+
+  // AUD-67: zaliczka rozliczona już inną ROZ zaniżyłaby przychód drugi raz.
+  const alreadySettled = await findAdvancesAlreadySettled(supabase, tenantId, parsed.advanceInvoiceIds);
+  if (alreadySettled.size > 0) {
+    const rozNumbers = [...new Set(alreadySettled.values())].join(', ');
+    return {
+      error: `Wybrana zaliczka jest już rozliczona fakturą ${rozNumbers}. Usuń tamten szkic albo wybierz inne zaliczki.`,
+    };
+  }
+
+  const cashMethod = await readTenantCashMethodForIssuance(supabase, tenantId);
+
+  const advancesSumRounded = settlement.reduce((s, r) => s + roundToCents(r.advance_amount), 0);
+
+  if (parsed.totalAdvances > 0) {
+    const diff = Math.abs(advancesSumRounded - roundToCents(parsed.totalAdvances));
+    if (diff > 0.025) {
+      return { error: 'Suma zaliczek nie zgadza się z koszykiem — odśwież listę lub wybór.' };
+    }
+  }
+
+  const envelope = buildFinalEnvelope(parsed, advancesSumRounded, cashMethod);
+
+  // Rozbicie reszty na stawki robi generator przy wysyłce — tu sprawdzamy je
+  // od razu, żeby „zaliczka w stawce, której nie ma w zamówieniu” wróciła
+  // do formularza, a nie wywróciła joba po zapisie szkicu.
+  try {
+    settlementVatSummaries(invoiceLineItemsFromDomain(envelope.lines), settlement);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message.replace(/^FA\(3\) ROZ: /, '') : 'Nie można rozliczyć zaliczek.' };
+  }
+
+  return { envelope, settlement };
+}
+
+/**
+ * Kwoty faktury rozliczającej bez zapisu (telefon pokazuje kwoty policzone przez
+ * serwer, M8b): te same kroki co zapis (zaliczki z bazy, rozbicie stawek) aż do
+ * faktury, bez numeru z serii.
+ */
+export async function previewFinal(
+  context: FinalContextSource,
+  raw: unknown,
+): Promise<{ success: true; invoice: Invoice; settlement: AdvanceInvoiceSettlementRow[] } | { success: false; error: string }> {
+  try {
+    const { supabase, tenant } = await context();
+    const parsed = finalInvoiceSchema.safeParse(raw);
+    if (!parsed.success) return { success: false, error: zodIssuesMessage(parsed.error) };
+
+    const seller = requireTenantSeller(parsed.data.seller, tenant);
+    const payload = await resolveFinalPayload(supabase, tenant.id, { ...parsed.data, seller });
+    if ('error' in payload) return { success: false, error: payload.error };
+    return { success: true, invoice: ghostFinalInvoice(payload.envelope), settlement: payload.settlement };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'Nieznany błąd' };
+  }
+}
+
+/** Szkic faktury rozliczającej (`saveFinalAction` strony, telefon). */
+export async function saveFinal(context: FinalContextSource, raw: unknown): Promise<FinalIssueResult> {
+  try {
+    const { supabase, tenant, userId } = await context();
+    const parsed = finalInvoiceSchema.safeParse(raw);
+    if (!parsed.success) return { success: false, error: zodIssuesMessage(parsed.error) };
+
+    const seller = requireTenantSeller(parsed.data.seller, tenant);
+    const payload = await resolveFinalPayload(supabase, tenant.id, { ...parsed.data, seller });
+    if ('error' in payload) return { success: false, error: payload.error };
+
+    // Krok 2.5: numer z licznika serii albo z pola, ten sam w kolumnie, fa3_data i danych wysyłki.
+    const saved = await saveWithInvoiceNumber(supabase, numberRequestOf(parsed.data), payload.envelope.issueDate, async (assigned) => {
+      const envelope = { ...payload.envelope, internalNumber: assigned.number };
+      const ghost = ghostFinalInvoice(envelope);
+      return { result: await insertFinalDraft(supabase, tenant.id, ghost, envelope, payload.settlement, assigned.columns), built: ghost };
+    });
+    const result = saved.result;
+    if (result.success && saved.built) {
+      await logAudit({
+        action: 'invoice.draft_created',
+        tenantId: tenant.id,
+        userId,
+        entityType: 'invoice',
+        entityId: result.invoiceId,
+        metadata: { kind: 'final', internalNumber: saved.built.internalNumber },
+      });
+      revalidatePath('/invoices');
+    }
+    return result;
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'Nieznany błąd' };
+  }
+}
+
+/** „Wystaw i wyślij” faktury rozliczającej (`saveAndSendFinalAction` strony, telefon): dziś wstrzymane przed zapisem (C4). */
+export async function saveAndSendFinal(context: FinalContextSource, raw: unknown): Promise<FinalIssueResult> {
+  try {
+    await context();
+    const parsed = finalInvoiceSchema.safeParse(raw);
+    if (!parsed.success) return { success: false, error: zodIssuesMessage(parsed.error) };
+
+    // Ta sama reguła co zwykła faktura (A1, W5): w KSeF tylko z dzisiejszą datą
+    // wystawienia. Stoi przed hamulcem ROZ, żeby została po jego zdjęciu (C4).
+    const notToday = issueDateNotTodayError(parsed.data.issueDate, 'special');
+    if (notToday) return { success: false, error: notToday };
+
+    // No accepted advance carries trustworthy KSeF environment provenance yet.
+    // Keep the draft action available, but stop send before inserting a new ROZ.
+    return { success: false, error: ROZ_SUBMISSION_HOLD_MESSAGE };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? formatJobSendError(e) : 'Nieznany błąd wysyłki',
+    };
+  }
+}
