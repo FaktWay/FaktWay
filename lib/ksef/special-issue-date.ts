@@ -89,7 +89,7 @@ export function regularIssueDatePassedMessage(issueDate: string): string {
   const deadline = regularSendDeadlineDay(issueDate);
   const why = deadline
     ? `ma datę wystawienia ${issueDate}, a fakturę, która nie wyszła w dniu wystawienia, wysyłamy do KSeF ` +
-      `najpóźniej do końca następnego dnia roboczego — ten termin minął z końcem dnia ${deadline}.`
+      `najpóźniej do końca następnego dnia roboczego, a ten termin minął z końcem dnia ${deadline}.`
     : `nie ma poprawnej daty wystawienia (${issueDate || 'brak'}), więc nie sprawdzimy terminu jej przesłania do KSeF.`;
   return (
     `[${SEND_ERROR_CODES.ISSUE_DATE_PASSED}] Tej faktury nie wysłaliśmy do KSeF: ${why} ` +

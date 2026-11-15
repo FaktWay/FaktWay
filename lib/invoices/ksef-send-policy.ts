@@ -60,15 +60,15 @@ export const KSEF_SEND_MESSAGES = {
   xmlArchiveConflict: 'Tej wysyłki nie wykonaliśmy: w archiwum FaktWay jest już inny plik XML tej próby, a zapisanych plików nie nadpisujemy. Następna próba zapisze własny plik.',
   // B2a — zwykła faktura; dokumenty specjalne mają własne teksty (`KSEF_SPECIAL_SEND_MESSAGES`, 00147).
   /** Kod `ISSUE_DATE_PASSED` (worker odmówił; daty w `last_error`, wyżej na karcie). */
-  issueDatePassed: `Tej wysyłki nie wykonaliśmy: termin przesłania faktury do KSeF minął (szczegóły wyżej) — fakturę, która nie wyszła w dniu wystawienia, wysyłamy najpóźniej do końca następnego dnia roboczego. Wróć do szkicu, usuń go i wystaw fakturę od nowa z dzisiejszą datą. Jeśli powrót do szkicu jest zablokowany, wcześniejsza próba mogła dotrzeć do KSeF: nie wystawiaj faktury ponownie i napisz do pomocy FaktWay (${SUPPORT_EMAIL}) — sprawdzimy ją w KSeF.`,
+  issueDatePassed: `Tej wysyłki nie wykonaliśmy: termin przesłania faktury do KSeF minął (szczegóły wyżej). Fakturę, która nie wyszła w dniu wystawienia, wysyłamy najpóźniej do końca następnego dnia roboczego. Wróć do szkicu, usuń go i wystaw fakturę od nowa z dzisiejszą datą. Jeśli powrót do szkicu jest zablokowany, wcześniejsza próba mogła dotrzeć do KSeF: nie wystawiaj faktury ponownie i napisz do pomocy FaktWay (${SUPPORT_EMAIL}) — sprawdzimy ją w KSeF.`,
   /** Termin minął, zanim worker odmówił (fakty z kopii) — na wierszu inny kod, zwykle przejściowy. */
-  sendDeadlinePassed: `Termin przesłania tej faktury do KSeF minął: fakturę, która nie wyszła w dniu wystawienia, wysyłamy najpóźniej do końca następnego dnia roboczego po dacie wystawienia — nie wyślemy jej ponownie i nie ponowimy automatycznie. Wróć do szkicu, usuń go i wystaw fakturę od nowa z dzisiejszą datą. Jeśli powrót do szkicu jest zablokowany, wcześniejsza próba mogła dotrzeć do KSeF: nie wystawiaj faktury ponownie i napisz do pomocy FaktWay (${SUPPORT_EMAIL}) — sprawdzimy ją w KSeF.`,
+  sendDeadlinePassed: `Termin przesłania tej faktury do KSeF minął: fakturę, która nie wyszła w dniu wystawienia, wysyłamy najpóźniej do końca następnego dnia roboczego po dacie wystawienia. Nie wyślemy jej ponownie i nie ponowimy automatycznie. Wróć do szkicu, usuń go i wystaw fakturę od nowa z dzisiejszą datą. Jeśli powrót do szkicu jest zablokowany, wcześniejsza próba mogła dotrzeć do KSeF: nie wystawiaj faktury ponownie i napisz do pomocy FaktWay (${SUPPORT_EMAIL}), a my sprawdzimy ją w KSeF.`,
   /**
    * Doklejane do tekstów zwykłej faktury, którą jeszcze wolno wysłać (odpowiednik `sendToday`).
    * Bez słowa „szkic”: idzie też do odmów kolejki, a faktura zostaje z błędem wysyłki
    * (strażnik w `ksef-submission-brakes.test.ts`); po terminie drogę opisuje `sendDeadlinePassed`.
    */
-  sendByDeadline: 'Fakturę wyślesz do KSeF najpóźniej do końca następnego dnia roboczego po dacie wystawienia — po tym terminie trzeba będzie wystawić ją od nowa z dzisiejszą datą.',
+  sendByDeadline: 'Fakturę wyślesz do KSeF najpóźniej do końca następnego dnia roboczego po dacie wystawienia. Po tym terminie trzeba będzie wystawić ją od nowa z dzisiejszą datą.',
   envMismatch: `Tej wysyłki nie wykonaliśmy: zlecenie dotyczyło innego środowiska KSeF (testowego albo produkcyjnego) niż obecne ustawienie FaktWay — szczegóły wyżej. Wróć do szkicu i zdecyduj, czy wysłać fakturę w obecnym środowisku. Jeśli powrót do szkicu jest zablokowany, wcześniejsza próba mogła dotrzeć do KSeF: nie wystawiaj tej faktury ponownie i napisz do pomocy FaktWay (${SUPPORT_EMAIL}) — sprawdzimy ją w KSeF.`,
   // D-A4-1b-3 PR B (decyzje Bartosza 07.10.2026 (3) i (9)): szkic po „numer zajęty” jest wycofany —
   // nie wyślesz go, a zwykłej faktury i zaliczki nie usuniesz (00148), więc tekst nie każe „usuń go”.
@@ -87,7 +87,7 @@ export const KSEF_SEND_MESSAGES = {
   askManager: 'Poproś właściciela lub administratora firmy.',
   resetDone: 'Faktura wróciła do szkicu. Popraw ją i wyślij ponownie.',
   /** Toast po „Wróć do szkicu” zwykłej faktury po terminie przesłania (B2a). */
-  resetDoneDeadlinePassed: 'Faktura wróciła do szkicu. Termin przesłania jej do KSeF minął, więc tego szkicu nie wyślesz — usuń go („Usuń szkic”) i wystaw fakturę od nowa z dzisiejszą datą.',
+  resetDoneDeadlinePassed: 'Faktura wróciła do szkicu. Termin przesłania jej do KSeF minął, więc tego szkicu nie wyślesz. Usuń go („Usuń szkic”) i wystaw fakturę od nowa z dzisiejszą datą.',
   resetFailed: 'Nie udało się przywrócić szkicu. Spróbuj ponownie.',
   notFound: 'Nie można znaleźć faktury w tej organizacji.',
 } as const;
