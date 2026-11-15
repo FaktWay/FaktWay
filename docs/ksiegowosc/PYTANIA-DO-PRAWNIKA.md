@@ -13,12 +13,12 @@ znajomości kodu.
   Funkcje z pytań 7-17 jeszcze nie działają: opinia rozstrzyga, czy i jak je
   zbudować. Pytanie 18 dotyczy ostrzeżenia przy zapłacie kosztu, które
   FaktWay liczy już według daty z faktury (P_1).
-- **Pytania 19 i 20** dotyczą przechowywania i usuwania faktur, które
+- **Pytania 19-21** dotyczą przechowywania i usuwania faktur, które
   program robi już dziś (zadania w tle, dla wszystkich firm). Opinia
   rozstrzyga, co zmienić w programie albo w dokumentach.
 
 Stan opisu: pytania 1-6 z 4.11.2026, pytania 7-17 z 9.11.2026, pytanie 18
-z 12.11.2026, pytania 19 i 20 z 14.11.2026. Moduł jest
+z 12.11.2026, pytania 19 i 20 z 14.11.2026, pytanie 21 z 15.11.2026. Moduł jest
 w budowie i jest wyłączony dla klientów.
 
 ## 1. Co robi moduł
@@ -414,6 +414,33 @@ i na jakiej podstawie (polecenie klienta jako administratora, umowa
 powierzenia)? Czy rozwiązanie (b) jest pod tym względem bezpieczniejsze?
 Czy przed usunięciem cyklu albo wzoru musimy klienta uprzedzić?
 
+### Pytanie 21. Faktury, których program nie usunie po okresie przechowywania
+
+Pytania 19 i 20 dotyczą faktur, które program usuwa po 10 latach. Część
+faktur zostanie dłużej, bo program nie pozwala ich usunąć:
+
+1. **Faktury wysłane do KSeF.** Program chroni fakturę, która trafiła do
+   KSeF, przed usunięciem: nikt, także zadanie, które usuwa dane po okresie
+   przechowywania, nie usunie jej z bazy. Tak zabezpieczamy dowód wysyłki.
+   Skutek: po 10 latach (pierwsze takie faktury ok. 2036 r.) faktury wysłane
+   do KSeF, czyli prawie wszystkie faktury sprzedaży, zostaną w bazie
+   z plikami bez określonego końca.
+2. **Faktury powiązane z kosztem.** Faktura zakupu pobrana z KSeF, z której
+   klient zrobił koszt, zostaje tak długo, jak ten koszt. Koszty nie mają
+   dziś terminu usunięcia, więc taka faktura też zostaje bez końca.
+
+Rozważamy dwa kierunki: (a) zostawić tak i wpisać w dokumentach, że te
+faktury przechowujemy do usunięcia przez klienta albo do końca umowy;
+(b) zmienić program tak, żeby po terminie usuwał także te faktury (dowód
+wysyłki i powiązanie z kosztem znikają razem z fakturą). Skutki pojawią się
+najwcześniej ok. 2034-2036 r., więc dziś nic nie zmieniamy.
+
+**Pytanie:** Czy przechowywanie tych faktur dłużej niż okres przechowywania,
+bez określonego końca, jest dopuszczalne według RODO (zasada ograniczenia
+przechowywania), jeśli wpiszemy to w regulaminie, umowie powierzenia
+i polityce prywatności? Jeśli nie, który kierunek jest właściwy i czy klienta
+trzeba o tym uprzedzić?
+
 ## 3. Czego potrzebujemy w odpowiedzi
 
 - Pisemnej opinii (może być jeden dokument) z odpowiedzią na każde pytanie.
@@ -431,7 +458,7 @@ Czy przed usunięciem cyklu albo wzoru musimy klienta uprzedzić?
   pytaniu 1.
 - Przy pytaniach 15 i 17: wskazówek do regulaminu.
 - Przy pytaniu 18: którą datę przyjąć i czy ostrzeżenie według P_1 może zostać.
-- Przy pytaniach 19 i 20: okresu przechowywania do wpisania w regulaminie,
+- Przy pytaniach 19-21: okresu przechowywania do wpisania w regulaminie,
   umowie powierzenia i polityce prywatności oraz tego, czy i z jakim
   wyprzedzeniem uprzedzać klienta przed usunięciem.
 
