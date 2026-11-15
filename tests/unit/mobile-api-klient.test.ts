@@ -88,6 +88,7 @@ describe('kody błędów kontraktu', () => {
       deletion_blocked: 'odmowa',
       deletion_in_progress: 'odmowa',
       settlement_refused: 'odmowa',
+      invoice_change_refused: 'odmowa',
     };
     expect(Object.keys(oczekiwane).sort()).toEqual([...MOBILE_API_ERROR_CODES].sort());
     for (const kod of MOBILE_API_ERROR_CODES) expect(rodzajBledu(500, kod)).toBe(oczekiwane[kod]);
