@@ -7,6 +7,7 @@
 
 import type { KsefEnvironment } from '@/types/ksef';
 
+import { bodyWithinTimeout } from '@/lib/http/body-within-timeout';
 import { getTenantKsefCredentials } from '@/lib/supabase/admin-queries';
 import { requireMatchingKsefEnvironment } from './claim-environment';
 
@@ -129,6 +130,9 @@ export async function downloadUpoFromKsef(
     })();
   };
 
+  // LIM-05: zegar żądania UPO kasuje dopiero `finally` na końcu, po
+  // przeczytaniu treści odpowiedzi.
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   try {
     let auth;
     try {
@@ -190,27 +194,26 @@ export async function downloadUpoFromKsef(
     const baseUrl = getKsefBaseUrl(env);
     const upoEndpoint = `${baseUrl}/sessions/${encodeURIComponent(sessionReferenceNumber)}/invoices/ksef/${encodeURIComponent(ksefNumber)}/upo`;
 
+    // LIM-05: limit obejmuje żądanie i całą treść odpowiedzi (kody błędu albo
+    // XML UPO). KSeF, który wysłał nagłówki i stanął, kończy się po
+    // `timeoutMs` tym samym `TIMEOUT` co brak nagłówków (`catch` niżej),
+    // zamiast trzymać job UPO do 300 s (limit ciszy undici).
     const controller = new AbortController();
-    const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+    timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
 
-    let response: Response;
-    try {
-      response = await fetch(upoEndpoint, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-          Accept: 'application/xml',
-        },
-        signal: controller.signal,
-        redirect: 'error',
-      });
-    } finally {
-      clearTimeout(timeoutHandle);
-    }
+    const response = await fetch(upoEndpoint, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${session.accessToken}`,
+        Accept: 'application/xml',
+      },
+      signal: controller.signal,
+      redirect: 'error',
+    });
 
     if (!response.ok) {
-      writeAudit(response.status, `HTTP ${response.status}`);
       if (response.status === 404) {
+        writeAudit(response.status, `HTTP ${response.status}`);
         return {
           success: false,
           error: 'UPO nie zostało jeszcze wygenerowane przez KSeF',
@@ -220,6 +223,7 @@ export async function downloadUpoFromKsef(
       }
 
       if (response.status === 401) {
+        writeAudit(response.status, `HTTP ${response.status}`);
         ksefSessionCache.invalidate(auth.nip, env);
         return {
           success: false,
@@ -243,7 +247,10 @@ export async function downloadUpoFromKsef(
       // `upo_receipts.last_error`, komunikatu błędu joba (log workera,
       // `inngest_run_log`, Sentry po wyczerpaniu prób), więc treść nigdy:
       // może nieść dane kontrahenta (F-093-UPO).
-      const codes = ksefErrorCodes(await response.text());
+      const codes = ksefErrorCodes(await bodyWithinTimeout(response, controller.signal).text());
+      // Audyt po treści: jedna próba to jeden wiersz. Zawieszona treść (także
+      // przy 429, po zapisie pauzy wyżej) daje tylko wiersz 408 z `catch`.
+      writeAudit(response.status, `HTTP ${response.status}`);
       return {
         success: false,
         error: upoHttpErrorMessage(response.status, codes),
@@ -252,7 +259,7 @@ export async function downloadUpoFromKsef(
       };
     }
 
-    const upoXml = await response.text();
+    const upoXml = await bodyWithinTimeout(response, controller.signal).text();
     const upoXmlHash = await sha256(upoXml);
     const acceptanceTimestamp = extractAcceptanceTimestamp(upoXml);
     const upoId = extractUpoId(upoXml);
@@ -283,6 +290,8 @@ export async function downloadUpoFromKsef(
       error: `Błąd pobierania UPO: ${message}`,
       retryable: true,
     };
+  } finally {
+    clearTimeout(timeoutHandle);
   }
 }
 
