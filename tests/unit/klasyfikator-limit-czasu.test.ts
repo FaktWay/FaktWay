@@ -1,23 +1,28 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 
 import type { ExtractedInvoice } from '@/lib/ocr/schema';
 
 /**
  * LIM-05 (plan skalowania 3000, PR #782, „Ryzyka, które zostają”, punkt 6):
- * limit czasu klasyfikatora kosztów.
+ * limity czasu klasyfikatora kosztów.
  *
  * `classifyByAI` wołał model bez własnych opcji, więc brał limity klienta:
  * domyślne SDK (600 s na próbę i 2 ponowienia, przy połączeniu, które stanęło,
- * ok. 30 min), a po #782 120 s i 1 ponowienie (ok. 4 min). Kategoryzacja woła
- * model w jobie OCR (po odczycie zdjęcia) i w jobie skrzynki, a worker
- * przerabia paczkę zadań po kolei (`lib/jobs/run-job.ts`), więc zawieszona
- * kategoryzacja trzymała resztę paczki i kolejkę. Po porażce koszt i tak
- * dostaje kolumnę 13 do ręcznej poprawki (`categorizeExpense`), więc długie
- * czekanie nic nie daje.
+ * ok. 30 min), a z limitami klienta z #782 (jeszcze nie w main) 120 s
+ * i 1 ponowienie (ok. 4 min). Kategoryzacja woła model w jobie OCR (po
+ * odczycie zdjęcia) i w jobie skrzynki, a worker przerabia paczkę zadań po
+ * kolei (`lib/jobs/run-job.ts`), więc zawieszona kategoryzacja trzymała resztę
+ * paczki i kolejkę. Po porażce koszt i tak dostaje kolumnę 13 do ręcznej
+ * poprawki (`categorizeExpense`), więc długie czekanie nic nie daje.
+ *
+ * Teraz próba ma 20 s i 1 ponowienie, a całe wywołanie sufit 45 s. Sufit łapie
+ * to, czego limit próby w SDK nie obejmuje: przerwę przed ponowieniem
+ * z nagłówka `retry-after` i odczyt treści po nagłówkach.
  *
  * Ścieżka prawdziwa: `categorizeExpense` → `classifyByAI` → SDK. Atrapy tylko
  * dla bazy (reguły kategorii bez wierszy, budżet AI firmy) i dla transportu.
- * Transport jak w `tests/unit/anthropic-limit-czasu.test.ts`: `fetch`
+ * Transport jak w teście limitów klienta z #782
+ * (`tests/unit/anthropic-limit-czasu.test.ts` na jego gałęzi): `fetch`
  * podstawiony, zanim klient powstanie (SDK bierze globalny `fetch`
  * w konstruktorze, a `getAnthropic()` trzyma klienta w module, stąd
  * `vi.resetModules()`). Zawieszona atrapa nie odpowiada nigdy, a błąd oddaje
@@ -60,6 +65,7 @@ type Transport = (init: RequestInit | undefined) => Promise<Response>;
 type Wynik<T> = { ok: true; wartosc: T } | { ok: false; blad: unknown };
 
 const proby: Proba[] = [];
+let logBledow: MockInstance<typeof console.error>;
 
 beforeEach(() => {
   proby.length = 0;
@@ -67,12 +73,14 @@ beforeEach(() => {
   budzet.sprawdz.mockResolvedValue({ allowed: true });
   budzet.zapisz.mockReset();
   budzet.zapisz.mockResolvedValue(undefined);
+  logBledow = vi.spyOn(console, 'error').mockImplementation(() => undefined);
   vi.resetModules();
   vi.useFakeTimers();
   vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-atrapa');
 });
 
 afterEach(() => {
+  logBledow.mockRestore();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -134,6 +142,26 @@ function wiadomoscPo(ms: number, tekst: string): Transport {
     });
 }
 
+/** Odpowiedź 429: SDK ponawia dopiero po przerwie z nagłówka `retry-after` (w sekundach). */
+function limitZapytan(retryAfterS: number): Transport {
+  return async () =>
+    new Response(JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'Atrapa limitu zapytań' } }), {
+      status: 429,
+      headers: { 'content-type': 'application/json', 'retry-after': String(retryAfterS) },
+    });
+}
+
+/** Nagłówki przychodzą od razu, a treść nie: odczyt stoi, aż ktoś przerwie połączenie. */
+const trescStoi: Transport = async (init) =>
+  new Response(
+    new ReadableStream<Uint8Array>({
+      start(kontroler) {
+        poPrzerwaniu(init, (powod) => kontroler.error(powod));
+      },
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  );
+
 /**
  * Przesuwa udawany zegar od timera do timera, aż obietnica się rozstrzygnie,
  * i mówi, po ilu milisekundach. Gdy nie ma już żadnego timera, a wyniku dalej
@@ -179,6 +207,9 @@ const KOSZT: ExtractedInvoice = {
   notes: null,
 };
 
+/** Kategoria domyślna po porażce modelu: kolumna 13 do ręcznej poprawki. */
+const KOLUMNA_13 = { kpir_column: 'col_13', category_label: 'Pozostałe wydatki', confidence: 0.3, method: 'manual' };
+
 describe('LIM-05: kategoryzacja kosztu w jobie OCR i skrzynki', () => {
   it('zawieszone połączenie: kolumna 13 do poprawki po 2 próbach po 20 s, nie po minutach', async () => {
     podstawTransport(zawieszone);
@@ -191,12 +222,36 @@ describe('LIM-05: kategoryzacja kosztu w jobie OCR i skrzynki', () => {
       { limitS: '20', ponowienie: '0' },
       { limitS: '20', ponowienie: '1' },
     ]);
-    expect(wynik, 'porażka modelu daje kategorię domyślną, nie błąd joba').toEqual({
-      ok: true,
-      wartosc: { kpir_column: 'col_13', category_label: 'Pozostałe wydatki', confidence: 0.3, method: 'manual' },
-    });
+    expect(wynik, 'porażka modelu daje kategorię domyślną, nie błąd joba').toEqual({ ok: true, wartosc: KOLUMNA_13 });
+    expect(logBledow, 'limit próby, a nie sufit').toHaveBeenCalledWith('AI categorization failed:', expect.anything());
     expect(budzet.sprawdz).toHaveBeenCalledWith('ten-1', 'classify');
     expect(budzet.zapisz, 'bez odpowiedzi nie ma zużycia do zapisania').not.toHaveBeenCalled();
+  });
+
+  it('429 z retry-after 600 s: sufit 45 s przerywa przerwę przed ponowieniem', async () => {
+    let proba = 0;
+    podstawTransport((init) => (proba++ === 0 ? limitZapytan(600)(init) : zawieszone(init)));
+    const { categorizeExpense } = await import('@/lib/categorization');
+
+    const { wynik, ms } = await przesuwajZegar(categorizeExpense('ten-1', KOSZT));
+
+    expect.soft(ms, 'bez sufitu: 600 s przerwy z nagłówka i 20 s zawieszonego ponowienia').toBe(45_000);
+    expect.soft(proby, 'ponowienie nie rusza po przerwaniu').toEqual([{ limitS: '20', ponowienie: '0' }]);
+    expect(wynik).toEqual({ ok: true, wartosc: KOLUMNA_13 });
+    expect(logBledow).toHaveBeenCalledWith('AI categorization failed: deadline 45 s', expect.anything());
+    expect(budzet.zapisz).not.toHaveBeenCalled();
+  });
+
+  it('nagłówki przyszły, treść stanęła: sufit 45 s przerywa odczyt, którego limit próby nie obejmuje', async () => {
+    podstawTransport(trescStoi);
+    const { categorizeExpense } = await import('@/lib/categorization');
+
+    const { wynik, ms } = await przesuwajZegar(categorizeExpense('ten-1', KOSZT));
+
+    expect(wynik, 'bez sufitu odczyt treści wisi bez końca').toEqual({ ok: true, wartosc: KOLUMNA_13 });
+    expect(ms).toBe(45_000);
+    expect(proby).toEqual([{ limitS: '20', ponowienie: '0' }]);
+    expect(logBledow).toHaveBeenCalledWith('AI categorization failed: deadline 45 s', expect.anything());
   });
 
   it('uczciwa, powolna klasyfikacja (14,4 s, dwa szacunki SDK dla max_tokens 256) przechodzi za pierwszym razem', async () => {
@@ -217,5 +272,6 @@ describe('LIM-05: kategoryzacja kosztu w jobie OCR i skrzynki', () => {
     expect(ms).toBe(14_400);
     expect(proby).toHaveLength(1);
     expect(budzet.zapisz).toHaveBeenCalledWith('ten-1', { inputTokens: 620, outputTokens: 48 });
+    expect(vi.getTimerCount(), 'sufit sprzątnięty po odpowiedzi').toBe(0);
   });
 });

@@ -37,26 +37,33 @@ const aiClassificationResponseSchema = z.object({
  * paczki i kolejkę. Po porażce koszt i tak dostaje kolumnę 13 do ręcznej
  * poprawki (`categorizeExpense`), więc długie czekanie nic nie daje.
  *
- * Odpowiedź to krótki JSON (`max_tokens` 256), który SDK szacuje ostrożnie
- * na 7,2 s (128 000 tokenów na godzinę); 20 s to prawie trzy takie szacunki.
- * Limit SDK liczy czas do nagłówków odpowiedzi, a bez strumienia przychodzą
- * one dopiero z gotową wiadomością, więc obejmuje całe czekanie na model.
- * Jedno ponowienie łapie chwilowy błąd połączenia; więcej tylko wydłuża
- * czekanie, a próba przerwana po limicie mogła zostać u dostawcy policzona.
- * Najgorszy przypadek przy połączeniu, które stanęło: 2 próby po 20 s
- * i ok. 0,5 s przerwy, czyli ok. 40 s. Nie obejmuje przerwy z `retry-after`
- * (odpowiedź 429 albo 529): przed ponowieniem SDK czeka tyle, ile każe dostawca.
- *
- * Opcje wywołania mają pierwszeństwo przed opcjami klienta, więc limit
- * działa bez względu na ustawienia w `lib/anthropic/client.ts`.
+ * Próba: odpowiedź to krótki JSON (`max_tokens` 256), który SDK szacuje
+ * ostrożnie na 7,2 s (128 000 tokenów na godzinę); 20 s to prawie trzy takie
+ * szacunki. Jedno ponowienie łapie chwilowy błąd połączenia; więcej tylko
+ * wydłuża czekanie, a próba przerwana po limicie mogła zostać u dostawcy
+ * policzona. Opcje wywołania mają pierwszeństwo przed opcjami klienta, więc
+ * limity działają bez względu na ustawienia w `lib/anthropic/client.ts`.
  */
 const CLASSIFIER_REQUEST_LIMITS = { timeout: 20_000, maxRetries: 1 } as const;
+
+/**
+ * Sufit na całe wywołanie (LIM-05). Limit próby w SDK liczy czas tylko do
+ * nagłówków odpowiedzi. Nie obejmuje odczytu treści po nagłówkach ani przerwy
+ * przed ponowieniem, którą przy odpowiedzi 429 albo 529 wyznacza dostawca
+ * nagłówkiem `retry-after` (SDK czeka tyle, ile każe dostawca). Sufit
+ * przerywa wywołanie razem z tą przerwą i odczytem. Same próby to w
+ * najgorszym razie 2 × 20 s i ok. 0,5 s przerwy, czyli ok. 40,5 s, więc 45 s
+ * nie skraca zwykłego ponowienia.
+ */
+const CLASSIFIER_DEADLINE_MS = 45_000;
 
 export async function classifyByAI(
   data: ExtractedInvoice,
   /** Zużycie tokenów — do budżetu AI firmy (AUD-107). */
   onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void,
 ): Promise<CategorizationResult | null> {
+  const deadline = new AbortController();
+  const deadlineTimer = setTimeout(() => deadline.abort(), CLASSIFIER_DEADLINE_MS);
   try {
     const response = await getAnthropic().messages.create(
       {
@@ -92,7 +99,7 @@ ZWRACAJ TYLKO JSON.`,
           },
         ],
       },
-      CLASSIFIER_REQUEST_LIMITS,
+      { ...CLASSIFIER_REQUEST_LIMITS, signal: deadline.signal },
     );
 
     onUsage?.({ inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens });
@@ -122,7 +129,16 @@ ZWRACAJ TYLKO JSON.`,
       method: 'ai_claude',
     };
   } catch (e) {
-    console.error('AI categorization failed:', e);
+    // Przerwanie sufitem SDK zgłasza jak rezygnację wywołującego
+    // (`APIUserAbortError`), więc log mówi wprost, że to sufit.
+    console.error(
+      deadline.signal.aborted
+        ? `AI categorization failed: deadline ${CLASSIFIER_DEADLINE_MS / 1000} s`
+        : 'AI categorization failed:',
+      e,
+    );
     return null;
+  } finally {
+    clearTimeout(deadlineTimer);
   }
 }
