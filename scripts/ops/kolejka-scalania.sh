@@ -75,9 +75,11 @@ nowy=$(jq --argjson nowe "$NOWE_KONTROLE" --argjson app "$ACTIONS_APP" '
           type: "merge_queue",
           parameters: {
             merge_method: "MERGE",
+            # ALLGREEN: każdy wpis kolejki ma własną ocenę (straż w kolejce
+            # ocenia tylko ostatni PR grupy, filtr-straz.yml).
             grouping_strategy: "ALLGREEN",
             max_entries_to_build: 3,
-            max_entries_to_merge: 5,
+            max_entries_to_merge: 3,
             min_entries_to_merge: 1,
             min_entries_to_merge_wait_minutes: 1,
             check_response_timeout_minutes: 120

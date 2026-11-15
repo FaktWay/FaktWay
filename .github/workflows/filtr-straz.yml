@@ -13,8 +13,9 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
   # Kolejka scalania: straż ocenia PR jeszcze raz według mapy, zgód i reguł
-  # z main w chwili wejścia do kolejki (kod z `merge_group.base_sha`, nie
-  # z PR). Bez tego PR ocenione według starszej mapy albo listy zgód
+  # z rodzica grupy (`merge_group.base_sha`: main albo main z wpisami przed
+  # tym PR w kolejce; przy ALLGREEN każdy z nich ma własną ocenę), nie
+  # z kodu PR. Bez tego PR ocenione według starszej mapy albo listy zgód
   # wchodziłoby do main bez ponownej oceny, bo kolejka nie wymaga aktualnej
   # gałęzi (przegląd #774, 14.11.2026).
   merge_group:
@@ -40,7 +41,7 @@ jobs:
         with:
           persist-credentials: false
           # PR: domyślnie gałąź bazowa z gałęzi domyślnej, świadomie NIE ref z PR.
-          # Kolejka: main z chwili wejścia do kolejki, NIE commit grupy z kodem PR.
+          # Kolejka: rodzic grupy (main z wpisami przed PR), NIE commit grupy z kodem PR.
           ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || '' }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -52,8 +53,14 @@ jobs:
           # refs/heads/gh-readonly-queue/main/pr-<N>-<sha>: ostatni PR w grupie
           # (PR przed nim mają własne wpisy kolejki i własną ocenę).
           GLOWA_KOLEJKI: ${{ github.event.merge_group.head_ref }}
+          RODZIC_GRUPY: ${{ github.event.merge_group.base_sha }}
         run: |
           if [ "$ZDARZENIE" = merge_group ]; then
+            # Pusty base_sha dałby checkout commitu grupy, czyli straż z kodu PR.
+            if [ -z "$RODZIC_GRUPY" ] || [ "$(git rev-parse HEAD)" != "$RODZIC_GRUPY" ]; then
+              echo "Straż nie stoi na rodzicu grupy („${RODZIC_GRUPY:-pusty}”): nie przepuszczam grupy."
+              exit 1
+            fi
             numer=$(printf '%s' "$GLOWA_KOLEJKI" | sed -n 's#^refs/heads/gh-readonly-queue/[^/]*/pr-\([0-9][0-9]*\)-[0-9a-f]*$#\1#p')
             if [ -z "$numer" ]; then
               echo "Nie odczytałem numeru PR z „$GLOWA_KOLEJKI”: nie przepuszczam grupy bez oceny straży."
