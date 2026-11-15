@@ -339,7 +339,8 @@ function FormularzFaktury() {
   const sumaNetto = pozycjeGotowe.reduce((s, p) => s + nettoPozycji(p), 0);
   const sumaVat = pozycjeGotowe.reduce((s, p) => s + vatPozycji(p), 0);
   const zaliczkaBrutto = grosze(kwotaZaliczki) || 0;
-  // filtr-wyjatek: kwoty-bez-float podgląd zaliczki tylko w trybie przykładowym; na prawdziwym koncie kwoty zaliczki liczy serwer (POST /faktury/wyliczenie, M8b)
+  // Na prawdziwym koncie kwoty zaliczki liczy serwer (POST /faktury/wyliczenie, M8b); to liczenie zostaje dla danych przykładowych.
+  // filtr-wyjatek: kwoty-bez-float podgląd zaliczki tylko w trybie przykładowym; telefon wysyła do serwera wyłącznie zwykłą fakturę VAT (lib/api/mobile/schematy.ts)
   const zaliczkaNetto = Math.round(zaliczkaBrutto / (1 + stawkaProcent(stawkaZaliczki) / 100));
   const wybrane = zaliczki.filter((f) => wybraneZaliczki[f.id]);
   const idWybranych = wybrane.map((f) => f.id);

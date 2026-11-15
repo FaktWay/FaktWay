@@ -13,7 +13,9 @@ import { isKnownTaxOffice } from '@/lib/exports/tax-offices';
 import { assertOutgoingInvoicesInPln } from '@/lib/exports/currency-guard';
 import { documentAllowsVatDeduction } from '@/lib/expenses/vat-deduction-document';
 import { formatIsoDatePl } from '@/lib/format/iso-date';
+import { GTU_CODES, isGtuCode } from '@/lib/invoices/line-codes';
 import { parseVatUe } from '@/lib/invoices/vat-ue';
+import type { GtuCode } from '@/types/invoice';
 
 import type { ExportExpense } from './data-fetcher';
 import {
@@ -112,6 +114,30 @@ export class JpkV7mReceiptSaleInPeriodError extends JpkDocumentNotSupportedError
   }
 }
 
+/**
+ * Korekta faktury, której pozycje mają oznaczenie GTU (krok 2.6, część 2b-2).
+ * Fakturę korygującą oznacza się kodem GTU, gdy dotyczy towaru albo usługi
+ * z tym oznaczeniem, a korektę samych pozycji bez GTU zostawia się bez
+ * oznaczenia (§ 10 ust. 3 rozporządzenia MFiR z 15.10.2019; MF, „Pytania
+ * i odpowiedzi JPK_VAT z deklaracją”, oznaczenia GTU, pyt. 8). Korekta
+ * w FaktWay nie zapisuje GTU pozycji (część 2b-3), więc FaktWay nie wie,
+ * które oznaczenie się należy: odmowa z wyjściem zamiast zgadywania, w pliku
+ * i w rozliczeniu modułu VAT (wspólne `aggregateSales`).
+ */
+export class JpkV7mGtuCorrectionNotSupportedError extends JpkDocumentNotSupportedError {
+  constructor(invoiceNumber: string, ksefNumber: string | undefined, correctedNumber: string | undefined, codes: readonly string[]) {
+    super(invoiceNumber, ksefNumber, 'to korekta faktury z oznaczeniem GTU w pozycjach.');
+    this.message =
+      `${JPK_DOCUMENT_REFUSAL_PREFIX} faktura ${invoiceNumber}${ksefNumber ? ` (KSeF ${ksefNumber})` : ''} jest korektą ` +
+      `${correctedNumber ? `faktury ${correctedNumber}` : 'faktury'}, która ma w pozycjach oznaczenie GTU (${codes.join(', ')}). ` +
+      'W JPK_V7M korektę oznacza się kodem GTU, gdy dotyczy towaru albo usługi z tym oznaczeniem, a korektę samych pozycji ' +
+      'bez GTU zostawia się bez oznaczenia. Korekta w FaktWay nie zapisuje GTU pozycji, więc FaktWay nie wie, które oznaczenie ' +
+      'się należy, i plik nie powstał. JPK_V7M za ten miesiąc trzeba przygotować poza FaktWay, np. z księgową ' +
+      '(KPiR i CSV z FaktWay działają).';
+    this.name = 'JpkV7mGtuCorrectionNotSupportedError';
+  }
+}
+
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
@@ -131,6 +157,32 @@ function receiptInvoiceRow(inv: JpkInvoice): boolean {
   const sale = ISO_DAY.test(saleDate) ? saleDate : inv.issueDate;
   if (sale.slice(0, 7) >= inv.issueDate.slice(0, 7)) throw new JpkV7mReceiptSaleInPeriodError(inv.invoiceNumber, inv.ksefNumber, sale);
   return true;
+}
+
+/**
+ * Oznaczenia GTU wiersza sprzedaży (krok 2.6, część 2b-2; RP-JPK-GTU-01):
+ * § 10 ust. 3 rozporządzenia MFiR z 15.10.2019 (Dz.U. 2019 poz. 1988), w pliku
+ * sekwencja GTU_01..GTU_13 po `TypDokumentu` (XSD JPK_V7M(3)). Jeden wiersz na
+ * fakturę z każdym oznaczeniem jej pozycji, każde raz, w kolejności XSD (MF:
+ * wiele oznaczeń dla jednej faktury bez dzielenia jej na wpisy), także przy FP
+ * (MF: oznaczeniu GTU podlegają też faktury FP). Źródła: pozycje faktury
+ * FaktWay (`gtuCode` z formularza albo katalogu, to samo co `GTU` w FA(3))
+ * i oznaczenia z pliku KSeF faktury z importu (`ksefMarkers.gtu`; kod spoza
+ * listy odmawia wcześniej, w `amountsOf`). Korekta faktury z GTU: odmowa
+ * (`JpkV7mGtuCorrectionNotSupportedError`).
+ */
+function gtuOfRow(inv: JpkInvoice): GtuCode[] {
+  const fromLines = inv.lines.flatMap((l) => (l.gtuCode ? [l.gtuCode] : []));
+  const fromFile = inv.ksefMarkers?.gtu ?? [];
+  if (inv.invoiceType === 'correction') {
+    const codes = [...new Set([...(inv.correctedInvoiceGtu ?? []), ...fromLines, ...fromFile])];
+    if (codes.length > 0) {
+      throw new JpkV7mGtuCorrectionNotSupportedError(inv.invoiceNumber, inv.ksefNumber, inv.correctedInvoiceNumber, codes);
+    }
+    return [];
+  }
+  const present = new Set<string>([...fromLines, ...fromFile].filter(isGtuCode));
+  return GTU_CODES.filter((code) => present.has(code));
 }
 
 /** Sumy netto/VAT wg stawki — w groszach, bez zaokrągleń pośrednich. */
@@ -191,10 +243,13 @@ function aggregateSales(invoices: readonly JpkInvoice[]): RateBucket {
     if (receiptInvoiceRow(inv)) {
       // Wiersz FP: kwoty przechodzą te same odmowy co w ewidencji, ale bez sum deklaracji.
       addRowAmounts(emptyBucket(), inv);
-      continue;
+    } else {
+      // Ta sama kolejność dodawania co przed krokiem 1.2 (kwoty float, potem zaokrąglenie).
+      addRowAmounts(b, inv);
     }
-    // Ta sama kolejność dodawania co przed krokiem 1.2 (kwoty float, potem zaokrąglenie).
-    addRowAmounts(b, inv);
+    // Krok 2.6, część 2b-2: oznaczenia GTU nie zmieniają kwot, ale odmowa
+    // korekty faktury z GTU obowiązuje też rozliczenie w module VAT.
+    gtuOfRow(inv);
   }
   return b;
 }
@@ -213,7 +268,7 @@ function rowAmounts(inv: JpkInvoice): RateBucket {
  * raz. VAT pozycji jest ten z faktury, a nie przeliczany od nowa z netto.
  */
 function addRowAmounts(b: RateBucket, inv: JpkInvoice): void {
-  for (const { rate, net, vat } of amountsOf(inv, { receiptInvoiceAsFp: true }).rates) {
+  for (const { rate, net, vat } of amountsOf(inv, { receiptInvoiceAsFp: true, gtuInRow: true }).rates) {
     switch (rate) {
       case '23':
         b.net23 += net;
@@ -392,8 +447,10 @@ function counterpartyId(inv: JpkInvoice): { country?: string; number: string } {
  * (`JpkV7mReverseChargeNotSupportedError`). Faktura do paragonu: wiersz
  * z typem dokumentu FP poza PodatekNalezny i deklaracją (`receiptInvoiceRow`),
  * a FP z paragonem z miesiąca pliku to odmowa (raportów z kasy, RO, FaktWay nie
- * wykazuje). Pola specjalne (WDT, eksport, import usług, środki trwałe, ulgi,
- * GTU, RO, WEW) — do rozszerzenia.
+ * wykazuje). Oznaczenia GTU pozycji: GTU_01..GTU_13 w wierszu faktury
+ * (`gtuOfRow`, krok 2.6, część 2b-2), korekta faktury z GTU to odmowa. Pola
+ * specjalne (WDT, eksport, import usług, środki trwałe, ulgi, procedury, RO,
+ * WEW) — do rozszerzenia.
  */
 export function generateJpkV7m(data: JpkV7mInputData): string {
   const taxOffice = (data.issuer.taxOfficeCode ?? '').trim();
@@ -508,6 +565,9 @@ export function generateJpkV7m(data: JpkV7mInputData): string {
     // NrKSeF/OFF/BFK/DI, przed GTU i polami K_ (kolejność z XSD).
     const fp = receiptInvoiceRow(inv);
     if (fp) s.ele('TypDokumentu').txt('FP').up();
+    // Krok 2.6, część 2b-2: GTU_01..GTU_13 (TWybor1, wartość 1) po TypDokumentu,
+    // przed procedurami i polami K_ (kolejność z XSD).
+    for (const code of gtuOfRow(inv)) s.ele(code).txt('1').up();
 
     const b = rowAmounts(inv);
     if (b.netZw) s.ele('K_10').txt(money(b.netZw)).up();

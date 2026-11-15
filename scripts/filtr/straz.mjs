@@ -261,8 +261,8 @@ const pasuje = (wzorce, plik) => wzorce.some((wzorzec) => pasujeDoWzorca(wzorzec
 /**
  * @param {{
  *   pliki: { plik: string, status: string, poprzedni?: string, patch?: string, tresc?: string }[],
- *   mapaMain: object | null, mapaPR: object | null,
- *   zapadkaMain?: object | null, zapadkaPR?: object | null,
+ *   mapaMain: object | null, mapaPR: object | null, mapaBazyPR?: object | null,
+ *   zapadkaMain?: object | null, zapadkaPR?: object | null, zapadkaBazyPR?: object | null,
  *   opis: string, etykiety: string[], zdarzenia: object[], osoby: string[], ostatniPush?: string,
  *   plikiRepo: string[], przepisy: Set<string>, obszaryPrzepisow?: Set<string>,
  * }} dane
@@ -343,13 +343,25 @@ export function ocenPR(dane) {
   // 3. Zmiany chronione.
   const maszyneria = dane.pliki.filter((p) => pasuje(MASZYNERIA, p.plik) || (p.poprzedni && pasuje(MASZYNERIA, p.poprzedni)));
   if (maszyneria.length > 0) wymagaj(ZGODA_FILTRA, `maszyneria filtra: ${maszyneria.map((p) => p.plik).join(', ')}`);
-  if (mapaPRPoprawna && dane.mapaMain) {
-    for (const oslabienie of porownajMapy(dane.mapaMain, dane.mapaPR, [...istniejace])) {
-      wymagaj(ZGODA_FILTRA, `osłabienie mapy: ${oslabienie}`);
+  // Osłabienie i wzrost zapadki liczymy względem punktu rozejścia PR z main
+  // (mapaBazyPR, zapadkaBazyPR), nie względem nowszego main: scalenie
+  // trójstronne zachowuje wpisy dopisane w main po rozejściu, więc ich brak
+  // w głowie PR nie jest zmianą z PR (przegląd #786, kolejka bez „strict”).
+  // Bez punktu rozejścia porównanie zostaje względem main, czyli ostrzej.
+  if (mapaPRPoprawna && (dane.mapaBazyPR || dane.mapaMain)) {
+    let oslabienia;
+    try {
+      oslabienia = porownajMapy(dane.mapaBazyPR ?? dane.mapaMain, dane.mapaPR, [...istniejace]);
+    } catch (blad) {
+      // Mapa z punktu rozejścia w starszym układzie: wracamy do main (ostrzej).
+      if (!dane.mapaBazyPR || !dane.mapaMain) throw blad;
+      oslabienia = porownajMapy(dane.mapaMain, dane.mapaPR, [...istniejace]);
     }
+    for (const oslabienie of oslabienia) wymagaj(ZGODA_FILTRA, `osłabienie mapy: ${oslabienie}`);
   }
   if (dane.zapadkaPR) {
-    for (const wzrost of wzrostZapadki(dane.zapadkaMain ?? {}, dane.zapadkaPR)) wymagaj(ZGODA_FILTRA, `wzrost zapadki: ${wzrost}`);
+    const zapadkaOdniesienia = dane.zapadkaBazyPR ?? dane.zapadkaMain ?? {};
+    for (const wzrost of wzrostZapadki(zapadkaOdniesienia, dane.zapadkaPR)) wymagaj(ZGODA_FILTRA, `wzrost zapadki: ${wzrost}`);
   }
   for (const p of dane.pliki) {
     if (!pasujeDoWzorca(TESTY_FILTRA, p.plik) && !(p.poprzedni && pasujeDoWzorca(TESTY_FILTRA, p.poprzedni))) continue;
@@ -618,14 +630,39 @@ export async function zbierzDane({ repo, numer, token }) {
   }
   const zgody = zDysku(SCIEZKA_ZGOD) ?? { osoby: [] };
   const ostatni = commity.at(-1);
+  // Punkt rozejścia PR z gałęzią bazową: mapa i zapadka z niego są
+  // odniesieniem dla osłabień (ocenPR). Bez niego (błąd API) zostaje main.
+  let mapaBazyPR = null;
+  let zapadkaBazyPR = null;
+  if (zmienioneSciezki.has(SCIEZKA_MAPY) || zmienioneSciezki.has(SCIEZKA_ZAPADKI)) {
+    // SHA bazy zamiast nazwy gałęzi (stos PR na gałęzi z „/” dałby 404);
+    // per_page=1, bo potrzebny jest tylko merge_base_commit, nie lista commitów.
+    const porownanie = await gh(`${baza}/compare/${pr.base.sha}...${sha}?per_page=1`, { token, brak404: true }).catch(() => null);
+    const shaBazy = porownanie?.merge_base_commit?.sha;
+    if (shaBazy) {
+      const zBazy = async (sciezka) => {
+        const tekst = await plikZPR(baza, sciezka, shaBazy, token);
+        if (tekst === null) return null;
+        try {
+          return JSON.parse(tekst);
+        } catch {
+          return null;
+        }
+      };
+      if (zmienioneSciezki.has(SCIEZKA_MAPY)) mapaBazyPR = await zBazy(SCIEZKA_MAPY);
+      if (zmienioneSciezki.has(SCIEZKA_ZAPADKI)) zapadkaBazyPR = await zBazy(SCIEZKA_ZAPADKI);
+    }
+  }
   return {
     pr,
     dane: {
       pliki,
       mapaMain,
       mapaPR: (await json(SCIEZKA_MAPY)) ?? mapaMain,
+      mapaBazyPR,
       zapadkaMain: zDysku(SCIEZKA_ZAPADKI),
       zapadkaPR: await json(SCIEZKA_ZAPADKI),
+      zapadkaBazyPR,
       opis: pr.body ?? '',
       etykiety: (pr.labels ?? []).map((l) => l.name),
       zdarzenia,
