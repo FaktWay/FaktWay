@@ -281,7 +281,10 @@ export async function issueSpecialFromMobile(caller: MobileCaller, key: string, 
 
   const context = kontekst(caller, tenant);
   let keySaved = false;
+  // Szkic zapisało to żądanie (nie równoległe z tym samym kluczem zapisu, które odbiło nasz INSERT).
+  let wlasnySzkic = false;
   const afterDraftSaved = async (invoiceId: string): Promise<{ ok: true } | { ok: false; error: string }> => {
+    wlasnySzkic = true;
     const k = await saveKey(db, tenantId, userId, key, hash, invoiceId, SPECIAL_KEY_SAVE_FAILED);
     if (k.ok) {
       keySaved = true;
@@ -332,6 +335,9 @@ export async function issueSpecialFromMobile(caller: MobileCaller, key: string, 
       if (winner && winner.request_hash === hash) return powtorzenie(caller, winner.invoice_id, wyslij);
     }
   }
+  // Odmowa z cudzym szkicem (równoległe żądanie z tym samym kluczem zapisu wygrało INSERT): to ten sam
+  // zapis, więc odpowiedź jak powtórzenie (czeka na kolejkę zwycięzcy), nie „nie poszło do KSeF”.
+  if (!result.success && !wlasnySzkic) return powtorzenie(caller, invoiceId, wyslij);
   if (!wyslij && result.success) revalidatePath('/invoices');
 
   const saved = await readSaved(db, tenantId, invoiceId);
