@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import localConfig from '../../vitest.config';
 import rlsConfig from '../../vitest.rls.config';
@@ -25,6 +28,57 @@ const applicationEnv = {
   SUPABASE_SERVICE_ROLE_KEY: 'application-service-placeholder',
 };
 
+/** Pliki `*.test.ts(x)` pod `dir`, ścieżki względem katalogu głównego repo, z ukośnikami. */
+function listTestFiles(dir: string): string[] {
+  const root = process.cwd();
+  const out: string[] = [];
+  const walk = (current: string) => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.test\.tsx?$/.test(entry.name)) out.push(relative(root, full).split('\\').join('/'));
+    }
+  };
+  walk(join(root, dir));
+  return out.sort();
+}
+
+/** Wzorzec z `include` Vitesta: ścieżka dokładna albo z `*` (bez `/`), tyle nam wystarcza. */
+function matchesInclude(file: string, patterns: readonly string[]): boolean {
+  return patterns.some((pattern) => {
+    const source = pattern.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('[^/]*');
+    return new RegExp(`^${source}$`).test(file);
+  });
+}
+
+/**
+ * Testy, które potrzebują bazy (importują `getRlsTestEnvironment` albo czytają
+ * `RLS_TEST_SUPABASE_*`), poza pomocnikami i testami samego środowiska.
+ */
+function databaseTestFiles(): string[] {
+  return listTestFiles('tests').filter(
+    (file) =>
+      !file.startsWith('tests/helpers/') &&
+      !file.startsWith('tests/unit/') &&
+      /getRlsTestEnvironment|RLS_TEST_SUPABASE_/.test(readFileSync(join(process.cwd(), file), 'utf8')),
+  );
+}
+
+describe('every database test runs in the "RLS isolation" CI job', () => {
+  it('has no database test outside the include of vitest.rls.config.ts', () => {
+    // Do 00202 test `rls-mobile-wydatki` nie był na ręcznej liście, więc jego
+    // sprawdzenia nigdy nie szły w CI. Teraz include to glob, a ten strażnik
+    // pilnuje, żeby test bazy nie wypadł po cichu poza niego.
+    const missing = databaseTestFiles().filter((file) => !matchesInclude(file, rlsConfig.test?.include ?? []));
+    expect(missing).toEqual([]);
+  });
+
+  it('keeps database tests directly in tests/ with the rls- prefix', () => {
+    const misplaced = databaseTestFiles().filter((file) => !/^tests\/rls-[^/]+\.test\.ts$/.test(file));
+    expect(misplaced).toEqual([]);
+  });
+});
+
 describe('separate RLS test configuration', () => {
   it('excludes RLS from the default run and disables automatic .env loading', () => {
     expect(localConfig.envDir).toBe(false);
@@ -35,136 +89,8 @@ describe('separate RLS test configuration', () => {
 
   it('the explicit config runs only RLS and preserves server module aliases', () => {
     expect(rlsConfig.envDir).toBe(false);
-    // Od 00103/00104 także testy uprawnień funkcji i ról (AUD-29/30/64).
-    expect(rlsConfig.test?.include).toEqual([
-      'tests/rls-isolation.test.ts',
-      'tests/rls-uprawnienia.test.ts',
-      // 00131: cykl życia faktury (RPC przejść, dowód kontaktu, strażnik).
-      'tests/rls-cykl-faktury.test.ts',
-      // PR 3 cyklu życia: RPC w jednej transakcji ze zleceniem pg-boss.
-      'tests/rls-kolejkowanie-wysylki.test.ts',
-      // 00132: wyzwalacze po zacieśnieniu — klient nigdy nie pisze ksef_status.
-      'tests/rls-cykl-wyzwalacze.test.ts',
-      // Sekcja 4a skryptu kontroli (zaległości Offline24) na schemacie po wszystkich migracjach.
-      'tests/rls-kontrola-offline24.test.ts',
-      // 00133 (K4): jedna otwarta korekta na fakturę pierwotną.
-      'tests/rls-korekta-jedna-otwarta.test.ts',
-      // 00137 (A4b): special_data — kształt, zapis jednorazowy, przejścia 00131.
-      'tests/rls-dane-specjalne.test.ts',
-      // 00148 (D-A4-1b-3 PR B): decyzja klienta przy cudzym 440, wycofany szkic, I5D.
-      'tests/rls-decyzja-duplikatu.test.ts',
-      // 00156 (D-A4-1b-3 PR C, dawniej rezerwacja 00149): zapis oryginału z oznaczeniem FaktWay, przegląd, oddanie, I5R/I3K.
-      'tests/rls-zapis-oryginalu.test.ts',
-      // 00156: procedura „Brak daty nadania” (I3K no_date) — skrypt SQL przez psql, jedna transakcja z audytem.
-      'tests/rls-oryginal-data-nadania.test.ts',
-      // 00150 (A5): dziennik prób wysyłki — tylko serwis, bez DELETE, nie jest dowodem kontaktu.
-      'tests/rls-dziennik-prob-wysylki.test.ts',
-      // Sekcja 12 skryptu kontroli (dziennik prób z 00150) liczy jak /admin/centrum/bledy.
-      'tests/rls-kontrola-dziennik-prob.test.ts',
-      // A5: procedura operatora dla faktury, która utknęła w wysyłce (I2/I1) — skrypt SQL przez psql.
-      'tests/rls-zwolnij-utknieta-wysylke.test.ts',
-      // 00152: faktura za abonament w obu nazwach produktu (FaktFlow, FaktWay).
-      'tests/rls-faktura-abonamentu-faktway.test.ts',
-      // Plan Finora E3: dzieci faktur (korekta, ROZ) przez prawdziwy PostgREST.
-      'tests/rls-dzieci-faktur.test.ts',
-      // Plan Finora E3 / C1: filtr płatności listy faktur (kilka or()) przez PostgREST.
-      'tests/rls-lista-faktur-platnosc.test.ts',
-      // 00153 (plan Finora E4, limit VAT): GRANT SELECT nowej kolumny tenants, CHECK, izolacja.
-      'tests/rls-data-rozpoczecia.test.ts',
-      // 00154 (plan Finora E9, N1): faktury cykliczne — izolacja firm, jeden okres, CHECK-i, SET NULL.
-      'tests/rls-faktury-cykliczne.test.ts',
-      // 00155 (synchronizacja historii KSeF, decyzja Bartosza 22.10.2026): izolacja,
-      // CHECK-i, ksef_upo_expected i filtr osadzenia `invoices!inner` przez PostgREST.
-      'tests/rls-historia-ksef.test.ts',
-      // 00157 (plan skalowania, sesja 20): sprzątanie dzienników paczkami.
-      'tests/rls-sprzatanie-dziennikow.test.ts',
-      // Bez migracji (plan skalowania, sesja 3, FLO-01): sprzątanie pulsu FLO jednym
-      // zapisem z warunkiem, ponad 1000 kart przez PostgREST z `max_rows`.
-      'tests/rls-flo-sprzatanie.test.ts',
-      'tests/rls-zaplacone.test.ts',
-      'tests/rls-passkeys.test.ts',
-      'tests/rls-skrzynka-harmonogram.test.ts',
-      // 00161 (pomiar FaktWay 1.0): zgoda i źródło w `users`, data pierwszej faktury
-      // w `tenants`, lejek `admin_funnel_weekly`, uzupełnienie z migracji przez psql.
-      'tests/rls-lejek-analityka.test.ts',
-      // 00163 (krok kodu przy dostępie osób trzecich).
-      'tests/rls-krok-kodu.test.ts',
-      // 00164 (C-12): jeden wiersz `xml_documents` na fakturę.
-      'tests/rls-xml-dowod-jeden-wiersz.test.ts',
-      // 00165 (plan księgowości JDG, K1): wyłącznik modułu księgowości.
-      'tests/rls-ksiegowosc-wylacznik.test.ts',
-      // 00166 (plan księgowości JDG, K2): profil podatkowy.
-      'tests/rls-ksiegowosc-profil.test.ts',
-      'tests/rls-ksiegowosc-wpisy.test.ts',
-      'tests/rls-ksiegowosc-rozliczenia.test.ts',
-      'tests/rls-ksiegowosc-powiadomienia.test.ts',
-      'tests/rls-ksiegowosc-jpk.test.ts',
-      'tests/rls-ksiegowosc-kpir.test.ts',
-      'tests/rls-ksiegowosc-spis.test.ts',
-      'tests/rls-sesje-konta.test.ts',
-      // 00176 (plan kompletnej aplikacji, krok 3.1): wpłaty częściowe i historia wpłat.
-      'tests/rls-wplaty-czesciowe.test.ts',
-      // 00180 (plan kompletnej aplikacji, krok 3.2, część 1): import wyciągu bankowego.
-      'tests/rls-wyciag-bankowy.test.ts',
-      'tests/rls-archiwum-dokumentow.test.ts',
-      // 00179 (plan kompletnej aplikacji, krok 2.10): link do faktury dla nabywcy.
-      'tests/rls-link-dla-nabywcy.test.ts',
-      // 00182 (plan kompletnej aplikacji, krok 7.3): adres kalendarza; skrót tokenu tylko do zapisu,
-      // odczyt publiczny przez `calendar_feed_tenant` wyłącznie dla service_role.
-      'tests/rls-kalendarz.test.ts',
-      // 00185 (krok 6.2 planu kompletnej aplikacji, „Moi klienci”): podsumowanie tylko firm
-      // z członkostwem zalogowanego, z cudzej firmy nic.
-      'tests/rls-moi-klienci.test.ts',
-      // 00181 (plan kompletnej aplikacji, krok 7.1): klucze API i rola `api_key_client`.
-      'tests/rls-api-klucze.test.ts',
-      // 00184 (krok 7.1, część 2): wystawianie faktur kluczem API.
-      'tests/rls-api-wystawianie.test.ts',
-      // 00189 (plan kompletnej aplikacji, krok 3.2, część 2): przelewy do ZUS i urzędu z wyciągu.
-      'tests/rls-wyciag-podatki.test.ts',
-      // 00187 (krok 7.1, część 3): webhooki i dziennik dostaw.
-      'tests/rls-webhooki.test.ts',
-      // 00188 (plan kompletnej aplikacji, krok 8.1, część 2): dzwonek w aplikacji.
-      'tests/rls-powiadomienia-w-aplikacji.test.ts',
-      // 00190 (krok 6.4, część 2): znacznik usunięcia pliku paczki tylko przez funkcję zadania,
-      // z wpisem audit_logs; CHECK znacznika; runner sprzątania przez prawdziwy PostgREST.
-      'tests/rls-archiwum-sprzatanie.test.ts',
-      // 00192 (plan kompletnej aplikacji, krok 6.2, część 3): komentarze i prośby o dokument przy koszcie.
-      'tests/rls-komentarze-kosztow.test.ts',
-      // 00193 (plan kompletnej aplikacji, krok 2.9): noty obciążeniowe i uznaniowe.
-      'tests/rls-noty.test.ts',
-      // 00194 (plan kompletnej aplikacji, krok 3.7): kasa, dowody KP i KW i raport kasowy.
-      'tests/rls-kasa.test.ts',
-      'tests/rls-faktura-do-paragonu.test.ts',
-      'tests/rls-koszty-do-zaplaty.test.ts',
-      // 00191 (plan kompletnej aplikacji, krok 1.4, część 2): identyfikatory zbiorcze KSeF.
-      'tests/rls-identyfikator-zbiorczy.test.ts',
-      // 00195 (plan kompletnej aplikacji, krok 6.2, część 4): uprawnienia biura rachunkowego w KSeF.
-      'tests/rls-uprawnienia-ksef.test.ts',
-      // 00196 (plan kompletnej aplikacji, krok 3.2, część 3): przelewy do dostawców z wyciągu jako zapłaty kosztów.
-      'tests/rls-wyciag-koszty.test.ts',
-      // 00197 (plan kompletnej aplikacji, krok 8.1, część 3): wpis w dzwonku przy wpłacie do faktury.
-      'tests/rls-dzwonek-wplaty.test.ts',
-      'tests/rls-indeksy-cronow-produkty.test.ts',
-      // 00204 (plan kompletnej aplikacji, krok 2.6): licznik użyć produktu z katalogu przy zapisie faktury.
-      'tests/rls-produkty-licznik.test.ts',
-      // Plan skalowania 3000, sesja 12: stronicowanie nocnej kopii JSON przez PostgREST.
-      'tests/rls-kopia-json-stronicowanie.test.ts',
-      // 00198 (plan kompletnej aplikacji, krok 2.4): proforma i oferta, powiązanie z fakturą.
-      'tests/rls-proformy.test.ts',
-      // 00199 (krok 2.5): serie numeracji faktur, wyścig dwóch wystawień w jednej serii na prawdziwej bazie.
-      'tests/rls-numeracja.test.ts',
-      // 00203 (krok 2.2, część 1): logo firmy, CHECK katalogu firmy, wyzwalacz bez zmiany z sesji klienta.
-      'tests/rls-logo-firmy.test.ts',
-      // Plan aplikacji mobilnej, M6 (bez migracji): API `/api/mobile/v1` z tokenu sesji telefonu.
-      'tests/rls-mobile-api.test.ts',
-      // Plan aplikacji mobilnej, M6b (D16, bez migracji): logowanie hasłem przez API przy captchy w GoTrue.
-      'tests/rls-mobile-logowanie.test.ts',
-      // Plan aplikacji mobilnej, M6c (bez migracji): kod 2FA z telefonu przez API.
-      'tests/rls-mobile-kod.test.ts',
-      // 00201 (plan aplikacji mobilnej, M8): faktura z telefonu i klucze idempotencji.
-      'tests/rls-mobile-faktury.test.ts',
-      'tests/rls-mobile-naleznosci.test.ts',
-    ]);
+    // Glob, nie lista: nowy test bazy nie wymaga edycji konfiguracji (konflikty między PR-ami).
+    expect(rlsConfig.test?.include).toEqual(['tests/rls-*.test.ts']);
     expect(rlsConfig.test?.exclude).toEqual([]);
     expect(rlsConfig.test?.setupFiles).toEqual(['./tests/setup-rls.ts']);
     expect(rlsConfig.resolve?.alias).toEqual(localConfig.resolve?.alias);

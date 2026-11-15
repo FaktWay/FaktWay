@@ -1,0 +1,59 @@
+name: Scalanie na etykietę
+
+# Jedna ścieżka scalania dla każdego środowiska agenta (docs/runbooks/scalanie-pr.md).
+# Sesja lokalna, Codex i sesja w chmurze (proxy GitHuba odrzuca tam GraphQL, więc
+# `gh pr merge` nie działa) nadają etykietę `scal` przez REST
+# (`scripts/ops/scal-pr.sh`). Ten workflow włącza wtedy automatyczne scalanie:
+# przy włączonej kolejce scalania PR wchodzi do kolejki, gdy kontrole są zielone.
+# Agent nie czeka na CI. Nowy push, zdjęcie `scal` albo etykieta `wstrzymaj`
+# wyłączają scalanie i wyjmują PR z kolejki.
+#
+# pull_request_target: workflow i skrypt pochodzą z gałęzi domyślnej, więc PR
+# nie osłabi kontroli, która go ocenia. Kod z PR NIE jest tu pobierany ani
+# uruchamiany (checkout bez `ref`): skrypt czyta tylko dane zdarzenia (numer,
+# identyfikator węzła, SHA, stan, nazwy repozytorium, bazy i etykiet) i nic
+# z nich nie trafia do powłoki. Nie dodajemy `merge_group`: to nie jest
+# wymagana kontrola.
+on:
+  pull_request_target:
+    types: [labeled, unlabeled, synchronize]
+
+# Najmniejsze uprawnienia na poziomie workflow; zadanie dostaje tylko to, co
+# potrzebne do komentarza, zdjęcia etykiety i włączenia scalania.
+permissions:
+  contents: read
+
+# `github.event.number` to liczba nadana przez GitHub (bez tekstu z PR).
+concurrency:
+  group: scalanie-na-etykiete-${{ github.event.number }}
+  cancel-in-progress: false
+
+jobs:
+  scal:
+    name: Scal
+    # Reszta zdarzeń (inne etykiety, nasze własne zdjęcia etykiety) nie ma tu
+    # nic do roboty; skrypt i tak je pomija, to tylko oszczędza przebiegi.
+    # Nowy push wyłącza scalanie bez względu na to, kto go zrobił.
+    if: >-
+      github.event.action == 'synchronize' ||
+      (github.event.sender.login != 'github-actions[bot]' &&
+       (github.event.label.name == 'scal' ||
+        github.event.label.name == 'wstrzymaj'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # mutacje scalania (enablePullRequestAutoMerge, kolejka) działają jak PUT /pulls/N/merge: wymagają zapisu do zawartości
+      pull-requests: write # włączenie i wyłączenie automatycznego scalania, komentarz
+      issues: write # zdjęcie etykiety `scal`
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          # Domyślnie gałąź domyślna: świadomie NIE ref z PR (filtr/zgody.json też stąd).
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Włącz albo wyłącz automatyczne scalanie
+        run: node scripts/ci/scalanie-etykieta.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

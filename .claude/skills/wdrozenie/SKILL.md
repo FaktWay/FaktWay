@@ -4,7 +4,7 @@ description: Wdrożenie FaktWay na produkcję (worker, potem aplikacja) i kontro
 disable-model-invocation: true
 ---
 
-1. Upewnij się, że Bartosz w tej rozmowie wprost kazał wdrożyć. Jeśli nie, zapytaj.
+1. Co noc o 03:30 wdraża `nocne-wdrozenie.sh` (runbook `docs/runbooks/nocne-wdrozenie.md`), więc wdrożenie w dzień to wyjątek. Upewnij się, że Bartosz w tej rozmowie wprost kazał wdrożyć. Jeśli nie, zapytaj. Najlepsza droga w dzień: `./scripts/ops/zainstaluj-nocne-wdrozenie.sh --teraz` (te same bramki, migracje po kontroli, ratunek i raport co w nocy).
 2. Przeczytaj `docs/runbooks/wdrozenie-produkcji.md` (kolejność wydania, droga ręczna, co robić przy błędzie).
 3. Migracje „przed wdrożeniem” muszą być już wgrane (`/migracja`). Sprawdź nagłówki migracji ze scalonych PR.
 4. Sprawdź źródło: `./scripts/ops/coolify-zrodlo.sh stan`. Build z repo: `./scripts/ops/wdroz-produkcje.sh` (12–18 min na aplikację). Obraz z GHCR: `./scripts/ops/wdroz-produkcje.sh --obraz <sha z main>` (czeka na obrazy z `obrazy.yml`). Skrypt sam ładuje `.agents/infra.env`, wdraża worker `id=2`, potem aplikację `id=1`, na końcu `kontrola-faktur-ksef.sh`. Uruchom w tle.

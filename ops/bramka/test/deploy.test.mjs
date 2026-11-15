@@ -12,8 +12,8 @@ const GREEN = [
   { id: 3, name: 'Agent guard', status: 'completed', conclusion: 'skipped' },
 ];
 
-const RUNNER = 'ghcr.io/ezior8888-cpu/faktway-runner';
-const WORKER = 'ghcr.io/ezior8888-cpu/faktway-worker';
+const RUNNER = 'ghcr.io/faktway/faktway-runner';
+const WORKER = 'ghcr.io/faktway/faktway-worker';
 const REPO_SOURCES = {
   web: { buildPack: 'dockerfile', image: null, tag: null },
   worker: { buildPack: 'dockerfile', image: null, tag: null },
@@ -64,7 +64,7 @@ function setup(over = {}) {
     status: async () => ({ migration: '00100', migrations_recent: over.applied ?? ['00100', '00099'] }),
     log: async (action, actor, meta) => { calls.log.push({ action, meta }); },
   };
-  const config = { github: { branch: 'main' }, coolify: { webUuid: 'web', workerUuid: 'worker' }, ghcrPrefix: 'ghcr.io/ezior8888-cpu/faktway', requiredChecks: ['Typecheck + Lint + Unit tests', 'Next build'], healthUrl: 'https://x/api/health' };
+  const config = { github: { branch: 'main' }, coolify: { webUuid: 'web', workerUuid: 'worker' }, ghcrPrefix: 'ghcr.io/faktway/faktway', requiredChecks: ['Typecheck + Lint + Unit tests', 'Next build'], healthUrl: 'https://x/api/health' };
   const deployer = createDeployer({
     github, coolify, ghcr, db, config,
     sleep: async () => {},
@@ -326,16 +326,16 @@ test('createCoolify.source: build_pack, nazwa i tag obrazu', async () => {
 test('createGhcr.revision: indeks z atestacją → obraz linux/amd64 → etykieta rewizji', async () => {
   const f = fakeFetch([
     [/^https:\/\/ghcr\.io\/token\?/, [200, { token: 'anon' }]],
-    [/^https:\/\/ghcr\.io\/v2\/ezior8888-cpu\/faktway-runner\/manifests\/sha256:amd64$/, [200, { config: { digest: 'sha256:cfg' } }]],
-    [/^https:\/\/ghcr\.io\/v2\/ezior8888-cpu\/faktway-runner\/manifests\/abcdef[0-9a-f]{34}$/, [200, { manifests: [
+    [/^https:\/\/ghcr\.io\/v2\/faktway\/faktway-runner\/manifests\/sha256:amd64$/, [200, { config: { digest: 'sha256:cfg' } }]],
+    [/^https:\/\/ghcr\.io\/v2\/faktway\/faktway-runner\/manifests\/abcdef[0-9a-f]{34}$/, [200, { manifests: [
       { digest: 'sha256:att', platform: { os: 'unknown', architecture: 'unknown' } },
       { digest: 'sha256:amd64', platform: { os: 'linux', architecture: 'amd64' } },
     ] }]],
-    [/^https:\/\/ghcr\.io\/v2\/ezior8888-cpu\/faktway-runner\/blobs\/sha256:cfg$/, [200, { config: { Labels: { 'org.opencontainers.image.revision': HEAD } } }]],
+    [/^https:\/\/ghcr\.io\/v2\/faktway\/faktway-runner\/blobs\/sha256:cfg$/, [200, { config: { Labels: { 'org.opencontainers.image.revision': HEAD } } }]],
   ]);
   const ghcr = createGhcr({ fetchImpl: f.impl });
   assert.equal(await ghcr.revision(RUNNER, HEAD), HEAD);
-  assert.match(f.seen[0].url, /scope=repository:ezior8888-cpu\/faktway-runner:pull/);
+  assert.match(f.seen[0].url, /scope=repository:faktway\/faktway-runner:pull/);
   assert.equal(f.seen[1].headers.Authorization, 'Bearer anon');
 });
 

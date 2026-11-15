@@ -30,9 +30,9 @@ otwarta i spisana) + odczyt kodu `main` @ `1ded2147`.
    wypchnij, zapisz „Następny krok” i stop. Dalej jadą sesje lokalne.
 5. Sesja w chmurze NIE ma `.agents/infra.env` ani SSH: **nie wgrywa migracji
    i nie wdraża**. W opisie PR pisze „Do wgrania: 00NNN, przed wdrożeniem”.
-   Numer migracji z rejestru w `docs/koordynacja/CLAUDE-DO-CODEXA.md`
-   (wiersz „następny wolny”; 17.10 było to **00151**) — w tym samym PR
-   dopisz wiersz do rejestru.
+   Numer migracji: `node scripts/dev/nastepna-migracja.mjs` (od 00207 bez
+   wiersza w rejestrze `CLAUDE-DO-CODEXA.md`, tabela jest zamrożona; opis
+   i „przed/PO wdrożeniu” w nagłówku pliku migracji).
 6. Przed każdym PR: `pnpm run ci && pnpm build`. Scalanie i wdrożenie robi
    Bartosz (AGENTS.md, „Scalanie PR”). W świeżym kontenerze najpierw
    `xmllint --version`. Jeśli go nie ma:

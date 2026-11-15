@@ -31,7 +31,7 @@ Stan sprawdzony w kodzie 05.11.2026, wiersze A4-D, B3, G2, H1a, L1a i L1b 08.11.
 | B1 | założenia robocze | `cykl-zycia-faktury-ksef.md` §9 (D7–D9); prawnik na końcu (sekcja 9) |
 | B2a, B2b | częściowo | `ISSUE_DATE_PASSED` tylko dla KOR, ZAL, ROZ (#242); zwykła faktura nie ma bezpiecznika |
 | B3 | scalone | #412, w #460 08.11.2026: stan MF z Latarni w cronie i na banerze |
-| C1 | nie | brak wspólnego modułu granic |
+| C1 | w PR | moduł granic `lib/xml/fa3-limits.ts` w PR #736 (14.11.2026): formularze, walidatory ZAL/KOR/ROZ i 3 generatory z bramką przed XML; z przeglądu C1-KOLEJNOSC i C1-EMAIL w sekcji 8 |
 | C2 | nie | sprzedawca korekty z przeglądarki (`correction-actions.ts:259`); generator bez `PrefiksPodatnika`; S7, S8 częściowo |
 | C3 | nie | generator korekt odmawia `zw` (`fa3-correction-generator.ts:285`) |
 | C4 | nie | hamulce aktywne (`kind-holds.ts:9`) |
@@ -39,9 +39,9 @@ Stan sprawdzony w kodzie 05.11.2026, wiersze A4-D, B3, G2, H1a, L1a i L1b 08.11.
 | C6 (nowa) | nie | okres JPK po `issue_date` (`data-fetcher.ts:286`) |
 | D1 | nie | bez limitu prób na wpis, przycisku operatora i podziału I3 |
 | D2 | częściowo | skrót z `xml_storage_path` faktury (`lib/pdf/invoice-data.ts:252`) |
-| E1 | częściowo | W10 w PR #574 (skrzynka i historia KSeF, 10.11.2026); S12 (wiersz bez środowiska rzuca błąd, `inbox-polling.ts:142`) i S9 otwarte; z przeglądu nowe W10-b (okno ponad ok. 16 stron nie mieści się w limicie MF) i W10-c w sekcji 8 |
+| E1 | częściowo | W10 w PR #574 (skrzynka i historia KSeF, 10.11.2026); W10-b w PR #734 (jedna strona na przebieg, HWM częściowy, nadrabianie co 5 min, 14.11.2026); S12 (wiersz bez środowiska rzuca błąd, `inbox-polling.ts:142`), S9 i W10-c otwarte; z #734 nowe W10-d (push i karta FLO przy nadrabianiu) w sekcji 8 |
 | E2 | skreślona | decyzja Bartosza 22.10: Magiczny import znika |
-| F1 | nie | brak runbooka przełączenia |
+| F1 | częściowo | runbook i kontrola w PR #721 (14.11.2026): `docs/runbooks/go-live-ksef-prod.md`, `scripts/ops/kontrola-go-live-ksef.sh`; zostają kolumna albo filtr faktur TEST per firma (migracja, Bartosz), komunikaty zamiast wyjątków na pulpicie (`app/`), próba przełączenia na kopii bazy (Bartosz, I3; DoD karty) i decyzje D1–D8 z §1 runbooka (D3 = D-A4-1b-3-SYS, zmiana wymaga migracji i kodu); nowe ustalenia F1-a…F1-f w §5 runbooka, do sekcji 8 |
 | F2 | częściowo | pulpit i analizy mają kontrolę środowiska, `kpir-data.ts` i portal księgowej nie |
 | G1 | częściowo | stopBoss w PR #577, idempotencja jobów zostaje (przypomnienia po #519, #521, #550); czas łaski Coolify do potwierdzenia (G1-LASKA) |
 | G2 | częściowo | wysyłka ma `localConcurrency: 5` (`package-d.ts:67`), reszta `batchSize`; kolejność worker przed web w `/wdroz` zrobiona (#449, w #460) |
@@ -96,7 +96,7 @@ Lekcje z rundy października, każda kosztowała realny czas:
 4. Wyzwalacz, RPC, RLS: testy na bazie (`tests/rls-*.test.ts`). Asercja sprawdza skutek, nie kod błędu.
 5. Test niestabilny to defekt testu: osobny mały PR od razu. Bez `vi.resetModules` i `vi.doMock` w locie.
 6. Decyzje współdzielone w czystych modułach (`ksef-send-policy.ts`, `ksef-operator-policy.ts`, `send-error-classes.ts`): przycisk i akcja decydują z tej samej tabeli.
-7. Migracje: numer z rejestru, nagłówek przed/PO wdrożeniu, zero `DROP TABLE/COLUMN`, `UPDATE` danych tylko za zgodą, typy bazy z produkcji.
+7. Migracje: numer z `node scripts/dev/nastepna-migracja.mjs`, nagłówek przed/PO wdrożeniu, zero `DROP TABLE/COLUMN`, `UPDATE` danych tylko za zgodą, typy bazy z produkcji.
 8. Nowy kod albo blokada najpierw w `ksef-operator-policy.ts` i `ksef-error-codes.md`.
 9. Produkcję czytasz tylko przez `scripts/ops/kontrola-faktur-ksef.sh` i procedury z `AGENTS.md`.
 
@@ -531,13 +531,16 @@ Dotąd leżały w kolumnie „co zostało” dziennika, bez właściciela. Przyd
 | C-12, C-20 | niezmienny dowód XML | D2 | #369, #190 (szkice) |
 | C5c-c | `P_14_x` z sumy VAT pozycji | sekcja 9 | pytanie do doradcy |
 | UPO-429 | 429 przy pobraniu UPO = błąd ostateczny, UPO wraca dopiero po 24 h (`upo-client.ts:180-186`) | D1 | sprawdzone 08.11: otwarte |
-| W10-b | skrzynka: okno ponad ok. 16 stron (ok. 4 000 faktur, np. po przerwie certyfikatu) nie mieści się w limicie MF 16/min i 20/h; przebieg idzie od HWM bez tempa i bez częściowego postępu, 429 w pętli, HWM stoi, nowe faktury firmy też; wyjścia brak (`lib/ksef/inbox.ts:77`, `inbox-polling.ts:250`; runbook pojemności liczy 1 zapytanie na przebieg) | E1 (propozycja: budżet zapytań na przebieg, częściowy HWM = data ostatniego rekordu po zawężeniu) | sprawdzone 10.11.2026: otwarte (z przeglądu W10) |
+| W10-b | skrzynka: okno ponad ok. 16 stron (ok. 4 000 faktur, np. po przerwie certyfikatu) nie mieści się w limicie MF 16/min i 20/h; przebieg idzie od HWM bez tempa i bez częściowego postępu, 429 w pętli, HWM stoi, nowe faktury firmy też; wyjścia brak (`lib/ksef/inbox.ts:77`, `inbox-polling.ts:250`; runbook pojemności liczy 1 zapytanie na przebieg) | E1 (propozycja: budżet zapytań na przebieg, częściowy HWM = data ostatniego rekordu po zawężeniu) | naprawa w PR #734 (14.11.2026): 1 zapytanie (250 faktur) na przebieg, HWM do daty ostatniej pobranej faktury (do ms w dół, nie dalej niż HWM KSeF), następny przebieg za 5 min; czeka na przegląd i scalenie; do decyzji Bartosza: 5 czy 15 min (zalecenie MF dla interwału cyklicznego) |
 | W10-c | zawężenie po `isTruncated` zakłada, że `dateRange.from` jest włączne (rekord graniczny w tej samej chwili); przy wyłącznym rekord tuż za limitem ginie | H1b (sprawdzić na KSeF TEST) | do sprawdzenia |
+| W10-d | nadrabianie w kilku przebiegach: każdy przebieg z nowymi fakturami wysyła push (ten sam `tag` z `renotify`, więc dzwoni znowu) i nadpisuje kartę FLO dnia (`expense.inbox:<dzień>`, `createProposal` podmienia `documentIds`), więc karta pokazuje tylko ostatnią paczkę; faktury są w /inbox | osobny PR (obszar `flo.agent`, R2; propozycja: bez pusha w przebiegu częściowym, karta sumuje dzień) | z #734, 14.11.2026: otwarte |
 | G1-LASKA | czas łaski kontenera workera w Coolify nie jest zapisany w repo; budżet `WORKER_SHUTDOWN_BUDGET` (`boss.ts`) zakłada 10 s (domyślny `docker stop`) | G1 | pytanie do Bartosza w #577 |
 | G1-START | SIGTERM w trakcie startu workera przepada: node jako PID 1 nie ma handlera do końca `main()` (`worker.ts:163`), więc zatrzymanie przy starcie kończy się SIGKILL | G1 | sprawdzone 10.11: otwarte |
 | G1-PACZKA | `failWip` oblewa całą paczkę (`batchSize` > 1: offline-queue 25, `inbox.invoice-received` 10, OCR, import, eksporty 5), więc już przerobione joby wykonają się ponownie | G1 (idempotencja) | sprawdzone 10.11: otwarte |
 | G1-LIMIT | trzecie przerwanie tego samego joba (`retryLimit: 2`) daje `failed` bez `onExhausted`; wysyłka zostaje w `sending`, widać ją tylko w I2 i alarmie po 15 min | G1, po #561 (`run-job.ts`) | sprawdzone 10.11: otwarte |
 | G1-POAKCEPT | śmierć po zapisie akceptacji (`submit-invoice/save-accepted.ts:14`, krok z `submit-invoice.ts:542`) kończy ponowienie na strażniku (`submit-invoice.ts:172-186`): ginie wiersz `xml_documents`, emit-success, audit-success | D2 | sprawdzone 10.11: otwarte |
+| C1-KOLEJNOSC | GTIN, PKWiU i CN przed P_7 we wszystkich 3 generatorach (`fa3-generator.ts:565`, `fa3-advance-generator.ts:320`, `fa3-correction-generator.ts:347`), a w sekwencji FaWiersz XSD są po P_7: pozycja z kodem klasyfikacji daje `XSD_INVALID`; test `fa3-generator.test.ts:296` utrwala złą kolejność, bo nie waliduje XSD. Które ścieżki ustawiają kod na produkcji, do ustalenia | nowa karta po scaleniu C1 (#736) | sprawdzone 14.11: otwarte (`validateFA3` odrzuca zwykłą fakturę z GTIN) |
+| C1-EMAIL | e-mail nabywcy bez granicy XSD (`TAdresEmail` do 255 znaków): formularz sprawdza tylko składnię | po C1 | sprawdzone 14.11: otwarte |
 
 **Po bramce** (opis w dzienniku i `ksef-error-codes.md`, stan niesprawdzony): D-A4-1b-3-MI (prawdopodobnie nieaktualne po decyzji 22.10), 440 bez numeru oryginału (z #336: wyjściem zostają I5 i „Tylko uzgodnij”), -UPO (w D1), -DATE, -PAY, -CAT, -LIST, -EVID, -FLO-NUM, GEN-PESEL-KRAJ, C5b-b, C5b-c, C5b-d, C5c-b, C5c-e, W9-b, W9-c, W9-e, W9-g, IMP-ACC, IMP-PROD, IMP-KOR, IMP-STAWKA, IMP-B2C-NRINNY, IMP-STOPKA-WIELE, IMP-ID-XSD, IDX-ENV, ZAP-01-a do ZAP-01-e, CQ-IDENT, zapis stanu KSeF do bazy bez Redisa (z B3), typy bazy z produkcji (`types/database.ts` kończy się na 00154), limity 5 s w `ksef-connect-credentials*` pod obciążeniem (zasada 5), L1b (warunkowo) i L2–L5 (wydajność wysyłki, karty L1a i L1b), z przeglądu W10 (10.11.2026): W10-d (historia: zawężenie z kursorem równym końcowi okna pyta o `[end, end]`, `windows.ts:249`), W10-e (decyzja „zawęź / koniec / następna strona” w trzech kopiach: `inbox.ts`, `applyBackfillPage`, `applyLivePage`), W10-f (`FAKTFLOW-DLA-AI.md:153` opisuje nieistniejący `continuationToken`) oraz ustalenia bez kodu z dziennika (m.in. I5 przy konflikcie 23505, ponowny push po błędzie Resend, błąd Resend w pętli `cert-expiry-alert`).
 

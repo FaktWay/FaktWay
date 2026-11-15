@@ -1409,8 +1409,10 @@ stopa wypadkowa (kwiecień), nowe wzory formularzy i schematy JPK.
 1. Jeden krok to jedna gałąź `claude/kompletna-<krok>-<temat>` od świeżego
    `origin/main` i jeden PR (duży krok: kilka PR po kolei). Naprawy po drodze
    według protokołu z `AGENTS.md`: najpierw czerwony test.
-2. Numer migracji z rejestru w `docs/koordynacja/CLAUDE-DO-CODEXA.md`
-   (8.11.2026: następny wolny **00174**). Nowe tabele z `tenant_id`, RLS
+2. Numer migracji: `node scripts/dev/nastepna-migracja.mjs` (od 00207 bez
+   wiersza w rejestrze `docs/koordynacja/CLAUDE-DO-CODEXA.md`, tabela jest
+   zamrożona; opis i „przed/PO wdrożeniu” w nagłówku pliku migracji,
+   w linii `-- KIEDY WGRAĆ: …`). Nowe tabele z `tenant_id`, RLS
    i testem w `tests/rls-*.test.ts`; nowe kolumny w `tenants` z jawnym
    GRANT SELECT (00112).
 3. Kroki z modułu księgowości za wyłącznikiem `ksiegowosc` (osobny obszar
@@ -1557,6 +1559,7 @@ stopa wypadkowa (kwiecień), nowe wzory formularzy i schematy JPK.
 | 14.11.2026 | 2.6, część 2a | #743 | scalone w #755 (d7885e91) | podpowiedź produktów z katalogu w polu nazwy pozycji (combobox w kartach i w siatce): wstawia nazwę, jednostkę, cenę netto i stawkę; u firmy zwolnionej z VAT stawka z podatkiem nie zastępuje „zw”; R1 bez migracji i bez etykiety; dalej: licznik użyć produktu przy zapisie faktury, podpowiedź w zaliczce, korekcie i proformie |
 | 14.11.2026 | ustalenie przy 2.6, część 2b | #747 | scalone w #755 (d7885e91) | FA(3): klasyfikacja pozycji (GTIN, PKWiU, CN) po `P_7` w trzech generatorach, zgodnie z XSD (dotąd plik z kodem w pozycji nie przechodził walidacji); osobne ustalenie do części 2b: typ kodu zgadywany po długości i filtr gubiący PKWiU z kropkami w rozliczającej i korekcie |
 | 14.11.2026 | przegląd #714 | n/d | bez zmiany | uwaga o cenie „zawsze zmienionej” w edycji produktu nieprawdziwa: PostgREST zwraca NUMERIC jako liczbę (`lib/ksef/duplicate-decision-types.ts:87`), pokazuje to test `tests/unit/produkty-akcje.test.ts:89-93` |
+| 13.11.2026 | 8.5, naprawa: bomba czasowa w teście | #727 | scalony 14.11 w zbiorczym „Scalenie #733 … #721, #736” (przed 8.12.2026 15:40 UTC) | `sesje-urzadzenia.test.ts`: jawny zegar `NOW` w bloku listy urządzeń i przypadek dla domyślnego zegara; bez zmian w kodzie aplikacji; ustalenie z zamiatania przy #720 |
 | 14.11.2026 | 2.6, część 2 (licznik użyć) | #753 | scalone w #755 (d7885e91); 00204 przed wdrożeniem (Bartosz) | licznik użyć i data ostatniego użycia produktu przy zapisie faktury (RPC `product_usage_record`, 00204), także szybka faktura z telefonu (przeniesione do `lib/invoices/issue-regular.ts` przy składaniu #755); decyzja Bartosza z 14.11: licznik startuje od zera, bez przeliczania starych faktur i bez zmian danych na produkcji |
 | 14.11.2026 | dziennik | #748 | scalone w #755 (d7885e91) | wiersze 14.11 i „Następny krok” przed rundą 3 |
 | 14.11.2026 | ustalenie FZ-008 (żelazny filtr) | #760 | gotowe do scalenia (CI 20 z 20), runda 4 | faktura VAT za abonament od brutto przechodzi walidację wysyłki: kwoty w groszach całkowitych, VAT pozycji od netto albo od brutto (art. 106e ust. 1 pkt 14, ust. 7, 9 i 11), brutto pozycji = netto + VAT; dotąd ok. 10 % kwot po kodzie rabatowym (np. 20,99 zł) kończyło się odmową walidacji. Sprawdzenie produkcji (Bartosz, 14.11): `stripe_payments` pusta, żadna faktura za abonament nie padła, więc wyjście operatora dla padniętych faktur niepotrzebne. Osobne ustalenia: korekta faktury liczonej od brutto liczy od netto (R1, osobny PR), eksport Comarch Optima liczy VAT od netto (format wstrzymany), FP bez metody od brutto (2.6, cena brutto), kształt FA(3) faktury za abonament (P_9A i P_11 przy VAT od brutto; pytanie do księgowej) |

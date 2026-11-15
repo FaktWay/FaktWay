@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { PARAMETRY, wszystkieLiczby } from '@/lib/ksiegowosc/parametry';
-import { KATALOG_REPO, wczytajMape } from '@/scripts/filtr/mapa.mjs';
+import { KATALOG_REPO, obszaryPliku, wczytajMape } from '@/scripts/filtr/mapa.mjs';
 import { PLIK_PYTAN, bledyRejestru, eksportyWartosci, pytaniaMarkdown, rozwin, wczytajRejestr } from '@/scripts/filtr/rejestr.mjs';
 
 /**
@@ -32,6 +32,24 @@ describe('rejestr przepisów: spójność z repozytorium', () => {
   });
 
   it.todo('każdy obszar R1 spoza księgowości ma regułę (krok F10: faktury, KSeF, JPK, waluty, odsetki, retencja)');
+
+  // Sesja 33 skalowania (QRY-07): raport KPiR i dane eksportu (JPK) też sumują
+  // po wielu wierszach i czytają je przez `readCompletePagesByKey`, a reguła
+  // wymieniała tylko obszary modułu księgowości. Zmiana R1 w tych dwóch
+  // plikach nie miała więc czego przytoczyć jako RP-ODCZYT-01.
+  it.each([
+    ['lib/reports/kpir-data.ts', 'raporty.kpir'],
+    ['lib/exports/data-fetcher.ts', 'jpk.vat-fa'],
+  ])('RP-ODCZYT-01 obejmuje obszar pliku %s (%s) i test czytania po kluczu', (plik, obszar) => {
+    expect(
+      obszaryPliku(mapa, plik).map((o: { id: string }) => o.id),
+      `plik ${plik} nie leży już w obszarze ${obszar}: popraw ten test razem z mapą`,
+    ).toContain(obszar);
+    const regula = rejestr.przepisy.find((p: { id: string }) => p.id === 'RP-ODCZYT-01');
+    expect(regula, 'brak reguły RP-ODCZYT-01').toBeDefined();
+    expect(regula.obszary).toContain(obszar);
+    expect(regula.testy.join('\n')).toContain('tests/unit/kpir-eksporty-po-kluczu.test.ts');
+  });
 
   it('pierwsze wypełnienie obejmuje sekcje 4, 5 i 13 planu księgowości', () => {
     const zrodla = rejestr.przepisy.map((p: { zrodlo_planu: string }) => p.zrodlo_planu).join('\n');
