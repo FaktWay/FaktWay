@@ -140,5 +140,7 @@ export async function szukajWGus(konto: KontoFirmy | null, nip: string, firmaEkr
   if (!konto) return { ok: false, komunikat: 'Dane z GUS pobierzesz po zalogowaniu do firmy.' };
   const w = await konto.zapytaj<GusOdpowiedz>(`gus/${encodeURIComponent(nip.replace(/\D/g, ''))}`, { firmaEkranu });
   if (w.ok) return { ok: true, nabywca: w.dane.nabywca, zrodlo: w.dane.zrodlo };
+  // 503: GUS nie odpowiada (serwer mówi to samo zdaniem strony, ale klient API daje przy 503 zdanie ogólne).
+  if (w.blad.kod === 'service_unavailable') return { ok: false, komunikat: 'GUS chwilowo nie odpowiada. Spróbuj ponownie za chwilę albo wpisz dane ręcznie.' };
   return { ok: false, komunikat: bezDlugichMyslnikow(w.blad.komunikat) };
 }

@@ -94,7 +94,13 @@ import {
   wystawienieRodzajuSchema,
   zaliczkaTelefonuSchema,
 } from '@/lib/api/mobile/schematy-rodzaje';
+import { generateAdvanceInvoiceXml, generateFinalInvoiceXml, type AdvanceInvoiceSettlementRow } from '@/lib/ksef/fa3-advance-generator';
+import { generateCorrectionInvoiceXml } from '@/lib/ksef/fa3-correction-generator';
 import { EU_BUYER_COUNTRIES } from '@/lib/schemas/invoice-form';
+import { generateFA3Xml } from '@/lib/xml/fa3-generator';
+import { validateFA3 } from '@/lib/xml/validator';
+import type { Invoice } from '@/types/invoice';
+import type { AdvanceInvoiceData, CorrectionInvoiceData, FinalInvoiceData } from '@/types/invoice-types';
 
 // ─── Tokeny ───────────────────────────────────────────────────────────
 
@@ -528,6 +534,29 @@ describe('zaliczka z telefonu', () => {
     expect(invoices.filter((i) => i.invoice_kind === 'advance' && i.tenant_id === ORG_A)).toHaveLength(2);
   });
 
+  it('ponowienie w trakcie pierwszego żądania (klucz już jest, kolejka jeszcze trwa): oba mówią „zlecona”, jedna wysyłka', async () => {
+    let pusc: () => void = () => undefined;
+    fake.enqueue.mockImplementationOnce(
+      (p: { invoiceId: string }) =>
+        new Promise((resolve) => {
+          pusc = () => {
+            invoices.find((i) => i.id === p.invoiceId)!.ksef_status = 'queued';
+            resolve({ ok: true });
+          };
+        }),
+    );
+    const first = wystaw({ wyslij: true, zaliczka: zaliczka() });
+    // Pierwsze żądanie czeka w kolejce KSeF (klucz zapisany); telefon po limicie czasu ponawia.
+    await vi.waitFor(() => expect(fake.enqueue).toHaveBeenCalledTimes(1));
+    const again = wystaw({ wyslij: true, zaliczka: zaliczka() });
+    setTimeout(() => pusc(), 300);
+    const [r1, r2] = await Promise.all([first, again]);
+    expect(r1.status).toBe(201);
+    expect(r2.status).toBe(200);
+    expect(await r2.json()).toMatchObject({ powtorzenie: true, wysylka: { zlecona: true, blad: null } });
+    expect(fake.enqueue).toHaveBeenCalledTimes(1);
+  });
+
   it('ten sam klucz z inną treścią: 409 idempotency_conflict bez drugiego zapisu', async () => {
     await wystaw({ wyslij: false, zaliczka: zaliczka() });
     const other = await wystaw({ wyslij: false, zaliczka: zaliczka({ advanceAmount: 2460 }) });
@@ -831,5 +860,57 @@ describe('zwykła faktura dla firmy z UE i osoby z PESEL (M8b)', () => {
     expect(response.status).toBe(201);
     const id = ((await response.json()) as { faktura: { id: string } }).faktura.id;
     expect(JSON.stringify(invoices.find((i) => i.id === id)?.buyer_data)).toContain('44051401359');
+  });
+});
+
+// ─── FA(3): prawdziwy generator i XSD MF na treści z telefonu ─────────
+
+/**
+ * Gotowe, gdy (zadanie M8b): korekta, zaliczka, rozliczenie i ponowna wysyłka
+ * przechodzą KSeF TEST z telefonu albo test trasy z prawdziwym generatorem.
+ * Tu to drugie: koperty, które trasy telefonu oddają kolejce KSeF (te same,
+ * z których worker generuje XML), idą przez generator FA(3) i schemat XSD MF
+ * (`validateFA3`, ten sam co `pnpm verify:fa3`). Rozliczenie: dane wysyłki
+ * zapisane na szkicu (`special_data`), bo wysyłka ROZ jest wstrzymana.
+ */
+describe('FA(3) z treści telefonu: generator i XSD MF', () => {
+  const xsdOk = async (xml: string) => expect((await validateFA3(xml)).errors ?? []).toEqual([]);
+
+  it('zaliczka wysłana z telefonu: XML ZAL przechodzi XSD', async () => {
+    await wystaw({ wyslij: true, zaliczka: zaliczka() });
+    const call = fake.enqueue.mock.calls[0]![0] as { advanceData: AdvanceInvoiceData };
+    await xsdOk(generateAdvanceInvoiceXml(call.advanceData));
+  });
+
+  it('korekta kwotowa z telefonu: XML KOR przechodzi XSD; druga korekta w toku: odmowa (K4)', async () => {
+    expect((await wystaw({ wyslij: true, korekta: korekta() })).status).toBe(201);
+    const druga = await wystaw({ wyslij: true, korekta: korekta({ internalNumber: 'KOR/2/11/2026' }) }, { key: KEY_2 });
+    expect(druga.status).toBe(422);
+    expect(fake.enqueue).toHaveBeenCalledTimes(1);
+    await xsdOk(generateCorrectionInvoiceXml((fake.enqueue.mock.calls[0]![0] as { correctionData: CorrectionInvoiceData }).correctionData));
+  });
+
+  it('korekta „przed / po” z telefonu (bez korekty w toku): XML KOR przechodzi XSD', async () => {
+    await wystaw({
+      wyslij: true,
+      korekta: korekta({ correctionType: 'before_after', amountChange: null, linesAfter: [{ name: 'Projekt', unit: 'szt', quantity: 1, unitPriceNet: 500, vatRate: '23' }] }),
+    });
+    const data = (fake.enqueue.mock.calls[0]![0] as { correctionData: CorrectionInvoiceData }).correctionData;
+    expect(data.linesBefore).toEqual([expect.objectContaining({ quantity: 2 })]);
+    await xsdOk(generateCorrectionInvoiceXml(data));
+  });
+
+  it('rozliczenie zapisane z telefonu: XML ROZ z danych szkicu przechodzi XSD', async () => {
+    const draft = await wystaw({ wyslij: false, rozliczenie: rozliczenie() });
+    const id = ((await draft.json()) as { faktura: { id: string } }).faktura.id;
+    const special = invoices.find((i) => i.id === id)!.special_data as { finalData: FinalInvoiceData; finalAdvanceSettlementRows: AdvanceInvoiceSettlementRow[] };
+    await xsdOk(generateFinalInvoiceXml(special.finalData, special.finalAdvanceSettlementRows));
+  });
+
+  it('„Wyślij ponownie” z telefonu: XML zwykłej faktury z kopii przechodzi XSD', async () => {
+    const id = await nieudanaWysylka();
+    await ponow(id);
+    const call = fake.enqueue.mock.calls[0]![0] as { invoice: Invoice };
+    await xsdOk(generateFA3Xml(call.invoice));
   });
 });

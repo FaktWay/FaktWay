@@ -201,8 +201,26 @@ Zasady wyglądu: `ZASADY-DESIGNU.md`, sekcja 10. Pilnuje `tests/unit/mobile-andr
   `useKontoFirmy().zapytaj` (firma z wyboru, reakcje na koniec sesji, kod 2FA
   i utratę firmy jak przy zapisach M8). Kwoty z API są w złotych: na ekranie
   `kwota(grosze(x))`, bo model telefonu trzyma grosze.
-- Pozostałe zapisy na prawdziwych fakturach (zmiana szkicu, korekta, zaliczka,
-  rozliczenie, ponowna wysyłka odrzuconej, e-mail, XML, cykliczne) nie mają
+- Od M8b zaliczka, rozliczenie zaliczek i korekta idą tą samą trasą `POST
+  /faktury` (klucz rodzaju zamiast `faktura`, ten sam `Idempotency-Key`), treść z
+  `lib/faktura/rodzaje.ts` (bez React Native, testy
+  `tests/unit/mobile-faktura-rodzaje.test.ts`). Kwot tych dokumentów telefon nie
+  liczy: pokazuje je z `POST /faktury/wyliczenie` (`useWyliczenie` w
+  `stan/faktury-rodzaje.tsx`, po chwili od ostatniej zmiany pól; tekst, którego
+  klient jeszcze nie wpisał, zastępuje `NA_PODGLAD`). Faktura pierwotna korekty
+  (nabywca, „było” po przyjętych korektach, dozwolone typy) przychodzi z `GET
+  /faktury/{id}/korekta`, zaliczki do rozliczenia z `GET /faktury/zaliczki`, nazwa
+  i adres po NIP z `GET /gus/{nip}`. Zwykła faktura ma od M8b firmę z UE (VAT-UE,
+  kraj z prefiksu, „np II”) i osobę z PESEL albo dokumentem.
+- Od M8b w szczególe jak na stronie: do KSeF ze szkicu tylko zwykła faktura VAT
+  (szkic zaliczki, rozliczenia i korekty się usuwa i wystawia od nowa), „Wyślij
+  ponownie” po błędzie wysyłki, „Wróć do szkicu”, „Usuń szkic” (`stan/dane.tsx`:
+  `wyslijDoKsef`, `wrocDoSzkicu`, `usunSzkic`). Zmiana szkicu VAT to formularz z
+  jego danymi, a zapis najpierw usuwa stary szkic, potem zapisuje nowy (strona
+  zmienia szkic tak samo). Wysyłka wstrzymana także na stronie (rozliczenie;
+  korekta na produkcji) przychodzi w podpowiedzi (`wysylkaWstrzymana`): przycisk
+  główny zapisuje wtedy szkic.
+- Pozostałe zapisy na prawdziwych fakturach (e-mail, XML, cykliczne) nie mają
   jeszcze API: telefon mówi, gdzie to zrobić, i otwiera stronę
   (`komponenty/na-stronie.tsx`). Nie udawaj zapisu w pamięci.
 - Od M9 wydatki: lista z bazy (`pobierzWydatki`, 200 najnowszych według daty

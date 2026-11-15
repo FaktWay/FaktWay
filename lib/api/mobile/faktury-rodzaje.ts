@@ -229,9 +229,24 @@ function wysylkaPoPowtorzeniu(saved: FakturaZapisana): WystawienieOdpowiedz['wys
   return { zlecona: false, blad: saved.ksefStatus === 'draft' ? SPECIAL_DRAFT_NOT_SENT : SPECIAL_SEND_FAILED_EARLIER };
 }
 
-/** Powtórzenie po kluczu: zapisany dokument; nic nie zlecamy drugi raz. */
+/** Ile razy i co ile ms powtórzenie dopytuje o szkic, który pierwsze żądanie może właśnie zlecać do KSeF. */
+const DOPYTANIA_O_KOLEJKE = 4;
+const PRZERWA_DOPYTANIA_MS = 500;
+
+/**
+ * Powtórzenie po kluczu: zapisany dokument; nic nie zlecamy drugi raz. Szkic przy
+ * `wyslij` bywa chwilowy: ponowienie po limicie czasu telefonu przychodzi, gdy
+ * pierwsze żądanie jeszcze zleca wysyłkę (klucz jest zapisany przed kolejką), więc
+ * zanim powiemy „nie poszło do KSeF”, dopytujemy o stan przez około 2 s.
+ */
 async function powtorzenie(caller: MobileCaller, invoiceId: string, wyslij: boolean): Promise<NextResponse> {
-  const saved = await readSaved(dbOf(caller), tenantOf(caller), invoiceId);
+  const db = dbOf(caller);
+  const tenantId = tenantOf(caller);
+  let saved = await readSaved(db, tenantId, invoiceId);
+  for (let i = 0; wyslij && saved?.ksefStatus === 'draft' && i < DOPYTANIA_O_KOLEJKE; i++) {
+    await new Promise((resolve) => setTimeout(resolve, PRZERWA_DOPYTANIA_MS));
+    saved = await readSaved(db, tenantId, invoiceId);
+  }
   // Klucz usuwa się razem z fakturą (ON DELETE CASCADE): tu faktura zawsze jest.
   if (!saved) throw new MobileUpstreamError('mobile_idempotency_keys.invoice');
   const body: WystawienieOdpowiedz = { faktura: saved, powtorzenie: true, wysylka: wyslij ? wysylkaPoPowtorzeniu(saved) : null };
@@ -266,9 +281,19 @@ export async function issueSpecialFromMobile(caller: MobileCaller, key: string, 
 
   const context = kontekst(caller, tenant);
   let keySaved = false;
-  const afterDraftSaved = async (invoiceId: string) => {
+  const afterDraftSaved = async (invoiceId: string): Promise<{ ok: true } | { ok: false; error: string }> => {
     const k = await saveKey(db, tenantId, userId, key, hash, invoiceId, SPECIAL_KEY_SAVE_FAILED);
-    keySaved = k.ok;
+    if (k.ok) {
+      keySaved = true;
+      return k;
+    }
+    // Równoległe ponowienie (ta sama treść) zdążyło dopisać klucz do tego szkicu: to ten sam zapis, więc
+    // wysyłka idzie dalej stąd (ponowienie jej nie zleca, tylko czeka na stan), bez drugiego zlecenia.
+    const existing = await findKey(db, tenantId, userId, key);
+    if (existing && existing.request_hash === hash && existing.invoice_id === invoiceId) {
+      keySaved = true;
+      return { ok: true };
+    }
     return k;
   };
   const values = ready.values;
