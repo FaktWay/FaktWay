@@ -43,7 +43,12 @@ vi.mock('@/lib/supabase/server', () => ({
       const q = {
         select: () => q,
         delete() { op = 'delete'; return q; },
-        eq(k: string, v: unknown) { predicates.push((r) => r[k] === v); return q; },
+        eq(k: string, v: unknown) {
+          // Od FZ-005 każda faktura ma osobny DELETE `.eq('id', …)`.
+          if (op === 'delete' && table === 'invoices' && k === 'id') s.deletedInvoiceIds.push(v);
+          predicates.push((r) => r[k] === v);
+          return q;
+        },
         in(k: string, v: unknown[]) {
           if (op === 'delete' && table === 'invoices') s.deletedInvoiceIds.push(...v);
           predicates.push((r) => v.includes(r[k]));
@@ -51,6 +56,8 @@ vi.mock('@/lib/supabase/server', () => ({
         },
         not: () => q,
         lt: () => q,
+        gt: () => q,
+        order: () => q,
         limit: () => q,
         then(ok: (v: unknown) => unknown) {
           const data = (s.tables[table] ?? []).filter((r) => predicates.every((p) => p(r)));

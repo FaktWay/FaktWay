@@ -308,6 +308,8 @@ export type AuditAction =
   | 'product.deleted'
   | 'retention.deletion_requested'
   | 'retention.deletion_executed'
+  // FZ-005: fakturę trzyma korekta albo koszt, więc usunięcie czeka (nowy termin w metadanych).
+  | 'retention.deletion_postponed'
   | 'invitation.created'
   | 'invitation.revoked'
   | 'invitation.accepted'

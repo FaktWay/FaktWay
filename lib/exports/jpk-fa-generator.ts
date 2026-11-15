@@ -17,6 +17,7 @@ import { MissingIssuerAddressError, type RegisteredAddress } from '@/lib/exports
 import { MissingTaxOfficeError } from '@/lib/exports/tax-office';
 import { isKnownTaxOffice } from '@/lib/exports/tax-offices';
 import { REVERSE_CHARGE_RATES } from '@/lib/invoices/annotations';
+import { isGtuCode } from '@/lib/invoices/line-codes';
 import { parseVatUe } from '@/lib/invoices/vat-ue';
 import {
   settlementVatSummaries,
@@ -34,7 +35,7 @@ import {
 } from '@/lib/xml/fa3-annotations';
 import { differenceSummaries, roundToCents, summarizeVatPerRate } from '@/lib/xml/invoice-calculator';
 import { SUPPORT_EMAIL } from '@/lib/site';
-import type { InvoiceLineItem, VatRate } from '@/types/invoice';
+import type { GtuCode, InvoiceLineItem, VatRate } from '@/types/invoice';
 
 const TNS = 'http://jpk.mf.gov.pl/wzor/2022/02/17/02171/';
 /** Typy wspólne, które importuje JPK_FA(4) — wersja 2018/08/24, nie nowsza. */
@@ -138,6 +139,13 @@ export interface JpkInvoice {
   correctedInvoiceNumber?: string;
   correctionReason?: string;
   /**
+   * Krok 2.6, część 2b-2: oznaczenia GTU z pozycji faktury korygowanej
+   * (`fa3_data.lines[].gtuCode` faktury FaktWay, `fa3_data.ksefMarkers.gtu`
+   * faktury z importu), tak jak są zapisane. Korekta w FaktWay nie zapisuje GTU
+   * pozycji, więc JPK_V7M odmawia (`JpkV7mGtuCorrectionNotSupportedError`).
+   */
+  correctedInvoiceGtu?: string[];
+  /**
    * KOR „przed/po”: oba stany pozycji (z `special_data.correctionData`).
    * Pozycje zapisane na wierszu korekty to stan PO, więc kwoty JPK liczy się
    * z różnicy stanów, tak jak P_13/P_14 korekty w KSeF (S-01).
@@ -214,6 +222,12 @@ export interface JpkInvoiceLine {
   vatRate: string; // '23', '8', '5', '0', 'zw', 'oo', 'np', 'np_ii'
   /** VAT pozycji z faktury — P_14_x musi się zgadzać z fakturą co do grosza. */
   vatAmount?: number;
+  /**
+   * Krok 2.6, część 2b-2: oznaczenie GTU pozycji faktury FaktWay
+   * (`fa3_data.lines[].gtuCode`). JPK_V7M wpisuje je do wiersza faktury
+   * (`gtuOfRow`); JPK_FA(4) nie ma takiego pola.
+   */
+  gtuCode?: GtuCode;
   /**
    * C5c: pola pozycji z pliku KSeF (import historii). FakturaWiersz zapisuje
    * je zamiast wyliczonych — przy cenach brutto P_9B/P_11A, nie nasze netto.
@@ -474,6 +488,15 @@ export interface AmountsOptions {
    * CSV i EDI++ takiego oznaczenia nie mają (domyślnie odmowa).
    */
   receiptInvoiceAsFp?: boolean;
+  /**
+   * Krok 2.6, część 2b-2: plik ma pola GTU_01..GTU_13 w wierszu sprzedaży
+   * (JPK_V7M(3)), więc oznaczenia GTU z pliku KSeF faktury z importu
+   * (`ksefMarkers.gtu`) nie są przeszkodą, gdy każde jest kodem z listy
+   * (`isGtuCode`); generator wpisuje je do wiersza. Kod spoza listy dalej
+   * odmawia. JPK_FA(4) i EDI++ bez zmian: zaimportowana faktura z GTU dalej
+   * je wstrzymuje (osobna decyzja; własna faktura FaktWay z GTU nie).
+   */
+  gtuInRow?: boolean;
 }
 
 /** Faktura do paragonu, którą JPK_V7M wykazuje typem FP: zwykła faktura (korekty FP FaktWay nie wystawia). */
@@ -499,7 +522,12 @@ function importedContentRefusal(inv: JpkInvoice, options: AmountsOptions): strin
   // Krok 1.2: JPK_V7M wykazuje zwykłą FP typem dokumentu FP; korekty FP i plik
   // bez oznaczenia FP (JPK_FA) dalej odmawiają.
   const fpInFile = options.receiptInvoiceAsFp === true && isPlainReceiptInvoice(inv);
-  const markers = fpInFile ? { ...inv.ksefMarkers, fp: undefined } : inv.ksefMarkers;
+  // Krok 2.6, część 2b-2: JPK_V7M wpisuje poprawne GTU z pliku do wiersza (`gtuInRow`).
+  const fileGtu = inv.ksefMarkers?.gtu ?? [];
+  const gtuInFile = options.gtuInRow === true && fileGtu.length > 0 && fileGtu.every(isGtuCode);
+  const markers = fpInFile || gtuInFile
+    ? { ...inv.ksefMarkers, ...(fpInFile ? { fp: undefined } : {}), ...(gtuInFile ? { gtu: undefined } : {}) }
+    : inv.ksefMarkers;
   const cannot = [...annotationsJpkCannotExpress(inv.annotations), ...markersJpkCannotExpress(markers)];
   if (cannot.length === 1 && markers?.fp && options.receiptInvoiceAsFp !== true) return RECEIPT_INVOICE_ONLY;
   if (cannot.length) return `ma w KSeF oznaczenie, którego FaktWay nie wykazuje w JPK: ${cannot.join(', ')}.`;

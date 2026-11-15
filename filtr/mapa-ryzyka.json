@@ -260,6 +260,7 @@
         "lib/xml/fa3-limits.ts",
         "lib/xml/schemas/fa3/**",
         "lib/invoices/{annotations,vat-exemption,vat-ue,cash-method,special-data,map-buyer-party,tenant-seller,load-tenant-seller}.ts",
+        "lib/invoices/line-codes.ts",
         "lib/ksef/special-invoice-data.ts",
         "lib/ksef/xml-generated-at.ts",
         "lib/invoices/receipt-invoice.ts"

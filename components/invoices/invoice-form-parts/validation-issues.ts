@@ -47,6 +47,8 @@ const POLA_POZYCJI: Record<string, { label: string; suffix: string }> = {
   quantity: { label: 'ilość', suffix: 'quantity' },
   unitPriceNet: { label: 'cena netto', suffix: 'unit-price' },
   vatRate: { label: 'stawka VAT', suffix: 'vat-rate' },
+  pkwiuCode: { label: 'PKWiU', suffix: 'pkwiu' },
+  gtuCode: { label: 'GTU', suffix: 'gtu' },
 };
 
 function opisPola(path: string): { label: string; targetId: string | null } {
