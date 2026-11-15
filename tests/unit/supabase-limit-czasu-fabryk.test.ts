@@ -468,6 +468,20 @@ describe('co widzi klient po limicie', () => {
     expect(response.headers.getSetCookie()).toEqual([]);
   });
 
+  it('trasa sesji k6: odpowiedź nie-JSON spoza 5xx (403 ze stroną HTML, `AuthUnknownError`) → 503 `auth_unavailable`, nie 401', async () => {
+    vi.stubEnv('LOAD_TEST_MODE', 'true');
+    answer('POST /auth/v1/token', () => new Response('<html>403 Forbidden</html>', {
+      status: 403, headers: { 'content-type': 'text/html' },
+    }));
+    const { POST } = await import('@/app/api/dev/load-test-session/route');
+
+    const response = await POST(jsonPost('/api/dev/load-test-session', { email: EMAIL, password: PASSWORD }));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ ok: false, error: 'auth_unavailable' });
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
+
   it('skrypt audytu Stripe: baza milczy przy sprawdzeniu schematu → po 60 s raport `incomplete`, `database_unavailable`, kod 2', async () => {
     vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_fixture123');
     const argv = process.argv;

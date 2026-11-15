@@ -66,12 +66,13 @@ export async function POST(request: Request) {
 
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
-    // Pod obciążeniem GoTrue potrafi milczeć albo odmawiać limitem. To nie złe dane
-    // konta testowego, więc k6 dostaje inny kod niż 401.
+    // Pod obciążeniem GoTrue potrafi milczeć, odmawiać limitem albo odpowiadać bez
+    // kodu HTTP (ciało nie-JSON, np. strona błędu po drodze). To nie złe dane konta
+    // testowego, więc k6 dostaje inny kod niż 401. Złe hasło GoTrue opisuje w JSON z 400.
     if (error.status === 429) {
       return NextResponse.json({ ok: false, error: 'rate_limited' }, { status: 429 });
     }
-    if (isAuthRetryableFetchError(error) || (typeof error.status === 'number' && error.status >= 500)) {
+    if (isAuthRetryableFetchError(error) || typeof error.status !== 'number' || error.status >= 500) {
       return NextResponse.json({ ok: false, error: 'auth_unavailable' }, { status: 503 });
     }
     return NextResponse.json(
