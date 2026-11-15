@@ -1,0 +1,16 @@
+# Nocne wdrożenie: migracje po kontroli, worker, aplikacja (docs/runbooks/nocne-wdrozenie.md).
+# Instalacja: scripts/ops/zainstaluj-nocne-wdrozenie.sh. Log: journalctl -u faktway-nocne-wdrozenie
+# albo /var/log/faktway-nocne/. Wstrzymanie: touch /etc/faktway-nocne/STOP.
+[Unit]
+Description=FaktWay: nocne wdrożenie (migracje po kontroli, worker, aplikacja)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/faktway-nocne-wdrozenie
+# Najgorszy przebieg: CI do 20 min, obrazy do 25 min, worker i aplikacja po do 15 min,
+# ratunek drugie tyle. Trzy godziny to bezpieczny sufit, nie plan.
+TimeoutStartSec=3h
+Nice=5

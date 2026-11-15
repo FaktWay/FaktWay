@@ -1031,11 +1031,11 @@
     {
       "sciezki": [
         "scripts/security/**",
-        "scripts/ops/{rotacja-generuj,rotacja-kluczy,wdroz-produkcje,wgraj-migracje}.sh",
-        "scripts/ops/rotacja-kluczy-sonda.mjs",
+        "scripts/ops/{rotacja-generuj,rotacja-kluczy,wdroz-produkcje,wgraj-migracje,nocne-wdrozenie}.sh",
+        "scripts/ops/{rotacja-kluczy-sonda,kontrola-migracji}.mjs",
         "scripts/{seed-tenant,check-env,test-r2,test-ksef-auth,test-ksef-token,test-ksef-kreator}.ts"
       ],
-      "powod": "Narzędzia operatora i audyty bezpieczeństwa: wdrożenie, migracje (kolejność pilnuje AGENTS.md), rotacja kluczy, kontrola zmiennych, próby połączeń; nie liczą i nie zmieniają danych faktur."
+      "powod": "Narzędzia operatora i audyty bezpieczeństwa: wdrożenie (w tym nocne), migracje (kolejność pilnuje AGENTS.md, a kontrolę zakazanych instrukcji kontrola-migracji.mjs), rotacja kluczy, kontrola zmiennych, próby połączeń; nie liczą i nie zmieniają danych faktur."
     }
   ],
   "sygnaly": {
