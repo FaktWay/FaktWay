@@ -224,7 +224,7 @@ export default function EkranWiecej() {
             <Sekcja
               stopka={
                 zBazy
-                  ? `FaktWay ${Constants.expoConfig?.version ?? ''}. Z Twojego konta: firma, faktury i należności, skrzynka KSeF, wydatki, kontrahenci, import danych, księgowość i ustawienia. Przepływy i analizy pokazują jeszcze dane przykładowe. Karty z dopiskiem faktway.pl otwierają stronę.`
+                  ? `FaktWay ${Constants.expoConfig?.version ?? ''}. Z Twojego konta: firma, faktury i należności, skrzynka KSeF, wydatki, kontrahenci, przepływy, analizy, import danych, księgowość i ustawienia. Karty z dopiskiem faktway.pl otwierają stronę.`
                   : `FaktWay ${Constants.expoConfig?.version ?? ''}, dane przykładowe`
               }
             />

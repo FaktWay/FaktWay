@@ -54,7 +54,20 @@ pokaz() {
 
 echo "── Ruleset $id ($NAZWA), teraz:"
 pokaz "$obecny"
-[ "$TRYB" = sprawdz ] && exit 0
+if [ "$TRYB" = sprawdz ]; then
+  # Sekret z kontem człowieka: bez niego workflow „Scalanie na etykietę” niczego
+  # nie włącza (token Actions nie uruchamia kontroli grupy kolejki).
+  if sekrety=$(gh secret list -R "$REPO" 2>/dev/null); then
+    if printf '%s\n' "$sekrety" | cut -f1 | grep -qx SCAL_TOKEN; then
+      echo "sekret SCAL_TOKEN: jest (workflow włącza scalanie kontem człowieka, także dla sesji chmurowych)"
+    else
+      echo "sekret SCAL_TOKEN: BRAK (sesje lokalne włączają scalanie same przez scal-pr.sh, sesje chmurowe potrzebują sekretu: docs/runbooks/scalanie-pr.md, „Sekret SCAL_TOKEN”)"
+    fi
+  else
+    echo "sekret SCAL_TOKEN: nie wiem (gh nie odczytał listy sekretów, to wymaga uprawnień administratora repozytorium)"
+  fi
+  exit 0
+fi
 
 nowy=$(jq --argjson nowe "$NOWE_KONTROLE" --argjson app "$ACTIONS_APP" '
   {

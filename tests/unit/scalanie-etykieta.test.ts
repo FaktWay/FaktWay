@@ -147,31 +147,59 @@ describe('decyduj: zdarzenia do pominięcia', () => {
   });
 });
 
-type Wywolanie = { rodzaj: 'rest' | 'graphql'; metoda?: string; sciezka?: string; cialo?: unknown; zapytanie?: string; zmienne?: Record<string, unknown> };
+type Wywolanie = {
+  rodzaj: 'rest' | 'graphql';
+  kanal?: 'actions' | 'czlowiek';
+  metoda?: string;
+  sciezka?: string;
+  cialo?: unknown;
+  zapytanie?: string;
+  zmienne?: Record<string, unknown>;
+};
 
-/** Atrapa API: zapisuje wywołania, GraphQL odpowiada według zapytania. */
+type Stan = { autoMergeRequest: unknown; mergeQueueEntry: unknown };
+
+/** Atrapa API: zapisuje wywołania i kanał (token Actions albo konto człowieka), GraphQL odpowiada według zapytania. */
 function atrapa(opcje: {
-  stan?: { autoMergeRequest: unknown; mergeQueueEntry: unknown };
+  stan?: Stan;
   bladEnable?: string;
+  bladDisable?: string;
   bladGraphql?: string;
+  bladCzlowieka?: string;
+  bladActions?: string;
+  bladGetEtykiet?: string;
   bladKomentarza?: string;
+  etykietyNaPR?: string[];
+  tozsamosc?: 'czlowiek' | 'bot';
 } = {}) {
   const wywolania: Wywolanie[] = [];
+  const tozsamosc = opcje.tozsamosc ?? 'czlowiek';
+  async function graf(kanal: 'actions' | 'czlowiek', zapytanie: string, zmienne: Record<string, unknown>) {
+    wywolania.push({ rodzaj: 'graphql', kanal, zapytanie, zmienne });
+    if (opcje.bladGraphql) throw new Error(opcje.bladGraphql);
+    if (kanal === 'czlowiek' && opcje.bladCzlowieka) throw new Error(opcje.bladCzlowieka);
+    if (kanal === 'actions' && opcje.bladActions) throw new Error(opcje.bladActions);
+    if (zapytanie.includes('enablePullRequestAutoMerge') && opcje.bladEnable) throw new Error(opcje.bladEnable);
+    if (zapytanie.includes('disablePullRequestAutoMerge') && opcje.bladDisable) throw new Error(opcje.bladDisable);
+    if (zapytanie.includes('autoMergeRequest') && zapytanie.includes('query')) {
+      return { node: opcje.stan ?? { autoMergeRequest: null, mergeQueueEntry: null } };
+    }
+    return {};
+  }
   const api = {
+    // Domyślnie jak z sekretem SCAL_TOKEN; `bot` to praca samym GITHUB_TOKEN.
+    tozsamosc,
     async rest(metoda: string, sciezka: string, cialo?: unknown) {
       wywolania.push({ rodzaj: 'rest', metoda, sciezka, cialo });
       if (metoda === 'POST' && opcje.bladKomentarza) throw new Error(opcje.bladKomentarza);
+      if (metoda === 'GET' && sciezka.includes('/labels') && opcje.bladGetEtykiet) throw new Error(opcje.bladGetEtykiet);
+      if (metoda === 'GET' && sciezka.includes('/labels')) return (opcje.etykietyNaPR ?? []).map((name) => ({ name }));
       return null;
     },
-    async graphql(zapytanie: string, zmienne: Record<string, unknown>) {
-      wywolania.push({ rodzaj: 'graphql', zapytanie, zmienne });
-      if (opcje.bladGraphql) throw new Error(opcje.bladGraphql);
-      if (zapytanie.includes('enablePullRequestAutoMerge') && opcje.bladEnable) throw new Error(opcje.bladEnable);
-      if (zapytanie.includes('autoMergeRequest') && zapytanie.includes('query')) {
-        return { node: opcje.stan ?? { autoMergeRequest: null, mergeQueueEntry: null } };
-      }
-      return {};
-    },
+    graphql: (zapytanie: string, zmienne: Record<string, unknown>) => graf('actions', zapytanie, zmienne),
+    ...(tozsamosc === 'czlowiek'
+      ? { graphqlCzlowieka: (zapytanie: string, zmienne: Record<string, unknown>) => graf('czlowiek', zapytanie, zmienne) }
+      : {}),
   };
   return { api, wywolania };
 }
@@ -208,6 +236,145 @@ describe('wykonaj', () => {
     const z = zdarzenie();
     const { api } = atrapa({ bladEnable: 'Auto merge is not allowed for this repository' });
     await expect(wykonaj(decyduj(z, OSOBY), z, api)).rejects.toThrow(/not allowed/);
+  });
+
+  it('wlacz bez tożsamości człowieka (sam GITHUB_TOKEN): zero mutacji, także przy clean status, komentarz mówi, co zrobić, etykieta zostaje', async () => {
+    // GITHUB_TOKEN nie uruchamia kontroli grupy: wpis w kolejce stałby w AWAITING_CHECKS (#765),
+    // a scalanie włączone tym tokenem nie wstawiło do kolejki żadnego PR.
+    const z = zdarzenie();
+    const { api, wywolania } = atrapa({ tozsamosc: 'bot', bladEnable: 'Pull request Pull request is in clean status' });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    expect(mutacje(wywolania)).toEqual([]);
+    expect(wywolania.some((w) => w.metoda === 'DELETE')).toBe(false);
+    const komentarze = wywolania.filter((w) => w.rodzaj === 'rest' && w.metoda === 'POST');
+    expect(komentarze).toHaveLength(1);
+    const tresc = (komentarze[0].cialo as { body: string }).body;
+    expect(tresc).toContain('SCAL_TOKEN');
+    expect(tresc).toContain('gh pr merge 42 --auto');
+    expect(tresc).not.toMatch(/wejdzie do kolejki po zielonych/);
+  });
+
+  it('wlacz: scalanie już włączone przez człowieka zostaje nietknięte (bez enable, bez komentarza)', async () => {
+    const z = zdarzenie();
+    const { api, wywolania } = atrapa({ stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'ezior8888-cpu' } }, mergeQueueEntry: null } });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    expect(mutacje(wywolania)).toEqual([]);
+    expect(wywolania.some((w) => w.metoda === 'POST')).toBe(false);
+  });
+
+  it('wlacz: PR już w kolejce zostaje w kolejce (bez mutacji, bez komentarza)', async () => {
+    const z = zdarzenie();
+    const { api, wywolania } = atrapa({ stan: { autoMergeRequest: null, mergeQueueEntry: { id: 'MQE_1' } } });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    expect(mutacje(wywolania)).toEqual([]);
+    expect(wywolania.some((w) => w.metoda === 'POST')).toBe(false);
+  });
+
+  it('wlacz: dawne włączenie przez bota (GraphQL: __typename Bot, login bez „[bot]”) jest wyłączane i zastępowane włączeniem człowieka', async () => {
+    // Login bota w GraphQL to `github-actions` (REST ma `github-actions[bot]`): rozpoznajemy po __typename.
+    const z = zdarzenie();
+    const { api, wywolania } = atrapa({ stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'Bot', login: 'github-actions' } }, mergeQueueEntry: null } });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    const m = mutacje(wywolania);
+    expect(m).toHaveLength(2);
+    expect(m[0]).toContain('disablePullRequestAutoMerge');
+    expect(m[1]).toContain('enablePullRequestAutoMerge');
+    expect(wywolania.find((w) => w.zapytanie?.includes('enablePullRequestAutoMerge'))?.kanal).toBe('czlowiek');
+  });
+
+  it('kanały: włączenie i wpis do kolejki idą kontem człowieka, odczyt stanu, wyłączenie i wyjęcie z kolejki tokenem Actions', async () => {
+    const wlacz = zdarzenie();
+    const a = atrapa({ bladEnable: 'Pull request Pull request is in clean status' });
+    await wykonaj(decyduj(wlacz, OSOBY), wlacz, a.api);
+    const kanaly = (w: Wywolanie[], fraza: string) => w.filter((x) => x.zapytanie?.includes(fraza)).map((x) => x.kanal);
+    expect(kanaly(a.wywolania, 'enablePullRequestAutoMerge')).toEqual(['czlowiek']);
+    expect(kanaly(a.wywolania, 'enqueuePullRequest')).toEqual(['czlowiek']);
+
+    const wylacz = zdarzenie({ action: 'unlabeled', labele: [] });
+    const b = atrapa({ stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'x' } }, mergeQueueEntry: { id: 'MQE_1' } } });
+    await wykonaj(decyduj(wylacz, OSOBY), wylacz, b.api);
+    expect(kanaly(b.wywolania, 'query')).toEqual(['actions']);
+    expect(kanaly(b.wywolania, 'disablePullRequestAutoMerge')).toEqual(['actions']);
+    expect(kanaly(b.wywolania, 'dequeuePullRequest')).toEqual(['actions']);
+  });
+
+  it('wylacz po nowym pushu działa także, gdy token człowieka wygasł (fail-closed: etykieta zdjęta, scalanie wyłączone)', async () => {
+    const z = zdarzenie({ action: 'synchronize', label: '', labele: [ETYKIETA_SCAL] });
+    const { api, wywolania } = atrapa({ bladCzlowieka: 'GitHub GraphQL: HTTP 401', stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'x' } }, mergeQueueEntry: null } });
+    await expect(wykonaj(decyduj(z, OSOBY), z, api)).resolves.toBeUndefined();
+    expect(mutacje(wywolania).some((q) => q.includes('disablePullRequestAutoMerge'))).toBe(true);
+    expect(wywolania.find((w) => w.metoda === 'DELETE')?.sciezka).toBe(`/repos/${REPO}/issues/42/labels/scal`);
+  });
+
+  it('wylacz: błąd wyłączenia nie zostawia etykiety scal (zdejmujemy ją mimo błędu), a zadanie kończy się błędem', async () => {
+    const z = zdarzenie({ action: 'synchronize', label: '', labele: [ETYKIETA_SCAL] });
+    const { api, wywolania } = atrapa({ bladDisable: 'HTTP 502', stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'x' } }, mergeQueueEntry: null } });
+    await expect(wykonaj(decyduj(z, OSOBY), z, api)).rejects.toThrow(/502/);
+    expect(wywolania.find((w) => w.metoda === 'DELETE')?.sciezka).toBe(`/repos/${REPO}/issues/42/labels/scal`);
+  });
+
+  it('unlabeled scal, a etykieta jest już z powrotem na PR (skrypt zdjął i nadał od nowa): zdarzenie ignorowane, scalania nie ruszamy', async () => {
+    const z = zdarzenie({ action: 'unlabeled', labele: [] });
+    const { api, wywolania } = atrapa({ etykietyNaPR: [ETYKIETA_SCAL], stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'x' } }, mergeQueueEntry: { id: 'MQE_1' } } });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    expect(mutacje(wywolania)).toEqual([]);
+  });
+
+  it('unlabeled scal, etykiety naprawdę nie ma: wyłącza jak dotąd', async () => {
+    const z = zdarzenie({ action: 'unlabeled', labele: [] });
+    const { api, wywolania } = atrapa({ etykietyNaPR: [], stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'x' } }, mergeQueueEntry: null } });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    expect(mutacje(wywolania).some((q) => q.includes('disablePullRequestAutoMerge'))).toBe(true);
+  });
+
+  it('unlabeled scal: błąd odczytu etykiet nie blokuje wyłączenia (człowiek zdjął scal, żeby anulować, więc przy wątpliwości wyłączamy)', async () => {
+    const z = zdarzenie({ action: 'unlabeled', labele: [] });
+    const { api, wywolania } = atrapa({ bladGetEtykiet: 'GitHub API GET: HTTP 502', stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'x' } }, mergeQueueEntry: null } });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    expect(mutacje(wywolania).some((q) => q.includes('disablePullRequestAutoMerge'))).toBe(true);
+  });
+
+  it('wylacz po błędzie: komentarz mówi, że scalania NIE wyłączono i jak to zrobić ręcznie, zamiast twierdzić, że wyłączone', async () => {
+    const z = zdarzenie({ action: 'synchronize', label: '', labele: [ETYKIETA_SCAL] });
+    const { api, wywolania } = atrapa({ bladDisable: 'HTTP 502', stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'x' } }, mergeQueueEntry: null } });
+    await expect(wykonaj(decyduj(z, OSOBY), z, api)).rejects.toThrow(/502/);
+    const tresc = (wywolania.find((w) => w.metoda === 'POST')?.cialo as { body: string }).body;
+    expect(tresc).toContain('gh pr merge 42 --disable-auto');
+    expect(tresc).toMatch(/nie udało się wyłączyć/i);
+    expect(tresc).not.toMatch(/scalanie wyłączone, nadaj/i);
+  });
+
+  it('odmow po błędzie wyłączenia: komentarz ostrzega, że scalanie mogło zostać włączone', async () => {
+    const z = zdarzenie({ sender: 'obcy' });
+    const { api, wywolania } = atrapa({ bladDisable: 'HTTP 502', stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'obcy' } }, mergeQueueEntry: null } });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    const komentarze = wywolania.filter((w) => w.metoda === 'POST').map((w) => (w.cialo as { body: string }).body);
+    expect(komentarze[0]).toContain('zgody.json'); // powód odmowy
+    expect(komentarze[1]).toContain('gh pr merge 42 --disable-auto'); // ostrzeżenie o niewyłączonym scalaniu
+    expect(wywolania.some((w) => w.metoda === 'DELETE')).toBe(true);
+  });
+
+  it('wylacz: gdy kanał Actions zawodzi (np. odmowa dequeue cudzego wpisu), powtarza kanałem człowieka', async () => {
+    const z = zdarzenie({ action: 'synchronize', label: '', labele: [ETYKIETA_SCAL] });
+    const { api, wywolania } = atrapa({ bladActions: 'Resource not accessible by integration', stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'x' } }, mergeQueueEntry: null } });
+    await expect(wykonaj(decyduj(z, OSOBY), z, api)).resolves.toBeUndefined();
+    const dis = wywolania.filter((w) => w.zapytanie?.includes('disablePullRequestAutoMerge'));
+    expect(dis.map((w) => w.kanal)).toEqual(['actions', 'czlowiek']);
+  });
+
+  it('wlacz: inny bot niż github-actions (np. aplikacja GitHub, Renovate) nie jest „dawnym włączeniem przez Actions”: zostaje nietknięty', async () => {
+    const z = zdarzenie();
+    const { api, wywolania } = atrapa({ stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'Bot', login: 'renovate' } }, mergeQueueEntry: null } });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    expect(mutacje(wywolania)).toEqual([]);
+  });
+
+  it('odmow wyłącza też scalanie włączone w międzyczasie (skrypt lokalny omija bramkę workflow)', async () => {
+    const z = zdarzenie({ sender: 'obcy' });
+    const { api, wywolania } = atrapa({ stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { __typename: 'User', login: 'obcy' } }, mergeQueueEntry: null } });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    expect(mutacje(wywolania).some((q) => q.includes('disablePullRequestAutoMerge'))).toBe(true);
+    expect(wywolania.some((w) => w.metoda === 'DELETE')).toBe(true);
   });
 
   it('odmow: komentarz z powodem i zdjęcie etykiety scal przez REST DELETE, bez włączania', async () => {
@@ -251,7 +418,7 @@ describe('wykonaj', () => {
   it('błąd samego komentarza po skutku nie wywraca zadania (ponowienie powtórzyłoby skutek i komentarz)', async () => {
     const z = zdarzenie();
     const { api, wywolania } = atrapa({ bladKomentarza: 'HTTP 502' });
-    await expect(wykonaj(decyduj(z, OSOBY), z, api)).resolves.toBeUndefined();
+    await expect(wykonaj(decyduj(z, OSOBY), z, api)).resolves.toBe('wlaczone');
     expect(mutacje(wywolania).some((q) => q.includes('enablePullRequestAutoMerge'))).toBe(true);
   });
 
@@ -282,7 +449,64 @@ describe('przetworz', () => {
   });
 });
 
+describe('przetworz bez tożsamości człowieka', () => {
+  it('kod 0 i opis mówiący, że scalania z workflow nie włączono', async () => {
+    const { api, wywolania } = atrapa({ tozsamosc: 'bot' });
+    const w = await przetworz(zdarzenie(), OSOBY, api);
+    expect(w.kod).toBe(0);
+    expect(w.linie.join('\n')).toMatch(/brak sekretu SCAL_TOKEN/);
+    expect(mutacje(wywolania)).toEqual([]);
+  });
+});
+
 describe('utworzApi', () => {
+  it('tożsamość: z tokenem człowieka GraphQL idzie jego tokenem, a REST tokenem Actions; bez niego oba tokenem Actions', async () => {
+    const naglowki: Array<{ url: string; auth: string }> = [];
+    const fetchFn = async (url: string, init: RequestInit) => {
+      naglowki.push({ url, auth: (init.headers as Record<string, string>).Authorization });
+      return new Response(JSON.stringify({ data: {} }), { status: 200 });
+    };
+    const zCzlowiekiem = utworzApi({ token: 'ACTIONS', tokenCzlowieka: 'CZLOWIEK', fetchFn: fetchFn as unknown as typeof fetch });
+    expect(zCzlowiekiem.tozsamosc).toBe('czlowiek');
+    await zCzlowiekiem.rest('POST', '/repos/x/y/issues/1/comments', { body: 'a' });
+    await zCzlowiekiem.graphql('query { x }', {});
+    await zCzlowiekiem.graphqlCzlowieka?.('mutation { x }', {});
+    // Odczyt i wyłączenie (graphql) idą tokenem Actions, żeby wygasły PAT nie psuł „bezpiecznego kierunku”.
+    expect(naglowki.map((n) => n.auth)).toEqual(['Bearer ACTIONS', 'Bearer ACTIONS', 'Bearer CZLOWIEK']);
+
+    naglowki.length = 0;
+    const bezCzlowieka = utworzApi({ token: 'ACTIONS', fetchFn: fetchFn as unknown as typeof fetch });
+    expect(bezCzlowieka.tozsamosc).toBe('bot');
+    expect(bezCzlowieka.graphqlCzlowieka).toBeUndefined();
+    await bezCzlowieka.graphql('query { x }', {});
+    expect(naglowki.map((n) => n.auth)).toEqual(['Bearer ACTIONS']);
+  });
+
+  it('sekret ze znakiem nowej linii na końcu jest przycinany (nie psuje nagłówka)', async () => {
+    const naglowki: string[] = [];
+    const fetchFn = async (_url: string, init: RequestInit) => {
+      naglowki.push((init.headers as Record<string, string>).Authorization);
+      return new Response(JSON.stringify({ data: {} }), { status: 200 });
+    };
+    const api = utworzApi({ token: 'ACTIONS', tokenCzlowieka: 'CZLOWIEK\n', fetchFn: fetchFn as unknown as typeof fetch });
+    await api.graphqlCzlowieka?.('mutation { x }', {});
+    expect(naglowki).toEqual(['Bearer CZLOWIEK']);
+  });
+
+  it('wyjątek fetch (np. nagłówek odrzucony przez środowisko) nie niesie tokenu w komunikacie, bo ten trafia do komentarza w publicznym repo', async () => {
+    const fetchFn = async () => {
+      throw new TypeError('Headers.append: "Bearer ghp_TAJNYTOKEN123" is an invalid header value');
+    };
+    const api = utworzApi({ token: 'ACTIONS', tokenCzlowieka: 'ghp_TAJNYTOKEN123', fetchFn: fetchFn as unknown as typeof fetch });
+    for (const wywolanie of [() => api.rest('GET', '/repos/x/y/issues/1/labels'), () => api.graphql('query { x }', {}), () => api.graphqlCzlowieka?.('mutation { x }', {})]) {
+      const blad = (await wywolanie()?.catch((e: Error) => e)) as Error;
+      expect(blad).toBeInstanceOf(Error);
+      expect(blad.message).not.toContain('ghp_TAJNYTOKEN123');
+      expect(blad.message).toMatch(/GitHub/);
+      expect(blad.message).toContain('TypeError'); // rodzaj awarii zostaje do diagnozy, treść nagłówka nie
+    }
+  });
+
   it('REST: ścieżka, metoda i token w nagłówku; 404 przy DELETE jest dozwolone', async () => {
     const zapytania: Array<{ url: string; init: RequestInit }> = [];
     const fetchFn = async (url: string, init: RequestInit) => {
@@ -343,4 +567,35 @@ describe('workflow scalanie-na-etykiete.yml', () => {
     expect(yml).toMatch(/timeout-minutes: 5/);
     expect(yml).toMatch(/cancel-in-progress: false/);
   });
+
+  it('zadanie ma contents: write i pull-requests: write (bez contents: write token Actions nie wyłączy scalania: sprawdzone eksperymentem 15.11.2026, „Resource not accessible by integration”)', () => {
+    const zadanie = yml.slice(yml.indexOf('\njobs:'));
+    expect(zadanie).toMatch(/^ {6}contents: write/m);
+    expect(zadanie).toMatch(/^ {6}pull-requests: write/m);
+    expect(zadanie).toMatch(/^ {6}issues: write/m);
+  });
+
+  it('przekazuje sekret SCAL_TOKEN (konto człowieka) obok tokenu Actions', () => {
+    expect(yml).toMatch(/SCAL_TOKEN: \$\{\{ secrets\.SCAL_TOKEN \}\}/);
+    expect(yml).toMatch(/GITHUB_TOKEN: \$\{\{ github\.token \}\}/);
+  });
+});
+
+describe('workflowy straży: zdarzenia etykiet nie anulują przebiegów', () => {
+  // Anulowany przebieg to osobna kontrola na SHA głowy: nowszy zielony go nie zastępuje
+  // w statusCheckRollup (FAILURE mimo zielonych wymaganych kontroli; #785, #786).
+  for (const plik of ['filtr-straz.yml', 'agent-guard.yml']) {
+    const yml = readFileSync(join(process.cwd(), '.github/workflows', plik), 'utf8').replace(/\r\n/g, '\n');
+
+    it(`${plik}: anuluje się tylko przebieg z poprzedniego pushu, reszta ma własną grupę`, () => {
+      expect(yml).toMatch(/^ {2}cancel-in-progress: \$\{\{ github\.event\.action == 'synchronize' \}\}$/m);
+      expect(yml).toMatch(/^ {2}group: .*\$\{\{ github\.event\.action == 'synchronize' && 'push' \|\| github\.run_id \}\}$/m);
+      expect(yml).not.toMatch(/cancel-in-progress: true/);
+    });
+
+    it(`${plik}: żadnego pomijania zadania na etykiety (pominięte zadanie liczy się jako zaliczona kontrola)`, () => {
+      const zadania = yml.slice(yml.indexOf('\njobs:'));
+      expect(zadania).not.toMatch(/label\.name/);
+    });
+  }
 });

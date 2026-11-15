@@ -17,15 +17,21 @@
    scala, a PR za nim liczą się od nowa bez niego. Dlatego nie ma już
    `gh pr update-branch` ani PR zbiorczych. Dwa PR z tym samym numerem migracji
    nie przejdą razem (`tests/unit/migracje-rejestr.test.ts` na commicie grupy).
-2. Agent nadaje etykietę `scal` (REST, `scripts/ops/scal-pr.sh`). Workflow
+2. Agent uruchamia `scripts/ops/scal-pr.sh N`: etykieta `scal` przez REST, potem
+   `gh pr merge N` z konta człowieka (przy kolejce włącza auto-merge, a gdy
+   kontrole już przeszły, wstawia PR do kolejki). PR wchodzi do kolejki sam, gdy
+   kontrole są zielone (w eksperymencie z 15.11: 33 s po ostatniej kontroli), więc
+   **agent nie czeka na CI** i może skończyć sesję. Workflow
    [`scalanie-na-etykiete.yml`](../../.github/workflows/scalanie-na-etykiete.yml)
-   włącza automatyczne scalanie (`scripts/ci/scalanie-etykieta.mjs`). PR
-   wchodzi do kolejki sam, gdy kontrole są zielone, więc **agent nie czeka na CI**
-   i może skończyć sesję.
-3. Workflow włącza scalanie tylko gdy: etykietę nadało konto z
+   (`scripts/ci/scalanie-etykieta.mjs`) pilnuje warunków z pkt. 3, a scalanie
+   włącza sam tylko z sekretem `SCAL_TOKEN` (konto człowieka). To droga dla sesji
+   chmurowych, gdzie GraphQL jest zablokowany, więc `gh pr merge` nie działa.
+   Cudzego włączenia ani wpisu w kolejce workflow nie nadpisuje.
+3. Workflow działa tylko gdy: etykietę nadało konto z
    `filtr/zgody.json`, PR jest otwarty, nie jest szkicem, ma bazę `main`, jego
    gałąź jest z tego repo (nie fork) i nie ma etykiety `wstrzymaj`. W innym
-   razie zdejmuje `scal` i zostawia komentarz z powodem.
+   razie zdejmuje `scal` i zostawia komentarz z powodem. Bez sekretu
+   `SCAL_TOKEN` niczego nie włącza i komentuje, co zrobić (etykieta zostaje).
 4. Nowy push do PR zdejmuje `scal`, wyłącza scalanie i wyjmuje PR z kolejki
    (jak etykiety `zgoda:*` w „Filtr: straż”): zgoda dotyczy tego, co przeczytał
    drugi czytelnik. Po poprawce nadajesz `scal` jeszcze raz.
@@ -56,11 +62,22 @@
 ```
 
 Sprawdza PR (otwarty, nie szkic, baza `main`, bez konfliktu i bez
-`wstrzymaj`), kontrole na SHA głowy (czerwona to odmowa z jej nazwą), potem
-nadaje `scal`. PR, który ma już włączone scalanie albo jest w kolejce, zostaje
-bez zmian (ponowne nadanie etykiety wyjęłoby go z kolejki). Etykieta już była,
-ale scalanie nie jest włączone (np. po wyrzuceniu z kolejki): zdejmuje ją
-i nadaje od nowa, bo GitHub nie wysyła zdarzenia dla etykiety, która już jest.
+`wstrzymaj`), kontrole na SHA głowy (czerwona to odmowa z jej nazwą), nadaje
+`scal` i włącza scalanie z Twojego konta (`gh pr merge N --match-head-commit SHA`).
+W sesji chmurowej ten ostatni krok kończy się ostrzeżeniem (GraphQL zablokowany):
+etykieta zostaje, a scalanie włączy workflow, jeśli ma `SCAL_TOKEN`. PR, który
+ma już włączone scalanie albo jest w kolejce, zostaje bez zmian (ponowne nadanie
+etykiety wyjęłoby go z kolejki). Etykieta już była, ale scalanie nie jest
+włączone (np. po wyrzuceniu z kolejki): wystarcza samo `gh pr merge`, bez
+zdejmowania etykiety (zdjęcie to zdarzenie `unlabeled`, które wyłączyłoby świeżo
+włączone scalanie). Etykietę zdejmuje i nadaje od nowa dopiero wtedy, gdy
+`gh pr merge` zawiedzie (chmura), bo GitHub nie wysyła zdarzenia dla etykiety,
+która już jest. Scalanie włączone wcześniej przez workflow (autor `github-actions`)
+skrypt wyłącza i włącza od nowa z Twojego konta (`./scripts/ops/scal-pr.sh N`).
+To naprawia PR zostawiony w stanie sprzed tej zmiany, o ile nie ma konfliktu
+(PR `dirty`: najpierw `git merge origin/main` i push; push zdejmie `scal`, więc
+potem skrypt od nowa) i nie został już wpisany do kolejki przez bota (wtedy ręcznie,
+patrz „Wpis w kolejce stoi w AWAITING_CHECKS”).
 
 PR wymagający etykiet zgody (straż ich żąda), po drugim czytelniku:
 
@@ -79,17 +96,94 @@ Chcesz zobaczyć wynik (do 45 min, co 30 s): dopisz `--czekaj`. Wypisze
 `MERGED` albo powód: PR zamknięty bez scalenia, workflow zdjął `scal`
 (pokaże jego komentarz), kontrola zaczerwieniła się, PR wypadł z kolejki.
 
-Zapas w sesji lokalnej, gdy workflow nie działa (np. błąd uprawnień
-`Resource not accessible by integration` w jego logu): `gh pr merge N --auto`
-bez flagi metody (metodę ustawia kolejka; bez włączonej kolejki `gh` odmawia
-w trybie nieinteraktywnym). W chmurze GraphQL jest zablokowany, więc zapasu
-tam nie ma: zgłoś to Bartoszowi.
+Zapas w sesji lokalnej, gdy skrypt nie zdołał włączyć scalania (ostrzeżenie
+w kroku e.): `gh pr merge N` bez flagi metody (metodę ustawia kolejka; gdy
+kontrole jeszcze trwają, włącza auto-merge, a gdy przeszły, wstawia do kolejki).
+W chmurze GraphQL jest zablokowany, więc scalanie włącza tam wyłącznie workflow
+z sekretem `SCAL_TOKEN`; bez niego zgłoś to Bartoszowi.
 
 Stan po fakcie:
 
 ```bash
 gh api repos/FaktWay/FaktWay/pulls/776 --jq '{state, merged, merge_commit_sha}'
 ```
+
+## Przejście na nowy sposób (od scalenia tej zmiany do `main`)
+
+`pull_request_target` bierze workflow z `main`, więc dopóki zmiana nie wejdzie do
+`main`, na każdy PR działa STARY „Scalanie na etykietę” (scalanie włącza bot, a przy
+PR już gotowym wpisuje go do kolejki, czyli wpis, który utknie). Dla PR otwartych w
+tym czasie, także dla samego PR ze zmianą, nie nadawaj `scal`: etykiety zgody
+(jeśli straż ich żąda) i `gh pr merge N --match-head-commit SHA` z konta
+człowieka. Po wejściu zmiany do `main` PR dociągają `main` (`git merge origin/main`),
+żeby mieć nowy `scal-pr.sh`; sesja ze starym skryptem dostanie stare zachowanie.
+
+## Dlaczego PR nie wchodził do kolejki (ustalone 15.11.2026)
+
+Objaw: PR z `scal`, włączonym auto-merge, `mergeStateStatus` CLEAN i zielonymi
+wymaganymi kontrolami nie wchodził do kolejki; pomagał dopiero ręczny
+`enqueuePullRequest`. Raz wpis stał w AWAITING_CHECKS bez żadnego przebiegu (#765).
+
+**Przyczyna główna: tożsamość.** Workflow włączał scalanie i wpisywał do kolejki
+tokenem `GITHUB_TOKEN` (`github-actions[bot]`).
+
+- Żaden z PR, którym scalanie włączył workflow (#757, #759, #760, #761, #767,
+  #769, #785, #786, #787, #788), nie wszedł do kolejki sam. Każdy dostał wpis
+  `added_to_merge_queue` od człowieka, najdłuższy po prawie dwóch godzinach.
+- #760 i #769 miały `statusCheckRollup` SUCCESS, bez anulowanych kontroli,
+  wszystkie wymagane kontrole zielone (od 14:31 i 14:37 UTC) i też nie weszły
+  przez 35 do 40 minut. Anulowane przebiegi nie są więc jedyną przyczyną.
+- Jedyny wpis zrobiony przez workflow (#765, ścieżka „clean status” w
+  `wlacz()`, `actor` `github-actions[bot]`) stał w AWAITING_CHECKS bez
+  przebiegów `merge_group`, aż człowiek zrobił dequeue i enqueue. Przebiegi
+  grupy mają `actor` równy osobie, która wpisała PR. Zgadza się to z zasadą
+  GitHuba, że zdarzenia wywołane `GITHUB_TOKEN` nie tworzą przebiegów workflowów.
+- Eksperyment (15.11, PR #790, zamknięty bez scalenia): `gh pr merge --auto` z
+  konta człowieka na PR z oczekującymi kontrolami; ostatnia kontrola skończyła
+  się 16:57:11 UTC, a PR wszedł do kolejki sam o 16:57:44 UTC (`actor` człowiek).
+  Ten sam PR, ten sam stan kontroli, inna tożsamość.
+
+- Drugi eksperyment (15.11, PR #793, zamknięty): token Actions z `contents: write`
+  i `pull-requests: write` wyłącza scalanie włączone przez człowieka
+  (`auto_merge_disabled` przez `github-actions[bot]`); z samym `contents: read`
+  dostaje „Resource not accessible by integration”. Sam push scalania NIE wyłącza
+  (auto-merge człowieka przetrwał push), więc wyłączenie po pushu robi wyłącznie
+  workflow „Scalanie na etykietę” (`synchronize`) i dlatego jego zadanie ma te dwa
+  uprawnienia. Nie sprawdzono, czy token Actions wyjmie z kolejki wpis człowieka
+  (kod próbuje wtedy konta człowieka, jeśli jest sekret).
+
+Czego nie wiemy: dokumentacja GitHuba nie opisuje, dlaczego auto-merge włączony
+przez bota nie wpisuje PR do kolejki (nie wpisał w żadnym z 10 PR). Wniosek
+praktyczny nie zależy od przyczyny: scalanie włącza tylko człowiek (albo sekret
+`SCAL_TOKEN`), nigdy bot.
+
+**Przyczyna poboczna: anulowane przebiegi.** `Filtr: straż` i `Agent guard` miały
+`concurrency` z `cancel-in-progress: true`, więc `scal` nadane tuż po `zgoda:*`
+anulowało przebieg na tym samym SHA. Anulowany przebieg to osobna kontrola:
+nowszy zielony go nie zastępuje w `statusCheckRollup`, który zostaje FAILURE
+(#785, #786, #787). Nie blokuje wpisu do kolejki (ręczny wpis przeszedł na
+tych trzech PR; #760 i #769 pokazują, że to nie była jedyna przyczyna), ale
+wprowadzał w błąd ludzi i skrypty. Teraz anuluje się tylko przebieg z
+poprzedniego pushu (`synchronize`), a zdarzenia etykiet mają własną grupę.
+Nie dodawaj do tych workflowów `if:` pomijającego zadanie na nieistotne
+etykiety: pominięte zadanie GitHub liczy jako zaliczoną wymaganą kontrolę, więc
+nowsze „skipped” przykryłoby wcześniejszą czerwoną ocenę.
+
+## Wpis w kolejce stoi w AWAITING_CHECKS bez przebiegów
+
+Rozpoznanie: `gh api repos/FaktWay/FaktWay/actions/runs -X GET -f event=merge_group -f head_sha=SHA_GRUPY`
+nie zwraca nic kilka minut po wpisie (SHA grupy: `mergeQueue(branch:"main")` w GraphQL,
+pole `headCommit.oid`). Naprawa z konta człowieka, nigdy z tokenu Actions:
+
+```bash
+ID=$(gh api repos/FaktWay/FaktWay/pulls/N --jq .node_id)
+gh api graphql -f query='mutation($id: ID!) { dequeuePullRequest(input: {id: $id}) { clientMutationId } }' -f id="$ID"
+gh pr merge N
+```
+
+Automatycznego strażnika takich wpisów nie ma celowo: po zmianie tożsamości nie
+widziano ani jednego (poprzednie stały po wpisie bota), a strażnik też
+potrzebowałby konta człowieka do ponownego wpisu.
 
 ## Po włączeniu kolejki: PR otwarte wcześniej
 
@@ -152,3 +246,15 @@ SHA w `main` i migracje, które wejdą z nocnym przebiegiem.
    błędu uprawnień popraw `permissions` w workflow, a do tego czasu działa
    zapas `gh pr merge N --auto`.
 3. PR otwarte wcześniej: `./scripts/ops/odswiez-pr.sh`.
+4. Sekret `SCAL_TOKEN` (tylko dla sesji chmurowych; sesje lokalne go nie
+   potrzebują). Stan: `./scripts/ops/kolejka-scalania.sh --sprawdz`. Założenie:
+   fine-grained personal access token konta z `filtr/zgody.json`, właściciel
+   zasobów: organizacja FaktWay, tylko repozytorium `FaktWay/FaktWay`, uprawnienia
+   Pull requests: Read and write, Contents: Read and write, Metadata: Read
+   (organizacja może wymagać zatwierdzenia tokenu), ważność do roku, potem
+   `gh secret set SCAL_TOKEN -R FaktWay/FaktWay` (wklejasz token na prośbę
+   `gh`, nie w historii powłoki). Token działa tylko w workflow „Scalanie na
+   etykietę”, który nie pobiera kodu z PR. Wygasa: dopisz do kalendarza
+   rotacji ([`rotacja-kluczy.md`](rotacja-kluczy.md)). Zamiast tokenu osobistego
+   można użyć aplikacji GitHub z tymi samymi uprawnieniami; wtedy workflow
+   generuje token akcją `actions/create-github-app-token` (osobna zmiana).

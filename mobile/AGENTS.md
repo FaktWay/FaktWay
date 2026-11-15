@@ -256,8 +256,11 @@ Zasady wyglądu: `ZASADY-DESIGNU.md`, sekcja 10. Pilnuje `tests/unit/mobile-andr
   danych i karty Księgowa, Zespół, Abonament, Dziennik idą przez API
   (`stan/odczyt.tsx`: jeden magazyn odczytów, pyta przy każdym otwarciu ekranu
   i po zapisie; `stan/kontrahenci.tsx`: zapisy z `firmaEkranu`). Typy odpowiedzi
-  w `lib/api/mobile/kontrakt-wiecej.ts` strony. Na danych przykładowych zostają
-  Przepływy i Analizy; stopka w Więcej mówi o tym klientowi.
+  w `lib/api/mobile/kontrakt-wiecej.ts` strony. Też Przepływy i Analizy
+  (`GET /przeplywy`, `GET /analizy`): wejście `kontekstDanych` strony, więc
+  przed potwierdzeniem KSeF serwer oddaje dane przykładowe z `tryb: 'przyklad'`
+  i ekran to mówi; każda karta osobno (`CzescTelefonu`), kwoty, saldo, procenty
+  i odcienie kalendarza liczy serwer.
 - `supabase.auth.onAuthStateChange` woła słuchacza wewnątrz blokady
   `supabase-js`: wywołanie klienta w słuchaczu czeka na samo siebie. Odłóż je
   (`setTimeout(…, 0)`), jak w `stan/dane.tsx`.
