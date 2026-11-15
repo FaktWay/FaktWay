@@ -1,21 +1,39 @@
 /**
- * Dane przykładowe ekranów (bez logowania i API). Firmy są
- * zmyślone, NIP to testowy `1234567890` (AGENTS.md, „KSeF-specific”).
- * Kwoty w groszach. Prawdziwe dane podłącza etap M7.
+ * Dane przykładowe ekranów (bez logowania i API) i typy, w których ekrany
+ * widzą też dane z bazy (od M7: faktury i skrzynka KSeF, mapowanie w
+ * `lib/dane/mapowanie.ts`). Firmy są zmyślone, NIP to testowy `1234567890`
+ * (AGENTS.md, „KSeF-specific”). Kwoty w groszach.
  */
+import { cena, kwota } from '../lib/format';
 
 /** „Dziś” dla danych przykładowych, żeby terminy i zaległości się nie rozjeżdżały. */
 export const DZIS = '2026-11-09';
 
-export type StatusKsef = 'przyjeta' | 'wysylanie' | 'odrzucona' | 'robocza';
+/**
+ * `blad`: wysyłka nie wyszła (na stronie `failed`: ponawiamy, wstrzymana, brak
+ * certyfikatu). Tylko w danych z bazy; KSeF faktury nie odrzucił.
+ */
+export type StatusKsef = 'przyjeta' | 'wysylanie' | 'odrzucona' | 'robocza' | 'blad';
 
 export type Pozycja = {
   nazwa: string;
   ilosc: number;
   jednostka: string;
   cenaNetto: number;
+  /** Stawka do obliczeń; zw, np i oo liczą się jako 0. */
   stawkaVat: number;
+  /** Stawka do pokazania, gdy nie jest liczbą procent („zw”, „np”, „oo”). */
+  stawkaOpis?: string;
+  /** Cena netto dokładnie jak na fakturze (do 4 miejsc, „33,3333”), gdy grosze w `cenaNetto` ją zaokrąglają (dane z bazy, M8). */
+  cenaTekst?: string;
+  /** Kwoty pozycji zapisane na fakturze (dane z bazy); bez nich liczymy z ilości i ceny. */
+  netto?: number;
+  vat?: number;
+  brutto?: number;
 };
+
+/** Strona faktury z bazy (sprzedawca); dane przykładowe biorą `SPRZEDAWCA`. */
+export type Strona = { nazwa: string; nip?: string; adres?: string };
 
 export type Faktura = {
   id: string;
@@ -40,9 +58,26 @@ export type Faktura = {
   blad?: { komunikat: string; pole: string; podpowiedz: string };
   /** Przypomnienie o zapłacie (strona „Po terminie”). */
   przypomnienie?: { etap: number; wyslane: number; status: 'Zaplanowane' | 'Wysłane' | 'Wstrzymane' | 'Bez przypomnień'; data?: string };
+  /** Pola tylko z bazy (M7); dane przykładowe ich nie mają. Waluta: brak to PLN. */
+  waluta?: string;
+  sprzedawca?: Strona;
+  adresKontrahenta?: string;
+  /**
+   * Rodzaj nabywcy z bazy (M8): firma z polskim NIP, osoba prywatna bez numeru
+   * identyfikacyjnego albo `inny` (firma z UE, osoba z PESEL lub dokumentem),
+   * którego telefon nie wystawia i nie kopiuje (strona tak).
+   */
+  nabywcaTyp?: 'firma' | 'osoba' | 'inny';
+  /** Adres nabywcy w dwóch wierszach jak na fakturze (dane z bazy): do nowej faktury dla tego kontrahenta (M8). */
+  adresKontrahentaLinie?: { linia1: string; linia2: string };
+  emailKontrahenta?: string;
+  dataSprzedazy?: string;
+  bank?: string;
+  /** Wpłacono częściowo (grosze); „Do zapłaty” to brutto minus ta kwota. */
+  zaplacono?: number;
 };
 
-export type MetodaPlatnosci = 'Przelew' | 'Gotówka' | 'Karta' | 'Kompensata' | 'Inna';
+export type MetodaPlatnosci = 'Przelew' | 'Gotówka' | 'Karta' | 'Płatność mobilna' | 'Kompensata' | 'Inna';
 
 export type RodzajFaktury = 'vat' | 'zaliczkowa' | 'korygujaca' | 'rozliczajaca';
 
@@ -64,17 +99,35 @@ export const SPRZEDAWCA = {
 
 const NIP = '1234567890';
 
-/** Netto i VAT pozycji zaokrąglane osobno; brutto faktury to ich suma, więc wiersze sumują się do nagłówka. */
+/**
+ * Netto i VAT pozycji zaokrąglane osobno; brutto faktury to ich suma, więc
+ * wiersze sumują się do nagłówka. Pozycja z bazy ma kwoty z faktury i te
+ * pokazujemy, zamiast liczyć od nowa.
+ */
 export function nettoPozycji(p: Pozycja): number {
-  return Math.round(p.ilosc * p.cenaNetto);
+  return p.netto ?? Math.round(p.ilosc * p.cenaNetto);
 }
 
 export function vatPozycji(p: Pozycja): number {
-  return Math.round((nettoPozycji(p) * p.stawkaVat) / 100);
+  return p.vat ?? Math.round((nettoPozycji(p) * p.stawkaVat) / 100);
 }
 
 export function bruttoPozycji(p: Pozycja): number {
-  return nettoPozycji(p) + vatPozycji(p);
+  return p.brutto ?? nettoPozycji(p) + vatPozycji(p);
+}
+
+/**
+ * Cena jednostkowa do pokazania: dokładna z faktury („33,3333 zł”), gdy ją
+ * mamy (`cenaTekst`), inaczej z groszy.
+ */
+export function cenaPozycji(p: Pozycja, waluta = 'PLN'): string {
+  const z = p.cenaTekst ? Number(p.cenaTekst.replace(/\s/g, '').replace(',', '.')) : NaN;
+  return Number.isFinite(z) ? cena(z, waluta) : kwota(p.cenaNetto, waluta);
+}
+
+/** „23%” albo „zw”, „np”, „oo”. */
+export function stawkaTekst(p: Pozycja): string {
+  return p.stawkaOpis ?? `${p.stawkaVat}%`;
 }
 
 function faktura(
@@ -176,16 +229,47 @@ export function znajdzFakture(id: string): Faktura | undefined {
   return FAKTURY.find((f) => f.id === id);
 }
 
+/**
+ * Faktura kosztowa ze skrzynki KSeF (na stronie `(koszty)/inbox`). Status
+ * mówi, czy wydatek z tej faktury jest już opisany; `undefined`, gdy wydatek
+ * jeszcze nie powstał albo to archiwum z historii KSeF (`zHistorii`).
+ */
+export type FakturaKosztowa = {
+  id: string;
+  numer: string;
+  numerKsef?: string;
+  sprzedawca: string;
+  nipSprzedawcy: string;
+  dataWystawienia: string;
+  /** Dzień przyjęcia w KSeF (Warszawa). */
+  otrzymano?: string;
+  brutto: number;
+  netto?: number;
+  waluta: string;
+  status?: 'nowa' | 'opisana';
+  zHistorii: boolean;
+  /** Wydatek z tej faktury (`/koszty/[id]`), gdy już jest. */
+  wydatekId?: string;
+  pozycje: Pozycja[];
+};
+
 export type ZrodloKosztu = 'ksef' | 'zdjecie' | 'reczny' | 'import';
-export type KolumnaKpir = '10' | '11' | '12' | '13' | '15';
+/** Kolumny KPiR jak w formularzu kosztu strony (`KPIR_OPTIONS`); 7, 8 i 16 tylko gdy już są przy koszcie z bazy. */
+export type KolumnaKpir = '7' | '8' | '10' | '11' | '12' | '13' | '15' | '16';
 
 export const NAZWA_KOLUMNY: Record<KolumnaKpir, string> = {
+  '7': 'Kol. 7',
+  '8': 'Kol. 8',
   '10': 'Kol. 10: Towary handlowe i materiały',
   '11': 'Kol. 11: Koszty uboczne zakupu',
   '12': 'Kol. 12: Wynagrodzenia',
   '13': 'Kol. 13: Pozostałe wydatki',
   '15': 'Kol. 15: Koszty B+R',
+  '16': 'Kol. 16',
 };
+
+/** Kolumny do wyboru przy koszcie: bez 7 i 8 (przychód) i 16, chyba że koszt już ją ma. */
+export const KOLUMNY_KOSZTU: KolumnaKpir[] = ['10', '11', '12', '13', '15'];
 
 export const NAZWA_ZRODLA: Record<ZrodloKosztu, string> = { ksef: 'KSeF', zdjecie: 'Zdjęcie', reczny: 'Ręcznie', import: 'Import' };
 
@@ -212,6 +296,16 @@ export type Koszt = {
   /** Data przyjęcia w KSeF (skrzynka). */
   otrzymano?: string;
   wKpir: boolean;
+  /**
+   * VAT w groszach, gdy jest zapisany osobno (koszt z bazy, M9). Bez niego VAT
+   * to brutto minus netto (dane przykładowe).
+   */
+  vat?: number;
+  /**
+   * Waluta kwot (koszt z bazy, M9): `PLN` albo kod waluty, gdy kwoty nie są
+   * jeszcze w złotych (dokument w walucie bez kursu NBP), jak lista strony.
+   */
+  walutaKwot?: string;
 };
 
 /** Id trasy `/koszty/[id]` dla wydatku wpisywanego ręcznie, jeszcze niezapisanego. */
@@ -246,6 +340,28 @@ export const KOSZTY: Koszt[] = [
   koszt({ id: 'k5', dostawca: 'Kawiarnia Ziarno', opis: 'Spotkanie z klientem', data: '2026-11-04', brutto: 4200, zrodlo: 'zdjecie', doOpisania: false, kategoria: 'Reprezentacja', kolumna: '13', dokument: 'Paragon', numer: '118/11', wKpir: false, stawka: 8 }),
   koszt({ id: 'k6', dostawca: 'Sklep Komputerowy Bajt', nip: NIP, opis: 'Klawiatura i mysz', data: '2026-10-29', brutto: 61500, zrodlo: 'reczny', doOpisania: false, kategoria: 'Pozostałe wydatki', kolumna: '13', dokument: 'Faktura', numer: 'FS/1029/2026', wKpir: true }),
 ];
+
+/** Skrzynka KSeF na danych przykładowych: faktury kosztowe z KSeF i ich wydatki. */
+export function skrzynkaPrzykladowa(koszty: Koszt[]): FakturaKosztowa[] {
+  return koszty
+    .filter((k) => k.zrodlo === 'ksef')
+    .map((k) => ({
+      id: `ksef-${k.id}`,
+      numer: k.numer,
+      numerKsef: k.numerKsef,
+      sprzedawca: k.dostawca,
+      nipSprzedawcy: k.nip ?? '',
+      dataWystawienia: k.data,
+      otrzymano: k.otrzymano,
+      brutto: k.brutto,
+      netto: k.netto,
+      waluta: 'PLN',
+      status: k.doOpisania ? 'nowa' : 'opisana',
+      zHistorii: false,
+      wydatekId: k.id,
+      pozycje: [{ nazwa: k.opis, ilosc: 1, jednostka: 'usł.', cenaNetto: k.netto, stawkaVat: 23, netto: k.netto, vat: k.brutto - k.netto, brutto: k.brutto }],
+    }));
+}
 
 export type Platnosc = {
   id: string;

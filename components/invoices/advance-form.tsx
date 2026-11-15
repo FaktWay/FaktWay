@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import type { Resolver } from 'react-hook-form';
-import { useEffect, useMemo, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2 } from 'lucide-react';
@@ -11,6 +11,7 @@ import type { z } from 'zod';
 
 import { BuyerLookup } from '@/components/invoices/buyer-lookup';
 import { Button } from '@/components/ui/button';
+import { errorIdFor, fieldErrorProps } from '@/components/invoices/invoice-form-parts/field-error-text';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -44,6 +45,8 @@ import { dueDateFrom, todayInWarsaw } from '@/lib/format/warsaw-date';
 import type { BuyerB2B, SellerData } from '@/types/invoice-types';
 
 import { saveAdvanceAction, saveAndSendAdvanceAction } from './advance-actions';
+import { numberingDefaults, SeriesSelectRow, useSeriesNumber } from './numeracja/series-select-row';
+import type { InvoiceNumbering } from '@/lib/numeracja/model';
 
 type AdvanceFormIn = z.input<typeof advanceInvoiceSchema>;
 
@@ -71,6 +74,8 @@ export interface AdvanceInvoiceFormProps {
   /** Dokument i numer kolejnej zamiany: ukryte pola, zapis wpisuje powiązanie w tym samym INSERT. */
   salesQuoteId?: string | null;
   salesQuoteSeq?: string | null;
+  /** Krok 2.5: serie numeracji z serią domyślną zaliczki i podpowiedzią numeru. */
+  numbering?: InvoiceNumbering | null;
 }
 
 // E1: jedno źródło etykiet dla `items` i <SelectItem> (Base UI pokazuje surową wartość bez `items`)
@@ -91,6 +96,7 @@ export function AdvanceInvoiceForm({
   initialValues = null,
   salesQuoteId = null,
   salesQuoteSeq = null,
+  numbering = null,
 }: AdvanceInvoiceFormProps) {
   const router = useRouter();
   const [saving, startSave] = useTransition();
@@ -103,9 +109,16 @@ export function AdvanceInvoiceForm({
     return { today: todayPl, due: dueDateFrom(todayPl, 14) };
   }, []);
 
+  // Krok 2.5: seria domyślna zaliczki, jej podpowiedź i klucz zapisu (jeden na otwarcie formularza).
+  const numberDefaults = numberingDefaults(numbering);
+  const [numberRequestKey] = useState(() => crypto.randomUUID());
+
   const defaults = {
     invoiceType: 'advance',
-    internalNumber: '',
+    internalNumber: numberDefaults.preview ?? '',
+    numberSeriesId: numberDefaults.numberSeriesId,
+    numberPreview: numberDefaults.numberPreview,
+    numberRequestKey,
     issueDate: today,
     paymentMethod: 'transfer',
     paymentDueDate: due,
@@ -144,6 +157,19 @@ export function AdvanceInvoiceForm({
   const vatWatch = useWatch({ control: form.control, name: 'vatRate' }) ?? '23';
   const paymentMethodWatch = useWatch({ control: form.control, name: 'paymentMethod' });
   const splitPaymentWatch = useWatch({ control: form.control, name: 'splitPayment' });
+  const issueDateWatch = useWatch({ control: form.control, name: 'issueDate' }) ?? today;
+
+  // Krok 2.5: zmiana serii albo daty podpowiada numer z serii, o ile w polu nie ma numeru wpisanego ręcznie.
+  const series = useSeriesNumber({
+    numbering,
+    issueDate: issueDateWatch,
+    read: () => ({ number: form.getValues('internalNumber') ?? '', preview: form.getValues('numberPreview') || undefined }),
+    write: ({ seriesId, preview, number }) => {
+      form.setValue('numberSeriesId', seriesId);
+      form.setValue('numberPreview', preview);
+      if (number !== undefined) form.setValue('internalNumber', number, { shouldValidate: form.formState.isSubmitted });
+    },
+  });
 
   const preview = calculateAdvanceTotals({
     advanceAmount: advanceAmt,
@@ -228,16 +254,17 @@ export function AdvanceInvoiceForm({
         <InvoiceDocumentCard
           header={
             <InvoiceDocumentHeader seller={initialSeller}>
+              <SeriesSelectRow numbering={numbering} seriesId={series.seriesId} onSelect={series.selectSeries} disabled={busy} />
               <DocumentHeaderRow
                 label="Numer"
                 htmlFor="internalNumber"
                 error={
                   form.formState.errors.internalNumber ? (
-                    <p className={errorClass}>{form.formState.errors.internalNumber.message}</p>
+                    <p id={errorIdFor('internalNumber')} role="alert" className={errorClass}>{form.formState.errors.internalNumber.message}</p>
                   ) : null
                 }
               >
-                <Input id="internalNumber" {...form.register('internalNumber')} />
+                <Input id="internalNumber" {...fieldErrorProps('internalNumber', !!form.formState.errors.internalNumber)} {...form.register('internalNumber')} />
               </DocumentHeaderRow>
               <DocumentHeaderRow label="Data wystawienia" htmlFor="issue-date">
                 <Input id="issue-date" type="date" {...form.register('issueDate')} />
@@ -247,11 +274,11 @@ export function AdvanceInvoiceForm({
                 htmlFor="payment-due-date"
                 error={
                   form.formState.errors.paymentDueDate ? (
-                    <p className={errorClass}>{form.formState.errors.paymentDueDate.message}</p>
+                    <p id={errorIdFor('payment-due-date')} role="alert" className={errorClass}>{form.formState.errors.paymentDueDate.message}</p>
                   ) : null
                 }
               >
-                <Input id="payment-due-date" type="date" {...form.register('paymentDueDate')} />
+                <Input id="payment-due-date" type="date" {...fieldErrorProps('payment-due-date', !!form.formState.errors.paymentDueDate)} {...form.register('paymentDueDate')} />
               </DocumentHeaderRow>
             </InvoiceDocumentHeader>
           }
@@ -283,6 +310,7 @@ export function AdvanceInvoiceForm({
                   <Label htmlFor="advance-buyer-name" className={labelClass}>Nazwa podmiotu</Label>
                   <Input
                     id="advance-buyer-name"
+                    {...fieldErrorProps('advance-buyer', !!form.formState.errors.buyer?.message)}
                     value={currentBuyer().name}
                     onChange={(e) => patchBuyer({ name: e.target.value })}
                   />
@@ -313,7 +341,7 @@ export function AdvanceInvoiceForm({
                 </div>
               </div>
               {form.formState.errors.buyer?.message ? (
-                <p className={errorClass}>{String(form.formState.errors.buyer.message)}</p>
+                <p id={errorIdFor('advance-buyer')} role="alert" className={errorClass}>{String(form.formState.errors.buyer.message)}</p>
               ) : null}
             </DocumentSection>
 
@@ -342,12 +370,12 @@ export function AdvanceInvoiceForm({
               </div>
               <div>
                 <Label htmlFor="advance-bank-account" className={labelClass}>Numer rachunku (26 cyfr, opcja)</Label>
-                <Input id="advance-bank-account" {...form.register('bankAccount')} />
+                <Input id="advance-bank-account" {...fieldErrorProps('advance-bank-account', !!form.formState.errors.bankAccount)} {...form.register('bankAccount')} />
                 {form.formState.errors.bankAccount ? (
-                  <p className={errorClass}>{String(form.formState.errors.bankAccount.message)}</p>
+                  <p id={errorIdFor('advance-bank-account')} role="alert" className={errorClass}>{String(form.formState.errors.bankAccount.message)}</p>
                 ) : null}
               </div>
-              <fieldset className="space-y-2">
+              <fieldset className="space-y-2" {...fieldErrorProps('advance-split-payment', !!form.formState.errors.splitPayment)}>
                 <legend className={labelClass}>Czy do tej zaliczki stosuje się mechanizm podzielonej płatności (MPP)?</legend>
                 <div className="flex flex-wrap gap-5 text-sm">
                   <label className="flex items-center gap-2">
@@ -373,7 +401,7 @@ export function AdvanceInvoiceForm({
                 </div>
                 <p className="text-muted-foreground text-xs">Wybierz świadomie dla tej transakcji; sama kwota zaliczki nie rozstrzyga o MPP.</p>
                 {form.formState.errors.splitPayment ? (
-                  <p className={errorClass}>{form.formState.errors.splitPayment.message}</p>
+                  <p id={errorIdFor('advance-split-payment')} role="alert" className={errorClass}>{form.formState.errors.splitPayment.message}</p>
                 ) : null}
               </fieldset>
             </DocumentSection>
@@ -403,6 +431,7 @@ export function AdvanceInvoiceForm({
                 </Label>
                 <Input
                   id="advance-amount"
+                  {...fieldErrorProps('advance-amount', !!form.formState.errors.advanceAmount)}
                   type="number"
                   step="0.01"
                   className="text-right tabular-nums"
@@ -413,7 +442,7 @@ export function AdvanceInvoiceForm({
                   <strong className="text-foreground tabular-nums">{formatPlMoney(preview.remainingAmount)} zł</strong>
                 </p>
                 {form.formState.errors.advanceAmount ? (
-                  <p className={errorClass}>{form.formState.errors.advanceAmount.message}</p>
+                  <p id={errorIdFor('advance-amount')} role="alert" className={errorClass}>{form.formState.errors.advanceAmount.message}</p>
                 ) : null}
               </div>
               <div>
@@ -460,9 +489,9 @@ export function AdvanceInvoiceForm({
                 <Label htmlFor="advance-description" className={labelClass}>
                   Opis
                 </Label>
-                <Textarea id="advance-description" rows={2} {...form.register('description')} />
+                <Textarea id="advance-description" rows={2} {...fieldErrorProps('advance-description', !!form.formState.errors.description)} {...form.register('description')} />
                 {form.formState.errors.description ? (
-                  <p className={errorClass}>{form.formState.errors.description.message}</p>
+                  <p id={errorIdFor('advance-description')} role="alert" className={errorClass}>{form.formState.errors.description.message}</p>
                 ) : null}
               </div>
             </div>

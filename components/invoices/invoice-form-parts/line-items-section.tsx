@@ -1,5 +1,5 @@
 import type { FieldArrayWithId, UseFormReturn } from 'react-hook-form';
-import { AlertCircle, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { RiAddLine, RiCloseLine } from '@remixicon/react';
 
 import { DocumentSection } from '@/components/invoices/finora/invoice-document';
@@ -11,12 +11,15 @@ import type { InvoiceFormValues } from '@/lib/schemas/invoice-form';
 import { cn } from '@/lib/utils';
 import { calculateLineItem } from '@/lib/xml/invoice-calculator';
 
-import { errorTextClass, labelClass, LINE_GRID, vatSelectClass } from './constants';
+import { FieldErrorText, fieldErrorProps } from './field-error-text';
+import { labelClass, LINE_GRID, vatSelectClass } from './constants';
+import { ProductNameInput } from './product-name-input';
 
 /**
  * Sekcja „Pozycje”: wiersze siatki od 1360 px albo karty
  * (`useLinesDesktopLayout`), dodawanie i usuwanie pozycji. Sumy liczy
- * formularz (`toLineItems`) i pokazuje pod sekcją.
+ * formularz (`toLineItems`) i pokazuje pod sekcją. Pole nazwy podpowiada
+ * produkty z katalogu (`ProductNameInput`, krok 2.6, część 2a).
  */
 export function LineItemsSection({
   form,
@@ -25,6 +28,7 @@ export function LineItemsSection({
   linesDesktopLayout,
   remove,
   onAddLine,
+  vatExempt = false,
 }: {
   form: UseFormReturn<InvoiceFormValues>;
   fields: FieldArrayWithId<InvoiceFormValues, 'lines', 'id'>[];
@@ -32,6 +36,8 @@ export function LineItemsSection({
   linesDesktopLayout: boolean;
   remove: (index: number) => void;
   onAddLine: () => void;
+  /** Firma zwolniona z VAT: podpowiedź z katalogu nie zastępuje „zw” stawką z podatkiem. */
+  vatExempt?: boolean;
 }) {
   /** Błąd stawki pozycji — np. „np. II” bez nabywcy z UE (AUD-70). */
   const bladStawki = (index: number): string | undefined =>
@@ -63,10 +69,7 @@ export function LineItemsSection({
               });
               return (
                 <div key={field.id} className={cn(LINE_GRID, 'items-start')}>
-                  <Input
-                    aria-label={`Nazwa pozycji ${index + 1}`}
-                    {...form.register(`lines.${index}.name`)}
-                  />
+                  <ProductNameInput form={form} index={index} ariaLabel={`Nazwa pozycji ${index + 1}`} vatExempt={vatExempt} />
                   <Input
                     aria-label={`Jednostka pozycji ${index + 1}`}
                     {...form.register(`lines.${index}.unit`)}
@@ -94,7 +97,7 @@ export function LineItemsSection({
                   <select
                     className={vatSelectClass}
                     aria-label={`Stawka VAT pozycji ${index + 1}`}
-                    aria-invalid={bladStawki(index) ? true : undefined}
+                    {...fieldErrorProps('lines-vat-rate', !!bladStawki(index))}
                     title={bladStawki(index)}
                     {...form.register(`lines.${index}.vatRate`)}
                   >
@@ -130,10 +133,9 @@ export function LineItemsSection({
           </div>
           {/* Komórka stawki jest za wąska na komunikat — jeden pod wierszami. */}
           {fields.some((_, i) => bladStawki(i)) ? (
-            <p className={errorTextClass}>
-              <AlertCircle className="h-3 w-3" />
+            <FieldErrorText fieldId="lines-vat-rate">
               {fields.map((_, i) => bladStawki(i)).find(Boolean)}
-            </p>
+            </FieldErrorText>
           ) : null}
         </div>
       ) : (
@@ -166,10 +168,12 @@ export function LineItemsSection({
 
                 <div>
                   <Label htmlFor={`line-${index}-name`} className={labelClass}>Nazwa pozycji</Label>
-                  <Input
+                  <ProductNameInput
+                    form={form}
+                    index={index}
                     id={`line-${index}-name`}
                     placeholder="np. Usługa programistyczna"
-                    {...form.register(`lines.${index}.name`)}
+                    vatExempt={vatExempt}
                   />
                 </div>
 
@@ -218,7 +222,7 @@ export function LineItemsSection({
                     <select
                       id={`line-${index}-vat-rate`}
                       className={vatSelectClass}
-                      aria-invalid={bladStawki(index) ? true : undefined}
+                      {...fieldErrorProps(`line-${index}-vat-rate`, !!bladStawki(index))}
                       {...form.register(`lines.${index}.vatRate`)}
                     >
                       <option value="23">23%</option>
@@ -232,10 +236,9 @@ export function LineItemsSection({
                     </select>
                   </div>
                   {bladStawki(index) ? (
-                    <p className={cn(errorTextClass, 'col-span-2 mt-0')}>
-                      <AlertCircle className="h-3 w-3 shrink-0" />
+                    <FieldErrorText fieldId={`line-${index}-vat-rate`} className="col-span-2 mt-0" iconClassName="shrink-0">
                       {bladStawki(index)}
-                    </p>
+                    </FieldErrorText>
                   ) : null}
                 </div>
 

@@ -22,7 +22,23 @@
 # coolify-pulapki.md), a aplikacja straciłaby healthcheck z obrazu. Zapytanie
 # bez zdarzeń modelu zmienia tylko podane pola.
 
-GHCR_PREFIX=ghcr.io/ezior8888-cpu/faktway
+# Obrazy są w GHCR organizacji FaktWay (repo przeniesione z konta
+# ezior8888-cpu 14.11.2026). Do starej nazwy GitHub nie przyjmuje już zapisu,
+# ale produkcja działa na niej do pierwszego wdrożenia po przeniesieniu:
+# skrypty uznają obie nazwy za nasze, a `--obraz` i `coolify-zrodlo.sh obraz`
+# przestawiają Coolify na nową. Powrót na SHA sprzed przeniesienia (obrazy
+# tylko pod starą nazwą):
+#   GHCR_PREFIX=ghcr.io/ezior8888-cpu/faktway ./scripts/ops/wdroz-produkcje.sh --obraz <sha>
+GHCR_PREFIX_ORGANIZACJA=ghcr.io/faktway/faktway
+GHCR_PREFIX_DAWNY=ghcr.io/ezior8888-cpu/faktway
+case "${GHCR_PREFIX:-}" in
+  '' | "$GHCR_PREFIX_ORGANIZACJA") GHCR_PREFIX=$GHCR_PREFIX_ORGANIZACJA ;;
+  "$GHCR_PREFIX_DAWNY") ;;
+  *)
+    echo "GHCR_PREFIX może być tylko $GHCR_PREFIX_ORGANIZACJA albo $GHCR_PREFIX_DAWNY, jest: „$GHCR_PREFIX”. Nic nie zmieniłem." >&2
+    exit 1
+    ;;
+esac
 WORKER_ID=2
 WEB_ID=1
 
@@ -78,6 +94,14 @@ cel_dockerfile() {
 
 obraz_ghcr() {
   echo "$GHCR_PREFIX-$(cel_dockerfile "$1")"
+}
+
+# Czy obraz w Coolify to nasz obraz tej aplikacji: pod nazwą organizacji albo
+# sprzed przeniesienia repo (niezależnie od wybranego GHCR_PREFIX).
+nasz_obraz() {
+  local cel
+  cel=$(cel_dockerfile "$1") || return 1
+  [ "$2" = "$GHCR_PREFIX_ORGANIZACJA-$cel" ] || [ "$2" = "$GHCR_PREFIX_DAWNY-$cel" ]
 }
 
 # Prefiks nazwy kontenera na app-1 (UUID aplikacji w Coolify, z infra.env).

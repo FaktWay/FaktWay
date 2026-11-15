@@ -115,6 +115,7 @@ export async function searchAuditLogs(
 export const KNOWN_AUDIT_ACTIONS = [
   // Auth
   'auth.login',
+  'auth.login_failed',
   'auth.logout',
   'auth.signup',
   'auth.password_reset_requested',
@@ -181,6 +182,12 @@ export const KNOWN_AUDIT_ACTIONS = [
   'cash_register.opening_changed',
   'cash_document.issued',
   'cash_document.corrected',
+  // Serie numeracji faktur (00199)
+  'invoice_number_series.created',
+  'invoice_number_series.updated',
+  'invoice_number_series.archived',
+  'invoice_number_series.restored',
+  'invoice_number_series.deleted',
   // Accountants
   'accountant.expense_file_viewed',
   'accountant.expense_file_downloaded',

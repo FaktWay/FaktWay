@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import type { Resolver } from 'react-hook-form';
-import { useEffect, useMemo, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useFieldArray, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2 } from 'lucide-react';
@@ -12,6 +12,7 @@ import type { z } from 'zod';
 
 import { BuyerLookup } from '@/components/invoices/buyer-lookup';
 import { Button } from '@/components/ui/button';
+import { errorIdFor, fieldErrorProps } from '@/components/invoices/invoice-form-parts/field-error-text';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -49,6 +50,8 @@ import { calculateLineItem, roundToCents } from '@/lib/xml/invoice-calculator';
 import type { BuyerB2B, InvoiceLine, SellerData } from '@/types/invoice-types';
 
 import { saveFinalAction, saveAndSendFinalAction } from './final-actions';
+import { numberingDefaults, SeriesSelectRow, useSeriesNumber } from './numeracja/series-select-row';
+import type { InvoiceNumbering } from '@/lib/numeracja/model';
 
 type FinalFormIn = z.input<typeof finalInvoiceSchema>;
 
@@ -93,6 +96,8 @@ export interface FinalInvoiceFormProps {
   advanceInvoices: AdvanceOptionRow[];
   /** Firma, dla której wyrenderowano formularz, sprzedawcę i zaliczki — zapis odsyła ją jako `expectedTenantId` (UX-01). */
   tenantId: string;
+  /** Krok 2.5: serie numeracji z serią domyślną faktury końcowej i podpowiedzią numeru. */
+  numbering?: InvoiceNumbering | null;
 }
 
 // E1: jedno źródło etykiet dla `items` i <SelectItem> (Base UI pokazuje surową wartość bez `items`)
@@ -109,7 +114,7 @@ function advanceLabel(row: AdvanceOptionRow): string {
   return num;
 }
 
-export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId }: FinalInvoiceFormProps) {
+export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId, numbering = null }: FinalInvoiceFormProps) {
   const router = useRouter();
   const [saving, startSave] = useTransition();
   const [sending, startSend] = useTransition();
@@ -118,10 +123,17 @@ export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId }: F
   const today = todayInWarsaw();
   const due = dueDateFrom(today, 14);
 
+  // Krok 2.5: seria domyślna faktury końcowej, jej podpowiedź i klucz zapisu (jeden na otwarcie formularza).
+  const numberDefaults = numberingDefaults(numbering);
+  const [numberRequestKey] = useState(() => crypto.randomUUID());
+
   // Bez domyślnego MPP — użytkownik odpowiada świadomie (AUD-23).
   const defaults = {
     invoiceType: 'final',
-    internalNumber: '',
+    internalNumber: numberDefaults.preview ?? '',
+    numberSeriesId: numberDefaults.numberSeriesId,
+    numberPreview: numberDefaults.numberPreview,
+    numberRequestKey,
     issueDate: today,
     paymentMethod: 'transfer',
     paymentDueDate: due,
@@ -235,6 +247,19 @@ export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId }: F
   const nipDisplay = currentBuyer().nip.replace(/\D/g, '');
   const paymentMethodWatch = useWatch({ control: form.control, name: 'paymentMethod' });
   const splitPaymentWatch = useWatch({ control: form.control, name: 'splitPayment' });
+  const issueDateWatch = useWatch({ control: form.control, name: 'issueDate' }) ?? today;
+
+  // Krok 2.5: zmiana serii albo daty podpowiada numer z serii, o ile w polu nie ma numeru wpisanego ręcznie.
+  const series = useSeriesNumber({
+    numbering,
+    issueDate: issueDateWatch,
+    read: () => ({ number: form.getValues('internalNumber') ?? '', preview: form.getValues('numberPreview') || undefined }),
+    write: ({ seriesId, preview, number }) => {
+      form.setValue('numberSeriesId', seriesId);
+      form.setValue('numberPreview', preview);
+      if (number !== undefined) form.setValue('internalNumber', number, { shouldValidate: form.formState.isSubmitted });
+    },
+  });
 
   const onSave = form.handleSubmit(
     (data) =>
@@ -279,16 +304,17 @@ export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId }: F
         <InvoiceDocumentCard
           header={
             <InvoiceDocumentHeader seller={initialSeller}>
+              <SeriesSelectRow numbering={numbering} seriesId={series.seriesId} onSelect={series.selectSeries} disabled={busy} />
               <DocumentHeaderRow
                 label="Numer"
                 htmlFor="internalNumber"
                 error={
                   form.formState.errors.internalNumber ? (
-                    <p className={errorClass}>{form.formState.errors.internalNumber.message}</p>
+                    <p id={errorIdFor('internalNumber')} role="alert" className={errorClass}>{form.formState.errors.internalNumber.message}</p>
                   ) : null
                 }
               >
-                <Input id="internalNumber" {...form.register('internalNumber')} />
+                <Input id="internalNumber" {...fieldErrorProps('internalNumber', !!form.formState.errors.internalNumber)} {...form.register('internalNumber')} />
               </DocumentHeaderRow>
               <DocumentHeaderRow label="Data wystawienia" htmlFor="issue-date">
                 <Input id="issue-date" type="date" {...form.register('issueDate')} />
@@ -298,11 +324,11 @@ export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId }: F
                 htmlFor="payment-due-date"
                 error={
                   form.formState.errors.paymentDueDate ? (
-                    <p className={errorClass}>{form.formState.errors.paymentDueDate.message}</p>
+                    <p id={errorIdFor('payment-due-date')} role="alert" className={errorClass}>{form.formState.errors.paymentDueDate.message}</p>
                   ) : null
                 }
               >
-                <Input id="payment-due-date" type="date" {...form.register('paymentDueDate')} />
+                <Input id="payment-due-date" type="date" {...fieldErrorProps('payment-due-date', !!form.formState.errors.paymentDueDate)} {...form.register('paymentDueDate')} />
               </DocumentHeaderRow>
             </InvoiceDocumentHeader>
           }
@@ -334,6 +360,7 @@ export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId }: F
                   <Label htmlFor="final-buyer-name" className={labelClass}>Nazwa podmiotu</Label>
                   <Input
                     id="final-buyer-name"
+                    {...fieldErrorProps('final-buyer', !!form.formState.errors.buyer?.message)}
                     value={currentBuyer().name}
                     onChange={(e) => patchBuyer({ name: e.target.value })}
                   />
@@ -364,7 +391,7 @@ export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId }: F
                 </div>
               </div>
               {form.formState.errors.buyer?.message ? (
-                <p className={errorClass}>{String(form.formState.errors.buyer.message)}</p>
+                <p id={errorIdFor('final-buyer')} role="alert" className={errorClass}>{String(form.formState.errors.buyer.message)}</p>
               ) : null}
             </DocumentSection>
 
@@ -393,12 +420,12 @@ export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId }: F
               </div>
               <div>
                 <Label htmlFor="final-bank-account" className={labelClass}>Numer rachunku (26 cyfr, opcja)</Label>
-                <Input id="final-bank-account" {...form.register('bankAccount')} />
+                <Input id="final-bank-account" {...fieldErrorProps('final-bank-account', !!form.formState.errors.bankAccount)} {...form.register('bankAccount')} />
                 {form.formState.errors.bankAccount ? (
-                  <p className={errorClass}>{String(form.formState.errors.bankAccount.message)}</p>
+                  <p id={errorIdFor('final-bank-account')} role="alert" className={errorClass}>{String(form.formState.errors.bankAccount.message)}</p>
                 ) : null}
               </div>
-              <fieldset className="space-y-2">
+              <fieldset className="space-y-2" {...fieldErrorProps('final-split-payment', !!form.formState.errors.splitPayment)}>
                 <legend className={labelClass}>Czy do tej faktury stosuje się mechanizm podzielonej płatności (MPP)?</legend>
                 <div className="flex flex-wrap gap-5 text-sm">
                   <label className="flex items-center gap-2">
@@ -423,7 +450,7 @@ export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId }: F
                   </label>
                 </div>
                 {form.formState.errors.splitPayment ? (
-                  <p className={errorClass}>{form.formState.errors.splitPayment.message}</p>
+                  <p id={errorIdFor('final-split-payment')} role="alert" className={errorClass}>{form.formState.errors.splitPayment.message}</p>
                 ) : null}
               </fieldset>
             </DocumentSection>
@@ -451,6 +478,7 @@ export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId }: F
                       className="hover:bg-muted/50 flex flex-wrap items-center gap-3 px-3 py-2"
                     >
                       <Checkbox
+                        {...fieldErrorProps('final-advance-ids', !!form.formState.errors.advanceInvoiceIds)}
                         checked={checked}
                         onCheckedChange={(c) => toggleAdvance(row.id, c === true)}
                         aria-label={`Zaliczka ${advanceLabel(row)}`}
@@ -466,7 +494,7 @@ export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId }: F
               </ul>
             )}
             {form.formState.errors.advanceInvoiceIds ? (
-              <p className={errorClass}>
+              <p id={errorIdFor('final-advance-ids')} role="alert" className={errorClass}>
                 {String(form.formState.errors.advanceInvoiceIds.message ?? '')}
               </p>
             ) : null}
@@ -491,6 +519,8 @@ export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId }: F
                 </div>
                 {fields.map((field, index) => {
                   const watched = watchedLines[index];
+                  const lineErr = (pole: 'name' | 'unit' | 'quantity' | 'unitPriceNet' | 'vatRate') =>
+                    fieldErrorProps('final-lines', !!form.formState.errors.lines?.[index]?.[pole]);
                   const calc = calculateLineItem({
                     quantity: Number(watched?.quantity) || 0,
                     unitPriceNet: Number(watched?.unitPriceNet) || 0,
@@ -498,12 +528,13 @@ export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId }: F
                   });
                   return (
                     <div key={field.id} className={cn(LINE_GRID, 'items-start')}>
-                      <Input aria-label={`Nazwa pozycji ${index + 1}`} {...form.register(`lines.${index}.name`)} />
-                      <Input aria-label={`Jednostka pozycji ${index + 1}`} {...form.register(`lines.${index}.unit`)} />
+                      <Input aria-label={`Nazwa pozycji ${index + 1}`} {...lineErr('name')} {...form.register(`lines.${index}.name`)} />
+                      <Input aria-label={`Jednostka pozycji ${index + 1}`} {...lineErr('unit')} {...form.register(`lines.${index}.unit`)} />
                       <Input
                         type="number"
                         step="0.0001"
                         aria-label={`Ilość pozycji ${index + 1}`}
+                        {...lineErr('quantity')}
                         className="text-right tabular-nums"
                         {...form.register(`lines.${index}.quantity`, { valueAsNumber: true })}
                       />
@@ -511,12 +542,14 @@ export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId }: F
                         type="number"
                         step="0.01"
                         aria-label={`Cena netto pozycji ${index + 1}`}
+                        {...lineErr('unitPriceNet')}
                         className="text-right tabular-nums"
                         {...form.register(`lines.${index}.unitPriceNet`, { valueAsNumber: true })}
                       />
                       <select
                         className={vatSelectClass}
                         aria-label={`Stawka VAT pozycji ${index + 1}`}
+                        {...lineErr('vatRate')}
                         {...form.register(`lines.${index}.vatRate`)}
                       >
                         <option value="23">23%</option>
@@ -549,7 +582,7 @@ export function FinalInvoiceForm({ initialSeller, advanceInvoices, tenantId }: F
               </div>
             </div>
             {form.formState.errors.lines ? (
-              <p className={errorClass}>Sprawdź pozycje (nazwa, ilość, ceny).</p>
+              <p id={errorIdFor('final-lines')} role="alert" className={errorClass}>Sprawdź pozycje (nazwa, ilość, ceny).</p>
             ) : null}
             <Button type="button" variant="secondary" size="sm" onClick={() => append({ ...defaultLine })}>
               <RiAddLine />

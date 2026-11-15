@@ -6,8 +6,6 @@
       "app/(marketing)/kalkulator-oszczednosci/page.tsx": 3
     },
     "data-warszawa": {
-      "app/actions/expenses.ts": 1,
-      "app/actions/invoice-payments.ts": 1,
       "app/actions/ksiegowosc-ewidencja.ts": 1,
       "components/dashboard/footer.tsx": 1,
       "components/expenses/kpir-view.tsx": 1,
@@ -17,7 +15,6 @@
       "lib/flo/interest.ts": 1,
       "lib/format/warsaw-date.ts": 1,
       "lib/invoices/list-query.ts": 1,
-      "lib/jobs/runners/archive-old-invoices.ts": 3,
       "lib/jobs/runners/inbox-polling.ts": 1,
       "lib/ksef/idempotency.ts": 1,
       "lib/ksef/offline-queue.ts": 1,

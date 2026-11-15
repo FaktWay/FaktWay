@@ -38,6 +38,10 @@ import { LineItemsSection } from './invoice-form-parts/line-items-section';
 import { PaymentSection } from './invoice-form-parts/payment-section';
 import { ReceiptInvoiceFields } from './invoice-form-parts/receipt-invoice-fields';
 import { useLinesDesktopLayout } from './invoice-form-parts/use-lines-desktop-layout';
+import { ERROR_TOAST_MS, FormErrorSummary, type FormErrorState } from './invoice-form-parts/form-error-summary';
+import { collectValidationIssues } from './invoice-form-parts/validation-issues';
+import { numberingDefaults, SeriesSelectRow, useSeriesNumber } from './numeracja/series-select-row';
+import type { InvoiceNumbering } from '@/lib/numeracja/model';
 import { firstValidationMessage } from './invoice-form-parts/validation-message';
 
 /**
@@ -50,6 +54,7 @@ export function InvoiceForm({
   prefill = null,
   vatExempt = false,
   suggestedNumber = null,
+  numbering = null,
   seller = null,
   initialValues = null,
   recurringInvoiceId = null,
@@ -72,6 +77,12 @@ export function InvoiceForm({
   prefill?: PrefillFromLastInvoice | null;
   /** Podpowiedź kolejnego numeru (F-015) — pole pozostaje edytowalne. */
   suggestedNumber?: string | null;
+  /**
+   * Krok 2.5: serie numeracji firmy z serią domyślną zwykłej faktury
+   * i podpowiedzią z jej licznika. Wybór serii pojawia się przy co najmniej
+   * dwóch seriach; numer z pola zostaje edytowalny.
+   */
+  numbering?: InvoiceNumbering | null;
   /**
    * Firma zwolniona z VAT (ustawiona podstawa w Ustawieniach → Podatek VAT).
    * Nowe pozycje dostają wtedy „zw” — inaczej z przyzwyczajenia wpada 23%.
@@ -103,6 +114,15 @@ export function InvoiceForm({
   const router = useRouter();
   const [isSaving, startSaving] = useTransition();
   const [isSending, startSending] = useTransition();
+  // Stały blok błędów nad akcjami (A-05): toast znika, blok zostaje i bierze fokus.
+  const [blad, setBlad] = useState<FormErrorState | null>(null);
+  const pokazBlad = (zmiana: Partial<Omit<FormErrorState, 'nonce'>>) =>
+    setBlad((poprzedni) => ({
+      issues: [],
+      saveError: null,
+      ...zmiana,
+      nonce: (poprzedni?.nonce ?? 0) + 1,
+    }));
   const [buyerVatStatus, setBuyerVatStatus] =
     useState<CachedValidationResult | null>(null);
 
@@ -122,8 +142,15 @@ export function InvoiceForm({
   const today = todayInWarsaw();
   const in14days = dueDateFrom(today, 14);
 
+  // Krok 2.5: seria domyślna i jej podpowiedź; klucz zapisu jeden na otwarcie
+  // formularza (drugi zapis po podwójnym kliknięciu nie tworzy drugiej faktury).
+  const numberDefaults = numberingDefaults(numbering);
+  const [numberRequestKey] = useState(() => crypto.randomUUID());
+
   const form = useForm<InvoiceFormValues>({
     resolver: zodResolver(invoiceFormSchema),
+    // Fokus po nieudanym zapisie bierze blok błędów (A-05), z odnośnikami do pól.
+    shouldFocusError: false,
     defaultValues: {
       internalNumber: suggestedNumber ?? '',
       issueDate: today,
@@ -154,6 +181,11 @@ export function InvoiceForm({
       receiptRequestDate: '',
       buyerNipOnReceipt: false,
       ...initialValues,
+      // Numer z serii firmy (także przy podkładzie z innej faktury: numer ma być nowy).
+      ...(numbering ? { internalNumber: numberDefaults.preview ?? initialValues?.internalNumber ?? '' } : {}),
+      numberSeriesId: numberDefaults.numberSeriesId,
+      numberPreview: numberDefaults.numberPreview,
+      numberRequestKey,
       ...(recurringInvoiceId ? { recurringInvoiceId } : {}),
       ...(recurringInvoiceId && recurringPeriod ? { recurringPeriod } : {}),
       ...(salesQuoteId && salesQuoteSeq ? { salesQuoteId, salesQuoteSeq } : {}),
@@ -179,6 +211,20 @@ export function InvoiceForm({
   const buyerCountryCode = useWatch({ control: form.control, name: 'buyerCountryCode' }) ?? '';
   const buyerKind: BuyerKind = buyerIsEu ? 'eu' : buyerIsConsumer ? 'consumer' : 'pl';
   const receiptInvoice = useWatch({ control: form.control, name: 'receiptInvoice' }) === true;
+  const issueDateWatch = useWatch({ control: form.control, name: 'issueDate' }) ?? today;
+
+  // Krok 2.5: zmiana serii albo daty wystawienia podpowiada numer z tej serii,
+  // o ile w polu nie ma numeru wpisanego ręcznie.
+  const series = useSeriesNumber({
+    numbering,
+    issueDate: issueDateWatch,
+    read: () => ({ number: form.getValues('internalNumber') ?? '', preview: form.getValues('numberPreview') || undefined }),
+    write: ({ seriesId, preview, number }) => {
+      form.setValue('numberSeriesId', seriesId);
+      form.setValue('numberPreview', preview);
+      if (number !== undefined) form.setValue('internalNumber', number, { shouldValidate: form.formState.isSubmitted });
+    },
+  });
 
   // Faktura do paragonu (krok 1.2): data paragonu ustawia datę sprzedaży. Po
   // odznaczeniu FP wraca data sprzedaży sprzed zaznaczenia, jeśli od tamtej
@@ -242,6 +288,7 @@ export function InvoiceForm({
   const handleSaveDraft = form.handleSubmit(
     (values) => {
       if (submitInFlightRef.current) return;
+      setBlad(null);
       submitInFlightRef.current = true;
       startSaving(async () => {
         try {
@@ -250,10 +297,13 @@ export function InvoiceForm({
             toast.success('Szkic zapisany');
             router.push(`/invoices/${result.invoiceId}`);
           } else {
-            toast.error(result.error);
+            toast.error(result.error, { duration: ERROR_TOAST_MS });
+            pokazBlad({ saveError: result.error });
           }
         } catch (e) {
-          toast.error(e instanceof Error ? e.message : 'Błąd zapisu');
+          const komunikat = e instanceof Error ? e.message : 'Błąd zapisu';
+          toast.error(komunikat, { duration: ERROR_TOAST_MS });
+          pokazBlad({ saveError: komunikat });
         } finally {
           submitInFlightRef.current = false;
         }
@@ -261,7 +311,8 @@ export function InvoiceForm({
     },
     (errors) => {
       submitInFlightRef.current = false;
-      toast.error(firstValidationMessage(errors));
+      toast.error(firstValidationMessage(errors), { duration: ERROR_TOAST_MS });
+      pokazBlad({ issues: collectValidationIssues(errors) });
     }
   );
 
@@ -305,6 +356,7 @@ export function InvoiceForm({
         }
       }
 
+      setBlad(null);
       submitInFlightRef.current = true;
       startSending(async () => {
         try {
@@ -313,11 +365,14 @@ export function InvoiceForm({
             toast.success('Wysyłanie faktury do KSeF rozpoczęte');
             router.push(`/invoices/${result.invoiceId}`);
           } else {
-            toast.error(result.error);
+            toast.error(result.error, { duration: ERROR_TOAST_MS });
+            pokazBlad({ saveError: result.error });
             if (result.invoiceId) router.push(`/invoices/${result.invoiceId}`);
           }
         } catch (e) {
-          toast.error(e instanceof Error ? e.message : 'Błąd wysyłki');
+          const komunikat = e instanceof Error ? e.message : 'Błąd wysyłki';
+          toast.error(komunikat, { duration: ERROR_TOAST_MS });
+          pokazBlad({ saveError: komunikat });
         } finally {
           submitInFlightRef.current = false;
         }
@@ -325,7 +380,8 @@ export function InvoiceForm({
     },
     (errors) => {
       submitInFlightRef.current = false;
-      toast.error(firstValidationMessage(errors));
+      toast.error(firstValidationMessage(errors), { duration: ERROR_TOAST_MS });
+      pokazBlad({ issues: collectValidationIssues(errors) });
     }
   );
 
@@ -369,11 +425,23 @@ export function InvoiceForm({
         <PrefillBanner contractorName={prefill.contractorName} onFill={wypelnijZOstatniej} />
       ) : null}
 
+      <FormErrorSummary state={blad} />
+
       <InvoiceCreateGrid>
         <InvoiceDocumentCard
           header={
             <InvoiceDocumentHeader seller={seller}>
-              <DocumentHeaderFields form={form} />
+              <DocumentHeaderFields
+                form={form}
+                seriesRow={
+                  <SeriesSelectRow
+                    numbering={numbering}
+                    seriesId={series.seriesId}
+                    onSelect={series.selectSeries}
+                    disabled={busy}
+                  />
+                }
+              />
               <ReceiptInvoiceFields
                 form={form}
                 enabled={receiptInvoice}
@@ -411,6 +479,7 @@ export function InvoiceForm({
             linesDesktopLayout={linesDesktopLayout}
             remove={remove}
             onAddLine={() => append(newLine)}
+            vatExempt={vatExempt}
           />
 
           <Separator />
