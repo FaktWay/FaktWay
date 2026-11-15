@@ -1409,8 +1409,10 @@ stopa wypadkowa (kwiecień), nowe wzory formularzy i schematy JPK.
 1. Jeden krok to jedna gałąź `claude/kompletna-<krok>-<temat>` od świeżego
    `origin/main` i jeden PR (duży krok: kilka PR po kolei). Naprawy po drodze
    według protokołu z `AGENTS.md`: najpierw czerwony test.
-2. Numer migracji z rejestru w `docs/koordynacja/CLAUDE-DO-CODEXA.md`
-   (8.11.2026: następny wolny **00174**). Nowe tabele z `tenant_id`, RLS
+2. Numer migracji: `node scripts/dev/nastepna-migracja.mjs` (od 00207 bez
+   wiersza w rejestrze `docs/koordynacja/CLAUDE-DO-CODEXA.md`, tabela jest
+   zamrożona; opis i „przed/PO wdrożeniu” w nagłówku pliku migracji,
+   w linii `-- KIEDY WGRAĆ: …`). Nowe tabele z `tenant_id`, RLS
    i testem w `tests/rls-*.test.ts`; nowe kolumny w `tenants` z jawnym
    GRANT SELECT (00112).
 3. Kroki z modułu księgowości za wyłącznikiem `ksiegowosc` (osobny obszar
@@ -1557,5 +1559,6 @@ stopa wypadkowa (kwiecień), nowe wzory formularzy i schematy JPK.
 | 14.11.2026 | 2.6, część 2a | #743 | gotowe do scalenia (CI 19 z 19) | podpowiedź produktów z katalogu w polu nazwy pozycji (combobox w kartach i w siatce): wstawia nazwę, jednostkę, cenę netto i stawkę; u firmy zwolnionej z VAT stawka z podatkiem nie zastępuje „zw”; R1 bez migracji i bez etykiety; dalej: licznik użyć produktu przy zapisie faktury, podpowiedź w zaliczce, korekcie i proformie |
 | 14.11.2026 | ustalenie przy 2.6, część 2b | #747 | CI w toku | FA(3): klasyfikacja pozycji (GTIN, PKWiU, CN) po `P_7` w trzech generatorach, zgodnie z XSD (dotąd plik z kodem w pozycji nie przechodził walidacji); osobne ustalenie do części 2b: typ kodu zgadywany po długości i filtr gubiący PKWiU z kropkami w rozliczającej i korekcie |
 | 14.11.2026 | przegląd #714 | n/d | bez zmiany | uwaga o cenie „zawsze zmienionej” w edycji produktu nieprawdziwa: PostgREST zwraca NUMERIC jako liczbę (`lib/ksef/duplicate-decision-types.ts:87`), pokazuje to test `tests/unit/produkty-akcje.test.ts:89-93` |
+| 13.11.2026 | 8.5, naprawa: bomba czasowa w teście | #727 | scalony 14.11 w zbiorczym „Scalenie #733 … #721, #736” (przed 8.12.2026 15:40 UTC) | `sesje-urzadzenia.test.ts`: jawny zegar `NOW` w bloku listy urządzeń i przypadek dla domyślnego zegara; bez zmian w kodzie aplikacji; ustalenie z zamiatania przy #720 |
 
 **Następny krok:** scalenie #741, #742, #743 i #747 (zbiorczy po poleceniu Bartosza; bez etykiet zgody, bo żaden nie zmienia wiedzy prawnej ani maszynerii filtra; #742 tylko dopisuje pliki do mapy ryzyka), przed wdrożeniem wgranie 00203. Dalej: 2.6 część 2b po #743 i #747 w main (PKWiU i GTU w pozycjach: jawny typ kodu zamiast zgadywania po długości, GTU w FA(3) i JPK_V7M z wpisem w rejestrze przepisów), licznik użyć produktu przy zapisie faktury; 2.8 częściami (autozapis, ustawienia domyślne, numer zamówienia, szablon maila); 1.6 część 2 (komunikat w aplikacji, faktury spoza KSeF w historii); 2.1 waluty, potem 2.3 z RP-EX-01; 2.9 część 2, 6.2 część 5, 9.1 kadry na koniec (P3).

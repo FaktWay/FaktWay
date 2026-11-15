@@ -42,10 +42,8 @@ describe('00199: plik, nagłówek i rejestr', () => {
     expect(sql).not.toMatch(/\bUPDATE\s+public\.invoices\b/i);
   });
 
-  it('rejestr: wiersz 00199, „następny wolny” za nim (numer nie wpisany na sztywno)', () => {
+  it('rejestr: wiersz 00199', () => {
     expect(registry).toMatch(/^\| 00199 \| Claude \(plan kompletnej aplikacji, krok 2\.5/m);
-    const next = /^\| \*\*(\d{5})\*\* \| — \| następny wolny/m.exec(registry)?.[1];
-    expect(Number(next)).toBeGreaterThan(199);
   });
 });
 

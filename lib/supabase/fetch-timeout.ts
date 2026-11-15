@@ -152,7 +152,10 @@ function untilAborted(pending: Promise<Response>, signal: AbortSignal): Promise<
   });
 }
 
-/** Sygnał, że termin bramki minął, zanim praca się skończyła. */
+/**
+ * Sygnał, że termin bramki minął (albo ktoś ją przerwał przez `fail`), zanim
+ * praca się skończyła. Przyczyna jest w `signal.reason`.
+ */
 export const TIMED_OUT: unique symbol = Symbol('supabase.timed-out');
 
 export type SupabaseDeadline = {
@@ -164,6 +167,13 @@ export type SupabaseDeadline = {
    * zamienia go w „brak sesji”) nie może udawać odpowiedzi serwera.
    */
   within<T>(work: PromiseLike<T>): Promise<T | typeof TIMED_OUT>;
+  /**
+   * Kończy bramkę od razu, jak po terminie, z przyczyną `reason`
+   * (`signal.reason`). Np. limit GoTrue przy odświeżeniu sesji: auth-js
+   * ponawiałby je do 30 s, a odpowiedź znamy już teraz (plan skalowania 3000,
+   * sesja 7). Po terminie nic nie zmienia.
+   */
+  fail(reason: Error): void;
   /** Kasuje zegar. Wołaj w `finally`, także po `TIMED_OUT`. */
   dispose(): void;
 };
@@ -189,6 +199,12 @@ export function createSupabaseDeadline(limitMs: number, operation: string): Supa
         if (controller.signal.aborted) return TIMED_OUT;
         throw error;
       }
+    },
+    fail(reason: Error) {
+      if (controller.signal.aborted) return;
+      clearTimeout(timer);
+      expire();
+      controller.abort(reason);
     },
     dispose() {
       clearTimeout(timer);

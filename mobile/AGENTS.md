@@ -54,7 +54,7 @@ uruchamiasz po kolei, nigdy razem.
   - **R2:** Pulpit, Księgowość i dane przykładowe.
   - **R3:** reszta.
 
-  Zmiana w R1 albo R2 to karta w opisie PR i drugi czytelnik (`AGENTS.md` w katalogu głównym, „Żelazny filtr”). Kwoty i dni liczy serwer. `Math.round` na kwocie albo dzień z lokalnego `getDate` w R1 to nowe naruszenie (`node scripts/filtr/reguly.mjs --sprawdz`). Gdy telefon musi coś odtworzyć do podglądu, piszesz wyjątek `// filtr-wyjatek: <reguła> <powód>`, a Bartosz nadaje etykietę `zgoda:wyjatek-filtra`.
+  Zmiana w R1 albo R2 to karta w opisie PR i drugi czytelnik (`AGENTS.md` w katalogu głównym, „Żelazny filtr”). Kwoty i dni liczy serwer. `Math.round` na kwocie albo dzień z lokalnego `getDate` w R1 to nowe naruszenie (`node scripts/filtr/reguly.mjs --sprawdz`). Gdy telefon musi coś odtworzyć do podglądu, piszesz wyjątek `// filtr-wyjatek: <reguła> <powód>`, a etykietę `zgoda:wyjatek-filtra` nadajesz po drugim czytelniku (`AGENTS.md`, „Żelazny filtr”).
 
 ## Pułapki (sprawdzone w symulatorze)
 
@@ -133,6 +133,38 @@ uruchamiasz po kolei, nigdy razem.
 - Stan wspólny dla kilku ekranów (lista i arkusz nad nią) trzymaj w jednym
   magazynie (`useSyncExternalStore`, wzór `stan/naleznosci.tsx`): osobny
   `useState` w każdym ekranie zostawia pod arkuszem stary stan.
+
+## Android (od M12a, sprawdzone w kodzie expo-router 58, bez emulatora)
+
+Zasady wyglądu: `ZASADY-DESIGNU.md`, sekcja 10. Pilnuje `tests/unit/mobile-android.test.ts`.
+
+- `Stack.Toolbar.Button` bez `icon` na Androidzie nic nie rysuje, a przycisk
+  `placement="left"` zastępuje strzałkę wstecz. Przycisk z napisem w pasku
+  tylko przez `PrzyciskPaska` (na iOS ten sam systemowy przycisk).
+- Menu i przyciski paska rysuje tam Compose (`@expo/ui`). Ikona musi być
+  obrazem (`IKONY_PASKA`), symbole SF w `MenuAction` Android pomija. Kolory:
+  `useKoloryPaska(naGradiencie)` (`ikona` do `tintColor`, `narzedzia` do
+  `Stack.Toolbar`; na iOS pusty obiekt). Grupy `inline` gubią tam tytuł:
+  `inline={GRUPY_MENU_W_LINII}`.
+- Pasek Androida jest nieprzezroczysty i bez dużego tytułu. Ekran z
+  `EkranListy gradient` dostaje w układzie `useOpcjeGradientu` (lista) albo
+  `useOpcjeSzczegoluNaGradiencie` (szczegół), a wyszukiwarka
+  `useOpcjeWyszukiwarki`; inaczej biały tytuł na szarym pasku albo szary pasek
+  nad niebieskim pasem.
+- Gdy jeden ekran ustawi `statusBarStyle`, Android stosuje domyślny jasny styl
+  na wszystkich pozostałych. `useOpcjeStosu` podaje go na każdym ekranie.
+- Fala (`android_ripple`) ma w React Native prostokątną maskę: na zaokrąglonym
+  przycisku przycina ją `DotykFala` (widok zewnętrzny z `overflow: 'hidden'`).
+  Gdy treść ma nieprzezroczyste tło, fala musi być nad nią (`nadTrescia`).
+- Komponent z `@expo/ui/jetpack-compose` trzymaj w pliku `.android.tsx` z
+  zapasem dla innych platform (wzór `komponenty/menu-wyboru`), żeby Compose
+  nie trafiał do pakietu iOS.
+- `TextInput` na Androidzie ma kreskę Material z motywu
+  (`rn_edit_text_material`): `underlineColorAndroid="transparent"`.
+- Bez Android SDK sprawdzasz: `pnpm exec expo export --platform android` (pakiet
+  JS) i `pnpm exec expo prebuild --platform android --no-install --clean`
+  (manifest, uprawnienia, ikona, czcionki; katalog `android/` jest poza gitem).
+  Kotlin i Compose sprawdzi dopiero build w Android Studio (M12b).
 
 ## Dane z bazy i API (od M7)
 

@@ -1,0 +1,13 @@
+# Co noc o 03:30 czasu Warszawy (okno w skrypcie: 01:00-05:59). Kopia bazy rusza o 01:00 UTC,
+# więc jest gotowa; ruch klientów o tej porze jest najmniejszy.
+# Persistent=false: wyłączony serwer nie nadrabia wdrożenia rano, w godzinach pracy.
+[Unit]
+Description=FaktWay: nocne wdrożenie
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 Europe/Warsaw
+Persistent=false
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

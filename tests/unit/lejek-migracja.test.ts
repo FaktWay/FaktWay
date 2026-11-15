@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 
 import { describe, expect, it } from 'vitest';
 
@@ -61,6 +61,8 @@ describe('migracja 00161', () => {
   });
 
   it('test na bazie jest w konfiguracji jobu RLS', () => {
-    expect(readFileSync('vitest.rls.config.ts', 'utf8')).toContain('tests/rls-lejek-analityka.test.ts');
+    // Konfiguracja bierze glob `tests/rls-*.test.ts` (strażnik w rls-environment.test.ts);
+    // tu wystarczy, że plik leży tam, gdzie glob go złapie.
+    expect(existsSync('tests/rls-lejek-analityka.test.ts')).toBe(true);
   });
 });

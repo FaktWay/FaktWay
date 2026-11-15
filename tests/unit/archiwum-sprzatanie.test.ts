@@ -411,10 +411,8 @@ describe('harmonogram i migracja 00190', () => {
     expect(body).toMatch(/INSERT INTO public\.audit_logs[\s\S]*'document_archive\.file_deleted'/);
   });
 
-  it('rejestr numerów: 00190 zajęte w tym PR, „następny wolny” za nim', () => {
+  it('rejestr numerów: wiersz 00190', () => {
     const registry = readFileSync('docs/koordynacja/CLAUDE-DO-CODEXA.md', 'utf8');
     expect(registry).toMatch(/^\| 00190 \| Claude \(plan kompletnej aplikacji, krok 6\.4, część 2/m);
-    // Bez numeru na sztywno: po kolejnych migracjach (gałąź zbiorcza, main) „następny wolny” rośnie.
-    expect(Number(/^\| \*\*(\d{5})\*\* \| — \| następny wolny/m.exec(registry)?.[1])).toBeGreaterThan(190);
   });
 });

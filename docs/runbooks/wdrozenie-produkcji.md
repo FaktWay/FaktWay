@@ -1,6 +1,9 @@
 # Wdrożenie produkcji
 
 > Wydzielone z `AGENTS.md` 05.11.2026 (plan usprawnień, 2.1), treść bez zmian.
+> **Od 15.11.2026 wdraża co noc timer na ops-1** ([`nocne-wdrozenie.md`](nocne-wdrozenie.md)):
+> migracje po kontroli, worker, aplikacja, ratunek, raport na Telegram. Ten plik opisuje
+> to, co skrypt robi w środku, oraz wdrożenie ręczne w dzień (na polecenie Bartosza).
 > Jedną linią: `./scripts/ops/wdroz-produkcje.sh` (build z repo na `app-1`) albo, po przełączeniu Coolify na obrazy, `./scripts/ops/wdroz-produkcje.sh --obraz <sha>` (worker, potem aplikacja, na końcu kontrola). Niżej kolejność wydania i droga ręczna.
 > Obrazy z GHCR zamiast buildu na `app-1`: sekcja [„Obrazy z GHCR”](#obrazy-z-ghcr-zamiast-buildu-na-app-1). Skąd jesteś teraz: `./scripts/ops/coolify-zrodlo.sh stan`.
 > Adresy: `source .agents/infra.env` (`AGENTS.md`, „Skąd wziąć adresy”).
@@ -9,9 +12,10 @@
 ## Kolejność przy pełnym wydaniu
 
 ```
-0. Bartosz w czacie wprost prosi o scalenie / wdrożenie
+0. Noc robi to sama (03:30); w dzień Bartosz w czacie wprost prosi o wdrożenie
+   (scalenie robi agent przez kolejkę), najlepiej `zainstaluj-nocne-wdrozenie.sh --teraz`
 1. pnpm run ci && pnpm build        ← lokalnie, PRZED pushem
-2. PR do main, 11/11 kontroli CI zielone → scalenie („Scalanie PR”)
+2. PR do main, kontrole zielone → kolejka scalania (`scalanie-pr.md`)
 3. migracje „przed wdrożeniem” na db-1 (+ schema_migrations + NOTIFY pgrst
    + weryfikacja) — tylko pliki z main
 4. wdrożenie: worker id=2, potem aplikacja id=1 — po kolei, nie naraz
@@ -158,7 +162,7 @@ jako problemu.
 Build na `app-1` trwa 12–18 min na aplikację, zjada ok. 4,5 GB swapu
 i 08.11.2026 zapchał dysk (ENOSPC). Workflow `.github/workflows/obrazy.yml`
 buduje `runner` i `worker` na maszynie GitHuba po każdym scaleniu do `main`
-i wypycha je do GHCR: `ghcr.io/ezior8888-cpu/faktway-runner:<pełny SHA>`
+i wypycha je do GHCR: `ghcr.io/faktway/faktway-runner:<pełny SHA>`
 i `…-worker:<pełny SHA>` (plus `:main`). Etykieta
 `org.opencontainers.image.revision` i zmienna `APP_COMMIT_SHA` w obrazie =
 SHA. Pakiety są publiczne (repo jest publiczne, w obrazie nie ma sekretów),

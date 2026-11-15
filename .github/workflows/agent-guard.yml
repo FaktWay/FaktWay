@@ -10,17 +10,22 @@ name: Agent guard
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+  # Kolejka scalania: agent guard ocenił PR przed wejściem do kolejki (wymagana
+  # kontrola PR). Na commicie grupy zadanie jest pominięte, a pominięte
+  # zadanie GitHub liczy jako zaliczoną wymaganą kontrolę.
+  merge_group:
 
 permissions:
   contents: read
 
 concurrency:
-  group: agent-guard-${{ github.event.pull_request.number }}
+  group: agent-guard-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   agent-guard:
     name: Agent guard
+    if: github.event_name != 'merge_group'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
