@@ -81,6 +81,8 @@ describe('password reauthentication preserves the browser MFA session', () => {
           autoRefreshToken: false,
           detectSessionInUrl: false,
         },
+        // Limit czasu sprawdzenia hasła (LIM-05): `createSupabaseFetch()`.
+        global: { fetch: expect.any(Function) },
       },
     );
     expect(mocks.passwordSignIn).toHaveBeenCalledWith({ email: user.email, password });
@@ -126,7 +128,8 @@ describe('password reauthentication preserves the browser MFA session', () => {
   it('rejects an incorrect password without logging out any existing session', async () => {
     mocks.passwordSignIn.mockResolvedValue({
       data: { user: null, session: null },
-      error: { message: 'Synthetic invalid password' },
+      // Tak auth-js zwraca złe hasło: JSON 400 z kodem. Błąd bez kodu HTTP to awaria (LIM-05).
+      error: { message: 'Synthetic invalid password', status: 400, code: 'invalid_credentials' },
     });
 
     await expect(reauthenticateWithPassword(password)).resolves.toEqual({

@@ -59,7 +59,8 @@ beforeEach(() => {
   mocks.getSession.mockResolvedValue({ data: { session: { access_token: 'fixture-original-aal2' } }, error: null });
   mocks.getClaims.mockResolvedValue({ data: { claims: { sub: account.id, aal: 'aal2' } }, error: null });
   mocks.isolatedClient.mockReturnValue({ auth: { signInWithPassword: mocks.password, admin: { signOut: mocks.cleanup } } });
-  mocks.password.mockResolvedValue({ data: { user: null, session: null }, error: { message: 'Synthetic invalid password' } });
+  // Złe hasło jak z auth-js: 400 z kodem (błąd bez kodu HTTP to awaria GoTrue, LIM-05).
+  mocks.password.mockResolvedValue({ data: { user: null, session: null }, error: { message: 'Synthetic invalid password', status: 400, code: 'invalid_credentials' } });
   mocks.cleanup.mockResolvedValue({ error: null });
   mocks.cancelRequest.mockResolvedValue({ ok: true, requestId: 'fixture-request' });
   mocks.createRequest.mockResolvedValue({ id: 'fixture-request', alreadyScheduled: true, scheduledFor: new Date('2030-01-01'), cancelToken: null });
