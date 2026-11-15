@@ -605,7 +605,9 @@ describe('rozliczenie zaliczek z telefonu', () => {
   it('podpowiedź z rodzajem: dziś i numer z numeracji faktury końcowej; nieznany rodzaj 400', async () => {
     const ok = await podpowiedzRoute(request('/api/mobile/v1/faktury/podpowiedz?rodzaj=rozliczenie', undefined, { method: 'GET' }));
     expect(ok.status).toBe(200);
-    expect(await ok.json()).toMatchObject({ dzis: DZIS });
+    expect(await ok.json()).toMatchObject({ dzis: DZIS, wysylkaWstrzymana: expect.stringContaining('tymczasowo wstrzymana') });
+    const kor = await podpowiedzRoute(request('/api/mobile/v1/faktury/podpowiedz?rodzaj=korekta', undefined, { method: 'GET' }));
+    expect(await kor.json()).toMatchObject({ wysylkaWstrzymana: null });
     const zly = await podpowiedzRoute(request('/api/mobile/v1/faktury/podpowiedz?rodzaj=paragon', undefined, { method: 'GET' }));
     expect(zly.status).toBe(400);
   });

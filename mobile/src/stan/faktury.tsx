@@ -18,7 +18,7 @@ import { Share } from 'react-native';
 
 import { DZIS, FAKTURY, KOSZTY, skrzynkaPrzykladowa, type Faktura, type FakturaKosztowa, type Koszt } from '@/dane-przykladowe';
 import { CYKLICZNE, type FakturaCykliczna } from '@/dane-przykladowe/kontrahenci';
-import type { FakturaTelefonu } from '@/lib/api/kontrakt';
+import type { FakturaTelefonu, WyliczenieZadanie } from '@/lib/api/kontrakt';
 import { kwota } from '@/lib/format';
 import type { FormularzWydatku, StanOdczytuTelefonu } from '@/lib/wydatek/zatwierdzenie';
 
@@ -29,8 +29,11 @@ import type { FormularzWydatku, StanOdczytuTelefonu } from '@/lib/wydatek/zatwie
  */
 export type WynikZapisu = { ok: true; id: string; uwaga?: string } | { ok: false; komunikat: string; pole?: string };
 
-/** Zapis na prawdziwym koncie (M8): treść dla `POST /faktury`, klucz jednego wypełnienia formularza i firma, w której go otwarto. */
-export type ZapisNaKoncie = { faktura: FakturaTelefonu; klucz: string; firma: string };
+/**
+ * Zapis na prawdziwym koncie (M8): treść dla `POST /faktury`, klucz jednego wypełnienia formularza i firma, w której go otwarto.
+ * M8b: zaliczka, rozliczenie i korekta niosą `tresc` (klucz rodzaju) zamiast `faktura`.
+ */
+export type ZapisNaKoncie = { klucz: string; firma: string } & ({ faktura: FakturaTelefonu; tresc?: undefined } | { faktura?: undefined; tresc: WyliczenieZadanie });
 
 /** Plik dokumentu kosztu do wgrania (M9): skan albo zdjęcie z galerii, w plikach aplikacji. */
 export type PlikDokumentu = { uri: string; nazwa: string; typ: string };
@@ -90,9 +93,10 @@ export type Stan = {
   pokazPotwierdzenie: (id: string | undefined) => void;
   /** Wysyła szkic albo odrzuconą fakturę ponownie do KSeF (na prawdziwym koncie szkic przez API, M8). */
   wyslijDoKsef: (id: string) => Promise<WynikZapisu>;
-  /** Cofa odrzuconą fakturę do szkicu. */
-  wrocDoSzkicu: (id: string) => void;
-  usunSzkic: (id: string) => void;
+  /** Cofa odrzuconą albo z błędem wysyłki fakturę do szkicu (na prawdziwym koncie przez API, M8b). */
+  wrocDoSzkicu: (id: string) => Promise<WynikZapisu>;
+  /** Usuwa szkic (na prawdziwym koncie przez API, M8b). */
+  usunSzkic: (id: string) => Promise<WynikZapisu>;
   cykliczne: FakturaCykliczna[];
   zapiszCykliczna: (c: FakturaCykliczna) => void;
   usunCykliczna: (id: string) => void;
@@ -223,8 +227,14 @@ export function StanFaktur({ children }: { children: ReactNode }) {
         przyjmijPoChwili(id);
         return Promise.resolve({ ok: true, id });
       },
-      wrocDoSzkicu: (id) => zmien(id, { statusKsef: 'robocza', blad: undefined }),
-      usunSzkic: (id) => setFaktury((lista) => lista.filter((f) => !(f.id === id && f.statusKsef === 'robocza'))),
+      wrocDoSzkicu: (id) => {
+        zmien(id, { statusKsef: 'robocza', blad: undefined });
+        return Promise.resolve({ ok: true, id });
+      },
+      usunSzkic: (id) => {
+        setFaktury((lista) => lista.filter((f) => !(f.id === id && f.statusKsef === 'robocza')));
+        return Promise.resolve({ ok: true, id });
+      },
       cykliczne,
       zapiszCykliczna: (c) =>
         setCykliczne((lista) => (lista.some((x) => x.id === c.id) ? lista.map((x) => (x.id === c.id ? c : x)) : [...lista, c])),

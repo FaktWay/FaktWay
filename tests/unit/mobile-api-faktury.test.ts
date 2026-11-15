@@ -558,7 +558,7 @@ describe('GET /api/mobile/v1/faktury/podpowiedz', () => {
     });
     const response = await podpowiedzRoute(request);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ numer: null, seria: null, dzis: DZIS, zwolnienieVat: false });
+    expect(await response.json()).toEqual({ numer: null, seria: null, dzis: DZIS, zwolnienieVat: false, wysylkaWstrzymana: null });
   });
 
   it('firma z serią domyślną: numer z licznika i id serii (jak formularz strony)', async () => {
@@ -567,6 +567,6 @@ describe('GET /api/mobile/v1/faktury/podpowiedz', () => {
     const request = new Request('https://app.example.test/api/mobile/v1/faktury/podpowiedz', {
       headers: { authorization: `Bearer ${TOKEN_A}`, 'x-active-org': ORG_A, 'x-real-ip': '198.51.100.10' },
     });
-    expect(await (await podpowiedzRoute(request)).json()).toEqual({ numer: 'FV/5/11/2026', seria: SERIA, dzis: DZIS, zwolnienieVat: false });
+    expect(await (await podpowiedzRoute(request)).json()).toEqual({ numer: 'FV/5/11/2026', seria: SERIA, dzis: DZIS, zwolnienieVat: false, wysylkaWstrzymana: null });
   });
 });

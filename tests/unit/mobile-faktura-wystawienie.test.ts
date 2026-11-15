@@ -181,7 +181,8 @@ describe('1: nabywca z UE i stawka spoza telefonu nie przechodzą jako osoba pry
   });
 
   it('stawka spoza telefonu nie zamienia się w 0% ani 23%', () => {
-    expect(stawkaTelefonu('np_ii')).toBeNull();
+    // Od M8b „np II” telefon wystawia (z firmą z UE; regułę sprawdza serwer), więc zostaje sobą.
+    expect(stawkaTelefonu('np_ii')).toBe('np_ii');
     expect(stawkaTelefonu('0 WDT')).toBeNull();
     expect(stawkaTelefonu('zw')).toBe('zw');
     const f = doFakturyTelefonu(formularz({ pozycje: [{ nazwa: 'X', ilosc: '1', jednostka: 'szt', cena: '10', stawka: 'np_ii' }] }));

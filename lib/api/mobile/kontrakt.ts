@@ -272,6 +272,12 @@ export interface PodpowiedzFakturyOdpowiedz {
   dzis: string;
   /** Firma zwolniona z VAT (art. 113): nowa pozycja startuje ze stawką „zw”. */
   zwolnienieVat: boolean;
+  /**
+   * M8b: wysyłka tego rodzaju do KSeF jest teraz wstrzymana także na stronie (faktura
+   * rozliczająca; korekta na produkcji): zdanie strony, telefon proponuje szkic.
+   * `null` albo brak: wysyłka możliwa.
+   */
+  wysylkaWstrzymana?: string | null;
 }
 
 // ─── Wydatki (M9): wydatek ze zdjęcia ─────────────────────────────────

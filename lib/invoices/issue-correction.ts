@@ -93,6 +93,10 @@ export interface CorrectionIssueContext {
 
 export type CorrectionContextSource = () => Promise<CorrectionIssueContext>;
 
+/** Odmowa „Wystaw i wyślij” korekty w PROD (strona i telefon; telefon pokazuje ją od razu przy formularzu). */
+export const CORRECTION_PROD_SEND_HOLD_MESSAGE =
+  'Wysyłka korekt w PROD jest wstrzymana do uzgodnienia oryginału i wcześniejszych korekt. Możesz zapisać szkic.';
+
 export type CorrectionActionResult =
   | { success: true; invoiceId: string; offline?: boolean }
   | { success: false; error: string; invoiceId?: string };
@@ -964,10 +968,7 @@ export async function saveAndSendCorrection(
     // Original XML and the cumulative state after earlier KOR are not yet
     // independently proven. A draft is allowed; legal PROD submit is not.
     if (requireConfiguredKsefEnvironment() === 'production') {
-      return {
-        success: false,
-        error: 'Wysyłka korekt w PROD jest wstrzymana do uzgodnienia oryginału i wcześniejszych korekt. Możesz zapisać szkic.',
-      };
+      return { success: false, error: CORRECTION_PROD_SEND_HOLD_MESSAGE };
     }
     const { supabase, tenant, userId, tokenSession } = await context();
     const normalized = await normalizePayload(supabase, tenant, raw);

@@ -38,6 +38,9 @@ import {
 import { loadInvoiceNumbering } from '@/lib/numeracja/baza';
 import { selectedNumberingOption } from '@/lib/numeracja/model';
 import type { InvoiceKind } from '@/lib/numeracja/wzor';
+import { CORRECTION_PROD_SEND_HOLD_MESSAGE } from '@/lib/invoices/issue-correction';
+import { configuredKsefEnvironment } from '@/lib/ksef/claim-environment';
+import { ROZ_SUBMISSION_HOLD_MESSAGE } from '@/lib/ksef/roz-submission-hold';
 import { sendRegularDraft } from '@/lib/invoices/send-draft';
 import { readTenantVatExemption } from '@/lib/invoices/vat-exemption';
 import { isUuid } from '@/lib/supabase/active-org';
@@ -277,6 +280,11 @@ export async function invoiceFormHint(caller: MobileCaller, rodzaj: string | nul
     seria: option?.id && option.preview ? option.id : null,
     dzis,
     zwolnienieVat: zwolnienie !== null,
+    // Te same odmowy co „Wystaw i wyślij” (`saveAndSendFinal`, `saveAndSendCorrection`), znane przed zapisem.
+    wysylkaWstrzymana:
+      kind === 'final' ? ROZ_SUBMISSION_HOLD_MESSAGE
+      : kind === 'correction' && configuredKsefEnvironment() === 'production' ? CORRECTION_PROD_SEND_HOLD_MESSAGE
+      : null,
   };
   return mobileJson(body, 200, caller.headers);
 }
