@@ -40,6 +40,14 @@
 /scripts/ops/scal-pr.sh      @ezior8888-cpu
 /scripts/ops/odswiez-pr.sh   @ezior8888-cpu
 /scripts/ci/scalanie-etykieta.mjs  @ezior8888-cpu
+# Nocne wdrożenie i wgrywanie migracji: skrypty z uprawnieniami produkcji, uruchamiane bez człowieka
+/scripts/ops/nocne-wdrozenie.sh            @ezior8888-cpu
+/scripts/ops/kontrola-migracji.mjs         @ezior8888-cpu
+/scripts/ops/wgraj-migracje.sh             @ezior8888-cpu
+/scripts/ops/zainstaluj-nocne-wdrozenie.sh @ezior8888-cpu
+/scripts/ops/wdroz-produkcje.sh            @ezior8888-cpu
+/scripts/ops/coolify-wspolne.sh            @ezior8888-cpu
+/docs/runbooks/nocne-wdrozenie.md          @ezior8888-cpu
 /ops/                        @ezior8888-cpu
 
 # Baza, uprawnienia, granice dostępu
