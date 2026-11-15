@@ -1,7 +1,15 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import {
+  AUTH_BUSY_MESSAGE,
+  isAuthRateLimited,
+  isAuthServiceFailure,
+  isAuthServiceUnavailable,
+  logAuthServiceFailure,
+} from '@/lib/auth/gotrue-errors';
 import { getPanelMfaState } from '@/lib/auth/panel-mfa';
 import { PASSKEY_SESSION_COOKIE } from '@/lib/auth/passkey/session-marker';
+import { safeRedirectPath } from '@/lib/auth/safe-redirect';
 import { getVerifiedMfaState } from '@/lib/auth/verified-mfa';
 import { isMaintenanceMode, MAINTENANCE_PATH } from '@/lib/feature-flags/maintenance';
 import { BUYER_PAGE_HEADERS, isBuyerInvoicePath } from '@/lib/invoice-share/policy';
@@ -16,6 +24,7 @@ import {
   TIMED_OUT,
   type SupabaseDeadline,
 } from './fetch-timeout';
+import { withRefreshRateLimit } from './refresh-rate-limit';
 
 /**
  * Ścieżki marketingowe — dostęp bez logowania (spec 19.1.3).
@@ -192,12 +201,15 @@ const APP_HOME = '/dashboard';
  * Reguły:
  *  0. Zalogowany na `/` (landing) → `APP_HOME` (pulpit aplikacji).
  *  1. Niezalogowany na trasie spoza `isPublicPath` → `/login?redirect=…`.
- *  2. Zalogowany na /login lub /register → `APP_HOME`.
+ *  2. Zalogowany na /login lub /register → bezpieczny cel z `redirect`, inaczej `APP_HOME`.
  *  3. Bootstrap `ksef.active_org` na chronionych trasach (bez /onboarding, bez /api).
  *  4. /onboarding — bez redirectu z proxy (soft-nav loop); strona sama decyduje.
- *  5. Supabase nie odpowiada w terminie bramki: chroniona trasa dostaje 503
- *     „spróbuj ponownie”, publiczna jedzie dalej jak dla gościa. Nigdy
- *     przekierowanie na logowanie ani skasowanie sesji.
+ *  5. Supabase nie odpowiada w terminie bramki, GoTrue ma awarię albo odmawia
+ *     limitem (429), zapytanie o członkostwo zwraca błąd: chroniona trasa
+ *     dostaje 503 „spróbuj ponownie” (przy limicie osobny tekst i wpis
+ *     `[auth] gotrue_rate_limited`), publiczna jedzie dalej jak dla gościa.
+ *     Nigdy przekierowanie na logowanie ani skasowanie sesji (plan skalowania
+ *     3000, sesje 5 i 7).
  */
 export async function updateSession(request: NextRequest) {
   // Przed `createServerClient`: bez klienta nie ma `getClaims()` ani
@@ -245,17 +257,33 @@ async function decideSession(request: NextRequest, gate: SupabaseDeadline) {
   const isApi = path === '/api' || path.startsWith('/api/');
   const isAdmin = path === '/admin' || path.startsWith('/admin/');
 
-  /** Sesji nie da się teraz sprawdzić: 503 „spróbuj ponownie”, ciasteczka sesji zostają. */
-  function sessionUnavailable(): NextResponse {
+  /**
+   * Sesji nie da się teraz sprawdzić: 503 „spróbuj ponownie”, ciasteczka sesji
+   * zostają. `busy` (limit GoTrue): tekst „przeciążony, spróbuj za minutę”.
+   * API dostaje ten sam kod błędu w obu przypadkach.
+   */
+  function sessionUnavailable(busy = false): NextResponse {
     return isApi
       ? denyApi('session_verification_failed', 503)
-      : withSessionCookies(new NextResponse('Nie udało się zweryfikować sesji. Spróbuj ponownie.', {
+      : withSessionCookies(new NextResponse(busy ? AUTH_BUSY_MESSAGE : 'Nie udało się zweryfikować sesji. Spróbuj ponownie.', {
         status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
       }));
   }
-  function gateTimedOut(step: string): NextResponse {
-    logGateTimeout(step, '503');
-    return sessionUnavailable();
+  /**
+   * Wpis w logu, gdy bramka skończyła się bez odpowiedzi: limit GoTrue przy
+   * odświeżeniu sesji (`gate.fail`) albo termin. Zwraca, czy to limit.
+   */
+  function noteGateFailure(step: string, outcome: string): boolean {
+    const reason: unknown = gate.signal.reason;
+    if (isAuthRateLimited(reason)) {
+      logAuthServiceFailure(`proxy:${step}`, reason);
+      return true;
+    }
+    logGateTimeout(step, outcome);
+    return false;
+  }
+  function gateFailed(step: string): NextResponse {
+    return sessionUnavailable(noteGateFailure(step, '503'));
   }
 
   const activeOrgCookie = request.cookies.get(ACTIVE_ORG_COOKIE)?.value;
@@ -286,8 +314,12 @@ async function decideSession(request: NextRequest, gate: SupabaseDeadline) {
       },
       global: {
         // Wszystkie sprawdzenia tokenu w tym żądaniu dzielą jedną odpowiedź GoTrue,
-        // a każde wywołanie Supabase przerywa termin bramki.
-        fetch: createAuthUserFetch(createSupabaseFetch({ deadline: gate.signal })),
+        // a każde wywołanie Supabase przerywa termin bramki. Limit GoTrue (429)
+        // przy odświeżeniu sesji kończy bramkę od razu i nie kasuje sesji.
+        fetch: createAuthUserFetch(withRefreshRateLimit(
+          createSupabaseFetch({ deadline: gate.signal }),
+          (error) => gate.fail(error),
+        )),
         ...(isUuid(activeOrgCookie) ? { headers: { [ACTIVE_ORG_HEADER]: activeOrgCookie } } : {}),
       },
     },
@@ -312,8 +344,16 @@ async function decideSession(request: NextRequest, gate: SupabaseDeadline) {
     // Po terminie auth-js oddaje „brak sesji”, choć sesja może być ważna.
     // Chroniona trasa: 503 (fail-closed bez wylogowania). Publiczna sesji
     // nie potrzebuje, więc jedzie dalej jak dla gościa, z nietkniętymi ciasteczkami.
-    if (!isPublicPath(path)) return gateTimedOut('sesja');
-    logGateTimeout('sesja', 'trasa publiczna jak dla gościa');
+    if (!isPublicPath(path)) return gateFailed('sesja');
+    noteGateFailure('sesja', 'trasa publiczna jak dla gościa');
+  }
+  // Awaria albo limit GoTrue (przy HS256 `getClaims` pyta GoTrue, przy ES256
+  // pobiera klucze JWKS) to nie „brak sesji”: ta sama reguła co po terminie.
+  // Odmowa (zły token, usunięta sesja) zostaje odmową.
+  const claimsError = claims === TIMED_OUT ? null : claims.error;
+  if (claimsError && isAuthServiceFailure(claimsError)) {
+    logAuthServiceFailure('proxy:sesja', claimsError);
+    if (!isPublicPath(path)) return sessionUnavailable(isAuthRateLimited(claimsError));
   }
   const userId = claims === TIMED_OUT ? null : claims.data?.claims.sub ?? null;
 
@@ -341,9 +381,14 @@ async function decideSession(request: NextRequest, gate: SupabaseDeadline) {
   }
 
   if (userId && (path === '/login' || path === '/register')) {
+    // Zalogowany wraca tam, dokąd szedł (`?redirect=` z reguły 1), ale tylko
+    // na ścieżkę w aplikacji (`safeRedirectPath`) i nie z powrotem na logowanie.
     const url = request.nextUrl.clone();
-    url.pathname = APP_HOME;
-    url.search = '';
+    const target = new URL(safeRedirectPath(request.nextUrl.searchParams.get('redirect')), request.nextUrl);
+    const loops = target.pathname === '/login' || target.pathname === '/register';
+    url.pathname = loops ? APP_HOME : target.pathname;
+    url.search = loops ? '' : target.search;
+    url.hash = loops ? '' : target.hash;
     const res = NextResponse.redirect(url);
     withSessionCookies(res);
     return res;
@@ -356,7 +401,7 @@ async function decideSession(request: NextRequest, gate: SupabaseDeadline) {
   const isOnboarding = path === '/onboarding' || path.startsWith('/onboarding/');
   if (userId && !isAdmin && (!isPublicPath(path) || isOnboarding)) {
     const maintenance = await gate.within(isMaintenanceMode());
-    if (maintenance === TIMED_OUT) return gateTimedOut('przerwa techniczna');
+    if (maintenance === TIMED_OUT) return gateFailed('przerwa techniczna');
     if (maintenance) {
       if (isApi) return denyApi('maintenance', 503);
       const url = request.nextUrl.clone();
@@ -375,11 +420,16 @@ async function decideSession(request: NextRequest, gate: SupabaseDeadline) {
     const state = await gate.within((isAdmin
       ? getVerifiedMfaState(supabase)
       : getPanelMfaState(supabase, () => request.cookies.get(PASSKEY_SESSION_COOKIE)?.value)
-    ).catch(() => null));
-    if (state === TIMED_OUT) return gateTimedOut('2FA');
-    const verificationFailed = !state ||
-      (state.status !== 'unauthenticated' && state.user.id !== userId);
-    if (verificationFailed) return sessionUnavailable();
+    ).catch((error: unknown) => ({ failed: error })));
+    if (state === TIMED_OUT) return gateFailed('2FA');
+    if ('failed' in state) {
+      // Awaria albo limit GoTrue przy sprawdzeniu 2FA: wpis w logu i 503,
+      // przy limicie z osobnym tekstem. Inny błąd weryfikacji: 503 jak dotąd.
+      if (!isAuthServiceUnavailable(state.failed)) return sessionUnavailable();
+      logAuthServiceFailure('proxy:2FA', state.failed);
+      return sessionUnavailable(state.failed.rateLimited);
+    }
+    if (state.status !== 'unauthenticated' && state.user.id !== userId) return sessionUnavailable();
     if (state.status === 'unauthenticated') {
       if (isApi) return denyApi('not_authenticated', 401);
       const url = request.nextUrl.clone();
@@ -414,7 +464,15 @@ async function decideSession(request: NextRequest, gate: SupabaseDeadline) {
       .order('joined_at', { ascending: false })
       .limit(50));
     // Po terminie pusta lista to nie „brak firm”: bez tego proxy wysłałoby na /onboarding.
-    if (candidates === TIMED_OUT) return gateTimedOut('wybór firmy');
+    if (candidates === TIMED_OUT) return gateFailed('wybór firmy');
+    // Błąd zapytania (np. przekroczony czas w bazie, brak połączenia w puli) też
+    // nie: zalogowany z firmą nie może trafić na „Załóż firmę” (sesja 7).
+    if (candidates.error) {
+      console.warn('[proxy] Zapytanie o członkostwo nie powiodło się (krok: wybór firmy): 503', {
+        code: candidates.error.code ?? null,
+      });
+      return sessionUnavailable();
+    }
 
     const memberships = candidates.data ?? [];
 
@@ -432,7 +490,7 @@ async function decideSession(request: NextRequest, gate: SupabaseDeadline) {
       .select('last_active_tenant_id')
       .eq('id', userId!)
       .maybeSingle());
-    if (profile === TIMED_OUT) return gateTimedOut('wybór firmy');
+    if (profile === TIMED_OUT) return gateFailed('wybór firmy');
 
     const lastActive = profile.data?.last_active_tenant_id ?? null;
     const preferred = memberships.find((m) => m.organization_id === lastActive);

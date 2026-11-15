@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { logAudit } from '@/lib/audit/log';
 import { getClientIp } from '@/lib/auth/get-client-ip';
+import { isAuthServiceFailure, logAuthServiceFailure } from '@/lib/auth/gotrue-errors';
 import { getTrustedAppOrigin } from '@/lib/auth/trusted-origin';
 import { checkPasswordRecoveryRequestRateLimit } from '@/lib/rate-limit/password';
 import { isHoneypotTripped } from '@/lib/security/honeypot';
@@ -47,6 +48,14 @@ export async function requestPasswordReset(formData: FormData): Promise<void> {
   // Odmowa captcha pada przed szukaniem konta, więc nie zdradza, czy konto
   // istnieje. Bez tego klient czekałby na link, który nie wyjdzie.
   if (isGoTrueCaptchaRejection(result?.error)) redirect('/forgot-password?error=bot_check_failed');
+  // Limit (429) i awaria GoTrue (plan skalowania 3000, sesja 7): operator
+  // dostaje sygnał. Limit żądań GoTrue liczy od adresu IP przed szukaniem
+  // konta, więc jak captcha dostaje własny komunikat. Limit maili i awaria
+  // mogą zależeć od konta: ekran bez zmian, żeby nie zdradzić, czy istnieje.
+  if (result?.error && isAuthServiceFailure(result.error)) {
+    logAuthServiceFailure('forgot-password', result.error);
+    if (result.error.code === 'over_request_rate_limit') redirect('/forgot-password?error=auth_busy');
+  }
 
   if (result && !result.error) {
     // Auth acceptance is not evidence that a message arrived.

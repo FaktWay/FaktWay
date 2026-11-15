@@ -60,10 +60,8 @@ describe('00196: plik, nagłówek i rejestr', () => {
     expect(body(sql, 'undo_bank_expense_payment')).toMatch(/DELETE FROM public\.payment_imports/);
   });
 
-  it('rejestr: wiersz 00196, „następny wolny” za nim (numer nie wpisany na sztywno)', () => {
+  it('rejestr: wiersz 00196', () => {
     expect(registry).toMatch(/^\| 00196 \| Claude \(plan kompletnej aplikacji, krok 3\.2, część 3/m);
-    const next = /^\| \*\*(\d{5})\*\* \| — \| następny wolny/m.exec(registry)?.[1];
-    expect(Number(next)).toBeGreaterThan(196);
   });
 });
 

@@ -8,7 +8,7 @@
 # Zakłada albo poprawia (--force) cztery etykiety. Nic poza etykietami nie zmienia.
 set -euo pipefail
 
-repo="ezior8888-cpu/FaktWay"
+repo="FaktWay/FaktWay"
 gh label create "zgoda:zmiana-filtra" --repo "$repo" --force --color B60205 \
   --description "Bartosz: zgoda na zmianę maszynerii filtra albo osłabienie mapy ryzyka (wygasa po pushu)"
 gh label create "zgoda:wiedza-prawna" --repo "$repo" --force --color D93F0B \

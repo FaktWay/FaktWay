@@ -10,7 +10,7 @@
  * - koszt z KSeF: `expenses.ksef_invoice_id` bez `ON DELETE` (00034, 00121);
  * - import płatności z banku: `payment_imports.matched_payment_id` bez
  *   `ON DELETE` (00014, 00073) przy płatności, którą faktura kasuje kaskadą;
- * - strażnik cyklu KSeF (`guard_ksef_lifecycle`, 00119, 00132): wiersza nie
+ * - strażnik cyklu KSeF (`guard_invoice_pending_content`, 00119, 00132): wiersza nie
  *   usunie żadna rola, także klucz serwisowy, gdy faktura była wysłana do KSeF
  *   (`submitted_to_ksef_at`), ma klucz trybu offline albo jest w trakcie
  *   wysyłki (`blokadaKsef`); FZ-016.
@@ -48,7 +48,7 @@ export interface PlanUsuniecia {
 /** Statusy, w których strażnik cyklu KSeF (00132) nie da usunąć faktury. */
 const W_WYSYLCE = new Set(['queued', 'offline_queued', 'sending']);
 
-/** Ten sam warunek co gałąź DELETE w `guard_ksef_lifecycle` (00132): wiersza nie usunie żadna rola. */
+/** Ten sam warunek co gałąź DELETE w `guard_invoice_pending_content` (00132): wiersza nie usunie żadna rola. */
 export function blokadaKsef(f: { ksef_status?: unknown; submitted_to_ksef_at?: unknown; offline_idempotency_key?: unknown }): boolean {
   return W_WYSYLCE.has(String(f.ksef_status)) || f.submitted_to_ksef_at != null || f.offline_idempotency_key != null;
 }

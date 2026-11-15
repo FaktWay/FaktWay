@@ -16,6 +16,7 @@ import {
   rememberMeCookieOptions,
 } from '@/lib/auth/device-cookies';
 import { getClientIp } from '@/lib/auth/get-client-ip';
+import { isAuthRateLimited, isAuthServiceFailure, logAuthServiceFailure } from '@/lib/auth/gotrue-errors';
 import { isGoogleLoginEnabled } from '@/lib/auth/oauth-providers';
 import { isPhoneUserAgent } from '@/lib/auth/phone-user-agent';
 import { readAccessTokenFacts, sessionAuditMetadata } from '@/lib/auth/sessions/access-token';
@@ -77,7 +78,15 @@ export async function loginWithEmail(formData: FormData): Promise<void> {
   });
 
   if (error) {
-    redirect(isGoTrueCaptchaRejection(error) ? '/login?error=bot_check_failed' : '/login?error=invalid_credentials');
+    // Odmowa captcha przychodzi z GoTrue jako 500, więc najpierw ona.
+    if (isGoTrueCaptchaRejection(error)) redirect('/login?error=bot_check_failed');
+    // Limit (429) i awaria GoTrue to nie „złe hasło” (plan skalowania 3000,
+    // sesja 7): klient, który ponawia hasło, tylko dokłada prób.
+    if (isAuthServiceFailure(error)) {
+      logAuthServiceFailure('login', error);
+      redirect(isAuthRateLimited(error) ? '/login?error=auth_busy' : '/login?error=auth_unavailable');
+    }
+    redirect('/login?error=invalid_credentials');
   }
 
   await applyRememberMe(formData.get('remember') !== null);

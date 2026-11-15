@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AuthApiError, AuthRetryableFetchError } from '@supabase/supabase-js';
+import { beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   client: vi.fn(), getSession: vi.fn(), getUser: vi.fn(), getClaims: vi.fn(),
@@ -134,6 +135,53 @@ describe('MFA challenge', () => {
     mocks.getSession.mockResolvedValue({ data: { session: null }, error: null });
     await expect(verifyMfaChallengeAction(form())).rejects.toThrow('redirect:/login');
     noFactorWork(); expect(mocks.limit).not.toHaveBeenCalled();
+  });
+});
+// Plan skalowania 3000, sesja 7 (GTR-03): limit i awaria GoTrue to nie „zły kod”.
+// Wcześniej 429 przy weryfikacji szło do audytu jako nieudana próba, a awaria
+// przy sprawdzeniu sesji odsyłała na logowanie od nowa.
+describe('MFA challenge: GoTrue rate limit and outage', () => {
+  let warn: MockInstance<typeof console.warn>;
+  const busy = () => new AuthApiError('Request rate limit reached', 429, 'over_request_rate_limit');
+  const down = () => new AuthRetryableFetchError('Service Unavailable', 503);
+  const authWarnings = () => warn.mock.calls.filter(([first]) => String(first).startsWith('[auth]'));
+  beforeEach(() => {
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  it('verify rate limited: busy message, no failed-code audit, a log line without the code', async () => {
+    mocks.verify.mockResolvedValue({ data: null, error: busy() });
+    await expect(verifyMfaChallengeAction(form())).rejects.toThrow(target('auth_busy'));
+    expect(mocks.audit).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith('[auth] gotrue_rate_limited', expect.objectContaining({ flow: 'two-factor', status: 429 }));
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('123456');
+  });
+  it('verify during an outage: try again later, no failed-code audit', async () => {
+    mocks.verify.mockResolvedValue({ data: null, error: down() });
+    await expect(verifyMfaChallengeAction(form())).rejects.toThrow(target('verification_unavailable'));
+    expect(mocks.audit).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith('[auth] gotrue_unavailable', expect.objectContaining({ flow: 'two-factor' }));
+  });
+  it('challenge rate limited: busy message before any verification', async () => {
+    mocks.challenge.mockResolvedValue({ data: null, error: busy() });
+    await expect(verifyMfaChallengeAction(form())).rejects.toThrow(target('auth_busy'));
+    expect(mocks.verify).not.toHaveBeenCalled();
+    expect(mocks.audit).not.toHaveBeenCalled();
+  });
+  it('session check during an outage: try again later instead of a fresh login', async () => {
+    mocks.getUser.mockResolvedValue({ data: { user: null }, error: down() });
+    await expect(verifyMfaChallengeAction(form())).rejects.toThrow(target('verification_unavailable'));
+    noFactorWork(); expect(mocks.limit).not.toHaveBeenCalled();
+  });
+  it('session check rate limited: busy message', async () => {
+    mocks.getUser.mockResolvedValue({ data: { user: null }, error: busy() });
+    await expect(verifyMfaChallengeAction(form())).rejects.toThrow(target('auth_busy'));
+    noFactorWork(); expect(mocks.limit).not.toHaveBeenCalled();
+  });
+  it('a wrong code stays a wrong code and is audited', async () => {
+    mocks.verify.mockResolvedValue({ data: null, error: new AuthApiError('Invalid TOTP code entered', 422, 'mfa_verification_failed') });
+    await expect(verifyMfaChallengeAction(form())).rejects.toThrow(target('invalid_code'));
+    expect(mocks.audit).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ action: 'auth.mfa_challenge_failed' }));
+    expect(authWarnings()).toEqual([]);
   });
 });
 describe('TOTP enrollment boundary', () => {
