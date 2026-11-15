@@ -513,7 +513,7 @@ const SONDA_SYGNALU = 'tests/fixtures/worker-sygnal-sonda.ts';
 /** Czas łaski z karty G1 (`WORKER_SHUTDOWN_BUDGET.containerGraceMs`, pilnuje `stopboss-czas-laski.test.ts`). */
 const CZAS_LASKI_MS = 10_000;
 /** Proces jak w obrazie workera: NODE_ENV=production, bez NODE_OPTIONS z Vitest. */
-const ENV_OBRAZU = { ...process.env, NODE_OPTIONS: '', NODE_ENV: 'production' };
+const ENV_OBRAZU: NodeJS.ProcessEnv = { ...process.env, NODE_OPTIONS: '', NODE_ENV: 'production' };
 
 describe.skipIf(process.platform === 'win32')('prawdziwy Node z flagami z Dockerfile (G1-START)', () => {
   it('sonda: sygnał z czasu wczytywania wejścia dociera do zamykania przed bramką receiveQueuedSignals()', () => {
