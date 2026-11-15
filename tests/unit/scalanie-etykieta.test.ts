@@ -126,9 +126,15 @@ describe('decyduj: wyłączenie scalania', () => {
 });
 
 describe('decyduj: zdarzenia do pominięcia', () => {
-  it.each(['labeled', 'unlabeled', 'synchronize'])('github-actions[bot] jest ignorowany (%s)', (action) => {
+  it.each(['labeled', 'unlabeled'])('etykiety zmieniane przez github-actions[bot] są ignorowane (%s)', (action) => {
     const d = decyduj(zdarzenie({ action, sender: 'github-actions[bot]', labele: [ETYKIETA_SCAL] }), OSOBY);
     expect(d.akcja).toBe('ignoruj');
+  });
+
+  it('nowy push na PR z scal wyłącza scalanie także, gdy sender to github-actions[bot] (luka w „nowy push cofa zgodę”)', () => {
+    const d = decyduj(zdarzenie({ action: 'synchronize', label: '', sender: 'github-actions[bot]', labele: [ETYKIETA_SCAL] }), OSOBY);
+    expect(d.akcja).toBe('wylacz');
+    expect(d.zdejmijEtykiete).toBe(true);
   });
 
   it('inna etykieta i inna akcja: nic', () => {
@@ -148,11 +154,13 @@ function atrapa(opcje: {
   stan?: { autoMergeRequest: unknown; mergeQueueEntry: unknown };
   bladEnable?: string;
   bladGraphql?: string;
+  bladKomentarza?: string;
 } = {}) {
   const wywolania: Wywolanie[] = [];
   const api = {
     async rest(metoda: string, sciezka: string, cialo?: unknown) {
       wywolania.push({ rodzaj: 'rest', metoda, sciezka, cialo });
+      if (metoda === 'POST' && opcje.bladKomentarza) throw new Error(opcje.bladKomentarza);
       return null;
     },
     async graphql(zapytanie: string, zmienne: Record<string, unknown>) {
@@ -240,6 +248,13 @@ describe('wykonaj', () => {
     expect((wywolania.find((w) => w.metoda === 'POST')?.cialo as { body: string }).body).toMatch(/nowy push/i);
   });
 
+  it('błąd samego komentarza po skutku nie wywraca zadania (ponowienie powtórzyłoby skutek i komentarz)', async () => {
+    const z = zdarzenie();
+    const { api, wywolania } = atrapa({ bladKomentarza: 'HTTP 502' });
+    await expect(wykonaj(decyduj(z, OSOBY), z, api)).resolves.toBeUndefined();
+    expect(mutacje(wywolania).some((q) => q.includes('enablePullRequestAutoMerge'))).toBe(true);
+  });
+
   it('ignoruj: zero wywołań', async () => {
     const z = zdarzenie({ label: 'inna' });
     const { api, wywolania } = atrapa();
@@ -259,6 +274,11 @@ describe('przetworz', () => {
     const blad = await przetworz(zdarzenie(), OSOBY, zla.api);
     expect(blad.kod).toBe(1);
     expect(blad.linie.join('\n')).toContain('Resource not accessible by integration');
+    // Agent widzi tylko PR: przy błędzie włączenia zostaje komentarz z przyczyną i zapasem.
+    const komentarz = zla.wywolania.find((w) => w.metoda === 'POST');
+    const tresc = (komentarz?.cialo as { body: string }).body;
+    expect(tresc).toContain('Nie udało się włączyć scalania');
+    expect(tresc).toContain('gh pr merge 42 --auto');
   });
 });
 

@@ -19,7 +19,9 @@
 #      `--po-drugim-czytelniku`: potwierdzasz, że drugi czytelnik przeczytał zmianę
 #      i nie ma otwartych uwag. Skrypt tego nie sprawdzi, ale wymusza ten krok;
 #   d. nadaje etykietę `scal`. Workflow „Scalanie na etykietę” włącza wtedy
-#      automatyczne scalanie: PR wchodzi do kolejki po zielonych kontrolach;
+#      automatyczne scalanie: PR wchodzi do kolejki po zielonych kontrolach.
+#      PR, który ma już włączone scalanie albo jest w kolejce, zostaje bez
+#      zmian (ponowne nadanie etykiety wyjęłoby go z kolejki);
 #   e. `--czekaj` odpytuje GitHuba co 30 s (do 45 min) i wypisuje MERGED albo
 #      powód, dla którego PR nie wszedł.
 # Nowy push zdejmuje `scal` i etykiety zgody: nadajesz je od nowa po przeglądzie.
@@ -82,9 +84,10 @@ ODSTEP=${SCAL_ODSTEP:-30}
 LIMIT_MIN=${SCAL_LIMIT_MIN:-45}
 
 # Pola PR oddzielone „|” (tylko wartości bez „|”): stan, scalony, szkic, baza,
-# repozytorium głowy, SHA głowy, stan scalalności, etykiety po przecinku.
+# repozytorium głowy, SHA głowy, stan scalalności, czy włączone automatyczne
+# scalanie, etykiety po przecinku (ostatnie, bo mogą być puste).
 odczytaj_pr() {
-  gh api "repos/$REPO/pulls/$NUMER" --jq '[.state, (.merged | tostring), (.draft | tostring), .base.ref, (.head.repo.full_name // "-"), .head.sha, (.mergeable_state // "unknown"), ([.labels[].name] | join(","))] | join("|")'
+  gh api "repos/$REPO/pulls/$NUMER" --jq '[.state, (.merged | tostring), (.draft | tostring), .base.ref, (.head.repo.full_name // "-"), .head.sha, (.mergeable_state // "unknown"), ((.auto_merge != null) | tostring), ([.labels[].name] | join(","))] | join("|")'
 }
 
 # Najnowszy przebieg każdej kontroli (kontrola z tą samą nazwą bywa
@@ -102,9 +105,18 @@ czerwone() {
         }' | sort
 }
 
-liczba_wyrzucen() {
+# Zdarzenia kolejki scalania tego PR po kolei (added_to_merge_queue albo
+# removed_from_merge_queue), jedno na linię. Błąd odczytu to kod różny od 0.
+zdarzenia_kolejki() {
   gh api --paginate "repos/$REPO/issues/$NUMER/events?per_page=100" \
-    --jq '.[] | select(.event == "removed_from_merge_queue") | .id' | wc -l | tr -d ' '
+    --jq '.[] | select(.event == "added_to_merge_queue" or .event == "removed_from_merge_queue") | .event'
+}
+
+# Ile razy PR wypadł z kolejki do tej pory.
+liczba_wyrzucen() {
+  local zdarzenia
+  zdarzenia=$(zdarzenia_kolejki) || return 1
+  printf '%s\n' "$zdarzenia" | grep -c '^removed_from_merge_queue$' || true
 }
 
 dodaj_etykiete() {
@@ -113,7 +125,7 @@ dodaj_etykiete() {
 
 # ─── a. PR ───────────────────────────────────────────────────────
 info=$(odczytaj_pr) || die "Nie mogę odczytać PR #$NUMER w $REPO (brak PR albo brak dostępu)."
-IFS='|' read -r stan scalony szkic baza glowa sha mstan etykiety <<<"$info"
+IFS='|' read -r stan scalony szkic baza glowa sha mstan automerge etykiety <<<"$info"
 [ "$stan" = open ] || die "PR #$NUMER ma stan „$stan” (scalony: $scalony). Nic nie zmieniłem."
 [ "$szkic" != true ] || die "PR #$NUMER jest szkicem. Szkiców się nie scala; oznacz go jako gotowy do przeglądu. Nic nie zmieniłem."
 [ "$baza" = main ] || die "PR #$NUMER ma bazę „$baza”, a scalać wolno tylko do main (stos: po scaleniu poprzednika przestaw bazę: gh api -X PATCH repos/$REPO/pulls/$NUMER -f base=main). Nic nie zmieniłem."
@@ -136,7 +148,14 @@ if [ -n "$red" ]; then
 fi
 say "✔ kontrole: żadna nie jest czerwona (te w toku automat poczeka)"
 
-wyrzucen_przed=$(liczba_wyrzucen || echo 0)
+kolejka=$(zdarzenia_kolejki) || die "Nie mogę odczytać zdarzeń kolejki PR #$NUMER. Nic nie zmieniłem."
+wyrzucen_przed=$(printf '%s\n' "$kolejka" | grep -c '^removed_from_merge_queue$' || true)
+# Już w drodze do scalenia (włączone scalanie albo PR jest w kolejce): zdjęcie
+# i ponowne nadanie scal wyjęłoby go z kolejki i oddało w niej miejsce.
+w_drodze=0
+if [ "$automerge" = true ] || [ "$(printf '%s\n' "$kolejka" | tail -n 1)" = added_to_merge_queue ]; then
+  w_drodze=1
+fi
 
 # ─── c. etykiety zgody (przed scal) ──────────────────────────────
 for z in $ZGODY; do
@@ -155,15 +174,22 @@ if [ -n "$ZGODY" ]; then
 fi
 
 # ─── d. etykieta scal ────────────────────────────────────────────
-case ",$etykiety," in
-  *,scal,*)
-    # GitHub nie wysyła zdarzenia, gdy etykieta już jest: zdejmujemy i nadajemy od nowa.
-    say "   etykieta scal już była (np. po wyrzuceniu z kolejki): ponawiam"
-    gh api -X DELETE "repos/$REPO/issues/$NUMER/labels/scal" >/dev/null 2>&1 || true
-    ;;
-esac
-dodaj_etykiete scal || die "Nie nadałem etykiety scal (brak uprawnień? konto musi być na liście filtr/zgody.json)."
-say "✔ etykieta scal nadana: workflow „Scalanie na etykietę” włączy scalanie, PR wejdzie do kolejki po zielonych kontrolach"
+sprawdzaj_etykiete=1
+if [ "$w_drodze" = 1 ]; then
+  say "✔ PR #$NUMER ma już włączone scalanie albo jest w kolejce: etykiety scal nie ruszam, żeby nie stracić miejsca"
+  case ",$etykiety," in *,scal,*) ;; *) sprawdzaj_etykiete=0 ;; esac
+else
+  case ",$etykiety," in
+    *,scal,*)
+      # GitHub nie wysyła zdarzenia, gdy etykieta już jest, a scalanie nie jest
+      # włączone (np. po wyrzuceniu z kolejki): zdejmujemy i nadajemy od nowa.
+      say "   etykieta scal już była, a scalanie nie jest włączone: ponawiam"
+      gh api -X DELETE "repos/$REPO/issues/$NUMER/labels/scal" >/dev/null 2>&1 || true
+      ;;
+  esac
+  dodaj_etykiete scal || die "Nie nadałem etykiety scal (brak uprawnień? konto musi być na liście filtr/zgody.json)."
+  say "✔ etykieta scal nadana: workflow „Scalanie na etykietę” włączy scalanie, PR wejdzie do kolejki po zielonych kontrolach"
+fi
 
 if [ "$CZEKAJ" != 1 ]; then
   say "Stan: gh api repos/$REPO/pulls/$NUMER --jq '{state, merged}'; powód odmowy workflow: ostatni komentarz PR (gh api repos/$REPO/issues/$NUMER/comments --jq '.[-1].body')."
@@ -179,20 +205,22 @@ while [ "$n" -lt "$proby" ]; do
   sleep "$ODSTEP"
   n=$((n + 1))
   info=$(odczytaj_pr) || { echo "   $(date +%H:%M) brak odpowiedzi GitHuba, próbuję dalej" >&2; continue; }
-  IFS='|' read -r stan scalony _szkic _baza _glowa sha _mstan etykiety <<<"$info"
+  IFS='|' read -r stan scalony _szkic _baza _glowa sha _mstan _automerge etykiety <<<"$info"
   if [ "$scalony" = true ]; then
     say "MERGED PR #$NUMER: $(gh api "repos/$REPO/pulls/$NUMER" --jq '.merge_commit_sha // "-"')"
     exit 0
   fi
   [ "$stan" = open ] || die "PR #$NUMER zamknięty bez scalenia."
-  case ",$etykiety," in
-    *,scal,*) ;;
-    *)
-      echo "Etykieta scal została zdjęta (workflow odmówił albo był nowy push). Ostatni komentarz PR:" >&2
-      gh api "repos/$REPO/issues/$NUMER/comments" --jq '.[-1].body // "(brak komentarza)"' >&2 || true
-      exit 1
-      ;;
-  esac
+  if [ "$sprawdzaj_etykiete" = 1 ]; then
+    case ",$etykiety," in
+      *,scal,*) ;;
+      *)
+        echo "Etykieta scal została zdjęta (workflow odmówił albo był nowy push). Ostatni komentarz PR:" >&2
+        gh api "repos/$REPO/issues/$NUMER/comments" --jq '.[-1].body // "(brak komentarza)"' >&2 || true
+        exit 1
+        ;;
+    esac
+  fi
   red=$(czerwone "$sha" || true)
   if [ -n "$red" ]; then
     printf '%s\n' "$red" | sed 's/^/   czerwona kontrola: /' >&2

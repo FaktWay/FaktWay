@@ -58,7 +58,9 @@
 
 Sprawdza PR (otwarty, nie szkic, baza `main`, bez konfliktu i bez
 `wstrzymaj`), kontrole na SHA głowy (czerwona to odmowa z jej nazwą), potem
-nadaje `scal`. Etykieta już była (np. po wyrzuceniu z kolejki): zdejmuje ją
+nadaje `scal`. PR, który ma już włączone scalanie albo jest w kolejce, zostaje
+bez zmian (ponowne nadanie etykiety wyjęłoby go z kolejki). Etykieta już była,
+ale scalanie nie jest włączone (np. po wyrzuceniu z kolejki): zdejmuje ją
 i nadaje od nowa, bo GitHub nie wysyła zdarzenia dla etykiety, która już jest.
 
 PR wymagający etykiet zgody (straż ich żąda), po drugim czytelniku:
@@ -108,7 +110,8 @@ aktualne workflowy z `main`):
 ./scripts/ops/odswiez-pr.sh 771 768
 ```
 
-Pomija szkice, PR z `scal` i PR z konfliktem. Czerwona „Filtr: straż” z braku
+Pomija szkice, PR z `scal` albo włączonym automatycznym scalaniem
+(zamknięcie wyjęłoby je z kolejki) i PR z konfliktem. Czerwona „Filtr: straż” z braku
 etykiet zgody albo karty zostaje czerwona po odświeżeniu: odświeżenie ocenia
 ją tylko według aktualnych reguł z `main`.
 

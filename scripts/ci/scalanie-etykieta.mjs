@@ -19,7 +19,8 @@
 //   synchronize          nowy push na PR z etykietą `scal`: zdejmij ją i wyłącz
 //                        (zgoda dotyczy tego, co przeczytał drugi czytelnik,
 //                        jak etykiety zgoda:* w „Filtr: straż”).
-// Zdarzenia od `github-actions[bot]` pomijamy: to nasze własne zdjęcia etykiety.
+// Etykiety nadane i zdjęte przez `github-actions[bot]` pomijamy: to nasze własne
+// zdjęcia. Nowy push wyłącza scalanie bez względu na to, kto go zrobił.
 //
 // Bezpieczeństwo: workflow działa na `pull_request_target` z kodem z gałęzi
 // domyślnej. Kodu z PR nie pobiera i nie uruchamia. Z PR czyta tylko liczbę,
@@ -72,7 +73,10 @@ function decyzja(akcja, { powody = [], zdejmijEtykiete = false, komentarz = null
 export function decyduj(zdarzenie, osoby) {
   const pr = zdarzenie?.pull_request;
   const nadawca = String(zdarzenie?.sender?.login ?? '');
-  if (!pr || nadawca === BOT_WORKFLOWU) return decyzja('ignoruj');
+  if (!pr) return decyzja('ignoruj');
+  // Własne zdjęcia etykiety przez workflow pomijamy; nowy push wyłącza scalanie
+  // niezależnie od autora (zgoda dotyczy treści, którą przeczytał drugi czytelnik).
+  if (nadawca === BOT_WORKFLOWU && zdarzenie.action !== 'synchronize') return decyzja('ignoruj');
   const etykiety = (pr.labels ?? []).map((/** @type {{ name: string }} */ l) => l.name);
   const nazwa = zdarzenie.label?.name;
 
@@ -150,7 +154,15 @@ export async function wykonaj(d, zdarzenie, api) {
   const repo = zdarzenie.repository.full_name;
   const sciezkaPR = `/repos/${repo}/issues/${pr.number}`;
   const zdejmij = () => api.rest('DELETE', `${sciezkaPR}/labels/${encodeURIComponent(ETYKIETA_SCAL)}`);
-  const komentarz = (/** @type {string} */ tresc) => api.rest('POST', `${sciezkaPR}/comments`, { body: tresc });
+  // Komentarz idzie po skutku i jest dodatkiem: jego błąd nie może wywrócić zadania,
+  // bo ponowienie powtórzyłoby skutek i komentarz.
+  const komentarz = async (/** @type {string} */ tresc) => {
+    try {
+      await api.rest('POST', `${sciezkaPR}/comments`, { body: tresc });
+    } catch (blad) {
+      console.warn(`Komentarz do PR #${pr.number} nie został dodany: ${blad instanceof Error ? blad.message : 'nieznany błąd'}`);
+    }
+  };
 
   if (d.akcja === 'wlacz') {
     await wlacz(api, pr);
@@ -177,7 +189,7 @@ async function wlacz(api, pr) {
   } catch (blad) {
     // PR już gotowy do scalenia: GitHub odmawia „auto-merge” i każe scalać
     // od razu, a przy kolejce scalania to znaczy wstawić PR do kolejki.
-    if (blad instanceof Error && /clean status/i.test(blad.message)) {
+    if (blad instanceof Error && /clean status|already mergeable/i.test(blad.message)) {
       await api.graphql(MUTACJA_KOLEJKA, zmienne);
       return;
     }
@@ -242,8 +254,10 @@ export function utworzApi({ token, fetchFn = fetch }) {
  */
 export async function przetworz(zdarzenie, osoby, api) {
   const numer = zdarzenie?.pull_request?.number;
+  /** @type {Decyzja | null} */
+  let d = null;
   try {
-    const d = decyduj(zdarzenie, osoby);
+    d = decyduj(zdarzenie, osoby);
     await wykonaj(d, zdarzenie, api);
     const opis = {
       wlacz: `Włączono automatyczne scalanie PR #${numer} (etykieta ${ETYKIETA_SCAL} od ${zdarzenie.sender?.login}).`,
@@ -253,7 +267,18 @@ export async function przetworz(zdarzenie, osoby, api) {
     };
     return { kod: 0, linie: [opis[d.akcja]] };
   } catch (blad) {
-    return { kod: 1, linie: [`Scalanie na etykietę: błąd przy PR #${numer}: ${blad instanceof Error ? blad.message : 'nieznany błąd'}`] };
+    const komunikat = blad instanceof Error ? blad.message : 'nieznany błąd';
+    if (d?.akcja === 'wlacz') {
+      // Agent widzi tylko PR: bez komentarza etykieta zostaje i nic nie mówi, dlaczego.
+      try {
+        await api.rest('POST', `/repos/${zdarzenie.repository.full_name}/issues/${numer}/comments`, {
+          body: `Nie udało się włączyć scalania (błąd API: ${komunikat}). Zdejmij \`${ETYKIETA_SCAL}\` i nadaj ją jeszcze raz albo użyj zapasu lokalnego: \`gh pr merge ${numer} --auto\`.`,
+        });
+      } catch {
+        // log zadania i tak ma przyczynę
+      }
+    }
+    return { kod: 1, linie: [`Scalanie na etykietę: błąd przy PR #${numer}: ${komunikat}`] };
   }
 }
 

@@ -96,7 +96,11 @@ function uruchom(skrypt: string, args: string[], fixtures: Record<string, unknow
   writeFileSync(join(dir, 'sleep'), FAKE_SLEEP, { mode: 0o755 });
   chmodSync(join(dir, 'gh'), 0o755);
   chmodSync(join(dir, 'sleep'), 0o755);
-  for (const [nazwa, tresc] of Object.entries(fixtures)) writeFileSync(join(dir, nazwa), JSON.stringify(tresc));
+  // Domyślnie PR nie ma zdarzeń kolejki ani komentarzy; test może je nadpisać.
+  // `undefined` w teście oznacza „tego pliku nie ma” (atrapa gh odpowie błędem).
+  for (const [nazwa, tresc] of Object.entries({ 'events.json': [], 'comments.json': [], ...fixtures })) {
+    if (tresc !== undefined) writeFileSync(join(dir, nazwa), JSON.stringify(tresc));
+  }
   const wynik = spawnSync('bash', [skrypt, ...args], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${dir}${delimiter}${process.env.PATH ?? ''}`, FAKE_DIR: dir, SCAL_ODSTEP: '30', SCAL_LIMIT_MIN: '1', ...env },
@@ -117,6 +121,7 @@ const pr = (nadpisz: Record<string, unknown> = {}) => ({
   base: { ref: 'main' },
   head: { sha: SHA, repo: { full_name: REPO } },
   mergeable_state: 'clean',
+  auto_merge: null,
   labels: [],
   merge_commit_sha: null,
   ...nadpisz,
@@ -219,6 +224,49 @@ describe('scal-pr.sh: nadanie etykiety', () => {
     const iPost = w.calls.indexOf(`POST repos/${REPO}/issues/42/labels labels[]=scal`);
     expect(iDelete).toBeGreaterThan(-1);
     expect(iPost).toBeGreaterThan(iDelete);
+  });
+
+  itJq('scal i włączone automatyczne scalanie: etykiety nie rusza (nie traci miejsca w kolejce)', () => {
+    const w = uruchom(SCAL, ['42'], { [PR42]: pr({ labels: etykiety('scal'), auto_merge: { merge_method: 'merge' } }), [CHECKS]: ZIELONE });
+    expect(w.status).toBe(0);
+    expect(w.stdout).toMatch(/już włączone scalanie albo jest w kolejce/);
+    expect(w.calls.filter((c) => c.startsWith('POST') || c.startsWith('DELETE'))).toEqual([]);
+  });
+
+  itJq('PR jest w kolejce (ostatnie zdarzenie: added_to_merge_queue): etykiety nie rusza', () => {
+    const w = uruchom(SCAL, ['42'], {
+      [PR42]: pr({ labels: etykiety('scal') }),
+      [CHECKS]: ZIELONE,
+      'events.json': [{ id: 1, event: 'added_to_merge_queue' }],
+    });
+    expect(w.status).toBe(0);
+    expect(w.calls.filter((c) => c.startsWith('POST') || c.startsWith('DELETE'))).toEqual([]);
+  });
+
+  itJq('wypadł z kolejki (po wejściu nastąpiło wyjście): scal zdjęta i nadana od nowa', () => {
+    const w = uruchom(SCAL, ['42'], {
+      [PR42]: pr({ labels: etykiety('scal') }),
+      [CHECKS]: ZIELONE,
+      'events.json': [{ id: 1, event: 'added_to_merge_queue' }, { id: 2, event: 'removed_from_merge_queue' }],
+    });
+    expect(w.status).toBe(0);
+    expect(w.calls).toContain(`DELETE repos/${REPO}/issues/42/labels/scal`);
+    expect(posty(w.calls)).toEqual(['labels[]=scal']);
+  });
+
+  itJq('scalanie włączone poleceniem gh pr merge --auto (bez etykiety): etykiety nie nadaje, --czekaj nie żąda scal', () => {
+    const autoMerge = { auto_merge: { merge_method: 'merge' } };
+    const w = uruchom(SCAL, ['42', '--czekaj'], { [PR42]: pr(autoMerge), [CHECKS]: ZIELONE, 'pr-42.2.json': pr(autoMerge) });
+    expect(w.stderr).not.toMatch(/Etykieta scal została zdjęta/);
+    expect(posty(w.calls)).toEqual([]);
+    expect(w.status).toBe(3);
+  });
+
+  itJq('nie da się odczytać zdarzeń kolejki: odmowa bez zmian (nie zgadujemy, czy PR jest w kolejce)', () => {
+    const w = uruchom(SCAL, ['42'], { [PR42]: pr({ labels: etykiety('scal') }), [CHECKS]: ZIELONE, 'events.json': undefined });
+    expect(w.status).toBe(1);
+    expect(w.stderr).toMatch(/zdarzeń kolejki/);
+    expect(w.calls.filter((c) => c.startsWith('POST') || c.startsWith('DELETE'))).toEqual([]);
   });
 
   itJq('--zgoda po drugim czytelniku: etykiety zgody PRZED scal, straż czerwona z braku etykiet nie blokuje', () => {
@@ -356,6 +404,7 @@ describe('odswiez-pr.sh', () => {
       { number: 14, title: 'W drodze do kolejki' },
       { number: 15, title: 'Straż czerwona' },
       { number: 16, title: 'Straż anulowana' },
+      { number: 17, title: 'Scalanie włączone przez gh pr merge --auto' },
     ],
     'pr-10.json': pr({ head: { sha: sha('b'), repo: { full_name: REPO } } }),
     'pr-11.json': pr({ head: { sha: sha('c'), repo: { full_name: REPO } } }),
@@ -364,6 +413,8 @@ describe('odswiez-pr.sh', () => {
     'pr-14.json': pr({ labels: etykiety('scal') }),
     'pr-15.json': pr({ head: { sha: sha('d'), repo: { full_name: REPO } } }),
     'pr-16.json': pr({ head: { sha: sha('e'), repo: { full_name: REPO } } }),
+    // Włączone automatyczne scalanie bez etykiety: zamknięcie wyjęłoby PR z kolejki.
+    'pr-17.json': pr({ auto_merge: { merge_method: 'merge' }, head: { sha: sha('f'), repo: { full_name: REPO } } }),
     [`checks-${sha('b')}.json`]: { check_runs: wszystkieNowe('success').check_runs.slice(1) },
     [`checks-${sha('c')}.json`]: wszystkieNowe('success'),
     [`checks-${sha('d')}.json`]: wszystkieNowe('failure'),
@@ -379,19 +430,21 @@ describe('odswiez-pr.sh', () => {
     expect(w.stdout).not.toMatch(/#11 /);
     expect(w.stdout).toMatch(/#12 szkic/);
     expect(w.stdout).toMatch(/#13 konflikt z main.*git merge origin\/main/);
-    expect(w.stdout).toMatch(/#14 ma etykietę scal/);
+    expect(w.stdout).toMatch(/#14 ma scal albo włączone scalanie/);
+    expect(w.stdout).toMatch(/#17 ma scal albo włączone scalanie/);
     expect(w.stdout).toContain('./scripts/ops/odswiez-pr.sh 10 15 16');
     expect(w.calls.some((c) => c.startsWith('PATCH') || c.startsWith('POST') || c.startsWith('DELETE'))).toBe(false);
   });
 
   itJq('wskazane PR: zamknięcie i ponowne otwarcie przez REST PATCH, w tej kolejności; szkic, scal i konflikt pomija', () => {
-    const w = uruchom(ODSWIEZ, ['10', '12', '14', '13'], fixtures);
+    const w = uruchom(ODSWIEZ, ['10', '12', '14', '17', '13'], fixtures);
     expect(w.status).toBe(1); // konflikt to błąd do naprawy po stronie autora
     const patche = w.calls.filter((c) => c.startsWith('PATCH'));
     expect(patche).toEqual([`PATCH repos/${REPO}/pulls/10 state=closed`, `PATCH repos/${REPO}/pulls/10 state=open`]);
     expect(w.stdout).toContain('#10 odświeżony');
     expect(w.stdout).toMatch(/#12 szkic: pomijam/);
-    expect(w.stdout).toMatch(/#14 ma etykietę scal: pomijam/);
+    expect(w.stdout).toMatch(/#14 ma scal albo włączone scalanie: pomijam/);
+    expect(w.stdout).toMatch(/#17 ma scal albo włączone scalanie: pomijam/);
     expect(w.stdout).toMatch(/#13 ma konflikt z main/);
   });
 

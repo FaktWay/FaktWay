@@ -33,11 +33,12 @@ jobs:
     name: Scal
     # Reszta zdarzeń (inne etykiety, nasze własne zdjęcia etykiety) nie ma tu
     # nic do roboty; skrypt i tak je pomija, to tylko oszczędza przebiegi.
+    # Nowy push wyłącza scalanie bez względu na to, kto go zrobił.
     if: >-
-      github.event.sender.login != 'github-actions[bot]' &&
-      (github.event.action == 'synchronize' ||
-       github.event.label.name == 'scal' ||
-       github.event.label.name == 'wstrzymaj')
+      github.event.action == 'synchronize' ||
+      (github.event.sender.login != 'github-actions[bot]' &&
+       (github.event.label.name == 'scal' ||
+        github.event.label.name == 'wstrzymaj'))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
