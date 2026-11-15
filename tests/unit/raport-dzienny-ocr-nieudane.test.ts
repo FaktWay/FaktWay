@@ -62,8 +62,10 @@ vi.mock('@/lib/supabase/admin', () => ({
         then: (ok: (v: unknown) => unknown, fail?: (e: unknown) => unknown) => {
           db.queries.push(query);
           if (db.failing.has(table)) {
-            const error = { code: '57014', message: 'canceling statement due to statement timeout' };
-            return Promise.resolve({ data: null, count: null, error }).then(ok, fail);
+            // Jak postgrest-js przy `head: true`: odpowiedź z błędem nie ma treści,
+            // więc komunikat jest pusty i bez kodu, a przyczynę niesie tylko status.
+            const error = { message: '' };
+            return Promise.resolve({ data: null, count: null, error, status: 500, statusText: 'Internal Server Error' }).then(ok, fail);
           }
           const rows = (db.tables[table] ?? []).filter((r) => predicates.every((p) => p(r)));
           return Promise.resolve({ data: query.head ? null : rows, count: rows.length, error: null }).then(ok, fail);
@@ -181,10 +183,12 @@ describe('metryki dzienne: odczyty OCR', () => {
     expect(metrics.ocrJobsTimedOut).toBeNull();
     const logged = warn.mock.calls.map(([, ctx]) => (ctx as { metric: string }).metric);
     expect(logged.sort()).toEqual(['ocr_jobs.completed', 'ocr_jobs.failed', 'ocr_jobs.timed_out']);
+    // Pusty komunikat i brak kodu, jak przy prawdziwym błędzie HTTP: przyczynę niesie status.
     expect(warn).toHaveBeenCalledWith('[business-metrics] licznik bez danych', {
       metric: 'ocr_jobs.failed',
-      code: '57014',
-      message: 'canceling statement due to statement timeout',
+      status: 500,
+      code: null,
+      message: null,
     });
     warn.mockRestore();
   });
@@ -221,7 +225,7 @@ describe('raport dzienny 06:00: odczyty OCR', () => {
     expect(telegram).toHaveLength(1);
     expect(telegram[0]).toContain('Odczyty OCR: udane 2, nieudane 3, w tym limit czasu 2 ⚠️');
     expect(html).toHaveLength(1);
-    expect(tile(html[0]!, 'OCR jobs')).toEqual({ value: '2', color: '#111' });
+    expect(tile(html[0]!, 'OCR udane')).toEqual({ value: '2', color: '#111' });
     // Porażek więcej niż udanych i są limity czasu: oba kafelki czerwone.
     expect(tile(html[0]!, 'OCR nieudane')).toEqual({ value: '3', color: '#dc2626' });
     expect(tile(html[0]!, 'OCR nieudane: limit czasu')).toEqual({ value: '2', color: '#dc2626' });
@@ -237,7 +241,7 @@ describe('raport dzienny 06:00: odczyty OCR', () => {
     expect(telegram[0]).toContain(
       'Odczyty OCR: udane ⚠️ brak danych, nieudane ⚠️ brak danych, w tym limit czasu ⚠️ brak danych',
     );
-    for (const label of ['OCR jobs', 'OCR nieudane', 'OCR nieudane: limit czasu']) {
+    for (const label of ['OCR udane', 'OCR nieudane', 'OCR nieudane: limit czasu']) {
       expect(tile(html[0]!, label)).toEqual({ value: 'brak danych', color: '#f59e0b' });
     }
     warn.mockRestore();
@@ -275,6 +279,8 @@ describe('raport na Telegram: ostrzeżenie w linii OCR', () => {
     { label: 'remis: połowa padła, bez ostrzeżenia', completed: 2, failed: 2, timedOut: 0, warn: false },
     { label: 'więcej porażek niż udanych: ostrzeżenie', completed: 1, failed: 2, timedOut: 0, warn: true },
     { label: 'żaden odczyt się nie udał: ostrzeżenie', completed: 0, failed: 5, timedOut: 0, warn: true },
+    // Świadomie także przy małym ruchu: lepiej fałszywy alarm niż cicha awaria (odwołany klucz).
+    { label: 'mały ruch: 1 nieudany i 0 udanych to też ostrzeżenie', completed: 0, failed: 1, timedOut: 0, warn: true },
     { label: 'limit czasu: ostrzeżenie', completed: 9, failed: 1, timedOut: 1, warn: true },
   ])('$label', ({ completed, failed, timedOut, warn }) => {
     const report = buildTelegramReport({

@@ -74,9 +74,9 @@ function buildHtml(metrics: DailyMetrics): string {
       ? Math.round((metrics.invoicesAccepted / metrics.invoicesIssued) * 100)
       : 100;
 
-  // Limit czasu to zwykle kłopot z dostawcą OCR albo magazynem plików
-  // (czerwony), tak samo przewaga porażek nad udanymi. Pojedyncze porażki
-  // bywają zwykłe (nieczytelne zdjęcie), więc żółty; brak danych też żółty.
+  // Limit czasu to zwykle kłopot z dostawcą OCR (czerwony), tak samo przewaga
+  // porażek nad udanymi. Pojedyncze porażki bywają zwykłe (nieczytelne
+  // zdjęcie), więc żółty; brak danych też żółty.
   const ocrCompletedColor = metrics.ocrJobsCompleted === null ? '#f59e0b' : '#111';
   const ocrFailedColor = ocrMostlyFailed(metrics) ? '#dc2626' : metrics.ocrJobsFailed !== 0 ? '#f59e0b' : '#111';
   const ocrTimedOutColor =
@@ -118,7 +118,7 @@ function buildHtml(metrics: DailyMetrics): string {
       <div class="stat"><p class="stat-label">Zaakceptowane przez KSeF</p><p class="stat-value">${fmtNum(metrics.invoicesAccepted)} (${acceptanceRate}%)</p></div>
       <div class="stat"><p class="stat-label">Faktury z błędem</p><p class="stat-value" style="color:${metrics.invoicesFailed > 0 ? '#dc2626' : '#111'}">${fmtNum(metrics.invoicesFailed)}</p></div>
       <div class="stat"><p class="stat-label">Offline24 queue</p><p class="stat-value" style="color:${metrics.invoicesOfflineQueued > 0 ? '#f59e0b' : '#111'}">${fmtNum(metrics.invoicesOfflineQueued)}</p></div>
-      <div class="stat"><p class="stat-label">OCR jobs</p><p class="stat-value" style="color:${ocrCompletedColor}">${fmtOrMissing(metrics.ocrJobsCompleted)}</p></div>
+      <div class="stat"><p class="stat-label">OCR udane</p><p class="stat-value" style="color:${ocrCompletedColor}">${fmtOrMissing(metrics.ocrJobsCompleted)}</p></div>
       <div class="stat"><p class="stat-label">KSeF status</p><p class="stat-value" style="font-size:14px">${ksefStatus}</p></div>
     </div>
 
