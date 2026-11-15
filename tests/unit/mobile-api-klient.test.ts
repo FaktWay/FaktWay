@@ -6,8 +6,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { MOBILE_ACTIVE_ORG_HEADER, MOBILE_API_ERROR_CODES } from '../../lib/api/mobile/kontrakt';
-import { bladApi, kodBledu, rodzajBledu, sekundyPonowienia } from '../../mobile/src/lib/api/bledy';
+import { MOBILE_ACTIVE_ORG_HEADER, MOBILE_API_ERROR_CODES, MOBILE_IDEMPOTENCY_HEADER } from '../../lib/api/mobile/kontrakt';
+import { bladApi, KOMUNIKATY, kodBledu, rodzajBledu, sekundyPonowienia } from '../../mobile/src/lib/api/bledy';
 import { BRAK_ADRESU_API, przedCzasem, utworzKlienta, zBazy, type Odswiezenie, type Token, type Zaleznosci } from '../../mobile/src/lib/api/rdzen';
 
 type Odp = { status: number; cialo?: unknown; naglowki?: Record<string, string> };
@@ -28,7 +28,7 @@ function blad(status: number, code: string, naglowki: Record<string, string> = {
 function zaleznosci(odpowiedzi: (Odp | Error)[], opcje: { tokeny?: Token[]; odswiezenia?: Odswiezenie[]; adres?: string } = {}) {
   const tokeny = [...(opcje.tokeny ?? [{ token: 'tok-1' }, { token: 'tok-2' }])];
   const odswiezenia = [...(opcje.odswiezenia ?? ['ok'])];
-  const pobierz = vi.fn(async (_adres: string, _o: { method: string; headers: Record<string, string>; body?: string }) => {
+  const pobierz = vi.fn(async (_adres: string, _o: { method: string; headers: Record<string, string>; body?: string | FormData; limitMs?: number }) => {
     const n = odpowiedzi.shift();
     if (!n) throw new Error('za dużo żądań');
     if (n instanceof Error) throw n;
@@ -52,21 +52,65 @@ describe('kody błędów kontraktu', () => {
       mfa_required: 'kod',
       missing_org: 'firma',
       no_active_org: 'firma',
+      // Faktury (M8): zdanie serwera mówi, co poprawić; brak klucza to błąd programu w telefonie.
+      missing_idempotency_key: 'serwer',
+      idempotency_conflict: 'odmowa',
+      invoice_invalid: 'odmowa',
+      not_found: 'odmowa',
+      not_draft: 'odmowa',
+      ksef_send_refused: 'odmowa',
+      // Wydatki (M9): format i rozmiar pliku oraz zasady kosztu mówi serwer; niedokończone wgranie
+      // telefon ponawia z tym samym kluczem (bez drugiego odczytu).
+      file_invalid: 'odmowa',
+      upload_incomplete: 'ponow',
+      expense_invalid: 'odmowa',
       rate_limited: 'ponow',
       maintenance: 'ponow',
       session_verification_failed: 'ponow',
       service_unavailable: 'ponow',
       internal_error: 'serwer',
-      // Tylko `POST /logowanie` (M6b); ekran logowania ma własne teksty (`lib/logowanie/przez-api.ts`).
+      // `POST /logowanie` (M6b; ekran logowania ma własne teksty, `lib/logowanie/przez-api.ts`) i treść
+      // spoza kontraktu w `POST /faktury` (M8): błąd programu, nie klienta.
       invalid_request: 'serwer',
-      invalid_credentials: 'serwer',
+      // Od M10b też złe hasło przy potwierdzeniu usunięcia konta: zdanie serwera („Hasło jest nieprawidłowe…”).
+      invalid_credentials: 'odmowa',
       login_unavailable: 'ponow',
       // Tylko `POST /kod` (M6c); ekran kodu ma własne teksty (`lib/logowanie/przez-api.ts`).
       invalid_code: 'serwer',
       mfa_not_required: 'serwer',
+      // Należności, przypomnienia, PDF (M10a): zdanie serwera mówi, co zrobić.
+      forbidden: 'odmowa',
+      payment_refused: 'odmowa',
+      reminder_refused: 'odmowa',
+      pdf_unavailable: 'odmowa',
+      // Konto (M10b).
+      reauth_required: 'odmowa',
+      deletion_blocked: 'odmowa',
+      deletion_in_progress: 'odmowa',
+      settlement_refused: 'odmowa',
     };
     expect(Object.keys(oczekiwane).sort()).toEqual([...MOBILE_API_ERROR_CODES].sort());
     for (const kod of MOBILE_API_ERROR_CODES) expect(rodzajBledu(500, kod)).toBe(oczekiwane[kod]);
+  });
+
+  it('odmowa faktury (422) niesie zdanie serwera i pole formularza', () => {
+    const b = bladApi(422, { error: { code: 'invoice_invalid', message: 'Nazwa wymagana', field: 'buyerName' } });
+    expect(b).toEqual({ rodzaj: 'odmowa', kod: 'invoice_invalid', status: 422, ponowZaSekund: undefined, komunikat: 'Nazwa wymagana', pole: 'buyerName' });
+    // Bez zdania od serwera: tekst ogólny, bez pola.
+    expect(bladApi(409, { error: { code: 'not_draft', message: ' ' } })).toMatchObject({ rodzaj: 'odmowa', komunikat: KOMUNIKATY.odmowa });
+    expect(bladApi(409, { error: { code: 'not_draft', message: 'x', field: 'buyerName' } }).pole).toBeUndefined();
+  });
+
+  it('złe hasło przy usunięciu konta (M10b): zdanie serwera, nie „coś poszło nie tak”', () => {
+    const b = bladApi(400, { error: { code: 'invalid_credentials', message: 'Hasło jest nieprawidłowe. Sprawdź je i spróbuj ponownie.' } });
+    expect(b).toMatchObject({ rodzaj: 'odmowa', komunikat: 'Hasło jest nieprawidłowe. Sprawdź je i spróbuj ponownie.' });
+  });
+
+  it('zdanie serwera bez długich myślników (ZASADY-DESIGNU.md, sekcja 8)', () => {
+    const b = bladApi(422, { error: { code: 'invoice_invalid', message: 'NIP firmy — 10 cyfr i suma kontrolna', field: 'buyerNip' } });
+    expect(b.komunikat).toBe('NIP firmy: 10 cyfr i suma kontrolna');
+    expect(bladApi(422, { error: { code: 'ksef_send_refused', message: 'Najpierw wgraj certyfikat KSeF w Ustawienia KSeF — bez niego wysyłka nie jest możliwa.' } }).komunikat)
+      .toBe('Najpierw wgraj certyfikat KSeF w Ustawienia KSeF: bez niego wysyłka nie jest możliwa.');
   });
 
   it('awaria GoTrue (503) to „ponów”, nigdy koniec sesji', () => {
@@ -115,6 +159,35 @@ describe('klient /api/mobile/v1', () => {
     const { z, pobierz } = zaleznosci([{ status: 201, cialo: { zapisane: true } }]);
     await utworzKlienta(z)('sesja', { metoda: 'POST', cialo: { x: 1 } });
     expect(pobierz.mock.calls[0][1]).toMatchObject({ method: 'POST', body: '{"x":1}', headers: { 'Content-Type': 'application/json' } });
+  });
+
+  it('zapis z kluczem (M8): ten sam Idempotency-Key także w ponowieniu po odświeżeniu sesji', async () => {
+    const { z, pobierz } = zaleznosci([blad(401, 'invalid_token'), { status: 201, cialo: { powtorzenie: false } }]);
+    const klucz = '0c4e5f1a-7b2d-4c3e-9f10-111111111111';
+    await utworzKlienta(z)('faktury', { metoda: 'POST', cialo: { wyslij: true }, klucz });
+    expect(pobierz.mock.calls.map((c) => c[1].headers[MOBILE_IDEMPOTENCY_HEADER])).toEqual([klucz, klucz]);
+    // Bez klucza (np. odczyt konta) nagłówka nie ma.
+    const bez = zaleznosci([{ status: 200, cialo: {} }]);
+    await utworzKlienta(bez.z)('konto');
+    expect(bez.pobierz.mock.calls[0][1].headers[MOBILE_IDEMPOTENCY_HEADER]).toBeUndefined();
+  });
+
+  it('wgranie pliku (M9): formularz bez Content-Type (granicę części ustawia fetch), klucz i dłuższy limit także w ponowieniu', async () => {
+    const { z, pobierz } = zaleznosci([blad(401, 'invalid_token'), { status: 201, cialo: { odczyt: { id: 'j-1' }, powtorzenie: false } }]);
+    const klucz = '0c4e5f1a-7b2d-4c3e-9f10-333333333333';
+    const formularz = new FormData();
+    formularz.set('plik', new Blob(['x']), 'skan.jpg');
+    const w = await utworzKlienta(z)('wydatki/zdjecie', { metoda: 'POST', firma: 'firma-1', klucz, formularz, limitMs: 120_000 });
+    expect(w).toMatchObject({ ok: true, status: 201 });
+    for (const [adres, o] of pobierz.mock.calls) {
+      expect(adres).toBe('http://localhost:3000/api/mobile/v1/wydatki/zdjecie');
+      expect(o.body).toBe(formularz);
+      expect(o.limitMs).toBe(120_000);
+      expect(o.headers['Content-Type']).toBeUndefined();
+      expect(o.headers[MOBILE_IDEMPOTENCY_HEADER]).toBe(klucz);
+      expect(o.headers[MOBILE_ACTIVE_ORG_HEADER]).toBe('firma-1');
+    }
+    expect(pobierz.mock.calls.map((c) => c[1].headers.Authorization)).toEqual(['Bearer tok-1', 'Bearer tok-2']);
   });
 
   it('401 invalid_token: odświeża sesję i ponawia raz z nowym tokenem', async () => {

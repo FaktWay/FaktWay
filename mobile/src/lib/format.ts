@@ -39,6 +39,25 @@ export function kwota(grosze: number, waluta = 'PLN'): string {
   return f.format(grosze / 100).replace(/\s(?=\S+$)/, '\u00a0');
 }
 
+const CENY = new Map<string, Intl.NumberFormat>();
+
+/**
+ * Cena jednostkowa netto z miejscami jak w bazie (`unit_price_net`, do 4):
+ * „33,3333 zł”, „100,00 zł”. Kwoty faktury zostają w groszach (`kwota`).
+ */
+export function cena(wartosc: number, waluta = 'PLN'): string {
+  let f = CENY.get(waluta);
+  if (!f) {
+    try {
+      f = new Intl.NumberFormat('pl-PL', { style: 'currency', currency: waluta, minimumFractionDigits: 2, maximumFractionDigits: 4 });
+    } catch {
+      return `${wartosc.toFixed(4).replace(/0{1,2}$/, '').replace('.', ',')}\u00a0${waluta}`;
+    }
+    CENY.set(waluta, f);
+  }
+  return f.format(wartosc).replace(/\s(?=\S+$)/, '\u00a0');
+}
+
 /** „12 lis” dla dat w wierszach listy. Data w formacie RRRR-MM-DD. */
 export function dataKrotka(iso: string): string {
   return DATA_KROTKA.format(new Date(`${iso}T12:00:00`)).replace(/\.$/, '');
@@ -84,18 +103,8 @@ export function zmiana(pct: number): string {
   return '0%';
 }
 
-/** Kwota wpisana w polu („1500”, „1 500,50”) w groszach; puste albo błędne to NaN. */
-export function groszeZPola(tekst: string): number {
-  const t = tekst.replace(/\s/g, '').replace(',', '.');
-  if (!t) return NaN;
-  const n = Number(t);
-  return Number.isFinite(n) ? Math.round(n * 100) : NaN;
-}
-
-/** Grosze do pola formularza: 1500,50 (bez waluty i spacji). */
-export function doPola(grosze: number): string {
-  return (grosze / 100).toFixed(2).replace('.', ',');
-}
+/** Kwota z pola i do pola: liczenie w `lib/kwota-z-pola.ts` (obszar R1 filtra), tu tylko dla dawnych importów. */
+export { doPola, groszeZPola } from './kwota-z-pola';
 
 /** Kiedy pobrano dane z serwera: „przed chwilą”, „dziś o 12:40”, „12 lis, 12:40”. */
 export function kiedyPobrano(iso: string, teraz = new Date()): string {
@@ -104,4 +113,11 @@ export function kiedyPobrano(iso: string, teraz = new Date()): string {
   if (teraz.getTime() - d.getTime() < 60_000) return 'przed chwilą';
   if (DZIEN_WARSZAWA.format(d) === DZIEN_WARSZAWA.format(teraz)) return `dziś o ${GODZINA.format(d)}`;
   return DZIEN_I_GODZINA.format(d).replace(/\.(?=,)/, '');
+}
+
+/** Numer rachunku do czytania: 26 cyfr NRB jak „61 1090 1014 …”; inny zapis bez zmian. */
+export function rachunek(numer: string): string {
+  const cyfry = numer.replace(/\s+/g, '');
+  if (!/^\d{26}$/.test(cyfry)) return numer;
+  return `${cyfry.slice(0, 2)} ${cyfry.slice(2).replace(/(\d{4})(?=\d)/g, '$1 ')}`;
 }

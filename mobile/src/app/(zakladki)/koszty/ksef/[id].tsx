@@ -1,7 +1,7 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
-import { bruttoPozycji, stawkaTekst, type FakturaKosztowa } from '@/dane-przykladowe';
+import { bruttoPozycji, cenaPozycji, stawkaTekst, type FakturaKosztowa } from '@/dane-przykladowe';
 import { EkranListy, Sekcja, Wiersz } from '@/komponenty/lista';
 import { MA_ADRES_STRONY, otworzStrone } from '@/komponenty/na-stronie';
 import { NaglowekKwoty } from '@/komponenty/naglowek';
@@ -24,8 +24,8 @@ function status(s: FakturaKosztowa): { tekst: string; kolor: 'info' | 'sukces' |
  * Faktura kosztowa ze skrzynki KSeF (etap M7): odpowiednik wiersza
  * `(koszty)/inbox` strony, tylko do odczytu, w układzie szczegółu faktury
  * (kwota na gradiencie, potem sprzedawca, dokument, pozycje). Opis i
- * kategoria wydatku: na danych przykładowych ekran wydatku, na prawdziwym
- * koncie strona (ekran wydatku z bazy w M9 i M10).
+ * kategoria wydatku: ekran wydatku (od M9 także z bazy); opis kosztu z KSeF
+ * na prawdziwym koncie odsyła na faktway.pl (porównanie z XML i kursem).
  */
 export default function EkranFakturyKosztowej() {
   const router = useRouter();
@@ -50,7 +50,7 @@ export default function EkranFakturyKosztowej() {
   }
 
   const st = status(s);
-  // Ekran wydatku jest dziś tylko na danych przykładowych; wydatek z bazy otwiera strona.
+  // Wydatek spoza 200 najnowszych na telefonie otwiera strona.
   const wydatekWTelefonie = s.wydatekId ? koszty.some((k) => k.id === s.wydatekId) : false;
   const vat = s.netto === undefined ? undefined : s.brutto - s.netto;
 
@@ -87,7 +87,7 @@ export default function EkranFakturyKosztowej() {
               <Wiersz
                 key={i}
                 tytul={p.nazwa}
-                podtytul={`${p.ilosc.toLocaleString('pl-PL')} ${p.jednostka} × ${kwota(p.cenaNetto, s.waluta)} netto · VAT ${stawkaTekst(p)}`}
+                podtytul={`${p.ilosc.toLocaleString('pl-PL')} ${p.jednostka} × ${cenaPozycji(p, s.waluta)} netto · VAT ${stawkaTekst(p)}`}
                 wartosc={kwota(bruttoPozycji(p), s.waluta)}
                 wartoscKolor="etykieta"
               />
