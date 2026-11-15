@@ -461,3 +461,61 @@ describe('obszaryPrzepisow', () => {
     expect(obszary.has('obszar-spoza-mapy')).toBe(false);
   });
 });
+
+describe('mapa i zapadka PR liczone względem punktu rozejścia z main (przegląd #786)', () => {
+  // main poszedł dalej: dopisał obszar, którego mapa z głowy PR jeszcze nie ma.
+  const mapaMainNowsza = () => {
+    const m = mapa();
+    m.obszary.push({ id: 'nowe', poziom: 'R1', opis: 'Obszar dopisany w main po rozejściu.', sciezki: ['lib/nowe/**'] });
+    return m;
+  };
+  // PR dopisuje własny obszar do mapy z punktu rozejścia.
+  const mapaPRzWlasnymObszarem = () => {
+    const m = mapa();
+    m.obszary.push({ id: 'pr', poziom: 'R1', opis: 'Obszar z PR.', sciezki: ['lib/pr/**'] });
+    return m;
+  };
+  const zmianaMapy: Plik = { plik: 'filtr/mapa-ryzyka.json', status: 'modified', patch: patch('{}') };
+  const repo = ['lib/podatki/ryczalt.ts', 'tests/unit/ryczalt.test.ts', 'lib/pulpit/a.ts', 'lib/nowe/a.ts'];
+
+  it('wpisy dopisane w main po rozejściu nie są osłabieniem mapy z PR', () => {
+    const wynik = ocenPR(
+      dane({ pliki: [zmianaMapy], mapaMain: mapaMainNowsza(), mapaBazyPR: mapa(), mapaPR: mapaPRzWlasnymObszarem(), plikiRepo: repo }),
+    );
+    expect(wynik.wymaganeZgody).toEqual([]);
+  });
+
+  it('osłabienie zrobione w PR względem punktu rozejścia nadal wymaga zgody', () => {
+    const bezSilnikow = mapa();
+    bezSilnikow.obszary = bezSilnikow.obszary.filter((o) => o.id !== 'silniki');
+    const wynik = ocenPR(dane({ pliki: [zmianaMapy], mapaMain: mapaMainNowsza(), mapaBazyPR: mapa(), mapaPR: bezSilnikow, plikiRepo: repo }));
+    expect(wynik.wymaganeZgody.map((z) => z.etykieta)).toEqual([ZGODA_FILTRA]);
+  });
+
+  it('bez punktu rozejścia porównanie zostaje względem main (jak dotąd, ostrzej)', () => {
+    const wynik = ocenPR(dane({ pliki: [zmianaMapy], mapaMain: mapaMainNowsza(), mapaPR: mapaPRzWlasnymObszarem(), plikiRepo: repo }));
+    expect(wynik.wymaganeZgody.map((z) => z.etykieta)).toEqual([ZGODA_FILTRA]);
+  });
+
+  it('zapadka: spadek w main po rozejściu nie jest wzrostem w PR, własny wzrost PR jest', () => {
+    const bezZmiany = ocenPR(
+      dane({ zapadkaMain: { naruszenia: { roundToCents: 4 } }, zapadkaBazyPR: { naruszenia: { roundToCents: 5 } }, zapadkaPR: { naruszenia: { roundToCents: 5 } } }),
+    );
+    expect(bezZmiany.wymaganeZgody).toEqual([]);
+    const wzrost = ocenPR(
+      dane({ zapadkaMain: { naruszenia: { roundToCents: 4 } }, zapadkaBazyPR: { naruszenia: { roundToCents: 5 } }, zapadkaPR: { naruszenia: { roundToCents: 6 } } }),
+    );
+    expect(wzrost.wymaganeZgody.map((z) => z.etykieta)).toEqual([ZGODA_FILTRA]);
+  });
+});
+
+describe('mapa z punktu rozejścia w starszym układzie', () => {
+  it('nieczytelna mapa bazy PR: porównanie wraca do main, a nie wywraca straży', () => {
+    const zmianaMapy: Plik = { plik: 'filtr/mapa-ryzyka.json', status: 'modified', patch: patch('{}') };
+    const bezSilnikow = mapa();
+    bezSilnikow.obszary = bezSilnikow.obszary.filter((o) => o.id !== 'silniki');
+    const zepsuta = { wersja: 0, obszary: null } as unknown as ReturnType<typeof mapa>;
+    const wynik = ocenPR(dane({ pliki: [zmianaMapy], mapaBazyPR: zepsuta, mapaPR: bezSilnikow }));
+    expect(wynik.wymaganeZgody.map((z) => z.etykieta)).toEqual([ZGODA_FILTRA]);
+  });
+});
