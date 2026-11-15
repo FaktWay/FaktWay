@@ -9,8 +9,9 @@ import {
   BladApi,
   KONTROLE_WYMAGANE,
   KROK_TESTU_NA_BAZIE,
-  WIEDZA_I_ZLOTE,
+  POZA_VITEST,
   SCIEZKI_BRAMKI,
+  WIEDZA_I_ZLOTE,
   glowna,
   kategoriaPliku,
   ocenPR,
@@ -305,9 +306,38 @@ describe('ocenPR: pliki', () => {
   it('istniejący test dostaje tylko nowe linie: zmieniona albo usunięta linia to NIE', () => {
     const zmieniony = { filename: 'tests/unit/stary.test.ts', status: 'modified', changes: 2, patch: '@@ -1,1 +1,1 @@\n-expect(vat(100)).toBe(23);\n+expect(vat(100)).toBe(22);' };
     const wynik = ocena({ pliki: [PLIK_TESTU, PLIK_KODU, zmieniony], pr: pr({ changed_files: 3 }) });
-    expect(wynik.powody.join('\n')).toContain('PR zmienia albo usuwa linie istniejących testów: tests/unit/stary.test.ts');
+    expect(wynik.powody.join('\n')).toContain('PR zmienia albo usuwa linie istniejących plików w tests/ (testy, pomocnicy, dane, zapadki): tests/unit/stary.test.ts');
     const dopisany = { ...zmieniony, patch: "@@ -1,0 +2,1 @@\n+it('nowy przypadek', () => {});" };
     expect(ocena({ pliki: [PLIK_TESTU, PLIK_KODU, dopisany], pr: pr({ changed_files: 3 }) }).wynik).toBe('TAK');
+  });
+
+  it('każdy istniejący plik w tests/ (pomocnik, dane, zapadka) też dostaje tylko nowe linie', () => {
+    const z = (plik: Obiekt) => ocena({ pliki: [PLIK_TESTU, PLIK_KODU, plik], pr: pr({ changed_files: 3 }) });
+    const pomocnik = { filename: 'tests/unit/helpers/przypadki.ts', status: 'modified', changes: 2, patch: '@@\n-  allows: true,\n+  allows: false,' };
+    expect(z(pomocnik).powody.join('\n')).toContain('tests/unit/helpers/przypadki.ts');
+    const zapadka = { filename: 'tests/unit/fixtures/teksty-stan.json', status: 'modified', changes: 2, patch: '@@\n-  "myslniki": 2\n+  "myslniki": 3' };
+    expect(z(zapadka).wynik).toBe('NIE');
+    expect(z({ filename: 'tests/fixtures/faktura.xml', status: 'removed', changes: 40 }).wynik).toBe('NIE');
+    expect(z({ filename: 'tests/fixtures/skan.pdf', status: 'modified', changes: 0 }).powody.join('\n')).toContain('tests/fixtures/skan.pdf');
+    // Nowy plik albo same dopisane linie: wolno.
+    expect(z({ filename: 'tests/fixtures/nowa.json', status: 'added', changes: 3, patch: '@@\n+{}' }).wynik).toBe('TAK');
+    expect(z({ ...pomocnik, patch: "@@\n+  { nazwa: 'nowy przypadek', allows: true }," }).wynik).toBe('TAK');
+  });
+
+  it('test spoza zestawu Vitest (exclude) niczego nie dowodzi w Test-first: NIE', () => {
+    const plik = { filename: 'tests/rls-isolation.test.ts', status: 'modified', changes: 5, patch: "@@\n+it('nowa izolacja', () => {});" };
+    const wynik = ocena({ pliki: [PLIK_TESTU, PLIK_KODU, plik], pr: pr({ changed_files: 3 }) });
+    expect(wynik.powody.join('\n')).toContain('Test spoza zestawu Vitest (exclude w vitest.config.ts): tests/rls-isolation.test.ts');
+    const konfiguracja = readFileSync(join(process.cwd(), 'vitest.config.ts'), 'utf8');
+    const exclude = /exclude:\s*\[([^\]]*)\]/.exec(konfiguracja)?.[1] ?? '';
+    expect([...exclude.matchAll(/'([^']+)'/g)].map((m) => m[1])).toEqual(POZA_VITEST);
+  });
+
+  it('nowe vi.mock albo beforeEach w istniejącym teście: TAK z uwagą dla drugiego czytelnika', () => {
+    const plik = { filename: 'tests/unit/stary.test.ts', status: 'modified', changes: 1, patch: "@@ -1,0 +1,1 @@\n+vi.mock('@/lib/inny');" };
+    const wynik = ocena({ pliki: [PLIK_TESTU, PLIK_KODU, plik], pr: pr({ changed_files: 3 }) });
+    expect(wynik.wynik).toBe('TAK');
+    expect(wynik.uwagi.join('\n')).toContain('Nowe vi.mock, vi.spyOn albo before/after w istniejących testach (tests/unit/stary.test.ts)');
   });
 
   it('linia zgody i scalenia tylko wtedy, gdy brak zgody to jedyna przeszkoda', () => {
@@ -609,7 +639,7 @@ describe('GitHub przez gh api i git', () => {
 });
 
 describe('glowna', () => {
-  function router(stan: { pr?: Array<Obiekt | Error>; zgloszenia?: unknown[]; zdjecieScal?: 'ok' | 'blad' } = {}) {
+  function router(stan: { pr?: Array<Obiekt | Error>; zgloszenia?: unknown[]; zdjecieScal?: 'ok' | 'blad'; wstrzymanie?: 'ok' | 'blad' } = {}) {
     const odpowiedziPr = stan.pr ?? [pr()];
     let ktoryPr = 0;
     const api = vi.fn(async (sciezka: string, opcje?: { metoda?: string; pola?: Record<string, string> }) => {
@@ -620,6 +650,10 @@ describe('glowna', () => {
       if (sciezka === `repos/${REPO}/issues/900/labels/scal` && opcje?.metoda === 'DELETE') {
         if (stan.zdjecieScal === 'blad') throw new BladApi(sciezka, 502, 'Bad Gateway');
         return [];
+      }
+      if (sciezka === `repos/${REPO}/issues/900/labels` && opcje?.metoda === 'POST') {
+        if (stan.wstrzymanie === 'blad') throw new BladApi(sciezka, 502, 'Bad Gateway');
+        return [{ name: opcje.pola?.['labels[]'] }];
       }
       if (sciezka === `repos/${REPO}/pulls/900`) {
         const odpowiedz = odpowiedziPr[Math.min(ktoryPr++, odpowiedziPr.length - 1)];
@@ -709,18 +743,27 @@ describe('glowna', () => {
     expect(wynik.wyjscie).toContain('etykietę zdjąłem');
   });
 
-  it('nie da się potwierdzić głowy po scal-pr.sh albo zdjąć scal: kod 2 i prośba o wstrzymaj', async () => {
-    const bladOdczytu = await uruchom(['900', '--scal'], router({ pr: [pr(), pr(), new BladApi(`repos/${REPO}/pulls/900`, 502, 'Bad Gateway')] }));
-    expect(bladOdczytu.kod).toBe(2);
-    expect(bladOdczytu.wyjscie).toContain('UWAGA: scal nadana, ale nie mogę sprawdzić głowy PR');
-    expect(bladOdczytu.wyjscie).toContain('dodaj etykietę wstrzymaj na #900');
+  it('nie da się potwierdzić głowy po scal-pr.sh: bramka sama dodaje wstrzymaj, kod 1', async () => {
+    const odczyt = new BladApi(`repos/${REPO}/pulls/900`, 502, 'Bad Gateway');
+    const api = router({ pr: [pr(), pr(), odczyt] });
+    const wynik = await uruchom(['900', '--scal'], api);
+    expect(wynik.kod).toBe(1);
+    expect(api).toHaveBeenCalledWith(`repos/${REPO}/issues/900/labels`, { metoda: 'POST', pola: { 'labels[]': 'wstrzymaj' } });
+    expect(wynik.wyjscie).toContain('NIE: scal nadana, ale nie mogę sprawdzić głowy PR');
+    expect(wynik.wyjscie).toContain('dodałem wstrzymaj na #900');
+    const json = await uruchom(['900', '--scal', '--json'], router({ pr: [pr(), pr(), odczyt] }));
+    expect(JSON.parse(json.wyjscie)).toMatchObject({ wynik: 'TAK', scal: null, niepewna: 'wstrzymane' });
+  });
 
+  it('nowy commit w trakcie, scal nie schodzi i wstrzymaj nie wchodzi: kod 2 i prośba do człowieka', async () => {
     const zmieniony = pr({ head: { ref: 'agent/nocny-2026-11-18-n01-lista', sha: INNE_SHA, repo: { full_name: REPO } } });
-    const api = router({ pr: [pr(), pr(), zmieniony], zdjecieScal: 'blad' });
-    const bladZdjecia = await uruchom(['900', '--scal'], api);
-    expect(bladZdjecia.kod).toBe(2);
+    const api = router({ pr: [pr(), pr(), zmieniony], zdjecieScal: 'blad', wstrzymanie: 'blad' });
+    const wynik = await uruchom(['900', '--scal'], api);
+    expect(wynik.kod).toBe(2);
     expect(api.mock.calls.filter((c) => c[0] === `repos/${REPO}/issues/900/labels/scal`)).toHaveLength(2);
-    expect(bladZdjecia.wyjscie).toContain('a etykiety nie dało się zdjąć');
+    expect(api.mock.calls.filter((c) => c[0] === `repos/${REPO}/issues/900/labels`)).toHaveLength(2);
+    expect(wynik.wyjscie).toContain('UWAGA: nowy commit w trakcie nadawania scal, a etykiety nie dało się zdjąć');
+    expect(wynik.wyjscie).toContain('wstrzymaj nie dało się dodać: dodaj ją na #900');
   });
 
   it('scal-pr.sh działa tylko na FaktWay/FaktWay', async () => {
@@ -738,7 +781,7 @@ describe('glowna', () => {
 
   it('--json daje ocenę do odczytu przez sesję', async () => {
     const wynik = await uruchom(['900', '--json'], router());
-    expect(JSON.parse(wynik.wyjscie)).toMatchObject({ wynik: 'TAK', numer: 900, sha: SHA, powody: [], scal: null, odmowa: null });
+    expect(JSON.parse(wynik.wyjscie)).toMatchObject({ wynik: 'TAK', numer: 900, sha: SHA, powody: [], scal: null, odmowa: null, niepewna: null });
   });
 
   it('--wylacznik: 0 gdy wyłączony, 1 gdy włączony', async () => {

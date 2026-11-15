@@ -37,7 +37,9 @@
 //   node scripts/nocny/bramka-scalenia.mjs <numer PR> --scal   przy TAK: ./scripts/ops/scal-pr.sh <numer PR>
 //   node scripts/nocny/bramka-scalenia.mjs --wylacznik          czy noc może pracować
 // Kod wyjścia: 0 TAK (przy --scal: etykieta `scal` nadana) albo wyłącznik wyłączony;
-//              1 NIE albo wyłącznik włączony; 2 błąd (traktuj jak NIE i jak stop).
+//              1 NIE albo wyłącznik włączony (także: `scal` niepewna, ale bramka dodała `wstrzymaj`);
+//              2 błąd (traktuj jak NIE i jak stop) albo `scal` może wisieć na nieocenionym
+//                commicie, a `wstrzymaj` nie weszła: człowiek dodaje `wstrzymaj` od razu.
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -146,6 +148,14 @@ const ZNACZNIK_WYJATKU = new RegExp(['filtr', 'wyjatek'].join('-'));
 // Warunkowe `skipIf(...)` i `runIf(...)` z warunkiem wolno (testy na bazie).
 const POMINIECIE_TESTU =
   /\b(?:describe|it|test|suite|bench)(?:\s*\.\s*\w+)*?\s*\.\s*(?:skip|only|todo|fails)\b|\.\s*skip\s*\(|\b(?:skipIf\s*\(\s*true|runIf\s*\(\s*false)\s*\)|\b(?:xit|xtest|xdescribe|fit|fdescribe)\s*\(/;
+/**
+ * Testy spoza zestawu Vitest (`exclude` w vitest.config.ts, uruchamia je tylko job RLS). „Test-first”
+ * odpala je na kodzie bazowym jako `vitest run plik`, a „No test files found” to kod 1, czyli rzekomo
+ * czerwony test: taki plik w PR niczego nie dowodzi.
+ */
+export const POZA_VITEST = ['tests/rls-isolation.test.ts', 'tests/rls-uprawnienia.test.ts'];
+// Dodane linie, które w istniejącym pliku testu potrafią zmienić stare przypadki (uwaga dla czytelnika).
+const PRZESTAWIENIE_TESTOW = /\bvi\s*\.\s*(?:mock|doMock|spyOn|stubGlobal|stubEnv|useFakeTimers)\s*\(|\b(?:beforeEach|beforeAll|afterEach|afterAll)\s*\(/;
 /** Kontrole, które czerwienieją z samego braku zgody (CODEOWNERS albo filtra). */
 const KONTROLE_ZGODY = ['Agent guard', 'Filtr: straż'];
 /** Powód NIE: `zgoda` brak zgody, `skutek` jego skutek (czerwona kontrola zgody, blokada), `inny` reszta. */
@@ -203,6 +213,8 @@ export function ocenPliki(pliki, regulyCodeowners = []) {
   const pominiete = [];
   const bezPodgladu = [];
   const zmienione = [];
+  const pozaVitest = [];
+  const przestawienia = [];
   // Zgody, których zażąda „Filtr: straż” (te same reguły co scripts/filtr/straz.mjs, ocenPR, krok 3).
   const zgodyStrazy = { 'zmiana-filtra': [], 'wyjatek-filtra': [] };
   for (const plik of pliki) {
@@ -221,6 +233,19 @@ export function ocenPliki(pliki, regulyCodeowners = []) {
 
     const byltest = Boolean(plik.previous_filename && TEST.test(plik.previous_filename));
     const jestTest = TEST.test(plik.filename);
+    if (nazwy.some((nazwa) => POZA_VITEST.includes(nazwa))) pozaVitest.push(plik.filename);
+    // Istniejący plik w tests/ (test, pomocnik, fixture, zapadka) dostaje tylko nowe linie: zmieniona albo
+    // usunięta linia to zmiana oczekiwań. Testy filtra (tests/filtr/) prowadzi zgoda straży wyżej.
+    const istniejacyWTestach =
+      nazwy.some((nazwa) => nazwa.startsWith('tests/')) && plik.status !== 'added' && plik.status !== 'copied';
+    const testFiltra = nazwy.some((nazwa) => pasujeDoWzorca(TESTY_FILTRA, nazwa));
+    const testZnika = (plik.status === 'removed' && jestTest) || (byltest && !jestTest);
+    if (istniejacyWTestach && !testFiltra && !testZnika) {
+      // Bez podglądu zmian (plik binarny albo za duży diff) też nie wiadomo, co się zmieniło.
+      const bezPatcha = typeof plik.patch !== 'string' && !jestTest;
+      if (plik.status === 'removed' || bezPatcha || usuniete.length > 0) zmienione.push(plik.filename);
+      if (jestTest && dodane.some((linia) => PRZESTAWIENIE_TESTOW.test(linia))) przestawienia.push(plik.filename);
+    }
     if (plik.status === 'removed') {
       if (jestTest) wylaczone.push(plik.filename);
       continue;
@@ -236,10 +261,6 @@ export function ocenPliki(pliki, regulyCodeowners = []) {
       continue;
     }
     if (pominieteTesty(plik.patch).length > 0) pominiete.push(plik.filename);
-    // Istniejący test dostaje tylko nowe linie: zmieniona albo usunięta linia to zmiana oczekiwań.
-    // Testy filtra (tests/filtr/) prowadzi zgoda straży wyżej: tam taką zmianę zatwierdza Bartosz etykietą.
-    const testFiltra = nazwy.some((nazwa) => pasujeDoWzorca(TESTY_FILTRA, nazwa));
-    if (!testFiltra && plik.status !== 'added' && plik.status !== 'copied' && usuniete.length > 0) zmienione.push(plik.filename);
   }
 
   const wpisy = [];
@@ -258,7 +279,16 @@ export function ocenPliki(pliki, regulyCodeowners = []) {
   if (wylaczone.length > 0) wpisy.push(wpis(`PR wyłącza testy (plik znika albo przestaje być testem): ${lista(wylaczone)}.`));
   if (zmienione.length > 0) {
     wpisy.push(
-      wpis(`PR zmienia albo usuwa linie istniejących testów: ${lista(zmienione)}. Zmiana oczekiwań testu to decyzja człowieka.`),
+      wpis(
+        `PR zmienia albo usuwa linie istniejących plików w tests/ (testy, pomocnicy, dane, zapadki): ${lista(zmienione)}. Zmiana oczekiwań testu to decyzja człowieka.`,
+      ),
+    );
+  }
+  if (pozaVitest.length > 0) {
+    wpisy.push(
+      wpis(
+        `Test spoza zestawu Vitest (exclude w vitest.config.ts): ${lista(pozaVitest)}. „Test-first” nie umie go uruchomić, więc nie dowodzi czerwonego testu.`,
+      ),
     );
   }
   if (pominiete.length > 0) wpisy.push(wpis(`Dodane linie pomijają testy (.skip, .only, .todo, .fails i podobne): ${lista(pominiete)}.`));
@@ -274,7 +304,13 @@ export function ocenPliki(pliki, regulyCodeowners = []) {
       ),
     );
   }
-  return { wpisy, kategorie, testy, zgodyFiltra };
+  const uwagi = [];
+  if (przestawienia.length > 0) {
+    uwagi.push(
+      `Nowe vi.mock, vi.spyOn albo before/after w istniejących testach (${lista(przestawienia)}): drugi czytelnik sprawdza, czy nie zmieniają starych przypadków.`,
+    );
+  }
+  return { wpisy, kategorie, testy, zgodyFiltra, uwagi };
 }
 
 /** Treść sekcji `## …` opisu PR bez komentarzy HTML (do następnego nagłówka # albo ##) albo null. */
@@ -451,6 +487,7 @@ export function ocenPR(dane) {
   wpisy.push(...ocenStanPR(dane.pr));
   const pliki = ocenPliki(dane.pliki, dane.codeowners);
   wpisy.push(...pliki.wpisy);
+  uwagi.push(...pliki.uwagi);
   if (typeof dane.pr.changed_files === 'number' && dane.pliki.length < dane.pr.changed_files) {
     wpisy.push(wpis(`Lista plików niepełna (${dane.pliki.length} z ${dane.pr.changed_files}): bramka nie widzi całego PR.`));
   }
@@ -540,12 +577,39 @@ export async function sprawdzWylacznik({ api, repo }) {
 // ---------------------------------------------------------------------------
 // GitHub i git
 
-/** `scal` mógł zostać na commicie, którego bramka nie oceniła: człowiek dodaje `wstrzymaj`. */
+/**
+ * `scal` mógł zostać na commicie, którego bramka nie oceniła. Bramka sama dodaje wtedy `wstrzymaj`
+ * (bezpieczny kierunek: workflow wyłącza scalanie i wyjmuje PR z kolejki); `wstrzymane` mówi, czy się udało.
+ */
 export class NiepewnaEtykieta extends Error {
-  constructor(komunikat) {
+  constructor(komunikat, wstrzymane = false) {
     super(komunikat);
     this.name = 'NiepewnaEtykieta';
+    this.wstrzymane = wstrzymane;
   }
+}
+
+/** Dodaje `wstrzymaj` (dwie próby). Zwraca true, gdy etykieta jest na PR. */
+async function wstrzymajPR({ api, repo, numer }) {
+  for (let proba = 0; proba < 2; proba++) {
+    try {
+      await api(`repos/${repo}/issues/${numer}/labels`, { metoda: 'POST', pola: { 'labels[]': ETYKIETA_WSTRZYMAJ } });
+      return true;
+    } catch {
+      // druga próba niżej; po dwóch porażkach prośba do człowieka w komunikacie
+    }
+  }
+  return false;
+}
+
+async function niepewna({ api, repo, numer, powod }) {
+  const wstrzymane = await wstrzymajPR({ api, repo, numer });
+  return new NiepewnaEtykieta(
+    wstrzymane
+      ? `${powod}; dodałem ${ETYKIETA_WSTRZYMAJ} na #${numer} (zdejmuje ją człowiek po sprawdzeniu)`
+      : `${powod}, a ${ETYKIETA_WSTRZYMAJ} nie dało się dodać: dodaj ją na #${numer}`,
+    wstrzymane,
+  );
 }
 
 export class BladApi extends Error {
@@ -727,9 +791,12 @@ export async function oznaczDoScalenia({ api, repo, numer, sha, uruchomScal = ur
   try {
     po = await api(`repos/${repo}/pulls/${numer}`);
   } catch (blad) {
-    throw new NiepewnaEtykieta(
-      `${ETYKIETA_SCAL} nadana, ale nie mogę sprawdzić głowy PR (${blad instanceof Error ? blad.message : 'błąd'}): dodaj etykietę ${ETYKIETA_WSTRZYMAJ} na #${numer}`,
-    );
+    throw await niepewna({
+      api,
+      repo,
+      numer,
+      powod: `${ETYKIETA_SCAL} nadana, ale nie mogę sprawdzić głowy PR (${blad instanceof Error ? blad.message : 'błąd'})`,
+    });
   }
   if (po?.head?.sha !== sha) {
     let zdjeta = false;
@@ -743,9 +810,12 @@ export async function oznaczDoScalenia({ api, repo, numer, sha, uruchomScal = ur
       }
     }
     if (!zdjeta) {
-      throw new NiepewnaEtykieta(
-        `nowy commit w trakcie nadawania ${ETYKIETA_SCAL}, a etykiety nie dało się zdjąć (${ostatniBlad instanceof Error ? ostatniBlad.message : 'błąd'}): dodaj etykietę ${ETYKIETA_WSTRZYMAJ} na #${numer}`,
-      );
+      throw await niepewna({
+        api,
+        repo,
+        numer,
+        powod: `nowy commit w trakcie nadawania ${ETYKIETA_SCAL}, a etykiety nie dało się zdjąć (${ostatniBlad instanceof Error ? ostatniBlad.message : 'błąd'})`,
+      });
     }
     throw new Error(`nowy commit w trakcie nadawania ${ETYKIETA_SCAL}: etykietę zdjąłem, uruchom bramkę jeszcze raz`);
   }
@@ -822,26 +892,28 @@ export async function glowna(argv, zaleznosci = {}) {
     const ocena = ocenPR(dane);
     let scal = null;
     let odmowa = null;
-    let niepewna = false;
+    // null: bez wątpliwości; 'wstrzymane': bramka dodała wstrzymaj; 'do-wstrzymania': człowiek musi je dodać.
+    let niepewnaEtykieta = null;
     if (ocena.wynik === 'TAK' && opcje.scal) {
       try {
         scal = await oznaczDoScalenia({ api, repo, numer: ocena.numer, sha: ocena.sha, uruchomScal });
       } catch (blad) {
         odmowa = blad instanceof Error ? blad.message : 'nieznany błąd';
-        niepewna = blad instanceof NiepewnaEtykieta;
+        if (blad instanceof NiepewnaEtykieta) niepewnaEtykieta = blad.wstrzymane ? 'wstrzymane' : 'do-wstrzymania';
       }
     }
-    if (opcje.json) wypisz(JSON.stringify({ ...ocena, scal, odmowa }, null, 2));
+    if (opcje.json) wypisz(JSON.stringify({ ...ocena, scal, odmowa, niepewna: niepewnaEtykieta }, null, 2));
     else {
       wypisz(opisOceny(ocena));
       if (scal !== null) {
         if (scal) wypisz(scal);
         wypisz(`SCAL: #${ocena.numer} ma etykietę ${ETYKIETA_SCAL}; kolejka scalania scali go po zielonych kontrolach (głowa ${ocena.sha}).`);
       }
-      if (odmowa && niepewna) wypisz(`UWAGA: ${odmowa}`);
+      if (niepewnaEtykieta === 'do-wstrzymania') wypisz(`UWAGA: ${odmowa}`);
+      else if (niepewnaEtykieta === 'wstrzymane') wypisz(`NIE: ${odmowa}`);
       else if (odmowa) wypisz(`NIE: etykiety ${ETYKIETA_SCAL} na #${ocena.numer} nie ma: ${odmowa}`);
     }
-    if (niepewna) return 2;
+    if (niepewnaEtykieta === 'do-wstrzymania') return 2;
     if (odmowa) return 1;
     return ocena.wynik === 'TAK' ? 0 : 1;
   } catch (blad) {

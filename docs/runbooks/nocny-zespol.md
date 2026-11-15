@@ -124,7 +124,9 @@ pokazuje błąd, a nie na imporcie: importuje tylko moduły, które są już w
 zgłoszenia: kandydat trafia do licznika fałszywych alarmów w dzienniku,
 z jednym zdaniem, dlaczego nie był błędem. Naprawa, którą dowodzi tylko test
 na bazie, nie przejdzie „Test-first (agent)” (ten job działa bez bazy i taki
-test pomija), więc zawsze czeka na Bartosza.
+test pomija), więc zawsze czeka na Bartosza. Tak samo pliki spoza zestawu
+Vitest (`tests/rls-isolation.test.ts`, `tests/rls-uprawnienia.test.ts`):
+bramka mówi przy nich NIE.
 
 **5. Naprawy** według protokołu z `AGENTS.md` (punkty 1 do 7):
 - jedna naprawa to jedna gałąź `agent/nocny-RRRR-MM-DD-<kod>-<temat>` od
@@ -141,9 +143,10 @@ test pomija), więc zawsze czeka na Bartosza.
   w chmurze nie działa;
 - **PR zbiorczych nie ma:** kolejka scalania sama składa PR z `main` i z PR
   przed nimi, więc każda naprawa idzie przez bramkę osobno;
-- **istniejące testy tylko dopisujesz:** zmieniona albo usunięta linia
-  starego testu to zmiana oczekiwań, a o niej decyduje człowiek (bramka mówi
-  NIE). Nowy przypadek dopisujesz obok starych;
+- **istniejące pliki w `tests/` tylko uzupełniasz** (testy, pomocnicy, dane,
+  zapadki): zmieniona albo usunięta linia to zmiana oczekiwań, a o niej
+  decyduje człowiek (bramka mówi NIE). Nowy przypadek dopisujesz obok starych;
+- commitujesz pliki po nazwie (`git add <pliki>`), nigdy `git add -A`;
 - **naprawa w obszarze `.github/CODEOWNERS`:** PR powstaje normalnie, ale
   czeka na Bartosza (etap 1, sekcja 6);
 - **naprawa wymaga migracji** (i nie jest luką bezpieczeństwa): migracji nie
@@ -155,14 +158,17 @@ test pomija), więc zawsze czeka na Bartosza.
   wypychasz** (ani gałęzi, ani commita z testem), bez PR, bez zgłoszenia i bez
   szczegółów w dzienniku (`docs/runbooks/agent-kodu.md`, sekcja 2). Test
   i opis idą do poufnego zgłoszenia GitHub (Security Advisory:
-  `gh api --method POST repos/FaktWay/FaktWay/security-advisories` z polami
-  `summary`, `description`, `severity`). Gdy konto nie może go założyć,
+  `gh api --method POST repos/FaktWay/FaktWay/security-advisories --input advisory.json`,
+  w pliku `summary`, `description`, `severity` i
+  `"vulnerabilities": [{"package": {"ecosystem": "other", "name": "faktway"}}]`);
+  potem plik testu usuwasz z katalogu repo, żeby nie trafił do kolejnego
+  commita. Gdy konto nie może założyć zgłoszenia,
   szczegóły idą osobną wiadomością na Telegram do Bartosza i nigdzie na
   GitHub. W raporcie głównym i w dzienniku: „1 sprawa poufna”, jednym zdaniem
   bez szczegółów. Naprawa w sesji z człowiekiem.
 
-**6. Bramka i etykieta `scal`** (sekcja 6). Na koniec nocy stan każdego PR
-z etykietą `scal`:
+**6. Bramka i etykieta `scal`** (sekcja 6). Na koniec nocy stan każdego PR,
+któremu bramka tej nocy nadała `scal`:
 
 ```bash
 gh api repos/FaktWay/FaktWay/pulls/N --jq '{state, merged, w_drodze: (.auto_merge != null), etykiety: [.labels[].name]}'
@@ -300,8 +306,9 @@ zdejmuje (nowa ocena od zera).
    - obszarów z `.github/CODEOWNERS` (etap 1, niżej);
    także po zmianie nazwy pliku (liczy się stara i nowa ścieżka);
 6. jest nowy albo zmieniony test w `tests/` (`*.test.ts`, `*.test.tsx`);
-   żaden test nie znika ani nie przestaje być testem; istniejące testy dostają
-   tylko nowe linie (zmieniona albo usunięta linia to NIE, w `tests/filtr/`
+   żaden test nie znika ani nie przestaje być testem; istniejące pliki
+   w `tests/` dostają tylko nowe linie (zmieniona albo usunięta linia to NIE,
+   pliki spoza zestawu Vitest też NIE, w `tests/filtr/`
    prowadzi to zgoda straży); w dodanych liniach nie ma pominięć: `.skip`,
    `.only`, `.todo`, `.fails` (także w łańcuchu, np. `it.concurrent.skip`),
    `ctx.skip()`, `skipIf(true)`, `runIf(false)`, `xit`, `fdescribe`
@@ -320,8 +327,10 @@ zdejmuje (nowa ocena od zera).
 9. GitHub mówi, że PR nie ma konfliktu (`mergeable`, stan `clean`); aktualność
    z `main` sprawdza kolejka.
 
-**Kody wyjścia:** 0 TAK (przy `--scal`: etykieta `scal` nadana), 1 NIE,
-2 błąd (to też NIE). `--json` daje ocenę do odczytu.
+**Kody wyjścia:** 0 TAK (przy `--scal`: etykieta `scal` nadana), 1 NIE
+(także gdy `scal` była niepewna i bramka sama dodała `wstrzymaj`), 2 błąd
+(to też NIE) albo `scal` może wisieć, a `wstrzymaj` nie weszła. `--json` daje
+ocenę do odczytu (pole `niepewna`: `wstrzymane` albo `do-wstrzymania`).
 
 **Ponowienia.** Gdy powody to tylko „Kontrole w toku”, „Brak kontroli”
 (CI jeszcze nie ruszyło) albo „GitHub jeszcze liczy”: czekaj 10 minut
@@ -342,14 +351,15 @@ Bramka podaje ją w wierszu `Dla Bartosza:`, gdy umie:
 | naprawa wymaga migracji | „przygotuj migrację według opisu na gałęzi `agent/nocny-…-test`” |
 | czerwone CI albo konflikt po ponowieniach | `gh pr close N` albo nic: następna noc spróbuje jeszcze raz |
 
-**Niepewna etykieta.** Kod 2 z „UWAGA: … dodaj etykietę wstrzymaj na #N”
-znaczy, że `scal` mogła zostać na commicie, którego bramka nie oceniła (nie
-dało się sprawdzić głowy albo zdjąć etykiety). Sesja nie próbuje sama dalej:
-ta linia idzie na górę „czeka na Ciebie”, a Bartosz dodaje `wstrzymaj`.
+**Niepewna etykieta.** Gdy po `scal-pr.sh` nie da się sprawdzić głowy albo
+zdjąć `scal`, bramka sama dodaje `wstrzymaj` (bezpieczny kierunek: workflow
+wyjmuje PR z kolejki) i kończy kodem 1; zdejmuje ją człowiek. Kod 2 z „UWAGA:
+… dodaj ją na #N” znaczy, że i `wstrzymaj` nie weszła: ta linia idzie na górę
+„czeka na Ciebie”.
 
 **Po scaleniu** zespół niczego nie wdraża i nie wgrywa: scalony kod wdroży
-nocne wdrożenie o 03:30 (albo następnej nocy), a jego wynik przychodzi osobną
-wiadomością na ten sam czat (`docs/runbooks/nocne-wdrozenie.md`).
+nocne wdrożenie o 03:30 (albo następnej nocy), a jego wynik przychodzi od bota
+nocnego wdrożenia, w jego rozmowie (`docs/runbooks/nocne-wdrozenie.md`).
 
 **Etap 1 i etap 2.** Teraz (etap 1) `Agent guard` wymaga etykiety
 `zgoda:obszar-wrazliwy` od właściciela ścieżki z `.github/CODEOWNERS`
@@ -415,9 +425,9 @@ na później (sekcja 13).
 ## 9. Raport na Telegram
 
 Na koniec każdej nocy, także przerwanej. **Osobny bot tylko do raportów nocy**
-(`NOCNY_TELEGRAM_TOKEN` w zmiennych środowiska sesji), czaty te same co nocne
-wdrożenie (`TELEGRAM_CHAT_IDS`, wartość jak `NOCNE_TELEGRAM_CHAT_IDS`
-w `.agents/infra.env`). Bot aplikacji i nocnego wdrożenia (`TELEGRAM_BOT_TOKEN`,
+(`NOCNY_TELEGRAM_TOKEN` w zmiennych środowiska sesji), czaty w
+`TELEGRAM_CHAT_IDS`: tylko prywatne czaty, które wysłały `/start` do bota nocy
+(grup nie: bot ma je wyłączone). Bot aplikacji i nocnego wdrożenia (`TELEGRAM_BOT_TOKEN`,
 `NOCNE_TELEGRAM_TOKEN`) to także bot bramki operatorów (`ops/bramka`:
 polecenia `/wdroz` przez `getUpdates`, `docs/runbooks/bramka-telegram.md`), więc
 jego token nie trafia do chmury: kto by go przejął, mógłby uciszyć bramkę albo
@@ -435,7 +445,8 @@ node scripts/nocny/telegram.mjs /tmp/raport.txt
 ```
 
 Wysyła zwykły tekst, dłuższy niż 4096 znaków dzieli na części, tokenu nie
-wypisuje. Kod 1: Telegram albo sieć odmówiły (w chmurze zwykle brak
+wypisuje. Kod 1: Telegram albo sieć odmówiły, także dla jednego z czatów
+(komunikat mówi, którego; pozostałe mogły dostać raport; w chmurze zwykle brak
 `api.telegram.org` w Allowed domains); kod 2: brak konfiguracji. Nieudany
 raport zapisujesz w dzienniku.
 
@@ -541,8 +552,8 @@ wprowadza człowiek w zwykłym PR do tego pliku.
 
 1. **Osobny bot do raportów nocy (Bartosz).** @BotFather, `/newbot`, nazwa np.
    `faktway_noc_bot`; `/setjoingroups` → Disable. Bartosz (i Igor, jeśli chce
-   raporty) wysyła do niego `/start`. Identyfikatory czatów są te same co
-   w `NOCNE_TELEGRAM_CHAT_IDS`. Token tego bota to sekret tylko do środowisk
+   raporty) wysyła do niego `/start`; ich prywatne identyfikatory czatów idą
+   do `TELEGRAM_CHAT_IDS` (grup nie). Token tego bota to sekret tylko do środowisk
    w chmurze; Igor dostaje go od Bartosza prywatnie (menedżer haseł), nigdy
    przez czat z AI ani repo. Wyciek: BotFather → `/revoke` dotyczy tylko bota
    nocy, bramka operatorów działa dalej.
@@ -551,7 +562,7 @@ wprowadza człowiek w zwykłym PR do tego pliku.
    - dostęp do sieci: **Limited** z „Allow package managers” i w Allowed
      domains `api.telegram.org` (bez tego raport nie wyjdzie);
    - zmienne środowiska: `NOCNY_TELEGRAM_TOKEN=…` (bot z punktu 1),
-     `TELEGRAM_CHAT_IDS=…` (ta sama wartość co `NOCNE_TELEGRAM_CHAT_IDS`),
+     `TELEGRAM_CHAT_IDS=…` (prywatne czaty z punktu 1),
      `NOCNY_LIMIT_MINUT=150`. **Bez `TELEGRAM_BOT_TOKEN`**: to bot bramki
      operatorów (skrypt ostrzega, gdy go widzi). Wpisujesz je w ustawieniach
      środowiska, nie w czacie i nie w repo. „Network secrets” nie pasują:
