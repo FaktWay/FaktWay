@@ -41,10 +41,18 @@ vi.mock('@/lib/supabase/admin', () => ({
         in: (k: string, vs: unknown[]) => { predicates.push((r) => vs.includes(r[k])); return q; },
         // Jak w Postgresie: NULL nie spełnia porównania.
         gte: (k: string, v: string) => { predicates.push((r) => r[k] != null && String(r[k]) >= v); return q; },
-        // Jak w tests/helpers/fake-supabase-memory.ts: wzorce `%tekst%`, bez wielkości liter.
+        // `%` tylko na brzegach wzorca, bez wielkości liter. Zakotwiczenie się
+        // liczy: `timed out%` nie pasuje do „Request timed out.”, jak w Postgresie.
         ilike: (k: string, pattern: string) => {
-          const needle = pattern.replace(/%/g, '').toLowerCase();
-          predicates.push((r) => String(r[k] ?? '').toLowerCase().includes(needle));
+          const p = pattern.toLowerCase();
+          const core = p.replace(/^%|%$/g, '');
+          predicates.push((r) => {
+            const text = String(r[k] ?? '').toLowerCase();
+            if (p.startsWith('%') && p.endsWith('%')) return text.includes(core);
+            if (p.startsWith('%')) return text.endsWith(core);
+            if (p.endsWith('%')) return text.startsWith(core);
+            return text === core;
+          });
           return q;
         },
         order: () => q,
