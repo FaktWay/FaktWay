@@ -130,7 +130,8 @@ ZWRACAJ TYLKO JSON.`,
     };
   } catch (e) {
     // Przerwanie sufitem SDK zgłasza jak rezygnację wywołującego
-    // (`APIUserAbortError`), więc log mówi wprost, że to sufit.
+    // (`APIUserAbortError`, a w trakcie odczytu treści surowy `AbortError`
+    // z fetch), więc log mówi wprost, że to sufit.
     console.error(
       deadline.signal.aborted
         ? `AI categorization failed: deadline ${CLASSIFIER_DEADLINE_MS / 1000} s`

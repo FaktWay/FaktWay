@@ -8,8 +8,8 @@ import type { ExtractedInvoice } from '@/lib/ocr/schema';
  *
  * `classifyByAI` wołał model bez własnych opcji, więc brał limity klienta:
  * domyślne SDK (600 s na próbę i 2 ponowienia, przy połączeniu, które stanęło,
- * ok. 30 min), a z limitami klienta z #782 (jeszcze nie w main) 120 s
- * i 1 ponowienie (ok. 4 min). Kategoryzacja woła model w jobie OCR (po
+ * ok. 30 min) albo limity klienta z #782 (120 s na próbę i 1 ponowienie,
+ * ok. 4 min). Kategoryzacja woła model w jobie OCR (po
  * odczycie zdjęcia) i w jobie skrzynki, a worker przerabia paczkę zadań po
  * kolei (`lib/jobs/run-job.ts`), więc zawieszona kategoryzacja trzymała resztę
  * paczki i kolejkę. Po porażce koszt i tak dostaje kolumnę 13 do ręcznej
@@ -22,7 +22,7 @@ import type { ExtractedInvoice } from '@/lib/ocr/schema';
  * Ścieżka prawdziwa: `categorizeExpense` → `classifyByAI` → SDK. Atrapy tylko
  * dla bazy (reguły kategorii bez wierszy, budżet AI firmy) i dla transportu.
  * Transport jak w teście limitów klienta z #782
- * (`tests/unit/anthropic-limit-czasu.test.ts` na jego gałęzi): `fetch`
+ * (`tests/unit/anthropic-limit-czasu.test.ts`): `fetch`
  * podstawiony, zanim klient powstanie (SDK bierze globalny `fetch`
  * w konstruktorze, a `getAnthropic()` trzyma klienta w module, stąd
  * `vi.resetModules()`). Zawieszona atrapa nie odpowiada nigdy, a błąd oddaje
@@ -248,7 +248,10 @@ describe('LIM-05: kategoryzacja kosztu w jobie OCR i skrzynki', () => {
 
     const { wynik, ms } = await przesuwajZegar(categorizeExpense('ten-1', KOSZT));
 
-    expect(wynik, 'bez sufitu odczyt treści wisi bez końca').toEqual({ ok: true, wartosc: KOLUMNA_13 });
+    expect(wynik, 'bez sufitu SDK nie przerywa odczytu treści, a atrapa wisi bez końca').toEqual({
+      ok: true,
+      wartosc: KOLUMNA_13,
+    });
     expect(ms).toBe(45_000);
     expect(proby).toEqual([{ limitS: '20', ponowienie: '0' }]);
     expect(logBledow).toHaveBeenCalledWith('AI categorization failed: deadline 45 s', expect.anything());
