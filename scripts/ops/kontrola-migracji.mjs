@@ -19,7 +19,7 @@
 // funkcji `$$…$$`, które przy wgraniu się nie wykonują; ciało bloku `DO`
 // wykonuje się od razu, więc je czyta):
 //   - nazwa pliku `NNNNN_nazwa.sql`;
-//   - oznaczenie fazy w nagłówku: `-- Wdrożenie: PRZED|PO …` albo starsze
+//   - oznaczenie fazy w nagłówku: `-- KIEDY WGRAĆ: PRZED|PO …` albo `-- Wdrożenie: PRZED|PO`, a starsze
 //     `-- KIEDY WGRAĆ: PRZED|PO …`; brak albo sprzeczność = blokada;
 //   - zakazane bez człowieka: DROP TABLE/SCHEMA/DATABASE/ROLE/TYPE/SEQUENCE/
 //     EXTENSION, DROP COLUMN, TRUNCATE, DELETE FROM, UPDATE na wierszach,
@@ -200,8 +200,8 @@ export function ocenMigracje(plik, sql, opcje = {}) {
   // `bezFazy`: wgranie ręczne (`wgraj-migracje.sh`) nie ustala kolejności względem
   // kodu, więc nagłówka nie wymaga; nocne wdrożenie wymaga.
   if (!opcje.bezFazy) {
-    if (f === null) powody.push('brak oznaczenia fazy w nagłówku (`-- Wdrożenie: PRZED` albo `PO`)');
-    if (f === 'niejednoznaczna') powody.push('nagłówek mówi i „PRZED wdrożeniem”, i „PO wdrożeniu”: dopisz jedną linię `-- Wdrożenie: PRZED` albo `PO`');
+    if (f === null) powody.push('brak oznaczenia fazy w nagłówku (`-- KIEDY WGRAĆ: PRZED wdrożeniem …` albo `PO wdrożeniu …`)');
+    if (f === 'niejednoznaczna') powody.push('nagłówek mówi i „PRZED wdrożeniem”, i „PO wdrożeniu”: dopisz jedną linię `-- KIEDY WGRAĆ: PRZED wdrożeniem …` albo `PO wdrożeniu …`');
   }
   for (const p of blokadyZapisu(sql)) powody.push(`zakazane bez człowieka: ${p}`);
   return { numer: m ? m[1] : null, plik, faza: f === 'przed' || f === 'po' ? f : null, powody };

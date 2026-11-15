@@ -157,7 +157,7 @@ Dostęp: `ssh -i $K root@$DB` (i analogicznie `$APP`, `$OPS`).
    i odmawia wszystkiego, co wymaga człowieka: `DROP TABLE`/`DROP COLUMN`,
    `TRUNCATE`, `DELETE FROM`, `UPDATE` na wierszach, `RENAME`, zmiany typu
    kolumny. Te tylko za zgodą Bartosza, ręcznie. Nagłówek każdej migracji ma
-   linię `-- Wdrożenie: PRZED` albo `PO`. `pnpm db:push:prod` nie działa
+   linię `-- KIEDY WGRAĆ: PRZED wdrożeniem …` albo `-- KIEDY WGRAĆ: PO wdrożeniu …`. `pnpm db:push:prod` nie działa
    (wyłączony).
 4. **Wdrożenie: co noc samo, w dzień na polecenie Bartosza.** Repo nie ma
    webhooka, więc push do `main` niczego nie wdraża. Co noc o 03:30 (Warszawa)

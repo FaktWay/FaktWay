@@ -353,7 +353,7 @@ glowna() {
       raport blad "migracje czekają na człowieka, nie wdrażam niczego" "Oczekujące na main: ${oczekujace//$'\n'/ }
 ${zablokowane:+$zablokowane
 }${kolejnosc:+Kolejność: $kolejnosc
-}Co zrobić: przeczytaj plik, policz wiersze przy UPDATE/DELETE (docs/runbooks/wgrywanie-migracji.md), wgraj ręcznie psql-em, potem noc wdroży resztę. Albo popraw nagłówek („-- Wdrożenie: PRZED”) nowym PR-em."
+}Co zrobić: przeczytaj plik, policz wiersze przy UPDATE/DELETE (docs/runbooks/wgrywanie-migracji.md), wgraj ręcznie psql-em, potem noc wdroży resztę. Albo popraw nagłówek („-- KIEDY WGRAĆ: PRZED wdrożeniem”) nowym PR-em."
       ping_hc /fail
       return 1
     fi

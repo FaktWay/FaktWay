@@ -66,8 +66,8 @@ Zatrzymuje (wymaga człowieka): `DROP TABLE/SCHEMA/DATABASE/ROLE/TYPE/SEQUENCE/E
 i taką, w której numer „PRZED” jest wyższy niż numer „PO wdrożeniu”
 (kolejności numerów nie da się wtedy zachować przy jednym wdrożeniu).
 
-Nagłówek każdej nowej migracji ma linię `-- Wdrożenie: PRZED` albo `-- Wdrożenie: PO`
-z powodem (starsze `-- KIEDY WGRAĆ: PRZED|PO wdrożeniu` też działają). Z 187
+Nagłówek każdej nowej migracji ma linię `-- KIEDY WGRAĆ: PRZED wdrożeniem …` albo `-- KIEDY WGRAĆ: PO wdrożeniu …`
+z powodem (od 00207 wymaga jej test rejestru; kontrola przyjmuje też zapis `-- Wdrożenie: PRZED|PO`). Z 187
 istniejących migracji kontrola zatrzymałaby 9, wszystkie sprzed 00164, które
 robią `UPDATE`, `DELETE` albo `DROP COLUMN`; migracje od 00164 przechodzą (poza 00200,
 wgraną już bez nagłówka fazy).

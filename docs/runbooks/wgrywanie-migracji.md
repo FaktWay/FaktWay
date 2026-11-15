@@ -32,7 +32,7 @@
    człowieka) albo nocne wdrożenie, które robi to z SHA przypiętego na początku
    przebiegu i tylko przy świeżej kopii bazy (do 26 h). Sesja bez dostępu (chmura,
    brak `ssh`) nie wgrywa i nie musi: wdroży to noc, jeśli nagłówek migracji
-   mówi, kiedy (`-- Wdrożenie: PRZED` albo `PO`). Klucza SSH nie kopiuje się
+   mówi, kiedy (`-- KIEDY WGRAĆ: PRZED wdrożeniem …` albo `PO wdrożeniu …`). Klucza SSH nie kopiuje się
    do chmury.
 
 Po wgraniu i weryfikacji zaktualizuj stan w rejestrze („wgrana na db-1
