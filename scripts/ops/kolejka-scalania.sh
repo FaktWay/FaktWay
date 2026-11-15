@@ -100,4 +100,14 @@ echo "── Kopia stanu sprzed zmiany: $kopia"
 gh api -X PUT "repos/$REPO/rulesets/$id" --input - <<<"$nowy" >/dev/null
 echo "── Zapisane. Stan z GitHuba:"
 pokaz "$(gh api "repos/$REPO/rulesets/$id")"
-echo "Agent wrzuca PR do kolejki: gh pr merge N --auto"
+
+# Etykiety scalania na etykietę (workflow „Scalanie na etykietę”): `scal` włącza
+# automatyczne scalanie, `wstrzymaj` je wstrzymuje. Zakładane po zapisie ochrony.
+gh label create "scal" --repo "$REPO" --force --color 0E8A16 \
+  --description "Agent: scal, gdy kontrole będą zielone (wygasa po pushu)"
+gh label create "wstrzymaj" --repo "$REPO" --force --color B60205 \
+  --description "Nie scalaj: agenci i workflow wstrzymują scalanie"
+echo "── Etykiety scal i wstrzymaj założone."
+echo "Agent scala PR jedną linią (etykieta scal, działa też w chmurze): ./scripts/ops/scal-pr.sh N"
+echo "Zapas lokalny: gh pr merge N --auto"
+echo "PR otwarte przed zmianą nie mają nowych wymaganych kontroli: ./scripts/ops/odswiez-pr.sh pokazuje je, a z numerami odświeża."
