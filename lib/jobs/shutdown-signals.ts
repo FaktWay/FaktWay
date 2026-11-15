@@ -1,0 +1,55 @@
+/**
+ * Sygnały zatrzymania workera od pierwszej linii `worker.ts` (G1-START).
+ *
+ * W kontenerze worker to PID 1, a jądro odrzuca sygnał, dla którego PID 1 nie
+ * ma handlera. Do 15.11.2026 handler powstawał na końcu `main()`, więc SIGTERM
+ * w trakcie wczytywania modułów, startu pg-boss albo zakładania kolejek
+ * przepadał: worker startował dalej i po czasie łaski dostawał SIGKILL.
+ *
+ * Ten moduł jest PIERWSZYM importem `worker.ts` i sam niczego nie importuje
+ * (pilnuje `tests/unit/worker-sygnal-przy-starcie.test.ts`). Sygnał sprzed
+ * podpięcia zamykania czeka tu, aż `onShutdownSignal()` je poda. Zostaje okno
+ * przed pierwszą linią `worker.ts` (start Node, `--import tsx`, kompilacja
+ * wejścia); zamyka je dopiero init w kontenerze, czyli zmiana CMD albo Coolify.
+ *
+ * Tylko dla workera: proces, który zaimportuje ten moduł i nie poda zamykania,
+ * przestaje kończyć się na SIGTERM.
+ */
+
+export type ShutdownSignal = 'SIGTERM' | 'SIGINT';
+
+type ShutdownHandler = (signal: ShutdownSignal) => void;
+
+let firstSignal: ShutdownSignal | null = null;
+let handler: ShutdownHandler | null = null;
+
+function receive(signal: ShutdownSignal): void {
+  firstSignal ??= signal;
+  handler?.(signal);
+}
+
+process.on('SIGTERM', () => receive('SIGTERM'));
+process.on('SIGINT', () => receive('SIGINT'));
+
+/** Czy przyszło już zatrzymanie: start sprawdza to przed każdym nowym krokiem. */
+export function shutdownRequested(): boolean {
+  return firstSignal !== null;
+}
+
+/**
+ * Podpina zamykanie. Każdy kolejny sygnał woła je jeszcze raz (jak dotąd:
+ * `stopBoss()` oddaje to samo zamykanie), a sygnał sprzed podpięcia od razu.
+ */
+export function onShutdownSignal(next: ShutdownHandler): void {
+  handler = next;
+  if (firstSignal) next(firstSignal);
+}
+
+/**
+ * Jeden obrót pętli zdarzeń. Node woła słuchaczy sygnałów w fazie poll, przed
+ * `setImmediate`, więc sygnał z czasu wczytywania modułów dociera do zamykania,
+ * zanim worker połączy się z bazą.
+ */
+export function receiveQueuedSignals(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}

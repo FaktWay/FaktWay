@@ -14,7 +14,10 @@
  *   6. graceful shutdown na SIGTERM/SIGINT.
  */
 
-import { createServer } from 'node:http';
+// G1-START: pierwszy import. Handler sygnałów musi istnieć, zanim wczytają się
+// pg-boss, Sentry i paczki handlerów: PID 1 w kontenerze odrzuca sygnał bez handlera.
+import { onShutdownSignal, receiveQueuedSignals, shutdownRequested } from './shutdown-signals';
+import { createServer, type Server } from 'node:http';
 
 import { trackActiveJobs } from './active-jobs';
 import { ensureQueue, startBoss, stopBoss, enableWorkerRole } from './boss';
@@ -46,6 +49,9 @@ import './handlers/app-notifications';
 
 const log = createJobLogger('worker');
 
+/** Healthcheck HTTP; zamykanie wyłącza go, o ile start do niego doszedł. */
+let healthServer: Server | null = null;
+
 /** Kolejka smoke — weryfikacja fundamentu (Etap 1/2) i żywotności workera. */
 registerJob<{ ping?: number }>({
   queue: SMOKE_QUEUE,
@@ -71,14 +77,21 @@ async function main(): Promise<void> {
   enableWorkerRole();
   // Dłuższe limity czasu Supabase niż w żądaniach (plan skalowania, sesja 5).
   enableWorkerSupabaseTimeouts();
+  // Sygnał z czasu wczytywania modułów dociera tu, zanim worker połączy się z bazą.
+  // Od tego miejsca po zatrzymaniu start nie robi niczego nowego (G1-START).
+  await receiveQueuedSignals();
+  if (shutdownRequested()) return;
   const boss = await startBoss();
   boss.on('error', (err) => log.error('pg-boss error', err));
+  if (shutdownRequested()) return;
 
   const defs = getRegisteredJobs();
   const registeredQueues = new Set(defs.map((d) => d.queue));
 
   for (const def of defs) {
     await ensureQueue(def.queue);
+    // Kolejka założona po zatrzymaniu wzięłaby joby w zamykanym procesie.
+    if (shutdownRequested()) return;
     // trackActiveJobs: lista do logu przerwanych jobów przy zamykaniu (G1, stopBoss).
     await boss.work(def.queue, workOptionsFor(def), trackActiveJobs(def.queue, wrapHandler(def)));
     log.info(`kolejka aktywna: ${def.queue}`);
@@ -129,11 +142,13 @@ async function main(): Promise<void> {
   }
   for (const cron of CRON_JOBS) {
     if (schedulesDisabled) break;
+    if (shutdownRequested()) return;
     if (!registeredQueues.has(cron.queue)) continue;
     if (cronAllowlist && !cronAllowlist.has(cron.queue)) continue;
     await boss.schedule(cron.queue, cron.cron, {}, cron.tz ? { tz: cron.tz } : {});
     scheduled++;
   }
+  if (shutdownRequested()) return;
   log.info(
     `Gotowy: ${defs.length} kolejek, ${scheduled}/${CRON_JOBS.length} cronów zaplanowanych`,
   );
@@ -155,25 +170,33 @@ async function main(): Promise<void> {
     res.writeHead(404);
     res.end();
   });
+  healthServer = server;
   server.listen(getWorkerHealthPort(), () =>
     log.info(`healthcheck: http://0.0.0.0:${getWorkerHealthPort()}/health`),
   );
-
-  const shutdown = async (signal: string) => {
-    log.info(`${signal} — graceful shutdown...`);
-    server.close();
-    try {
-      await stopBoss();
-    } finally {
-      await flushWorkerSentry();
-      process.exit(0);
-    }
-  };
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
-  process.on('SIGINT', () => void shutdown('SIGINT'));
 }
 
+/** Zamykanie na SIGTERM/SIGINT; drugi sygnał woła je znowu, a `stopBoss()` oddaje to samo zamykanie. */
+async function shutdown(signal: string): Promise<void> {
+  log.info(`${signal} — graceful shutdown...`);
+  healthServer?.close();
+  try {
+    await stopBoss();
+  } finally {
+    await flushWorkerSentry();
+    process.exit(0);
+  }
+}
+
+// Przed main(): sygnał z czasu wczytywania modułów czeka w shutdown-signals.ts (G1-START).
+onShutdownSignal((signal) => void shutdown(signal));
+
 main().catch((err) => {
+  if (shutdownRequested()) {
+    // Zatrzymanie w trakcie startu kończy shutdown() kodem 0; to nie awaria startu.
+    log.info('start przerwany zatrzymaniem workera', err);
+    return;
+  }
   log.error('Worker padł przy starcie', err);
   reportWorkerStartupFailure(err);
   void flushWorkerSentry().finally(() => process.exit(1));
