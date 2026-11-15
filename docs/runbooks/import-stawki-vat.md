@@ -80,11 +80,17 @@ w `lib/exports/jpk-v7m-generator.ts`, GTU faktury korygowanej
 
 | Dokument | Skąd GTU | JPK_V7M | JPK_FA |
 |---|---|---|---|
-| zwykła faktura i FP z FaktWay | pozycja (`fa3_data.lines[].gtuCode`, z formularza albo katalogu; to samo `GTU` jest w pliku FA(3)) | `GTU_xx` = 1 w wierszu faktury, każdy kod raz, w kolejności XSD | bez pola GTU, plik powstaje |
+| zwykła faktura z FaktWay | pozycja (`fa3_data.lines[].gtuCode`, z formularza albo katalogu; to samo `GTU` jest w pliku FA(3)) | `GTU_xx` = 1 w wierszu faktury, każdy kod raz, w kolejności XSD | bez pola GTU, plik powstaje |
+| faktura do paragonu (FP) z FaktWay | jak wyżej | wiersz FP (`TypDokumentu` FP) z `GTU_xx` | **odmowa** FP jak dotąd (JPK_FA nie ma oznaczenia FP, RP-FP-02) |
 | faktura z importu | plik KSeF (`fa3_data.ksefMarkers.gtu`) | jak wyżej, gdy każdy kod jest z listy; inaczej **odmowa** | **odmowa** (decyzja 06.10, bez zmian) |
-| korekta faktury, której pozycje mają GTU (FaktWay albo import) | faktura korygowana | **odmowa** z numerem korekty, faktury korygowanej i kodami, także w module VAT | odmowa korekt jak dotąd |
-| korekta faktury bez GTU | brak | wiersz bez GTU | odmowa korekt jak dotąd |
-| zaliczka, faktura rozliczająca | brak pola GTU w formularzu | wiersz bez GTU (pytanie do księgowej w RP-JPK-GTU-01) | jak dotąd |
+| korekta faktury, której pozycje mają GTU (FaktWay albo import) | faktura korygowana | **odmowa** z numerem korekty, faktury korygowanej i kodami | odmowa korekt jak dotąd |
+| korekta faktury bez GTU, także „przed/po”, która dopisuje pozycję z towarem albo usługą z GTU | brak (korekta nie ma pola GTU) | wiersz bez GTU (do części 2b-3) | odmowa korekt jak dotąd |
+| zaliczka, faktura rozliczająca | brak pola GTU w formularzu | wiersz bez GTU (do części 2b-3; pytanie do księgowej w RP-JPK-GTU-01) | jak dotąd |
+
+Pozycja ma jedno oznaczenie GTU (jak `FaWiersz/GTU` w FA(3)), a wiersz
+JPK_V7M dostaje kody wszystkich pozycji faktury. Towar z dwoma oznaczeniami
+(np. GTU_02 i GTU_03, MF, pytania i odpowiedzi, pyt. 14) wymaga więc dwóch
+pozycji z tymi kodami; przy jednej pozycji drugi kod nie trafi do JPK_V7M.
 
 **Korekta faktury z GTU: co widzi klient i co robi operator.** Korekta
 w FaktWay nie zapisuje GTU pozycji (do części 2b-3), a fakturę korygującą
@@ -92,10 +98,13 @@ oznacza się kodem GTU tylko wtedy, gdy dotyczy pozycji z GTU (MF, „Pytania
 i odpowiedzi JPK_VAT z deklaracją”, faktury korygujące). FaktWay tego nie
 zgaduje.
 
-1. Klient widzi w module VAT (brak kwoty) i w Centrum eksportu (zadanie
-   nieudane bez ponowień) komunikat „JPK wstrzymany: faktura KOR/… jest
-   korektą faktury FV/…, która ma w pozycjach oznaczenie GTU (…)” z tym, że
-   JPK_V7M za ten miesiąc trzeba przygotować poza FaktWay.
+1. Klient widzi w module VAT (zamiast kwoty i pliku) komunikat „JPK
+   wstrzymany: faktura KOR/… jest korektą faktury FV/…, która ma w pozycjach
+   oznaczenie GTU (…)” z tym, że JPK_V7M za ten miesiąc trzeba przygotować
+   poza FaktWay. Moduł VAT to dziś jedyna droga do JPK_V7M: w Centrum
+   eksportu JPK_V7M jest wyłączony (`lib/exports/suspended-formats.ts`),
+   a zadanie kończy się komunikatem o wyłączeniu, zanim dojdzie do generatora
+   (`lib/jobs/runners/exports-generate.ts`).
 2. Klientowi: JPK_V7M za ten miesiąc przygotowuje księgowa. Wiersz korekty
    dostaje kody GTU pozycji, których korekta dotyczy; korekta samych pozycji
    bez GTU idzie bez oznaczenia. KPiR i CSV z FaktWay działają.

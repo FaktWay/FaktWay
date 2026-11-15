@@ -1,4 +1,5 @@
 import fc from 'fast-check';
+import iconv from 'iconv-lite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { MemoryTables, Row } from './helpers/baza-w-pamieci';
@@ -11,19 +12,24 @@ vi.mock('@/lib/supabase/admin', async () => {
 
 import { sprawdzJpkV7m } from '@/lib/bezpieczniki/jpk-v7m';
 import { fetchInvoicesForExport, importedContentFlags } from '@/lib/exports/data-fetcher';
+import { generateEdiPlusPlus } from '@/lib/exports/edi-plus-plus-generator';
 import {
+  generateJpkFa,
   JPK_DOCUMENT_REFUSAL_PREFIX,
   JpkDocumentNotSupportedError,
   type JpkInvoice,
   type JpkInvoiceLine,
 } from '@/lib/exports/jpk-fa-generator';
+import { validateJpkFa } from '@/lib/exports/jpk-fa-validator';
 import { generateJpkV7m, summarizeJpkV7m, type JpkV7mInputData } from '@/lib/exports/jpk-v7m-generator';
 import { validateJpkV7m } from '@/lib/exports/jpk-v7m-validator';
 import { buildInvoiceFromForm } from '@/lib/invoices/build-from-form';
 import { GTU_CODES } from '@/lib/invoices/line-codes';
 import { vatMiesiaca } from '@/lib/ksiegowosc/vat';
 import { invoiceFormSchema, type InvoiceFormValues } from '@/lib/schemas/invoice-form';
+import { generateFA3Xml } from '@/lib/xml/fa3-generator';
 import { roundToCents } from '@/lib/xml/invoice-calculator';
+import type { Invoice } from '@/types/invoice';
 
 /**
  * Oznaczenia GTU w JPK_V7M(3): plan kompletnej aplikacji, krok 2.6, część
@@ -333,6 +339,45 @@ describe('JPK_V7M(3): korekta faktury z GTU (korekta w FaktWay nie zapisuje GTU 
     const xml = generateJpkV7m(plik((await dane()).issuedInvoices));
     await bezUwag(xml);
     expect(gtuWiersza(wierszFaktury(xml, 'KOR/3/11/2026'))).toEqual([]);
+  });
+});
+
+describe('JPK_FA(4) i EDI++: własna faktura z GTU (pola GTU w nich nie ma)', () => {
+  const ADRES = {
+    voivodeship: 'MAZOWIECKIE', county: 'Warszawa', commune: 'Mokotów', street: 'ul. Testowa',
+    buildingNumber: '1', city: 'Warszawa', postCode: '00-001',
+  };
+
+  it('faktura z formularza z GTU w pozycjach: JPK_FA zgodny z XSD i EDI++ powstają bez odmowy i bez GTU; ta sama faktura ma GTU w FA(3) i w JPK_V7M', async () => {
+    db.tables.invoices!.push(
+      zFormularza('FV/12/11/2026', [pozycja({ name: 'Doradztwo', gtuCode: 'GTU_12' }), pozycja({ name: 'Telefon', unitPriceNet: 500, gtuCode: 'GTU_06' })]),
+    );
+    const { issuer, issuedInvoices } = await dane();
+
+    // Faktura naprawdę niesie oznaczenia: plik FA(3) i wiersz JPK_V7M (inaczej test przeszedłby fakturą bez GTU).
+    const fa3 = generateFA3Xml(db.tables.invoices![0]!.fa3_data as Invoice, { validate: false, generatedAt: new Date('2026-11-05T10:00:00Z') });
+    expect([...fa3.matchAll(/<GTU>([^<]+)<\/GTU>/g)].map((m) => m[1])).toEqual(['GTU_12', 'GTU_06']);
+    expect(gtuWiersza(wierszFaktury(generateJpkV7m(plik(issuedInvoices)), 'FV/12/11/2026'))).toEqual(['GTU_06=1', 'GTU_12=1']);
+
+    // JPK_FA(4): ścieżka bez opcji `gtuInRow` (`amountsOf(inv)`), schemat bez pola GTU.
+    const jpkFa = generateJpkFa({
+      issuer: { ...issuer, taxOfficeCode: '1433', registeredAddress: ADRES },
+      periodStart: '2026-11-01',
+      periodEnd: '2026-11-30',
+      issuedInvoices,
+      generatedAt: new Date('2026-12-05T10:00:00Z'),
+    });
+    expect((await validateJpkFa(jpkFa)).errors).toEqual([]);
+    expect(jpkFa).toContain('<P_2A>FV/12/11/2026</P_2A>');
+    expect(jpkFa).not.toContain('GTU');
+
+    // EDI++: ta sama ścieżka kwot (`amountsOf(inv)`), format 1.05 bez pola GTU.
+    const epp = iconv.decode(
+      generateEdiPlusPlus({ issuer, periodStart: '2026-11-01', periodEnd: '2026-11-30', issuedInvoices, receivedInvoices: [], generatedAt: new Date('2026-12-05T10:00:00Z') }),
+      'win1250',
+    );
+    expect(epp).toContain('FS FV/12/11/2026');
+    expect(epp).not.toContain('GTU');
   });
 });
 
