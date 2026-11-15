@@ -134,6 +134,38 @@ uruchamiasz po kolei, nigdy razem.
   magazynie (`useSyncExternalStore`, wzór `stan/naleznosci.tsx`): osobny
   `useState` w każdym ekranie zostawia pod arkuszem stary stan.
 
+## Android (od M12a, sprawdzone w kodzie expo-router 58, bez emulatora)
+
+Zasady wyglądu: `ZASADY-DESIGNU.md`, sekcja 10. Pilnuje `tests/unit/mobile-android.test.ts`.
+
+- `Stack.Toolbar.Button` bez `icon` na Androidzie nic nie rysuje, a przycisk
+  `placement="left"` zastępuje strzałkę wstecz. Przycisk z napisem w pasku
+  tylko przez `PrzyciskPaska` (na iOS ten sam systemowy przycisk).
+- Menu i przyciski paska rysuje tam Compose (`@expo/ui`). Ikona musi być
+  obrazem (`IKONY_PASKA`), symbole SF w `MenuAction` Android pomija. Kolory:
+  `useKoloryPaska(naGradiencie)` (`ikona` do `tintColor`, `narzedzia` do
+  `Stack.Toolbar`; na iOS pusty obiekt). Grupy `inline` gubią tam tytuł:
+  `inline={GRUPY_MENU_W_LINII}`.
+- Pasek Androida jest nieprzezroczysty i bez dużego tytułu. Ekran z
+  `EkranListy gradient` dostaje w układzie `useOpcjeGradientu` (lista) albo
+  `useOpcjeSzczegoluNaGradiencie` (szczegół), a wyszukiwarka
+  `useOpcjeWyszukiwarki`; inaczej biały tytuł na szarym pasku albo szary pasek
+  nad niebieskim pasem.
+- Gdy jeden ekran ustawi `statusBarStyle`, Android stosuje domyślny jasny styl
+  na wszystkich pozostałych. `useOpcjeStosu` podaje go na każdym ekranie.
+- Fala (`android_ripple`) ma w React Native prostokątną maskę: na zaokrąglonym
+  przycisku przycina ją `DotykFala` (widok zewnętrzny z `overflow: 'hidden'`).
+  Gdy treść ma nieprzezroczyste tło, fala musi być nad nią (`nadTrescia`).
+- Komponent z `@expo/ui/jetpack-compose` trzymaj w pliku `.android.tsx` z
+  zapasem dla innych platform (wzór `komponenty/menu-wyboru`), żeby Compose
+  nie trafiał do pakietu iOS.
+- `TextInput` na Androidzie ma kreskę Material z motywu
+  (`rn_edit_text_material`): `underlineColorAndroid="transparent"`.
+- Bez Android SDK sprawdzasz: `pnpm exec expo export --platform android` (pakiet
+  JS) i `pnpm exec expo prebuild --platform android --no-install --clean`
+  (manifest, uprawnienia, ikona, czcionki; katalog `android/` jest poza gitem).
+  Kotlin i Compose sprawdzi dopiero build w Android Studio (M12b).
+
 ## Dane z bazy i API (od M7)
 
 - Odczyty idą z telefonu wprost do bazy (RLS), z tokenem sesji i nagłówkiem
@@ -202,8 +234,15 @@ uruchamiasz po kolei, nigdy razem.
   funkcję dostawcy w efekcie ekranu (np. `firmaTeraz` w `zapytaj`) ustawiaj w
   `useLayoutEffect`, inaczej ekran otwarty linkiem przy zimnym starcie widzi
   jeszcze `null`. Trasy konta bez firmy (`org: 'none'`) wołaj z `bezFirmy: true`.
-- Na danych przykładowych zostają Kontrahenci, Przepływy, Analizy i Import
-  danych; stopka w Więcej mówi o tym klientowi.
+- Od M10e Kontrahenci (lista, karta, dodanie, poprawka, usunięcie), Import
+  danych i karty Księgowa, Zespół, Abonament, Dziennik idą przez API
+  (`stan/odczyt.tsx`: jeden magazyn odczytów, pyta przy każdym otwarciu ekranu
+  i po zapisie; `stan/kontrahenci.tsx`: zapisy z `firmaEkranu`). Typy odpowiedzi
+  w `lib/api/mobile/kontrakt-wiecej.ts` strony. Też Przepływy i Analizy
+  (`GET /przeplywy`, `GET /analizy`): wejście `kontekstDanych` strony, więc
+  przed potwierdzeniem KSeF serwer oddaje dane przykładowe z `tryb: 'przyklad'`
+  i ekran to mówi; każda karta osobno (`CzescTelefonu`), kwoty, saldo, procenty
+  i odcienie kalendarza liczy serwer.
 - `supabase.auth.onAuthStateChange` woła słuchacza wewnątrz blokady
   `supabase-js`: wywołanie klienta w słuchaczu czeka na samo siebie. Odłóż je
   (`setTimeout(…, 0)`), jak w `stan/dane.tsx`.

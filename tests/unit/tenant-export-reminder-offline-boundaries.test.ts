@@ -377,8 +377,9 @@ describe('tenant boundaries for accounting exports', () => {
     const data = await fetchInvoicesForExport({ ...exportParams, direction: 'issued' });
     expect(data.issuedInvoices).toHaveLength(1200);
     expect(data.issuedInvoices.at(-1)?.correctedInvoiceNumber).toBe('ORIGINAL-1199');
+    // Krok 2.6, część 2b-2: dokument faktury korygowanej (GTU pozycji) w tym samym zapytaniu.
     expect(operations.filter(op => op.table === 'invoices' &&
-      op.selection === 'id, internal_number, ksef_number')).toHaveLength(12);
+      op.selection === 'id, internal_number, ksef_number, fa3_data')).toHaveLength(12);
   });
 
   it('exports all 1200 fallback line items for one invoice', async () => {
@@ -439,8 +440,14 @@ describe('reminder decisions distrust invoice-only foreign relationships', () =>
     // odpada z cronu ponagleń (reminders-kandydaci.test.ts).
     for (const row of tables.invoices) row.origin = 'app';
     tables.invoices.push(invoice('incoming-a', 'tenant-a', 'incoming'));
-    const candidates = await findInvoicesRequiringReminders();
-    expect(candidates.map(row => row.id)).toEqual(['invoice-a', 'invoice-b']);
+    const candidatesOf = async (tenantIds: string[]) => {
+      const ids: string[] = [];
+      await findInvoicesRequiringReminders(tenantIds, async page => { ids.push(...page.map(row => row.id)); });
+      return ids;
+    };
+    expect(await candidatesOf(['tenant-a', 'tenant-b'])).toEqual(['invoice-a', 'invoice-b']);
+    // Sesja 18 planu skalowania: tylko firmy z listy (te z włączonymi ponagleniami).
+    expect(await candidatesOf(['tenant-a'])).toEqual(['invoice-a']);
   });
 });
 

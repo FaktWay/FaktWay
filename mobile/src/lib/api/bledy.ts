@@ -28,7 +28,7 @@ export type BladApi = {
   ponowZaSekund?: number;
   /** Zdanie dla klienta: co się stało i co zrobić. */
   komunikat: string;
-  /** Przy `invoice_invalid`: pole formularza strony (`buyerName`, `lines.0.name`). */
+  /** Przy `invoice_invalid`: pole formularza strony (`buyerName`, `lines.0.name`); przy `contractor_invalid` (M10e) pole kontrahenta (`nip`, `nazwa`). */
   pole?: string;
 };
 
@@ -88,6 +88,9 @@ const RODZAJ_KODU: Record<MobileApiErrorCode, RodzajBledu> = {
   deletion_blocked: 'odmowa',
   deletion_in_progress: 'odmowa',
   settlement_refused: 'odmowa',
+  // Kontrahenci (M10e): zdanie z serwera, przy `contractor_invalid` pod polem.
+  contractor_invalid: 'odmowa',
+  contractor_exists: 'odmowa',
 };
 
 /** Kod błędu z ciała `{ error: { code } }`, gdy jest w kontrakcie. */
@@ -138,7 +141,7 @@ export function bladApi(status: number, cialo: unknown, retryAfter?: string | nu
   // Odmowa z powodu treści: tylko serwer wie, co poprawić (te same zdania co na stronie).
   const zSerwera = rodzaj === 'odmowa' ? poleBledu(cialo, 'message') : undefined;
   const komunikatSerwera = zSerwera ? bezDlugichMyslnikow(zSerwera) : undefined;
-  const pole = kod === 'invoice_invalid' ? poleBledu(cialo, 'field') : undefined;
+  const pole = kod === 'invoice_invalid' || kod === 'contractor_invalid' ? poleBledu(cialo, 'field') : undefined;
   return {
     rodzaj,
     kod,

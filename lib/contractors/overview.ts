@@ -1,7 +1,9 @@
 import { readCompletePages } from '@/lib/accounting/read-complete-pages';
 import { assertAcceptedEnvironmentKnown } from '@/lib/dashboard/monthly-figures';
 import type { Receivables } from '@/lib/dashboard/receivables';
+import { formatPlInt } from '@/lib/format/pl';
 import { addDaysToIsoDate, todayInWarsaw } from '@/lib/format/warsaw-date';
+import { plural } from '@/lib/i18n/plural';
 import { requireConfiguredKsefEnvironment } from '@/lib/ksef/claim-environment';
 import type { PageContext } from '@/lib/supabase/page-context';
 import { roundToCents } from '@/lib/xml/invoice-calculator';
@@ -29,6 +31,15 @@ export function normalizeNip(nip: string | null | undefined): string | null {
   if (typeof nip !== 'string') return null;
   const normalized = nip.replace(/[\s-]/g, '').toUpperCase();
   return normalized === '' ? null : normalized;
+}
+
+/**
+ * Faktury w walucie obcej nie wchodzą do należności (§2.4 pkt 6 i 11) —
+ * mówimy o tym wprost, żeby „0,00 zł” nie wyglądało na prawdziwe zero
+ * (wzór: kafel „Do zapłaty” listy faktur). Strona i telefon (M10e).
+ */
+export function foreignCurrencyNote(count: number): string | null {
+  return count > 0 ? `Pominięto ${formatPlInt(count)} ${plural(count, ['fakturę', 'faktury', 'faktur'])} w walucie obcej` : null;
 }
 
 export interface ContractorReceivables {

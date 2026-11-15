@@ -18,6 +18,11 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { paymentFailureAdvice } from '@/lib/billing/payment-failure';
+import {
+  subscriptionPlanName,
+  subscriptionStatusLabel as statusLabel,
+  type SubscriptionTone as Tone,
+} from '@/lib/billing/subscription-status';
 import { PRICE_PER_MONTH, PRICE_PER_MONTH_WITH_NET, TRIAL_DAYS } from '@/lib/billing/pricing';
 import {
   buildBlikDisclosure,
@@ -58,36 +63,7 @@ interface SearchParams {
 const fmtDate = formatSettingsDate;
 
 function fmtPlan(plan: ActiveSubscription['plan']): string {
-  // Plan roczny nie jest już sprzedawany (decyzja z 1 października 2026);
-  // etykieta zostaje dla subskrypcji założonych wcześniej.
-  return plan === 'monthly' ? `Miesięczny (${PRICE_PER_MONTH})` : 'Roczny (plan wycofany)';
-}
-
-type Tone = 'success' | 'warning' | 'danger' | 'default';
-
-function statusLabel(status: ActiveSubscription['status']): {
-  label: string;
-  tone: Tone;
-} {
-  switch (status) {
-    case 'trialing':
-      return { label: 'Trial', tone: 'success' };
-    case 'active':
-      return { label: 'Aktywna', tone: 'success' };
-    case 'past_due':
-      return { label: 'Płatność opóźniona', tone: 'warning' };
-    case 'unpaid':
-      return { label: 'Nieopłacona', tone: 'danger' };
-    case 'canceled':
-      return { label: 'Anulowana', tone: 'danger' };
-    case 'incomplete':
-    case 'incomplete_expired':
-      return { label: 'Niedokończona', tone: 'warning' };
-    case 'paused':
-      return { label: 'Wstrzymana', tone: 'warning' };
-    default:
-      return { label: status, tone: 'default' };
-  }
+  return plan === 'monthly' ? `${subscriptionPlanName(plan)} (${PRICE_PER_MONTH})` : subscriptionPlanName(plan);
 }
 
 // Kolory odznak i komunikatów jak w Finorze (`bg-green-600/10 text-green-800`…).
