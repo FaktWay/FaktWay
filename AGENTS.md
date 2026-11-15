@@ -152,7 +152,8 @@ Dostęp: `ssh -i $K root@$DB` (i analogicznie `$APP`, `$OPS`).
      `scal` tylko przez `node scripts/nocny/bramka-scalenia.mjs N --scal`:
      bramka sprawdza ostrzejsze warunki nocy (wyłącznik, czerwony test na kodzie
      bazowym, zakazane ścieżki, brak etykiet `zgoda:*`) i dopiero wtedy woła
-     `scal-pr.sh`. Etykiet zgody nie nadaje, migracji nie pisze i nie wdraża
+     `scal-pr.sh`. Etykiet `zgoda:*` nie nadaje (PR, który ich wymaga, czeka
+     na Bartosza, a on nadaje je osobiście), migracji nie pisze i nie wdraża
      (robi to nocne wdrożenie, punkt 4); każde NIE czeka na Bartosza
      ([`nocny-zespol.md`](docs/runbooks/nocny-zespol.md)).
    - Migracje i wdrożenie: punkty 3 i 4.

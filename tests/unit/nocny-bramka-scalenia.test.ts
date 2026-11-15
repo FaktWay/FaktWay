@@ -293,6 +293,43 @@ describe('ocenPR: pliki', () => {
   });
 });
 
+describe('ocenPR: zgody, których zażąda „Filtr: straż”', () => {
+  // Znacznik wyjątku składany z części: dosłowny w tym pliku straż wzięłaby za nowy wyjątek.
+  const ZNACZNIK = ['filtr', 'wyjatek'].join('-');
+  const zPlikiem = (plik: Obiekt) => ({ pliki: [PLIK_TESTU, PLIK_KODU, plik], pr: pr({ changed_files: 3 }) });
+  const testFiltra = (zmiany: Obiekt) => ({ filename: 'tests/filtr/niezmienniki/kwoty.test.ts', status: 'modified', changes: 2, ...zmiany });
+
+  it('zmieniona albo usunięta linia testu filtra: NIE z dokładną etykietą i linią dla Bartosza', () => {
+    const wynik = ocena(zPlikiem(testFiltra({ patch: "@@ -1,1 +1,1 @@\n-expect(a).toBe(1);\n+expect(a).toBe(2);" })));
+    expect(wynik.wynik).toBe('NIE');
+    expect(wynik.powody.join('\n')).toContain('„Filtr: straż” zażąda etykiety zgoda:zmiana-filtra (tests/filtr/niezmienniki/kwoty.test.ts)');
+    expect(wynik.linia).toBe('po przeczytaniu zmian: ./scripts/ops/scal-pr.sh 900 --zgoda zmiana-filtra --po-drugim-czytelniku --czekaj');
+  });
+
+  it('przeniesiony test filtra też wymaga zgody, same dopisane linie nie', () => {
+    expect(ocena(zPlikiem(testFiltra({ status: 'renamed', previous_filename: 'tests/filtr/stary.test.ts', patch: "@@\n+it('x', () => {});" }))).powody.join('\n')).toContain(
+      'zgoda:zmiana-filtra',
+    );
+    expect(ocena(zPlikiem(testFiltra({ status: 'added', patch: "@@ -0,0 +1,1 @@\n+it('nowy niezmiennik', () => {});" }))).wynik).toBe('TAK');
+  });
+
+  it('nowy komentarz wyjątku filtra: NIE z zgoda:wyjatek-filtra', () => {
+    const wynik = ocena(zPlikiem({ filename: 'lib/invoices/inny.ts', status: 'modified', changes: 1, patch: `@@\n+// ${ZNACZNIK}: kwoty-bez-float powód` }));
+    expect(wynik.powody.join('\n')).toContain('zgoda:wyjatek-filtra (lib/invoices/inny.ts)');
+    expect(wynik.linia).toBe('po przeczytaniu zmian: ./scripts/ops/scal-pr.sh 900 --zgoda wyjatek-filtra --po-drugim-czytelniku --czekaj');
+  });
+
+  it('obszar z CODEOWNERS i zgoda straży naraz: etykieta obszaru, potem scal-pr.sh z flagą', () => {
+    const wynik = ocena({
+      pliki: [PLIK_TESTU, PLIK_KODU, testFiltra({ patch: '@@\n-a\n+b' }), { filename: 'lib/ksef/submit.ts', status: 'modified', changes: 2, patch: '@@\n+x' }],
+      pr: pr({ changed_files: 4 }),
+    });
+    expect(wynik.linia).toBe(
+      'po przeczytaniu zmian: gh pr edit 900 --add-label zgoda:obszar-wrazliwy && sleep 30 && ./scripts/ops/scal-pr.sh 900 --zgoda zmiana-filtra --po-drugim-czytelniku --czekaj',
+    );
+  });
+});
+
 describe('ocenPR: opis z czerwonym testem', () => {
   it.each([
     ['bez sekcji', OPIS.replace('## Najpierw test', '## Testy'), 'bez sekcji „## Najpierw test”'],

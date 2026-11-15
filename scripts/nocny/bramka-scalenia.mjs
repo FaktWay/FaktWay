@@ -12,8 +12,9 @@
 //       jest oceniany);
 //    3. PR jest otwarty, nie jest szkicem, idzie do main z tego repozytorium,
 //       z gałęzi zaczynającej się od `agent/nocny-`, bez etykiety `wstrzymaj`;
-//    4. na PR nie ma etykiet `zgoda:*`: nocny zespół zgód nie nadaje (etap 1),
-//       więc PR z zgodą prowadzi człowiek;
+//    4. na PR nie ma etykiet `zgoda:*`, a „Filtr: straż” żadnej nie zażąda
+//       (zmienione linie testów filtra, nowy komentarz wyjątku): nocna sesja
+//       zgód nie nadaje, taki PR czeka na Bartosza, który nadaje je osobiście;
 //    5. żadnego pliku z migracji, zasad i infrastruktury, wiedzy prawnej
 //       i złotych plików ani z obszarów `.github/CODEOWNERS` (etap 1);
 //    6. jest nowy albo zmieniony test w tests/, żaden test nie znika i nie
@@ -44,7 +45,7 @@ import { pathToFileURL } from 'node:url';
 
 import { ownersFor, parseCodeowners } from '../ci/agent-guard.mjs';
 import { KATALOG_REPO, pasujeDoWzorca } from '../filtr/mapa.mjs';
-import { MASZYNERIA, WIEDZA, bezKomentarzyHtml, liniePatcha, plikiTestowWPolu } from '../filtr/straz.mjs';
+import { MASZYNERIA, TESTY_FILTRA, WIEDZA, bezKomentarzyHtml, liniePatcha, plikiTestowWPolu } from '../filtr/straz.mjs';
 
 export const PREFIKS_GALEZI = 'agent/nocny-';
 export const ETYKIETA_STOP = 'nocny:stop';
@@ -127,6 +128,9 @@ export const SCIEZKI_BRAMKI = ['scripts/nocny', 'scripts/filtr', 'scripts/ci/age
 export const NAGLOWEK_TESTU = /^##\s+(?:Najpierw test|Czerwony test)\b/i;
 
 const TEST = /^tests\/.+\.test\.tsx?$/;
+// Znacznik komentarza wyjątku filtra (wzór: docs/runbooks/filtr.md). Składany z części, bo
+// „Filtr: straż” liczy każdą dodaną linię z nim jako nowy wyjątek, także w kodzie tej bramki.
+const ZNACZNIK_WYJATKU = new RegExp(['filtr', 'wyjatek'].join('-'));
 const POMINIECIE_TESTU = /\b(?:describe|it|test|suite)\s*\.\s*(?:skip|only)\b|\b(?:xit|xtest|xdescribe|fit|fdescribe)\s*\(/;
 const REPO = /^[\w.-]+\/[\w.-]+$/;
 const SHA = /^[0-9a-f]{40}$/;
@@ -180,8 +184,18 @@ export function ocenPliki(pliki, regulyCodeowners = []) {
   const wylaczone = [];
   const pominiete = [];
   const bezPodgladu = [];
+  // Zgody, których zażąda „Filtr: straż” (te same reguły co scripts/filtr/straz.mjs, ocenPR, krok 3).
+  const zgodyStrazy = { 'zmiana-filtra': [], 'wyjatek-filtra': [] };
   for (const plik of pliki) {
     const nazwy = [plik.filename, plik.previous_filename].filter(Boolean);
+    const { dodane, usuniete } = liniePatcha(plik.patch);
+    if (
+      nazwy.some((nazwa) => pasujeDoWzorca(TESTY_FILTRA, nazwa)) &&
+      (plik.status === 'removed' || plik.status === 'renamed' || usuniete.length > 0)
+    ) {
+      zgodyStrazy['zmiana-filtra'].push(plik.filename);
+    }
+    if (dodane.some((linia) => ZNACZNIK_WYJATKU.test(linia))) zgodyStrazy['wyjatek-filtra'].push(plik.filename);
     const znalezione = nazwy.map((nazwa) => kategoriaPliku(nazwa, regulyCodeowners)).filter(Boolean);
     const kategoria = ['migracje', 'zasady', 'wiedza', 'wrazliwe'].find((id) => znalezione.includes(id));
     if (kategoria) kategorie[kategoria].push(plik.filename);
@@ -217,7 +231,13 @@ export function ocenPliki(pliki, regulyCodeowners = []) {
   if (bezPodgladu.length > 0) {
     powody.push(`GitHub nie pokazał zmian w teście (za duży diff), więc bramka nie sprawdzi .skip i .only: ${lista(bezPodgladu)}.`);
   }
-  return { powody, kategorie, testy };
+  const zgodyFiltra = Object.keys(zgodyStrazy).filter((zgoda) => zgodyStrazy[zgoda].length > 0);
+  for (const zgoda of zgodyFiltra) {
+    powody.push(
+      `„Filtr: straż” zażąda etykiety zgoda:${zgoda} (${lista(zgodyStrazy[zgoda])}). Nocna sesja zgód nie nadaje: czeka na Bartosza, który nadaje ją osobiście.`,
+    );
+  }
+  return { powody, kategorie, testy, zgodyFiltra };
 }
 
 /** Treść sekcji `## …` opisu PR bez komentarzy HTML (do następnego nagłówka # albo ##) albo null. */
@@ -343,7 +363,7 @@ export function ocenStanPR(pr) {
   const etykiety = (pr.labels ?? []).map((etykieta) => etykieta.name);
   const zgody = etykiety.filter((nazwa) => nazwa?.startsWith(PREFIKS_ZGODY));
   if (zgody.length > 0) {
-    powody.push(`Etykiety zgody na PR (${zgody.join(', ')}): nocny zespół zgód nie nadaje, taki PR prowadzi człowiek.`);
+    powody.push(`Etykiety zgody na PR (${zgody.join(', ')}): nocna sesja zgód nie nadaje, taki PR prowadzi Bartosz.`);
   }
   if (etykiety.includes(ETYKIETA_WSTRZYMAJ)) powody.push(`Etykieta ${ETYKIETA_WSTRZYMAJ}: ktoś zatrzymał scalanie tego PR.`);
   if (pr.mergeable === null || pr.mergeable === undefined) {
@@ -354,14 +374,19 @@ export function ocenStanPR(pr) {
   return powody;
 }
 
-/** Jedna linia do wykonania przez Bartosza, gdy da się ją podać; inaczej null. */
-export function liniaDlaBartosza({ numer, kategorie, etykiety }) {
+/**
+ * Jedna linia do wykonania przez Bartosza, gdy da się ją podać; inaczej null.
+ * Zgody nadaje Bartosz osobiście: `zgoda:obszar-wrazliwy` etykietą, zgody straży
+ * flagą `--zgoda` w scal-pr.sh.
+ */
+export function liniaDlaBartosza({ numer, kategorie, etykiety, zgodyFiltra = [] }) {
   if (kategorie.migracje.length + kategorie.zasady.length + kategorie.wiedza.length > 0) {
     return `zmiana poza zasięgiem nocnego zespołu, przejrzyj ją i zdecyduj: gh pr view ${numer} --web`;
   }
-  if (kategorie.wrazliwe.length === 0) return null;
-  const scal = `./${SKRYPT_SCALANIA} ${numer} --czekaj`;
-  if (etykiety.includes(ETYKIETA_OBSZARU)) return `po przeczytaniu zmian: ${scal}`;
+  if (kategorie.wrazliwe.length === 0 && zgodyFiltra.length === 0) return null;
+  const flagi = zgodyFiltra.map((zgoda) => ` --zgoda ${zgoda}`).join('');
+  const scal = `./${SKRYPT_SCALANIA} ${numer}${flagi}${flagi ? ' --po-drugim-czytelniku' : ''} --czekaj`;
+  if (kategorie.wrazliwe.length === 0 || etykiety.includes(ETYKIETA_OBSZARU)) return `po przeczytaniu zmian: ${scal}`;
   // `sleep`: „Agent guard” liczy się od nowa po nadaniu etykiety, a scal-pr.sh odmawia przy czerwonej kontroli.
   return `po przeczytaniu zmian: gh pr edit ${numer} --add-label ${ETYKIETA_OBSZARU} && sleep 30 && ${scal}`;
 }
@@ -403,7 +428,7 @@ export function ocenPR(dane) {
     powody,
     uwagi,
     // Linia tylko dla własnego, otwartego PR nocnego zespołu: forka ani cudzej gałęzi nie podsuwamy do scalenia.
-    linia: wynik === 'NIE' && ocenGalaz(dane.pr).length === 0 ? liniaDlaBartosza({ numer: dane.pr.number, kategorie: pliki.kategorie, etykiety }) : null,
+    linia: wynik === 'NIE' && ocenGalaz(dane.pr).length === 0 ? liniaDlaBartosza({ numer: dane.pr.number, kategorie: pliki.kategorie, etykiety, zgodyFiltra: pliki.zgodyFiltra }) : null,
   };
 }
 

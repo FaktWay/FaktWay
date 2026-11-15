@@ -10,8 +10,9 @@ kolejka scalania GitHuba; `AGENTS.md`, niezmiennik 1), a od 15.11 migracje
 i wdrożenie robi nocne wdrożenie o 03:30 (`docs/runbooks/nocne-wdrozenie.md`).
 Nocny zespół idzie tą samą drogą, ale ostrzej: etykietę `scal` nadaje tylko
 bramka (`scripts/nocny/bramka-scalenia.mjs N --scal`), gdy jej warunki
-(sekcja 6) mówią TAK. Zespół nie nadaje etykiet `zgoda:*`, nie pisze migracji
-i nie wdraża.
+(sekcja 6) mówią TAK. Nocna sesja nie nadaje etykiet `zgoda:*`: PR, który ich
+wymaga, odkłada do „czeka na Bartosza” z dokładną nazwą etykiety, a Bartosz
+nadaje ją osobiście. Zespół nie pisze migracji i nie wdraża.
 
 Ten plik, bramka i prompt to zasady zespołu: zespół ich nie zmienia
 (bramka odrzuca PR, który ich dotyka). Zmienia je człowiek w zwykłym PR.
@@ -245,10 +246,15 @@ zdejmuje (nowa ocena od zera).
 3. PR jest otwarty, nie jest szkicem, idzie do `main` z tego repozytorium
    (nie z forka), gałąź zaczyna się od `agent/nocny-`, nie ma etykiety
    `wstrzymaj`;
-4. na PR nie ma żadnej etykiety `zgoda:*`: w dzień agent nadaje zgody sam po
-   drugim czytelniku, ale nocny zespół nie (etap 1), a na koncie Bartosza
-   sesja działa jako on, więc bramka nie odróżniłaby zgody człowieka od
-   własnej;
+4. na PR nie ma żadnej etykiety `zgoda:*` i żadnej nie zażąda „Filtr: straż”.
+   Nocna sesja zgód nie nadaje: PR, który ich wymaga, odkłada do „czeka na
+   Bartosza” z dokładną nazwą etykiety, a Bartosz nadaje ją osobiście. Na
+   koncie Bartosza sesja działa jako on, więc bramka nie odróżniłaby jego
+   zgody od własnej i PR z jakąkolwiek etykietą `zgoda:*` prowadzi już on.
+   Bramka sama rozpoznaje dwie zgody straży: `zgoda:zmiana-filtra`
+   (zmieniona, usunięta albo przeniesiona linia testu w `tests/filtr/`)
+   i `zgoda:wyjatek-filtra` (nowy komentarz wyjątku filtra); inne powody
+   czerwonej straży widać w jej raporcie w zakładce Checks PR;
 5. żadnego pliku z:
    - migracji (`supabase/migrations/`);
    - zasad i infrastruktury: `AGENTS.md`, `CLAUDE.md` (także w `mobile/`),
@@ -298,6 +304,7 @@ Bramka podaje ją w wierszu `Dla Bartosza:`, gdy umie:
 | Powód | Linia dla Bartosza |
 |---|---|
 | obszar z CODEOWNERS | `gh pr edit N --add-label zgoda:obszar-wrazliwy && sleep 30 && ./scripts/ops/scal-pr.sh N --czekaj` (po przeczytaniu zmian; `sleep`: „Agent guard” liczy się od nowa po etykiecie) |
+| „Filtr: straż” żąda zgody | `./scripts/ops/scal-pr.sh N --zgoda zmiana-filtra --po-drugim-czytelniku --czekaj` (albo `wyjatek-filtra`; Bartosz osobiście, po przeczytaniu zmian) |
 | migracja, zasady, wiedza prawna | `gh pr view N --web` (przejrzeć i zdecydować) |
 | naprawa wymaga migracji | „przygotuj migrację według opisu na gałęzi `agent/nocny-…-test`” |
 | czerwone CI albo konflikt po ponowieniach | `gh pr close N` albo nic: następna noc spróbuje jeszcze raz |
@@ -325,7 +332,9 @@ na później (sekcja 13).
 - Zmian własnych zasad i bramki: ten plik, `docs/nocny/`, `scripts/nocny/`,
   `AGENTS.md`, CI, hooki, filtr (lista w sekcji 6).
 - Etykiet `zgoda:*`: nie nadaje i nie zdejmuje (`scal-pr.sh` nigdy z
-  `--zgoda`). Nie zdejmuje `nocny:stop` ani `wstrzymaj`. Etykietę `scal`
+  `--zgoda`). PR, który ich wymaga, odkłada do „czeka na Bartosza” z dokładną
+  nazwą etykiety; Bartosz nadaje je osobiście. Nie dopisuje komentarzy
+  wyjątku filtra. Nie zdejmuje `nocny:stop` ani `wstrzymaj`. Etykietę `scal`
   nadaje tylko bramka.
 - Obchodzenia hooków: bez `SKIP_PREPUSH`, bez `--no-verify`. Gdy hook blokuje,
   naprawia przyczynę albo zostawia sprawę w raporcie.
@@ -534,8 +543,8 @@ wprowadza człowiek w zwykłym PR do tego pliku.
 - **Etap 2:** po 2 tygodniach dobrych wyników zdjęcie wymogu
   `zgoda:obszar-wrazliwy` dla kodu domenowego (np. `lib/ksef/`, `lib/jobs/`,
   `lib/xml/`, `lib/exports/`), z zostawieniem go dla migracji, logowania,
-  bezpieczeństwa, CI i płatności; razem z tym pytanie, czy noc może nadawać
-  zgody filtra po własnym drugim czytelniku, jak agent w dzień. Propozycja
+  bezpieczeństwa, CI i płatności; razem z tym pytanie, czy noc może kiedyś
+  nadawać zgody sama (dziś nadaje je tylko Bartosz osobiście). Propozycja
   kryteriów: co najmniej 10 scalonych PR bez cofnięcia, zero błędów na
   produkcji z nocnych PR, trafność co najmniej 1 do 3. Wymaga zmiany
   w `scripts/ci/agent-guard.mjs` i w tej bramce, w PR człowieka, za zgodą
