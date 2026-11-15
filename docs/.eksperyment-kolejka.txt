@@ -1,0 +1,1 @@
+Eksperyment 15.11.2026: czy auto-merge wlaczony kontem czlowieka wstawia PR do kolejki sam. PR do zamkniecia, nie scalac.
