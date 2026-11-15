@@ -88,8 +88,14 @@ export interface InvoiceLineItem {
   ordinal: number;
   /** Nazwa towaru/usługi (max 512 znaków w FA(3) - zmiana z FA(2) 256) */
   name: string;
-  /** Kod CN (towary), PKWiU (usługi) albo GTIN - opcjonalne */
+  /**
+   * Kod CN (towary), PKWiU (usługi) albo GTIN, typ zgadywany po długości.
+   * Dawna ścieżka faktury rozliczającej i korekty; zwykła faktura ma jawne
+   * `pkwiuCode` (krok 2.6, część 2b).
+   */
   classificationCode?: string;
+  /** PKWiU pozycji (FA(3) `PKWiU`), z formularza albo katalogu produktów. */
+  pkwiuCode?: string;
   /** Jednostka miary (szt, kg, godz, usł, mies., itd.) */
   unit: string;
   /** Ilość - do 4 miejsc po przecinku */

@@ -60,6 +60,9 @@ let vatBasis: string | null;
 /** `tenants.vat_cash_method` (00094) — false = metoda memoriałowa. */
 let cashMethod: boolean;
 let missingCashMethodColumn: boolean;
+/** Wiersze `invoice_line_items` ostatniej faktury i pozycje jej dokumentu (`fa3_data.lines`, krok 2.6 cz. 2b-1). */
+let lineRows: unknown[];
+let fa3Lines: unknown[] | undefined;
 
 function query(table: string) {
   const record: QueryLog = { table, filters: {}, operation: 'select' };
@@ -74,9 +77,9 @@ function query(table: string) {
     if (table === 'contractors') data = { nip: buyer.nip, name: buyer.name, address: buyer.address };
     if (table === 'invoices') data = record.operation === 'insert' ? { id: 'new-invoice' } : {
       id: 'last-invoice',
-      fa3_data: { buyer, payment: { method: 'transfer', bankAccount: 'fixture-bank-account' } },
+      fa3_data: { buyer, payment: { method: 'transfer', bankAccount: 'fixture-bank-account' }, ...(fa3Lines ? { lines: fa3Lines } : {}) },
     };
-    if (table === 'invoice_line_items' && record.operation === 'select') data = lines;
+    if (table === 'invoice_line_items' && record.operation === 'select') data = lineRows;
     return { data, error: null };
   };
   const chain = {
@@ -92,6 +95,7 @@ function query(table: string) {
 }
 beforeEach(() => {
   vi.resetAllMocks(); queries = []; aal = 'aal2'; factor = 'totp'; member = true; selectedOrg = org; vatBasis = null; cashMethod = false; missingCashMethodColumn = false;
+  lineRows = lines; fa3Lines = undefined;
   mocks.getSession.mockResolvedValue({ data: { session: { access_token: token, user: { id: 'forged-cookie-user', factors: [] } } }, error: null });
   mocks.getUser.mockImplementation(async () => ({ data: { user: {
     id: userId, email: 'user@example.test',
@@ -262,5 +266,26 @@ describe('metoda kasowa firmy (P_16)', () => {
   it('metoda memoriałowa: bez P_16', async () => {
     await saveAndSendInvoiceAction(form, org);
     expect(mocks.enqueue.mock.calls[0]![0].invoice.annotations).toBeUndefined();
+  });
+});
+
+describe('prefill: PKWiU pozycji z dokumentu faktury (krok 2.6, część 2b-1)', () => {
+  it('poprawny kod wraca do pozycji o tym samym numerze; niepoprawny i GTU nie', async () => {
+    lineRows = [
+      { ordinal: 1, name: 'Szkolenie', unit: 'godz.', quantity: 2, unit_price_net: 150, vat_rate: '23' },
+      { ordinal: 2, name: 'Materiały', unit: 'szt', quantity: 1, unit_price_net: 20, vat_rate: '23' },
+      { ordinal: 3, name: 'Dojazd', unit: 'usł.', quantity: 1, unit_price_net: 50, vat_rate: '23' },
+    ];
+    // Kolejność w dokumencie inna niż w wierszach: dopasowanie po numerze pozycji.
+    fa3Lines = [
+      { ordinal: 2, pkwiuCode: '85.59.A' },
+      { ordinal: 1, pkwiuCode: ' 85.59.13.0 ', gtuCode: 'GTU_12' },
+    ];
+    const prefill = await prefillFromLastInvoiceAction();
+    expect(prefill?.values.lines).toEqual([
+      { name: 'Szkolenie', unit: 'godz.', quantity: 2, unitPriceNet: 150, vatRate: '23', pkwiuCode: '85.59.13.0' },
+      { name: 'Materiały', unit: 'szt', quantity: 1, unitPriceNet: 20, vatRate: '23' },
+      { name: 'Dojazd', unit: 'usł.', quantity: 1, unitPriceNet: 50, vatRate: '23' },
+    ]);
   });
 });

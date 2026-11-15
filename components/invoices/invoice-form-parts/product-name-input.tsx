@@ -86,6 +86,8 @@ export function ProductNameInput({
   const [note, setNote] = useState<string | null>(null);
   const [status, setStatus] = useState('');
   const request = useRef(0);
+  /** PKWiU wstawione z katalogu do tej pozycji (do cofnięcia przy produkcie bez PKWiU). */
+  const catalogPkwiu = useRef<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -153,6 +155,19 @@ export function ProductNameInput({
     if (p.priceNet !== null) form.setValue(`lines.${index}.unitPriceNet`, p.priceNet, opts);
     const keepExemptRate = vatExempt && p.vatRate !== null && TAXED_VAT_RATES.includes(p.vatRate);
     if (p.vatRate && !keepExemptRate) form.setValue(`lines.${index}.vatRate`, p.vatRate, opts);
+    // Krok 2.6, część 2b-1: PKWiU z katalogu, gdy produkt je ma. Produkt bez
+    // PKWiU zostawia kod wpisany ręcznie, ale cofa kod wstawiony z katalogu
+    // (inaczej przy nazwie produktu B zostałoby PKWiU produktu A). GTU
+    // z katalogu dojdzie z polem GTU pozycji i JPK_V7M (część 2b-2).
+    if (p.pkwiuCode) {
+      form.setValue(`lines.${index}.pkwiuCode`, p.pkwiuCode, opts);
+      catalogPkwiu.current = p.pkwiuCode;
+    } else if (catalogPkwiu.current !== null) {
+      if (form.getValues(`lines.${index}.pkwiuCode`) === catalogPkwiu.current) {
+        form.setValue(`lines.${index}.pkwiuCode`, '', opts);
+      }
+      catalogPkwiu.current = null;
+    }
     setItems([]);
     close();
     const exemptNote = keepExemptRate ? exemptRateText(p) : null;

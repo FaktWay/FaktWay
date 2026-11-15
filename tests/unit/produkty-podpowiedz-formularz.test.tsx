@@ -35,8 +35,12 @@ import type { ProductSuggestion } from '@/lib/produkty/model';
  */
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-const SZKOLENIE: ProductSuggestion = { id: 'p1', name: 'Szkolenie BHP', unit: 'godz.', priceNet: 150, vatRate: '8' };
-const KONSULTACJA: ProductSuggestion = { id: 'p2', name: 'Konsultacja szkoleniowa', unit: 'usł.', priceNet: null, vatRate: null };
+const SZKOLENIE: ProductSuggestion = { id: 'p1', name: 'Szkolenie BHP', unit: 'godz.', priceNet: 150, vatRate: '8', pkwiuCode: null };
+const KONSULTACJA: ProductSuggestion = { id: 'p2', name: 'Konsultacja szkoleniowa', unit: 'usł.', priceNet: null, vatRate: null, pkwiuCode: null };
+// Krok 2.6, część 2b-1: produkt z PKWiU w katalogu.
+const SZKOLENIE_Z_KODAMI: ProductSuggestion = {
+  id: 'p3', name: 'Szkolenie z kodami', unit: 'godz.', priceNet: 200, vatRate: '23', pkwiuCode: '85.59.13.0',
+};
 
 let container: HTMLDivElement;
 let root: Root;
@@ -258,5 +262,79 @@ describe('podpowiedź produktów w polu nazwy pozycji', () => {
     expect(lista()).toBeNull();
     expect(container.textContent).toContain('Podpowiedzi z katalogu są chwilowo niedostępne');
     expect(p.nazwa.value).toBe('Szk');
+  });
+
+  it('karty: produkt z PKWiU wstawia kod, a pole PKWiU pozycji się pokazuje; GTU w formularzu dopiero z JPK_V7M', async () => {
+    m.suggest.mockResolvedValue({ ok: true, items: [SZKOLENIE_Z_KODAMI] });
+    await pokaz(false);
+    const p = pola(false);
+    expect(container.querySelector('#line-0-pkwiu')).toBeNull();
+    await wpisz(p.nazwa, 'Szk');
+    klawisz(p.nazwa, 'ArrowDown');
+    klawisz(p.nazwa, 'Enter');
+    await czekaj(10);
+    expect(container.querySelector<HTMLInputElement>('#line-0-pkwiu')?.value).toBe('85.59.13.0');
+    expect(container.querySelector('#line-0-gtu')).toBeNull();
+  });
+
+  it('produkt bez PKWiU zostawia PKWiU wpisane w pozycji', async () => {
+    await pokaz(false);
+    const p = pola(false);
+    const przycisk = container.querySelector<HTMLButtonElement>('button[aria-label="Dodaj PKWiU do pozycji 1"]');
+    act(() => przycisk?.click());
+    await wpisz(container.querySelector<HTMLInputElement>('#line-0-pkwiu')!, '62.01.11.0', 10);
+    await wpisz(p.nazwa, 'Szk');
+    klawisz(p.nazwa, 'ArrowDown');
+    klawisz(p.nazwa, 'Enter');
+    await czekaj(10);
+    expect(p.nazwa.value).toBe('Szkolenie BHP');
+    expect(container.querySelector<HTMLInputElement>('#line-0-pkwiu')?.value).toBe('62.01.11.0');
+  });
+
+  it('siatka: przycisk „Dodaj PKWiU do pozycji 1” pokazuje pole PKWiU tej pozycji i ustawia w nim kursor', async () => {
+    await pokaz(true);
+    expect(container.querySelector('#line-0-pkwiu')).toBeNull();
+    const przycisk = container.querySelector<HTMLButtonElement>('button[aria-label="Dodaj PKWiU do pozycji 1"]');
+    expect(przycisk?.textContent).toBe('Dodaj PKWiU');
+    act(() => przycisk?.click());
+    const pole = container.querySelector<HTMLInputElement>('input[aria-label="PKWiU pozycji 1"]');
+    expect(pole?.id).toBe('line-0-pkwiu');
+    expect(document.activeElement).toBe(pole);
+  });
+
+  it('kod z katalogu wyczyszczony ręcznie: pole PKWiU zostaje, a kursor w nim', async () => {
+    m.suggest.mockResolvedValue({ ok: true, items: [SZKOLENIE_Z_KODAMI] });
+    await pokaz(false);
+    const p = pola(false);
+    await wpisz(p.nazwa, 'Szk');
+    klawisz(p.nazwa, 'ArrowDown');
+    klawisz(p.nazwa, 'Enter');
+    await czekaj(10);
+    const pole = container.querySelector<HTMLInputElement>('#line-0-pkwiu')!;
+    act(() => pole.focus());
+    await wpisz(pole, '', 10);
+    expect(container.querySelector('#line-0-pkwiu')).toBe(pole);
+    expect(document.activeElement).toBe(pole);
+  });
+
+  it('po produkcie z PKWiU produkt bez PKWiU cofa kod z katalogu, a kod wpisany ręcznie zostawia', async () => {
+    m.suggest.mockResolvedValue({ ok: true, items: [SZKOLENIE_Z_KODAMI, SZKOLENIE] });
+    await pokaz(false);
+    const p = pola(false);
+    const wybierz = async (ktory: number) => {
+      await wpisz(p.nazwa, 'Szk');
+      for (let i = 0; i <= ktory; i++) klawisz(p.nazwa, 'ArrowDown');
+      klawisz(p.nazwa, 'Enter');
+      await czekaj(10);
+    };
+    await wybierz(0);
+    expect(container.querySelector<HTMLInputElement>('#line-0-pkwiu')?.value).toBe('85.59.13.0');
+    await wybierz(1);
+    expect(p.nazwa.value).toBe('Szkolenie BHP');
+    expect(container.querySelector<HTMLInputElement>('#line-0-pkwiu')?.value).toBe('');
+    await wybierz(0);
+    await wpisz(container.querySelector<HTMLInputElement>('#line-0-pkwiu')!, '62.01.11.0', 10);
+    await wybierz(1);
+    expect(container.querySelector<HTMLInputElement>('#line-0-pkwiu')?.value).toBe('62.01.11.0');
   });
 });

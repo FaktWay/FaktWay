@@ -563,9 +563,15 @@ function buildFaWiersz(
   // a przed jednostką (P_8A); przed P_7 plik nie przechodził XSD.
   wiersz.ele('P_7').txt(requireText(line.name, `line[${line.ordinal}].name`));
 
-  // Klasyfikacja – GTIN dla 8-14 cyfr, CN dla 8-10 cyfr z literami,
-  // PKWiU dla innych. MVP: ograniczamy do GTIN vs PKWiU (fallback).
-  if (line.classificationCode) {
+  // Klasyfikacja z jawnym typem (krok 2.6, część 2b-1): PKWiU z formularza
+  // albo katalogu idzie jako PKWiU, bez zgadywania po długości.
+  if (line.pkwiuCode) {
+    wiersz.ele('PKWiU').txt(line.pkwiuCode);
+  } else if (line.classificationCode) {
+    // Dawna ścieżka bez typu (zgadywanie po długości): GTIN dla 8-14 cyfr,
+    // CN dla 4-7 cyfr (8-10 cyfr bierze już GTIN), PKWiU dla reszty. Zwykła
+    // faktura z formularza jej nie używa; do usunięcia razem z fakturą
+    // rozliczającą i korektą (część 2b-3).
     if (/^\d{8,14}$/.test(line.classificationCode)) {
       wiersz.ele('GTIN').txt(line.classificationCode);
     } else if (/^\d{4,10}$/.test(line.classificationCode)) {

@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+import {
+  GTU_CODE_MESSAGE,
+  GTU_CODES,
+  PKWIU_MAX_LENGTH,
+  PKWIU_PATTERN,
+  PKWIU_PATTERN_MESSAGE,
+} from '@/lib/invoices/line-codes';
 import { vatRateEnum } from '@/lib/schemas/invoice-form';
 
 /**
@@ -26,19 +33,16 @@ export const PRODUCT_VAT_RATE_LABELS: Record<ProductVatRate, string> = {
 };
 
 /**
- * Kody GTU ze schematu FA(3) (`lib/xml/schemas/fa3/schemat-local.xsd`,
- * GTU_01 do GTU_13). Same kody, bez opisów: słownik opisów i reguły, kiedy
- * który kod się należy, to wiedza prawna i osobny krok planu (2.6, dalsze części).
+ * Kody GTU ze schematu FA(3) (GTU_01 do GTU_13), wspólne z pozycją faktury
+ * (`lib/invoices/line-codes.ts`). Same kody, bez opisów: słownik opisów
+ * i reguły, kiedy który kod się należy, to wiedza prawna i osobny krok planu.
  */
-export const GTU_CODES = [
-  'GTU_01', 'GTU_02', 'GTU_03', 'GTU_04', 'GTU_05', 'GTU_06', 'GTU_07',
-  'GTU_08', 'GTU_09', 'GTU_10', 'GTU_11', 'GTU_12', 'GTU_13',
-] as const;
+export { GTU_CODES };
 
 export const PRODUCT_LIMITS = {
   name: 200,
   unit: 30,
-  pkwiu: 20,
+  pkwiu: PKWIU_MAX_LENGTH,
   description: 2000,
   /** Największa kwota netto: 12 cyfr przed przecinkiem (NUMERIC(15,2) ma zapas). */
   priceMax: 999_999_999_999.99,
@@ -102,7 +106,7 @@ export const productFormSchema = z
     priceNet: priceSchema,
     vatRate: vatRateEnum,
     // Format PKWiU nie jest tu zgadywany: tylko znaki (cyfry i kropki) i długość.
-    pkwiu: optional(PRODUCT_LIMITS.pkwiu, 'PKWiU', /^[0-9][0-9.]*$/, 'PKWiU: tylko cyfry i kropki, na przykład 62.01.11.0.'),
+    pkwiu: optional(PRODUCT_LIMITS.pkwiu, 'PKWiU', PKWIU_PATTERN, PKWIU_PATTERN_MESSAGE),
     gtu: z
       .string()
       .nullish()
@@ -110,7 +114,7 @@ export const productFormSchema = z
         const value = (raw ?? '').trim();
         if (!value) return null;
         if (!(GTU_CODES as readonly string[]).includes(value)) {
-          ctx.addIssue({ code: 'custom', message: 'Wybierz kod GTU z listy albo zostaw pole puste.' });
+          ctx.addIssue({ code: 'custom', message: GTU_CODE_MESSAGE });
           return z.NEVER;
         }
         return value;
@@ -160,6 +164,8 @@ export interface ProductSuggestion {
   priceNet: number | null;
   /** Stawka spoza listy formularza (np. z dawnego importu) to `null`: pozycja zostaje przy swojej. */
   vatRate: ProductVatRate | null;
+  /** PKWiU z katalogu (krok 2.6, część 2b-1); niepoprawny albo brak to `null`. */
+  pkwiuCode: string | null;
 }
 
 /** Czy wartość z bazy jest stawką z listy formularza faktury (`vatRateEnum`). */

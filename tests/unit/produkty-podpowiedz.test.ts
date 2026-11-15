@@ -117,9 +117,22 @@ describe('suggestProducts', () => {
     ]);
     const out = await suggestProducts(f.client, 'T1', 'abonament');
     expect(out).toEqual([
-      { id: expect.any(String), name: 'Abonament A', unit: 'mies.', priceNet: 1250.5, vatRate: '8' },
-      { id: expect.any(String), name: 'Abonament B', unit: 'szt.', priceNet: null, vatRate: null },
+      { id: expect.any(String), name: 'Abonament A', unit: 'mies.', priceNet: 1250.5, vatRate: '8', pkwiuCode: null },
+      { id: expect.any(String), name: 'Abonament B', unit: 'szt.', priceNet: null, vatRate: null, pkwiuCode: null },
     ]);
+  });
+
+  it('PKWiU z katalogu (krok 2.6, część 2b-1); kod niepoprawny to brak kodu; GTU produktu jeszcze nie idzie do pozycji', async () => {
+    const f = fake([
+      produkt({ name: 'Szkolenie A', pkwiu_code: ' 85.59.13.0 ', gtu_code: 'GTU_12' }),
+      produkt({ name: 'Szkolenie B', pkwiu_code: '85.59.A', gtu_code: null }),
+    ]);
+    const out = await suggestProducts(f.client, 'T1', 'szkolenie');
+    expect(out.map(({ name, pkwiuCode }) => ({ name, pkwiuCode }))).toEqual([
+      { name: 'Szkolenie A', pkwiuCode: '85.59.13.0' },
+      { name: 'Szkolenie B', pkwiuCode: null },
+    ]);
+    expect(out[0]).not.toHaveProperty('gtuCode');
   });
 
   it('błąd bazy rzuca (pusta lista to nie „brak produktów”)', async () => {

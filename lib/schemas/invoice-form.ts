@@ -23,6 +23,12 @@ import {
   type ReceiptBuyerKind,
   type ReceiptRuleField,
 } from '@/lib/invoices/receipt-invoice';
+import {
+  PKWIU_LENGTH_MESSAGE,
+  PKWIU_MAX_LENGTH,
+  PKWIU_PATTERN,
+  PKWIU_PATTERN_MESSAGE,
+} from '@/lib/invoices/line-codes';
 import { isSaleDateWithinLimit, SALE_DATE_TOO_LATE_MESSAGE } from '@/lib/invoices/sale-date';
 import { addressCountryForKodUE, parseVatUe, type KodUE, isNpIiBuyerVat } from '@/lib/invoices/vat-ue';
 import { numberingFormFields } from '@/lib/numeracja/pola';
@@ -210,6 +216,13 @@ export const lineItemSchema = z.object({
     .max(MAX_INVOICE_AMOUNT, 'Cena za duża')
     .refine((v) => hasAtMostDecimals(v, 4), 'Cena — najwyżej 4 miejsca po przecinku'),
   vatRate: vatRateEnum,
+  // Krok 2.6, część 2b-1: PKWiU pozycji z jawnym typem; puste pole = brak kodu.
+  // GTU dojdzie razem z GTU w JPK_V7M (2b-2); do tego czasu schemat go pomija.
+  pkwiuCode: z
+    .string()
+    .optional()
+    .refine((v) => v === undefined || v.trim().length <= PKWIU_MAX_LENGTH, PKWIU_LENGTH_MESSAGE)
+    .refine((v) => v === undefined || v.trim() === '' || v.trim().length > PKWIU_MAX_LENGTH || PKWIU_PATTERN.test(v.trim()), PKWIU_PATTERN_MESSAGE),
 });
 
 export const invoiceFormSchema = z
