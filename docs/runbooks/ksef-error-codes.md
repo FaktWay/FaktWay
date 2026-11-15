@@ -136,8 +136,8 @@ i zgłoś Bartoszowi.
   niewstrzymany, KOR/ZAL tylko w dniu wystawienia, zwykła faktura tylko
   w terminie przesłania (B2a). Inaczej tekst bez automatu, a przy kodach
   transient znaczek „Błąd wysyłki” (np. `CREDENTIALS_UNAVAILABLE`,
-  `TRANSIENT_EXHAUSTED`, `NOT_IN_KSEF`). Każdy tekst zwykłej faktury, która
-  może jeszcze wyjść, mówi, do kiedy: „do końca następnego dnia roboczego po
+  `TRANSIENT_EXHAUSTED`, `NOT_IN_KSEF`). Każda obietnica automatu w tekście
+  zwykłej faktury mówi, do kiedy: „do końca następnego dnia roboczego po
   dacie wystawienia” (strażnik: test (c2) w `ksef-wyjscia-kodow.test.ts`).
   Obietnica automatu to górna granica: cron kończy wcześniej po 24 próbach
   (`LIFECYCLE_REQUEUE_MAX`, kod `TRANSIENT_EXHAUSTED`, tekst bez automatu) —
@@ -181,7 +181,8 @@ znika, zostaje „Wróć do szkicu” z powodem (`sendDeadlinePassed`; przy kodz
 (szkic wychodzi tylko z dzisiejszą datą — A1, `issueDateNotTodayError`), więc
 tekst i komunikat po powrocie do szkicu (`resetDoneDeadlinePassed`) każą
 usunąć szkic i wystawić fakturę od nowa z dzisiejszą datą. Zanim termin minie,
-każdy tekst z przyciskiem „Wyślij ponownie” mówi, do kiedy.
+każdy tekst z przyciskiem „Wyślij ponownie” mówi, do kiedy (strażnik: test
+(c2b) w `ksef-wyjscia-kodow.test.ts`).
 
 Operator (`/admin/ksef/<id>`, `lib/admin/ksef-operator-policy.ts`):
 - otwarty wpis `sent`/`intent` → „Tylko uzgodnij” (data bez znaczenia);
@@ -197,7 +198,16 @@ Operator (`/admin/ksef/<id>`, `lib/admin/ksef-operator-policy.ts`):
   Sprawdź fakturę w KSeF (numer faktury i NIP sprzedawcy) i zgłoś ją
   Bartoszowi. Zmiana stanu rolą serwisową — tylko Bartosz, dla tej jednej
   faktury (narzędzia nie ma). Te przypadki są na liście znanych ślepych uliczek
-  w `tests/unit/ksef-wyjscia-kodow.test.ts`.
+  w `tests/unit/ksef-wyjscia-kodow.test.ts`;
+- **faktura za abonament FaktWay** (firma operatora, zadanie
+  `self-invoice-payment`): jej data wystawienia to data płatności, a
+  `create_billing_vat_invoice` (00162) innej nie przyjmie. Gdy zadanie albo
+  wysyłka stoi dłużej niż do końca następnego dnia roboczego po płatności,
+  worker odmówi z `ISSUE_DATE_PASSED`. Nie usuwaj jej szkicu: jest powiązany
+  z płatnością Stripe (`stripe_payments.vat_invoice_id`, 00047 i 00079),
+  zadanie nie wystawi faktury od nowa z dzisiejszą datą, a faktury wystawionej
+  ręcznie nic z płatnością nie powiąże. Sprawdź fakturę w KSeF i zgłoś ją
+  Bartoszowi (ustalenie B2a-ABONAMENT w planie).
 
 Zastrzeżenia:
 - Termin przy ogłoszonej awarii KSeF (7 dni roboczych od jej końca, art. 106nf

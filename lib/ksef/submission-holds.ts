@@ -38,7 +38,7 @@ export const KOR_HOLD_MESSAGE =
  * Komunikat mówi prawdę o tym, co się stanie (decyzja Bartosza 07.10.2026).
  */
 export const KSEF_PAUSED_JOB_MESSAGE =
-  'Wysyłka faktur do KSeF jest chwilowo wstrzymana przez operatora, więc tej próby wysyłki nie wykonaliśmy. Fakturę wyślemy automatycznie, jeśli wysyłka wróci do końca następnego dnia roboczego po dacie wystawienia (co dalej: na dole strony).';
+  'Wysyłka faktur do KSeF jest chwilowo wstrzymana przez operatora, więc tej próby wysyłki nie wykonaliśmy. Spróbujemy wysłać fakturę automatycznie, jeśli wysyłka wróci do końca następnego dnia roboczego po dacie wystawienia (co dalej: na dole strony).';
 
 /** KSEF_PAUSED dokumentu specjalnego: automat wznowi go tylko w dniu wystawienia. */
 export const KSEF_PAUSED_SPECIAL_JOB_MESSAGE =

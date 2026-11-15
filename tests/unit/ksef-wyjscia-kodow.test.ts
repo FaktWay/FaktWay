@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { OPERATOR_DUPLICATE_MESSAGES, operatorInvoiceButtons } from '@/lib/admin/ksef-operator-policy';
 import type { KsefResendFacts } from '@/lib/invoices/ksef-requeue-event';
-import { decideResend, failedInvoiceButtons } from '@/lib/invoices/ksef-send-policy';
+import { automaticResendExpected, decideResend, failedInvoiceButtons } from '@/lib/invoices/ksef-send-policy';
 import {
   DUPLICATE_CHECK_REASONS,
   ORIGINAL_GATE_RULES,
@@ -757,12 +757,28 @@ describe('A4b PR2b: klient — „Wyślij ponownie” z kopii i prawdziwe zdanie
     expect(unbounded).toEqual([]);
   });
 
+  it('(c2b) B2a: zwykła faktura w terminie — każdy tekst z przyciskiem „Wyślij ponownie” mówi, do kiedy', () => {
+    const resendable = clientScenarios().filter(
+      (s) => s.kind === 'regular' && !s.issueDatePassed && clientButtons(s)?.resend === true,
+    );
+    // Strażnik filtra: takie scenariusze w ogóle są (inaczej test niczego nie sprawdza).
+    expect(resendable.length).toBeGreaterThan(0);
+    const unbounded = resendable
+      .filter((s) => !/do końca następnego dnia roboczego po dacie wystawienia/.test(clientButtons(s)?.info ?? ''))
+      .map(label)
+      .sort();
+    expect(unbounded).toEqual([]);
+  });
+
   it('(c3) B2a: zwykła faktura po terminie — bez „Wyślij ponownie” u klienta i operatora, bez automatu; zdanie mówi dlaczego i co zrobić', () => {
     const passed = scenarios().filter((s) => s.kind === 'regular' && s.issueDatePassed);
     expect(passed.length).toBeGreaterThan(0);
     for (const s of passed) {
       expect(clientButtons(s)?.resend, label(s)).toBe(false);
-      expect(automaticResend(s), label(s)).toBe(false);
+      // Prawdziwa funkcja znaczka „ponawiamy” i tekstu, nie model crona z tego pliku.
+      expect(automaticResendExpected({
+        status: 'failed', errorCode: s.code, invoiceKind: s.kind, facts: factsOf(s), environmentKnown: true,
+      }), label(s)).toBe(false);
       const operator = operatorInvoiceButtons({
         direction: 'outgoing', status: 'failed', errorCode: s.code, invoiceKind: s.kind,
         openSent: s.openSubmission, evidence: s.evidence, facts: factsOf(s), environmentKnown: true,

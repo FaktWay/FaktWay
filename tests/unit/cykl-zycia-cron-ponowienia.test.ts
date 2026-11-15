@@ -1240,7 +1240,8 @@ describe('B2a: zwykła faktura tylko do końca następnego dnia roboczego po dac
 
     const report = await runKsefLifecycleReconcile(ctx);
 
-    expect(report).toMatchObject({ resumedAfterPause: 1, requeued: 0, errors: 0 });
+    // skippedIssueDate 0: fakturę po terminie odfiltrowało zapytanie kandydatów, a nie dopiero odmowa przy budowie zdarzenia.
+    expect(report).toMatchObject({ resumedAfterPause: 1, requeued: 0, skippedIssueDate: 0, errors: 0 });
     expect(m.send).toHaveBeenCalledTimes(1);
     expect((m.send.mock.calls[0]![0] as { singletonKey: string }).singletonKey).toBe(ID2);
   });
