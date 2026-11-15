@@ -150,17 +150,29 @@ Dostęp: `ssh -i $K root@$DB` (i analogicznie `$APP`, `$OPS`).
    tylko 3 testy tsx; `pnpm typecheck` nie łapie błędów `'use server'`).
 3. **Najpierw migracja, potem wdrożenie.** Baza może wyprzedzać aplikację
    (migracje addytywne), odwrotnie produkcja pada. Wgrywa się tylko pliki
-   z `main`, numer z rejestru w `docs/koordynacja/CLAUDE-DO-CODEXA.md`.
-   `DROP TABLE`/`DROP COLUMN`/`TRUNCATE`/`DELETE FROM` tylko za zgodą
-   Bartosza. `pnpm db:push:prod` nie działa (wyłączony); drogą jest
-   `scripts/ops/wgraj-migracje.sh`.
-4. **Wdrożenie jest ręczne i podwójne.** Repo nie ma webhooka, więc push do
-   `main` niczego nie wdraża. Wdrażasz worker (`id=2`), potem aplikację
-   (`id=1`), po kolei: `scripts/ops/wdroz-produkcje.sh`. Pominięcie workera
-   zostawia joby na starym kodzie.
+   z `main`, numer według `docs/runbooks/wgrywanie-migracji.md`.
+   **Migracje wgrywa agent sam, po kontroli** (decyzja Bartosza z
+   15.11.2026): `scripts/ops/wgraj-migracje.sh` (sesja z `.agents/infra.env`)
+   albo nocne wdrożenie (punkt 4). Kontrolę robi `scripts/ops/kontrola-migracji.mjs`
+   i odmawia wszystkiego, co wymaga człowieka: `DROP TABLE`/`DROP COLUMN`,
+   `TRUNCATE`, `DELETE FROM`, `UPDATE` na wierszach, `RENAME`, zmiany typu
+   kolumny. Te tylko za zgodą Bartosza, ręcznie. Nagłówek każdej migracji ma
+   linię `-- Wdrożenie: PRZED` albo `PO`. `pnpm db:push:prod` nie działa
+   (wyłączony).
+4. **Wdrożenie: co noc samo, w dzień na polecenie Bartosza.** Repo nie ma
+   webhooka, więc push do `main` niczego nie wdraża. Co noc o 03:30 (Warszawa)
+   timer na `ops-1` (`scripts/ops/nocne-wdrozenie.sh`, runbook
+   `docs/runbooks/nocne-wdrozenie.md`) bierze `origin/main`, sprawdza bramki
+   (CI zielone, obrazy w GHCR, kopia bazy, migracje po kontroli), wgrywa
+   migracje „przed”, wdraża worker (`id=2`), potem aplikację (`id=1`), wgrywa
+   migracje „po”, przy porażce wraca na poprzedni SHA i raportuje na Telegram.
+   Wdrożenie w dzień: `scripts/ops/zainstaluj-nocne-wdrozenie.sh --teraz` albo
+   `scripts/ops/wdroz-produkcje.sh`, tylko na polecenie Bartosza. Wstrzymanie
+   nocy: `zainstaluj-nocne-wdrozenie.sh --wstrzymaj`.
 5. **Sesja bez `.agents/infra.env` i klucza SSH** (chmura) nie wgrywa
-   migracji i nie wdraża: wpisuje w opis PR „Do wgrania: 00NNN, przed/po
-   wdrożeniu”. Klucza SSH nie kopiuje się do chmury.
+   migracji i nie wdraża. Nie musi: scalony PR wdroży noc, a migracje „przed”
+   i „po” wgra sama, jeśli nagłówek migracji mówi, kiedy. Klucza SSH nie
+   kopiuje się do chmury.
 6. **Lokalny `.env.local` celuje w lokalną bazę** (`pnpm db:local`, Supabase
    w Colimie), nigdy w `db-1`.
 7. **`proxy.ts` przepuszcza tylko wymienione rozszerzenia plików;** reszta
@@ -185,6 +197,7 @@ Dawne sekcje tego pliku przeniesione są dosłownie; odnośniki typu
 | zmienić generator FA(3) albo wysyłkę KSeF | [`fa3-ksef.md`](docs/runbooks/fa3-ksef.md) | `pnpm verify:fa3` |
 | zrozumieć blokadę żelaznego filtra, zrobić wyjątek | [`filtr.md`](docs/runbooks/filtr.md) | `pnpm filtr:lokalnie` |
 | zmienić coś „na telefon” | [`zmiany-na-telefon.md`](docs/runbooks/zmiany-na-telefon.md) (Mac zamrożony) | obchód z `e2e/README.md`, „Telefon” |
+| zobaczyć, wstrzymać albo uruchomić nocne wdrożenie; zrozumieć raport z nocy | [`nocne-wdrozenie.md`](docs/runbooks/nocne-wdrozenie.md) | `./scripts/ops/zainstaluj-nocne-wdrozenie.sh --sprawdz` |
 
 W Claude Code te same procedury otwierają skille `/wdrozenie`, `/migracja`,
 `/naprawa`, `/fa3-ksef`, `/telefon-review`, `/filtr` (`.claude/skills/`, odnośniki do

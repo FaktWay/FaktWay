@@ -2,6 +2,8 @@
 
 > Wydzielone z `AGENTS.md` 05.11.2026 (plan usprawnień, 2.1), treść bez zmian.
 > Jedną linią: `./scripts/ops/wgraj-migracje.sh 00157 00158`. Niżej zasady i droga ręczna.
+> Od 15.11.2026 migracje wgrywa agent sam, po kontroli (`kontrola-migracji.mjs`), a co noc robi to
+> też [`nocne-wdrozenie.md`](nocne-wdrozenie.md). Człowieka wymaga tylko to, co kontrola zatrzymuje (zasada 4).
 > Adresy: `source .agents/infra.env` (`AGENTS.md`, „Skąd wziąć adresy”).
 > Powiązane: [`scalanie-pr.md`](scalanie-pr.md), [`wgrywanie-migracji.md`](wgrywanie-migracji.md), [`wdrozenie-produkcji.md`](wdrozenie-produkcji.md), [`coolify-pulapki.md`](coolify-pulapki.md).
 
@@ -25,10 +27,13 @@
    za zgodą Bartosza. `DROP CONSTRAINT` + `ADD CONSTRAINT` (zmiana warunku
    albo akcji klucza obcego) i `DROP NOT NULL` są dozwolone, jeśli nagłówek
    to opisuje i dane się nie zmieniają.
-5. **Kto wgrywa.** Sesja lokalna z `.agents/infra.env` i kluczem SSH. Sesja
-   bez dostępu (chmura, brak `ssh`) NIE wgrywa: wpisuje w opis PR „Do
-   wgrania: 00NNN, przed/po wdrożeniu” i zostawia to sesji lokalnej.
-   Klucza SSH nie kopiuje się do chmury.
+5. **Kto wgrywa.** Agent sam, po kontroli: sesja lokalna z `.agents/infra.env`
+   i kluczem SSH (`wgraj-migracje.sh`, który sam odmawia tego, co wymaga
+   człowieka) albo nocne wdrożenie, które robi to z SHA przypiętego na początku
+   przebiegu i tylko przy świeżej kopii bazy (do 26 h). Sesja bez dostępu (chmura,
+   brak `ssh`) nie wgrywa i nie musi: wdroży to noc, jeśli nagłówek migracji
+   mówi, kiedy (`-- Wdrożenie: PRZED` albo `PO`). Klucza SSH nie kopiuje się
+   do chmury.
 
 Po wgraniu i weryfikacji zaktualizuj stan w rejestrze („wgrana na db-1
 DD.MM”) przy najbliższym PR.

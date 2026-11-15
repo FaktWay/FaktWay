@@ -178,8 +178,11 @@ PHP
 ghcr_rewizja() {
   local repo=${1#ghcr.io/} tag=$2 token manifest digest config
   local accept='application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json'
-  token=$(curl -fsS --max-time 20 "https://ghcr.io/token?scope=repository:$repo:pull" | jq -r '.token // empty') || return 1
-  [ -n "$token" ] || return 1
+  # 15.11.2026: pakiety pod nazwą organizacji powstają jako prywatne (token anonimowy: HTTP 401),
+  # a app-1 pobiera obrazy bez logowania.
+  local brak_tokenu="GHCR nie wydał anonimowego tokenu dla $repo (HTTP 401: pakiet jest prywatny albo nie istnieje; inaczej sprawdź sieć). Ustaw widoczność Public: GitHub → organizacja FaktWay → Packages → pakiet → Package settings → Change visibility."
+  token=$(curl -fsS --max-time 20 "https://ghcr.io/token?scope=repository:$repo:pull" | jq -r '.token // empty') || { echo "$brak_tokenu" >&2; return 1; }
+  [ -n "$token" ] || { echo "$brak_tokenu" >&2; return 1; }
   manifest=$(curl -fsS --max-time 20 -H "Authorization: Bearer $token" -H "Accept: $accept" \
     "https://ghcr.io/v2/$repo/manifests/$tag") || return 1
   # buildx z atestacjami wypycha indeks; bierzemy z niego obraz linux/amd64.
@@ -217,6 +220,10 @@ czekaj_na_obrazy() {
       echo "Brak obrazów $GHCR_PREFIX-{worker,runner}:$sha z etykietą rewizji w GHCR." >&2
       echo "Build robi workflow „Obrazy i wdrożenie” po każdym scaleniu do main (gh run list --workflow obrazy.yml)." >&2
       echo "Ręcznie: gh workflow run obrazy.yml -f ref=$sha -f wdroz=false" >&2
+      # Najczęstsza przyczyna po przeniesieniu repo do organizacji: pakiet prywatny.
+      for id in "$WORKER_ID" "$WEB_ID"; do
+        ghcr_rewizja "$(obraz_ghcr "$id")" "$sha" 2>&1 >/dev/null | grep '^GHCR nie wydał' | head -n 1 >&2 || true
+      done
       return 1
     fi
     [ "$proba" = 0 ] && echo "   obrazów $sha jeszcze nie ma w GHCR; czekam do $minuty min (co 30 s)"

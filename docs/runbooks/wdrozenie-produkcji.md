@@ -1,6 +1,9 @@
 # Wdrożenie produkcji
 
 > Wydzielone z `AGENTS.md` 05.11.2026 (plan usprawnień, 2.1), treść bez zmian.
+> **Od 15.11.2026 wdraża co noc timer na ops-1** ([`nocne-wdrozenie.md`](nocne-wdrozenie.md)):
+> migracje po kontroli, worker, aplikacja, ratunek, raport na Telegram. Ten plik opisuje
+> to, co skrypt robi w środku, oraz wdrożenie ręczne w dzień (na polecenie Bartosza).
 > Jedną linią: `./scripts/ops/wdroz-produkcje.sh` (build z repo na `app-1`) albo, po przełączeniu Coolify na obrazy, `./scripts/ops/wdroz-produkcje.sh --obraz <sha>` (worker, potem aplikacja, na końcu kontrola). Niżej kolejność wydania i droga ręczna.
 > Obrazy z GHCR zamiast buildu na `app-1`: sekcja [„Obrazy z GHCR”](#obrazy-z-ghcr-zamiast-buildu-na-app-1). Skąd jesteś teraz: `./scripts/ops/coolify-zrodlo.sh stan`.
 > Adresy: `source .agents/infra.env` (`AGENTS.md`, „Skąd wziąć adresy”).
@@ -9,7 +12,8 @@
 ## Kolejność przy pełnym wydaniu
 
 ```
-0. Bartosz w czacie wprost prosi o wdrożenie (scalenie robi agent przez kolejkę)
+0. Noc robi to sama (03:30); w dzień Bartosz w czacie wprost prosi o wdrożenie
+   (scalenie robi agent przez kolejkę), najlepiej `zainstaluj-nocne-wdrozenie.sh --teraz`
 1. pnpm run ci && pnpm build        ← lokalnie, PRZED pushem
 2. PR do main, kontrole zielone → kolejka scalania (`scalanie-pr.md`)
 3. migracje „przed wdrożeniem” na db-1 (+ schema_migrations + NOTIFY pgrst
