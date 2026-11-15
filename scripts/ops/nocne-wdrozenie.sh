@@ -145,7 +145,7 @@ oczekujace_migracje() {
   [ -n "$wersje" ] || return 1
   repo=$(git -C "$ROOT" ls-tree --name-only "$sha" supabase/migrations/ | sed -n 's#.*/\([0-9]\{5\}\)_.*\.sql$#\1#p' | sort) || return 1
   [ -n "$repo" ] || return 1
-  comm -23 <(printf '%s\n' "$repo") <(printf '%s\n' "$wersje" | sort)
+  LC_ALL=C comm -23 <(printf '%s\n' "$repo" | LC_ALL=C sort) <(printf '%s\n' "$wersje" | LC_ALL=C sort)
 }
 
 # Wiek ostatniej udanej kopii bazy w godzinach (całkowite) z backup_log; puste = brak odczytu.
@@ -266,10 +266,22 @@ glowna() {
     ping_hc /fail
     return 1
   fi
+  local tylko_migracje=0
   if [ "$worker" = "$sha" ] && [ "$web" = "$sha" ]; then
-    log "Produkcja już działa na $(skrot "$sha"). Nic do wdrożenia."
-    ping_hc ""
-    return 0
+    # Kod stoi na celu, ale migracja „po” z poprzedniej nocy mogła nie wejść: sprawdzamy zaległe.
+    local zalegle
+    if ! zalegle=$(oczekujace_migracje "$sha"); then
+      raport blad "nie odczytałem migracji z bazy" "Produkcja stoi na celu, ale nie wiem, czy czekają migracje. Sprawdź dostęp do db-1."
+      ping_hc /fail
+      return 1
+    fi
+    if [ -z "$zalegle" ]; then
+      log "Produkcja już działa na $(skrot "$sha"). Nic do wdrożenia."
+      ping_hc ""
+      return 0
+    fi
+    log "Kod już na $(skrot "$sha"), ale czekają migracje: ${zalegle//$'\n'/ }. Wgram je bez wdrażania."
+    tylko_migracje=1
   fi
   if [ "$worker" != "$web" ]; then
     raport blad "worker i aplikacja na różnych commitach" "worker=$(skrot "$worker"), aplikacja=$(skrot "$web"). Stan mieszany po przerwanym wdrożeniu. Nie wdrażam; ./scripts/ops/wdroz-produkcje.sh --obraz <sha> ustawi oba."
@@ -347,7 +359,7 @@ ${zablokowane:+$zablokowane
     fi
     local wiek
     wiek=$(wiek_kopii_h)
-    if [ -z "$wiek" ] || [ "$wiek" -gt "$NOCNE_MAX_KOPIA_H" ]; then
+    if ! [[ "$wiek" =~ ^[0-9]+$ ]] || [ "$wiek" -gt "$NOCNE_MAX_KOPIA_H" ]; then
       raport blad "kopia bazy nieświeża, nie wgrywam migracji" "Ostatnia udana kopia: ${wiek:-brak odczytu} h temu (limit $NOCNE_MAX_KOPIA_H h). Migracje czekają: ${oczekujace//$'\n'/ }. Sprawdź backup_log i docs/runbooks/backup-restore.md."
       ping_hc /fail
       return 1
@@ -374,26 +386,29 @@ ${zablokowane:+$zablokowane
     fi
   fi
 
-  # ── 6. Wdrożenie ──
-  local wdr_kod=0
-  wdroz "$sha" || wdr_kod=$?
-  local po_wdr_worker po_wdr_web
-  po_wdr_worker=$(sha_dzialajacego "$WORKER_ID")
-  po_wdr_web=$(sha_dzialajacego "$WEB_ID")
-  if [ "$wdr_kod" != 0 ] || [ "$po_wdr_worker" != "$sha" ] || [ "$po_wdr_web" != "$sha" ]; then
-    log "Wdrożenie nie przeszło (kod $wdr_kod; worker=${po_wdr_worker:-?}, aplikacja=${po_wdr_web:-?}). Ratunek: powrót na $(skrot "$wdrozony")."
-    local ratunek_kod=0
-    wdroz "$wdrozony" || ratunek_kod=$?
-    local r_worker r_web
-    r_worker=$(sha_dzialajacego "$WORKER_ID")
-    r_web=$(sha_dzialajacego "$WEB_ID")
-    if [ "$ratunek_kod" = 0 ] && [ "$r_worker" = "$wdrozony" ] && [ "$r_web" = "$wdrozony" ]; then
-      raport blad "wdrożenie $(skrot "$sha") padło, wróciłem na $(skrot "$wdrozony")" "Migracje „przed” (${przed:-brak}) zostały wgrane; są addytywne, stary kod z nimi działa. Migracje „po” (${po:-brak}) czekają. Log: $LOG"
-    else
-      raport blad "wdrożenie padło I ratunek się nie udał: potrzebny człowiek" "Teraz: worker=${r_worker:-?}, aplikacja=${r_web:-?}. Próbowałem wrócić na $(skrot "$wdrozony"). Sprawdź: ./scripts/ops/kontrola-faktur-ksef.sh i ./scripts/ops/coolify-zrodlo.sh stan. Log: $LOG"
+  # ── 6. Wdrożenie (pomijane, gdy kod już stoi na celu, a czekają tylko migracje) ──
+  if [ "$tylko_migracje" = 0 ]; then
+    local wdr_kod=0
+    wdroz "$sha" || wdr_kod=$?
+    local po_wdr_worker po_wdr_web
+    po_wdr_worker=$(sha_dzialajacego "$WORKER_ID")
+    po_wdr_web=$(sha_dzialajacego "$WEB_ID")
+    if [ "$wdr_kod" != 0 ] || [ "$po_wdr_worker" != "$sha" ] || [ "$po_wdr_web" != "$sha" ]; then
+      log "Wdrożenie nie przeszło (kod $wdr_kod; worker=${po_wdr_worker:-?}, aplikacja=${po_wdr_web:-?}). Ratunek: powrót na $(skrot "$wdrozony")."
+      local ratunek_kod=0
+      wdroz "$wdrozony" || ratunek_kod=$?
+      local r_worker r_web
+      r_worker=$(sha_dzialajacego "$WORKER_ID")
+      r_web=$(sha_dzialajacego "$WEB_ID")
+      if [ "$ratunek_kod" = 0 ] && [ "$r_worker" = "$wdrozony" ] && [ "$r_web" = "$wdrozony" ]; then
+        raport blad "wdrożenie $(skrot "$sha") padło, wróciłem na $(skrot "$wdrozony")" "Migracje „przed” (${przed:-brak}) zostały wgrane; są addytywne, stary kod z nimi działa. Migracje „po” (${po:-brak}) czekają. Log: $LOG"
+      else
+        raport blad "wdrożenie padło I ratunek się nie udał: potrzebny człowiek" "Teraz: worker=${r_worker:-?}, aplikacja=${r_web:-?}. Próbowałem wrócić na $(skrot "$wdrozony"). Sprawdź: ./scripts/ops/kontrola-faktur-ksef.sh i ./scripts/ops/coolify-zrodlo.sh stan. Log: $LOG"
+      fi
+      ping_hc /fail
+      return 1
     fi
-    ping_hc /fail
-    return 1
+
   fi
 
   # ── 7. Migracje „PO wdrożeniu” ──

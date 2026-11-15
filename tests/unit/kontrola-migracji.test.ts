@@ -103,6 +103,7 @@ describe('blokady zapisu: zakazane bez człowieka', () => {
     expect(zablokowane('DO $$ BEGIN DELETE FROM t WHERE a = 1; END $$;')).toContain('DELETE FROM');
     expect(zablokowane('DO $$ BEGIN UPDATE t SET a = 1; END $$;')).toContain('UPDATE na wierszach');
     expect(zablokowane('DO $$ BEGIN ALTER TABLE t DROP COLUMN a; END $$;')).toContain('DROP COLUMN');
+    expect(zablokowane("DO $$ BEGIN EXECUTE 'DROP TABLE t'; END $$;")).toContain('EXECUTE w bloku DO (dynamiczny SQL)');
   });
 });
 

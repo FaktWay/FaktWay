@@ -172,6 +172,7 @@ const REGULY = [
   ['wyłączenie RLS', /^ALTER\s+TABLE\b.*\b(?:DISABLE|NO\s+FORCE)\s+ROW\s+LEVEL\s+SECURITY\b/i, /\b(?:DISABLE|NO\s+FORCE)\s+ROW\s+LEVEL\s+SECURITY\b/i],
   ['SUPERUSER/BYPASSRLS', /^(?:CREATE|ALTER)\s+(?:ROLE|USER)\b.*\b(?:SUPERUSER|BYPASSRLS)\b/i, /\b(?:SUPERUSER|BYPASSRLS)\b/i],
   ['ALTER SYSTEM', /^ALTER\s+SYSTEM\b/i, /\bALTER\s+SYSTEM\b/i],
+  ['EXECUTE w bloku DO (dynamiczny SQL)', /(?!)/, /\bEXECUTE\b/i],
   ['COPY … PROGRAM', /^COPY\b.*\bPROGRAM\b/i, /\bCOPY\b.*\bPROGRAM\b/i],
 ];
 

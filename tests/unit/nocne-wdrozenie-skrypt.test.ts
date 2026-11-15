@@ -433,6 +433,12 @@ echo "KOD=$?"
     });
   });
 
+  itJq('kod już na celu, ale czeka migracja „po”: wgrywa ją bez wdrażania', () => {
+    const r = uruchom({ stan: 'B', migracje: { '00300_a.sql': `${NAGL('PO wdrożeniu')}CREATE TABLE x (id int);\n` } });
+    expect(r.kod).toBe(0);
+    expect(r.calls).toEqual([`wgraj 00300 (ref=${shaB.slice(0, 8)})`]);
+  });
+
   describe('--sucho', () => {
     itJq('pokazuje plan i nic nie zmienia: bez wgrania, wdrożenia, Telegramu i pingów', () => {
       const r = uruchom({
