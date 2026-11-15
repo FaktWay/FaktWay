@@ -359,7 +359,8 @@ async function callAnthropic(req: {
   user: string;
 }): Promise<ModelCallResult> {
   // LIM-05: treść ma szablon w zapasie, więc długie czekanie nic nie daje.
-  // Krótki limit: po ok. 40 s (2 próby po 20 s) szablon zamiast do 30 min.
+  // Krótki limit: po ok. 40 s (2 próby po 20 s) szablon zamiast do 30 min,
+  // gdy połączenie stanie; `retry-after` dostawcy przy 429 i 529 dochodzi do tego.
   const response = await getAnthropic().messages.create(
     {
       model: req.model,

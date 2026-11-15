@@ -22,16 +22,18 @@ export const OCR_MODEL = process.env.ANTHROPIC_OCR_MODEL ?? 'claude-sonnet-4-6';
  * (`lib/ocr/engine.ts`) i kategoryzacja (`lib/categorization/ai-classifier.ts`).
  * Najdłuższe uczciwe wywołanie to OCR (`OCR_MODEL`, `max_tokens` 2048), które
  * SDK szacuje ostrożnie na 57,6 s (128 000 tokenów na godzinę). Limit to
- * ok. dwa takie szacunki. Najgorszy przypadek: 2 próby po 120 s i ok. 0,5 s
- * przerwy, czyli ok. 4 min.
+ * ok. dwa takie szacunki. Najgorszy przypadek przy połączeniu, które stanęło:
+ * 2 próby po 120 s i ok. 0,5 s przerwy, czyli ok. 4 min. Przy odpowiedzi 429
+ * albo 529 z `retry-after` SDK czeka przed ponowieniem tyle, ile każe dostawca.
  */
 export const ANTHROPIC_WORKER_LIMITS = { timeout: 120_000, maxRetries: 1 } as const;
 
 /**
  * Wywołania, na które czeka człowiek albo które mają gotowy zapas (czat
  * pomocy, Flo z szablonem). Odpowiedzi do 1024 tokenów; SDK szacuje 400
- * tokenów na 11,25 s. Najgorszy przypadek: 2 próby po 20 s, ok. 40 s do
- * komunikatu o błędzie albo szablonu.
+ * tokenów na 11,25 s. Najgorszy przypadek przy połączeniu, które stanęło:
+ * 2 próby po 20 s, ok. 40 s do komunikatu o błędzie albo szablonu. Przerwę
+ * z `retry-after` (wyżej) w czacie ucina jego limit 60 s, we Flo nie.
  */
 export const ANTHROPIC_REQUEST_LIMITS = { timeout: 20_000, maxRetries: 1 } as const;
 
