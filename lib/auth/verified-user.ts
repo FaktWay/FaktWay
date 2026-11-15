@@ -3,8 +3,21 @@ import 'server-only';
 import { redirect } from 'next/navigation';
 
 import { createClient } from '@/lib/supabase/server';
+import {
+  AUTH_BUSY_MESSAGE,
+  isAuthServiceUnavailable,
+  logAuthServiceFailure,
+  SESSION_RETRY_MESSAGE,
+} from './gotrue-errors';
 import { getRequestPanelMfaState } from './panel-mfa-request';
 import { getVerifiedMfaState } from './verified-mfa';
+
+/** Tekst odmowy, gdy sprawdzenie sesji się nie udało; awaria GoTrue to „spróbuj ponownie” (sesja 7). */
+function verificationFailedMessage(error: unknown): string {
+  if (!isAuthServiceUnavailable(error)) return 'Nie udało się zweryfikować sesji. Zaloguj się ponownie.';
+  logAuthServiceFailure('panel', error);
+  return error.rateLimited ? AUTH_BUSY_MESSAGE : SESSION_RETRY_MESSAGE;
+}
 
 /**
  * Bootstrap and invitations need an authenticated user before an org exists.
@@ -14,12 +27,12 @@ import { getVerifiedMfaState } from './verified-mfa';
 export async function getVerifiedUserContext(options: { fullMfa?: boolean } = {}) {
   const supabase = await createClient();
   const state = await (options.fullMfa ? getVerifiedMfaState(supabase) : getRequestPanelMfaState(supabase))
-    .catch(() => null);
-  if (!state) {
+    .catch((error: unknown) => ({ failed: error }));
+  if ('failed' in state) {
     return {
       ok: false as const,
       reason: 'verification_failed' as const,
-      error: 'Nie udało się zweryfikować sesji. Zaloguj się ponownie.',
+      error: verificationFailedMessage(state.failed),
     };
   }
   if (state.status === 'unauthenticated') {
