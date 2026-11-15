@@ -658,6 +658,8 @@
         "lib/dashboard/{tax-estimate,vat-limit,costs,monthly-figures,cash-flow,cash-movements,inflows,inflow-terms,sales-history,rankings}.ts",
         "lib/dashboard/receivables*.ts",
         "lib/api/mobile/kontrahenci.ts",
+        "lib/api/mobile/{przeplywy,analizy}.ts",
+        "app/api/mobile/v1/{przeplywy,analizy}/**",
         "lib/flo/functions/{tax-setaside,tax-deadline,tax-relief,vat-limit,rate-raise,month-close}.ts",
         "lib/flo/{tax-params,tax-profile,metrics,money}.ts",
         "lib/analytics-finance/**",

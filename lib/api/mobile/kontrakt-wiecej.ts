@@ -261,3 +261,93 @@ export interface DziennikOdpowiedz {
   /** `zasob` i `ip` są `null`, gdy wpis ich nie ma (strona pisze wtedy kreskę). */
   wpisy: Array<{ id: string; kiedy: string; akcja: string; zasob: string | null; ip: string | null }>;
 }
+
+// ─── Przepływy i Analizy (M10e, część 2) ─────────────────────────────
+
+/**
+ * Tryb danych firmy jak na stronie (`lib/demo/tryb-danych.ts`): `przyklad`
+ * przed potwierdzeniem KSeF (dane przykładowe, plakietka), `synchronizacja`
+ * w trakcie pobierania historii, `prawdziwe`.
+ */
+export type TrybDanychTelefonu = 'przyklad' | 'synchronizacja' | 'prawdziwe';
+
+/** Kubełek wykresu przepływów (tydzień, miesiąc, rok): wpływy oznaczone jako zapłacone i koszty brutto, w złotych. */
+export interface KubelekPrzeplywow {
+  klucz: string;
+  etykieta: string;
+  okres: string;
+  wplywy: number;
+  koszty: number;
+  /** Wpływy minus koszty (liczy serwer). */
+  saldo: number;
+  liczbaWplywow: number;
+}
+
+export interface WykresPrzeplywow {
+  kubelki: KubelekPrzeplywow[];
+  sumaWplywow: number;
+  sumaKosztow: number;
+}
+
+/** Pierścień „Odłóż na podatek” albo „Limit zwolnienia z VAT”: zdania i procent liczy serwer (adaptery strony). */
+export interface PierscienTelefonu {
+  tytul: string;
+  podtytul: string;
+  procent: number;
+  linie: [string, string, string];
+  podpis: string;
+}
+
+/** `GET /api/mobile/v1/przeplywy`: karty strony `/przeplywy`, każda liczona osobno. */
+export interface PrzeplywyOdpowiedz {
+  tryb: TrybDanychTelefonu;
+  /** Od kiedy koszty z KSeF są w danych (zakupy nie pobrane w całości); `null`, gdy wszystkie. */
+  kosztyKsefOd: string | null;
+  wykres: CzescTelefonu<{ tydzien: WykresPrzeplywow; miesiac: WykresPrzeplywow; rok: WykresPrzeplywow }>;
+  miesiac: CzescTelefonu<{
+    wplywy: { kwota: number; poprzednio: number; liczba: number; zmianaPct: number | null };
+    koszty: { kwota: number; poprzednio: number; liczba: number; zmianaPct: number | null };
+  }>;
+  pierscien: CzescTelefonu<PierscienTelefonu>;
+  zrodla: CzescTelefonu<Array<{ klucz: string; nazwa: string; kierunek: 'in' | 'out'; kwota: number; liczba: number; udzial: number }>>;
+  spodziewane: CzescTelefonu<{ pozycje: Array<{ id: string; nazwa: string; numer: string | null; termin: string; dniDoTerminu: number; kwota: number }>; liczba: number; suma: number }>;
+  /** Wpływy i koszty z ostatnich 12 miesięcy, od najnowszych (do 100; kwota ze znakiem dokumentu). */
+  operacje: CzescTelefonu<Array<{ id: string; kierunek: 'in' | 'out'; data: string; kontrahent: string; numer: string | null; kategoria: string; status: 'paid' | 'correction' | 'reviewed' | 'pending' | 'ksef'; kwota: number }>>;
+}
+
+export interface PunktTrendu {
+  klucz: string;
+  etykieta: string;
+  kwota: number;
+}
+
+export interface CzescPodzialu {
+  klucz: string;
+  etykieta: string;
+  kwota: number;
+  /** Procent udziału (liczy serwer). */
+  procent: number;
+  pozostale: boolean;
+}
+
+/** `GET /api/mobile/v1/analizy?widok=sprzedaz|koszty&miesiac=RRRR-MM`: karty stron `/analizy/sprzedaz` i `/analizy/koszty`. */
+export interface AnalizyOdpowiedz {
+  tryb: TrybDanychTelefonu;
+  widok: 'sprzedaz' | 'koszty';
+  miesiac: string;
+  /** Miesiące do wyboru jak na stronie (`analyticsMonthOptions`). */
+  miesiace: Array<{ klucz: string; etykieta: string }>;
+  kosztyKsefOd: string | null;
+  kafle: CzescTelefonu<{ suma: number; srednioDziennie: number; zmianaPct: number | null; najlepszy: string | null }>;
+  trend: CzescTelefonu<PunktTrendu[]>;
+  podzial: CzescTelefonu<CzescPodzialu[]>;
+  ostatnie: CzescTelefonu<Array<{ id: string; nazwa: string; numer: string | null; data: string; kwota: number; korekta: boolean }>>;
+  /** Tylko sprzedaż. */
+  naleznosci: CzescTelefonu<{ doZaplaty: number; poTerminie: number; liczba: number; liczbaPoTerminie: number; najstarszaDni: number | null; pominieteWWalucie: number }> | null;
+  /** Tylko koszty. */
+  vat: CzescTelefonu<{ vat: number; doOdliczenia: number; doOpisania: number }> | null;
+  wynik: CzescTelefonu<{ przychody: number; koszty: number; wynik: number }>;
+  stali: CzescTelefonu<Array<{ klucz: string; nazwa: string; srednio: number; dzien: number; miesiace: number }>>;
+  /** Ostatnie 180 dni; `poziom` 0 do 4 (0: nic) to odcień pola kalendarza, liczony przez serwer względem najwyższego dnia. */
+  kalendarz: CzescTelefonu<Array<{ dzien: string; kwota: number; poziom: number }>>;
+}
