@@ -57,3 +57,7 @@ jobs:
         run: node scripts/ci/scalanie-etykieta.mjs
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Konto człowieka (PAT albo token aplikacji): tylko ono wstawia PR do kolejki
+          # tak, żeby ruszyły kontrole grupy. Wpis zrobiony GITHUB_TOKEN stoi w
+          # AWAITING_CHECKS (#765). Bez sekretu skrypt nic nie włącza i komentuje.
+          SCAL_TOKEN: ${{ secrets.SCAL_TOKEN }}

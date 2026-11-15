@@ -3,8 +3,9 @@
 # ════════════════════════════════════════════════════════════════
 # Scalanie PR przez etykietę `scal` (jedna ścieżka dla każdego środowiska)
 # ────────────────────────────────────────────────────────────────
-# Jedna linia, z dowolnego katalogu, tylko REST (`gh api`), bez GraphQL, więc
-# działa też w sesji chmurowej, gdzie `gh pr merge` i `gh pr edit` nie działają:
+# Jedna linia, z dowolnego katalogu. Etykiety i odczyty idą przez REST (`gh api`),
+# więc działają też w sesji chmurowej, gdzie GraphQL (`gh pr merge`, `gh pr edit`)
+# jest zablokowany. Scalanie włącza krok e. (GraphQL, tylko gdzie wolno):
 #
 #   ./scripts/ops/scal-pr.sh 776
 #   ./scripts/ops/scal-pr.sh 776 --czekaj
@@ -18,11 +19,18 @@
 #   c. `--zgoda X` nadaje etykietę `zgoda:X` PRZED `scal`. Wymaga flagi
 #      `--po-drugim-czytelniku`: potwierdzasz, że drugi czytelnik przeczytał zmianę
 #      i nie ma otwartych uwag. Skrypt tego nie sprawdzi, ale wymusza ten krok;
-#   d. nadaje etykietę `scal`. Workflow „Scalanie na etykietę” włącza wtedy
-#      automatyczne scalanie: PR wchodzi do kolejki po zielonych kontrolach.
-#      PR, który ma już włączone scalanie albo jest w kolejce, zostaje bez
-#      zmian (ponowne nadanie etykiety wyjęłoby go z kolejki);
-#   e. `--czekaj` odpytuje GitHuba co 30 s (do 45 min) i wypisuje MERGED albo
+#   d. nadaje etykietę `scal`. Workflow „Scalanie na etykietę” sprawdza wtedy
+#      warunki (nadawca z filtr/zgody.json, baza main, nie fork, nie szkic) i zdejmuje
+#      etykietę, gdy któryś zawodzi. PR, który ma już włączone scalanie albo jest
+#      w kolejce, zostaje bez zmian (ponowne nadanie etykiety wyjęłoby go z kolejki);
+#   e. włącza scalanie z KONTA CZŁOWIEKA (`gh pr merge`: auto-merge, a gdy kontrole
+#      już przeszły, wpis do kolejki). Tylko tak PR wchodzi do kolejki bez ręcznego
+#      kroku: scalanie włączone albo wpis zrobiony przez `GITHUB_TOKEN` (workflow
+#      bez sekretu SCAL_TOKEN) nie uruchamia kontroli grupy, a auto-merge z tego
+#      tokenu nie wstawił do kolejki żadnego PR (docs/runbooks/scalanie-pr.md,
+#      „Dlaczego PR nie wchodził do kolejki”). W sesji chmurowej GraphQL jest
+#      zablokowany: krok wypisze ostrzeżenie i zostaje workflow z SCAL_TOKEN;
+#   f. `--czekaj` odpytuje GitHuba co 30 s (do 45 min) i wypisuje MERGED albo
 #      powód, dla którego PR nie wszedł.
 # Nowy push zdejmuje `scal` i etykiety zgody: nadajesz je od nowa po przeglądzie.
 #
@@ -191,12 +199,25 @@ else
   say "✔ etykieta scal nadana: workflow „Scalanie na etykietę” włączy scalanie, PR wejdzie do kolejki po zielonych kontrolach"
 fi
 
+# ─── e. scalanie z konta człowieka ───────────────────────────────
+# `gh pr merge` przy kolejce scalania nie chce metody: gdy kontrole jeszcze trwają,
+# włącza auto-merge, a gdy przeszły, wstawia PR do kolejki (nigdy `--admin`).
+# `--match-head-commit` pilnuje, żeby scalono dokładnie ten SHA, który sprawdziliśmy.
+if [ "$w_drodze" != 1 ]; then
+  if blad=$(gh pr merge "$NUMER" -R "$REPO" --match-head-commit "$sha" 2>&1); then
+    say "✔ scalanie włączone z Twojego konta: PR wejdzie do kolejki po zielonych kontrolach, bez dalszych kroków"
+  else
+    say "   ostrzeżenie: nie włączyłem scalania z konta gh (${blad%%$'\n'*})." >&2
+    say "   Bez sekretu SCAL_TOKEN w workflow PR nie wejdzie do kolejki sam. Z sesji lokalnej: gh pr merge $NUMER (albo gh pr merge $NUMER --auto), z chmury: poproś Bartosza o sekret." >&2
+  fi
+fi
+
 if [ "$CZEKAJ" != 1 ]; then
   say "Stan: gh api repos/$REPO/pulls/$NUMER --jq '{state, merged}'; powód odmowy workflow: ostatni komentarz PR (gh api repos/$REPO/issues/$NUMER/comments --jq '.[-1].body')."
   exit 0
 fi
 
-# ─── e. czekanie ─────────────────────────────────────────────────
+# ─── f. czekanie ─────────────────────────────────────────────────
 proby=$((LIMIT_MIN * 60 / ODSTEP))
 [ "$proby" -ge 1 ] || proby=1
 say "Czekam na scalenie (do $LIMIT_MIN min, sprawdzam co $ODSTEP s)…"

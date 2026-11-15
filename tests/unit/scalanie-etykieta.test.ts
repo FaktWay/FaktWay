@@ -155,9 +155,12 @@ function atrapa(opcje: {
   bladEnable?: string;
   bladGraphql?: string;
   bladKomentarza?: string;
+  tozsamosc?: 'czlowiek' | 'bot';
 } = {}) {
   const wywolania: Wywolanie[] = [];
   const api = {
+    // Domyślnie jak z sekretem SCAL_TOKEN; `bot` to praca samym GITHUB_TOKEN.
+    tozsamosc: opcje.tozsamosc ?? 'czlowiek',
     async rest(metoda: string, sciezka: string, cialo?: unknown) {
       wywolania.push({ rodzaj: 'rest', metoda, sciezka, cialo });
       if (metoda === 'POST' && opcje.bladKomentarza) throw new Error(opcje.bladKomentarza);
@@ -210,6 +213,45 @@ describe('wykonaj', () => {
     await expect(wykonaj(decyduj(z, OSOBY), z, api)).rejects.toThrow(/not allowed/);
   });
 
+  it('wlacz bez tożsamości człowieka (sam GITHUB_TOKEN): zero mutacji, także przy clean status, komentarz mówi, co zrobić, etykieta zostaje', async () => {
+    // GITHUB_TOKEN nie uruchamia kontroli grupy: wpis w kolejce stałby w AWAITING_CHECKS (#765),
+    // a scalanie włączone tym tokenem nie wstawiło do kolejki żadnego PR.
+    const z = zdarzenie();
+    const { api, wywolania } = atrapa({ tozsamosc: 'bot', bladEnable: 'Pull request Pull request is in clean status' });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    expect(mutacje(wywolania)).toEqual([]);
+    expect(wywolania.some((w) => w.metoda === 'DELETE')).toBe(false);
+    const komentarze = wywolania.filter((w) => w.rodzaj === 'rest' && w.metoda === 'POST');
+    expect(komentarze).toHaveLength(1);
+    const tresc = (komentarze[0].cialo as { body: string }).body;
+    expect(tresc).toContain('SCAL_TOKEN');
+    expect(tresc).toContain('gh pr merge 42 --auto');
+    expect(tresc).not.toMatch(/wejdzie do kolejki po zielonych/);
+  });
+
+  it('wlacz: scalanie już włączone przez człowieka zostaje nietknięte (bez enable, bez komentarza)', async () => {
+    const z = zdarzenie();
+    const { api, wywolania } = atrapa({ stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { login: 'ezior8888-cpu' } }, mergeQueueEntry: null } });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    expect(mutacje(wywolania)).toEqual([]);
+    expect(wywolania.some((w) => w.metoda === 'POST')).toBe(false);
+  });
+
+  it('wlacz: PR już w kolejce zostaje w kolejce (bez mutacji, bez komentarza)', async () => {
+    const z = zdarzenie();
+    const { api, wywolania } = atrapa({ stan: { autoMergeRequest: null, mergeQueueEntry: { id: 'MQE_1' } } });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    expect(mutacje(wywolania)).toEqual([]);
+    expect(wywolania.some((w) => w.metoda === 'POST')).toBe(false);
+  });
+
+  it('wlacz: dawne włączenie przez bota z tożsamością człowieka zastępujemy włączeniem człowieka', async () => {
+    const z = zdarzenie();
+    const { api, wywolania } = atrapa({ stan: { autoMergeRequest: { enabledAt: 'x', enabledBy: { login: 'github-actions[bot]' } }, mergeQueueEntry: null } });
+    await wykonaj(decyduj(z, OSOBY), z, api);
+    expect(mutacje(wywolania).some((q) => q.includes('enablePullRequestAutoMerge'))).toBe(true);
+  });
+
   it('odmow: komentarz z powodem i zdjęcie etykiety scal przez REST DELETE, bez włączania', async () => {
     const z = zdarzenie({ sender: 'obcy' });
     const { api, wywolania } = atrapa();
@@ -251,7 +293,7 @@ describe('wykonaj', () => {
   it('błąd samego komentarza po skutku nie wywraca zadania (ponowienie powtórzyłoby skutek i komentarz)', async () => {
     const z = zdarzenie();
     const { api, wywolania } = atrapa({ bladKomentarza: 'HTTP 502' });
-    await expect(wykonaj(decyduj(z, OSOBY), z, api)).resolves.toBeUndefined();
+    await expect(wykonaj(decyduj(z, OSOBY), z, api)).resolves.toBe('wlaczone');
     expect(mutacje(wywolania).some((q) => q.includes('enablePullRequestAutoMerge'))).toBe(true);
   });
 
@@ -282,7 +324,36 @@ describe('przetworz', () => {
   });
 });
 
+describe('przetworz bez tożsamości człowieka', () => {
+  it('kod 0 i opis mówiący, że scalania z workflow nie włączono', async () => {
+    const { api, wywolania } = atrapa({ tozsamosc: 'bot' });
+    const w = await przetworz(zdarzenie(), OSOBY, api);
+    expect(w.kod).toBe(0);
+    expect(w.linie.join('\n')).toMatch(/brak sekretu SCAL_TOKEN/);
+    expect(mutacje(wywolania)).toEqual([]);
+  });
+});
+
 describe('utworzApi', () => {
+  it('tożsamość: z tokenem człowieka GraphQL idzie jego tokenem, a REST tokenem Actions; bez niego oba tokenem Actions', async () => {
+    const naglowki: Array<{ url: string; auth: string }> = [];
+    const fetchFn = async (url: string, init: RequestInit) => {
+      naglowki.push({ url, auth: (init.headers as Record<string, string>).Authorization });
+      return new Response(JSON.stringify({ data: {} }), { status: 200 });
+    };
+    const zCzlowiekiem = utworzApi({ token: 'ACTIONS', tokenCzlowieka: 'CZLOWIEK', fetchFn: fetchFn as unknown as typeof fetch });
+    expect(zCzlowiekiem.tozsamosc).toBe('czlowiek');
+    await zCzlowiekiem.rest('POST', '/repos/x/y/issues/1/comments', { body: 'a' });
+    await zCzlowiekiem.graphql('query { x }', {});
+    expect(naglowki.map((n) => n.auth)).toEqual(['Bearer ACTIONS', 'Bearer CZLOWIEK']);
+
+    naglowki.length = 0;
+    const bezCzlowieka = utworzApi({ token: 'ACTIONS', fetchFn: fetchFn as unknown as typeof fetch });
+    expect(bezCzlowieka.tozsamosc).toBe('bot');
+    await bezCzlowieka.graphql('query { x }', {});
+    expect(naglowki.map((n) => n.auth)).toEqual(['Bearer ACTIONS']);
+  });
+
   it('REST: ścieżka, metoda i token w nagłówku; 404 przy DELETE jest dozwolone', async () => {
     const zapytania: Array<{ url: string; init: RequestInit }> = [];
     const fetchFn = async (url: string, init: RequestInit) => {
@@ -343,4 +414,28 @@ describe('workflow scalanie-na-etykiete.yml', () => {
     expect(yml).toMatch(/timeout-minutes: 5/);
     expect(yml).toMatch(/cancel-in-progress: false/);
   });
+
+  it('przekazuje sekret SCAL_TOKEN (konto człowieka) obok tokenu Actions', () => {
+    expect(yml).toMatch(/SCAL_TOKEN: \$\{\{ secrets\.SCAL_TOKEN \}\}/);
+    expect(yml).toMatch(/GITHUB_TOKEN: \$\{\{ github\.token \}\}/);
+  });
+});
+
+describe('workflowy straży: zdarzenia etykiet nie anulują przebiegów', () => {
+  // Anulowany przebieg to osobna kontrola na SHA głowy: nowszy zielony go nie zastępuje
+  // w statusCheckRollup (FAILURE mimo zielonych wymaganych kontroli; #785, #786).
+  for (const plik of ['filtr-straz.yml', 'agent-guard.yml']) {
+    const yml = readFileSync(join(process.cwd(), '.github/workflows', plik), 'utf8').replace(/\r\n/g, '\n');
+
+    it(`${plik}: anuluje się tylko przebieg z poprzedniego pushu, reszta ma własną grupę`, () => {
+      expect(yml).toMatch(/^ {2}cancel-in-progress: \$\{\{ github\.event\.action == 'synchronize' \}\}$/m);
+      expect(yml).toMatch(/^ {2}group: .*\$\{\{ github\.event\.action == 'synchronize' && 'push' \|\| github\.run_id \}\}$/m);
+      expect(yml).not.toMatch(/cancel-in-progress: true/);
+    });
+
+    it(`${plik}: żadnego pomijania zadania na etykiety (pominięte zadanie liczy się jako zaliczona kontrola)`, () => {
+      const zadania = yml.slice(yml.indexOf('\njobs:'));
+      expect(zadania).not.toMatch(/label\.name/);
+    });
+  }
 });
