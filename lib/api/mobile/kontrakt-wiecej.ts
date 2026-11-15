@@ -342,7 +342,7 @@ export interface AnalizyOdpowiedz {
   trend: CzescTelefonu<PunktTrendu[]>;
   podzial: CzescTelefonu<CzescPodzialu[]>;
   ostatnie: CzescTelefonu<Array<{ id: string; nazwa: string; numer: string | null; data: string; kwota: number; korekta: boolean }>>;
-  /** Tylko sprzedaż. */
+  /** Tylko sprzedaż; `null` też w danych przykładowych (`tryb: 'przyklad'`): należności dopiero po połączeniu KSeF. */
   naleznosci: CzescTelefonu<{ doZaplaty: number; poTerminie: number; liczba: number; liczbaPoTerminie: number; najstarszaDni: number | null; pominieteWWalucie: number }> | null;
   /** Tylko koszty. */
   vat: CzescTelefonu<{ vat: number; doOdliczenia: number; doOpisania: number }> | null;

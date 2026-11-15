@@ -7,6 +7,7 @@ import type { MobileCaller } from '@/lib/api/mobile/auth';
 import type { AnalizyOdpowiedz, CzescPodzialu, CzescTelefonu } from '@/lib/api/mobile/kontrakt-wiecej';
 import { mobileJson } from '@/lib/api/mobile/responses';
 import { dailyTotals, type BreakdownSlice } from '@/lib/analytics-finance/breakdown';
+import { heatmapIntensityLevel } from '@/lib/analytics-finance/heatmap';
 import { saleBuyerName } from '@/lib/analytics-finance/clients';
 import { costCategoryBreakdown, costMonthStats, costOfMonth, costTrend, costVatSummary, recentCosts } from '@/lib/analytics-finance/costs';
 import {
@@ -67,10 +68,10 @@ function stali(items: readonly RecurringItem[]) {
   return items.map((r) => ({ klucz: r.key, nazwa: r.name, srednio: r.averageAmount, dzien: r.typicalDay, miesiace: r.months }));
 }
 
-/** Odcień pola kalendarza: 0 bez sprzedaży (kosztów) w dniu, 1 do 4 względem najwyższego dnia okna. */
+/** Odcień pola kalendarza jak na stronie: kwantyl wśród dni z kwotą (`heatmapIntensityLevel`). */
 function kalendarzDni(days: ReadonlyArray<{ date: string; amount: number }>) {
-  const max = Math.max(0, ...days.map((d) => d.amount));
-  return days.map((d) => ({ dzien: d.date, kwota: d.amount, poziom: d.amount > 0 && max > 0 ? Math.min(4, Math.ceil((4 * d.amount) / max)) : 0 }));
+  const dodatnie = days.map((d) => d.amount).filter((a) => a > 0).sort((a, b) => a - b);
+  return days.map((d) => ({ dzien: d.date, kwota: d.amount, poziom: heatmapIntensityLevel(d.amount, dodatnie) }));
 }
 
 type Okno<T> = { ok: true; dane: T } | { ok: false; error: unknown };
@@ -115,11 +116,13 @@ export async function analyticsForMobile(caller: MobileCaller, request: Request,
       czesc('ostatnie', () =>
         recentSales(z(sprzedaz), month, saleBuyerName).map((r) => ({ id: r.id, nazwa: r.name, numer: r.number, data: r.date, kwota: r.amount, korekta: r.kind === 'correction' })),
       ),
-      czesc('naleznosci', async () => {
-        if (tryb === 'przyklad') throw new Error('Nie można pokazać należności w danych przykładowych: zobaczysz je po połączeniu KSeF.');
-        const r = await getReceivables(supabase, tenantId, now);
-        return { doZaplaty: r.total, poTerminie: r.overdue, liczba: r.count, liczbaPoTerminie: r.overdueCount, najstarszaDni: r.oldestOverdueDays, pominieteWWalucie: r.foreignCurrencyCount };
-      }),
+      // Dane przykładowe: strona liczy należności z terminów wpływów atrapy; telefon ich nie pokazuje (`null`, ekran mówi dlaczego).
+      tryb === 'przyklad'
+        ? Promise.resolve(null)
+        : czesc('naleznosci', async () => {
+            const r = await getReceivables(supabase, tenantId, now);
+            return { doZaplaty: r.total, poTerminie: r.overdue, liczba: r.count, liczbaPoTerminie: r.overdueCount, najstarszaDni: r.oldestOverdueDays, pominieteWWalucie: r.foreignCurrencyCount };
+          }),
       wynik,
       czesc('stali', () => stali(recurringClients(z(sprzedaz), recurringKeys, LIMIT_STALYCH))),
       czesc('kalendarz', () => kalendarzDni(dailyTotals(z(sprzedaz), (inv) => inv.issueDate, (inv) => inv.net, today, HEATMAP_DAYS))),

@@ -36,6 +36,9 @@ const fake = vi.hoisted(() => {
     receivables: vi.fn(),
     exemption: vi.fn(),
     cashFlow: vi.fn(),
+    vatLimit: vi.fn(),
+    odlozyc: vi.fn(),
+    pilot: vi.fn(),
   };
 });
 
@@ -53,7 +56,9 @@ vi.mock('@/lib/dashboard/rankings', async (importOriginal) => ({ ...(await impor
 vi.mock('@/lib/dashboard/receivables', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/dashboard/receivables')>()), getReceivables: fake.receivables }));
 vi.mock('@/lib/invoices/vat-exemption', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/invoices/vat-exemption')>()), readTenantVatExemption: fake.exemption }));
 vi.mock('@/lib/dashboard/cash-flow', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/dashboard/cash-flow')>()), getCashFlowData: fake.cashFlow }));
-vi.mock('@/lib/ksiegowosc/wylacznik', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/ksiegowosc/wylacznik')>()), czyKsiegowoscWlaczona: async () => ({ wlaczony: false }) }));
+vi.mock('@/lib/ksiegowosc/wylacznik', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/ksiegowosc/wylacznik')>()), czyKsiegowoscWlaczona: fake.pilot }));
+vi.mock('@/lib/dashboard/vat-limit', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/dashboard/vat-limit')>()), getVatLimit: fake.vatLimit }));
+vi.mock('@/lib/ksiegowosc/odlozyc', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/ksiegowosc/odlozyc')>()), czytajOdlozyc: fake.odlozyc }));
 
 import { GET as analizyRoute } from '@/app/api/mobile/v1/analizy/route';
 import { GET as przeplywyRoute } from '@/app/api/mobile/v1/przeplywy/route';
@@ -119,6 +124,9 @@ beforeEach(() => {
   fake.receivables.mockResolvedValue({ total: 615, overdue: 0, notDue: 615, count: 1, overdueCount: 0, oldestOverdueDays: null, byInvoice: [], foreignCurrencyCount: 0 });
   fake.exemption.mockResolvedValue(null);
   fake.cashFlow.mockResolvedValue({ taxEstimate: { amount: 1900, label: 'Szac. podatek od 1 stycznia', subtitle: '', fullYear: true } });
+  fake.pilot.mockResolvedValue({ wlaczony: false });
+  fake.vatLimit.mockResolvedValue({ year: 2026, today: '2026-11-15', months: [], cumulative: [], used: 120000, annualLimit: 240000, limit: { pct: 50, effectiveLimit: 240000, remaining: 120000, level: 50, crossesOn: null }, lowerBound: null });
+  fake.odlozyc.mockResolvedValue({ ok: true, miesiac: '2026-11', kwotaGr: 150000, przychodGr: 1000000, pozycje: [], braki: [] });
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(NOW);
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', SUPABASE_URL);
@@ -166,8 +174,25 @@ describe('GET /api/mobile/v1/przeplywy', () => {
   it('firma zwolniona podmiotowo: pierścień limitu zwolnienia z VAT, nie „Odłóż na podatek”', async () => {
     fake.exemption.mockResolvedValue('art. 113 ust. 1 ustawy o VAT');
     const body = await (await przeplywyRoute(req('przeplywy'))).json();
-    expect(body.pierscien.ok === false || body.pierscien.dane.tytul === 'Limit zwolnienia z VAT').toBe(true);
+    expect(body.pierscien.dane).toMatchObject({ tytul: 'Limit zwolnienia z VAT', procent: 50, podpis: 'Limit wystarczy do końca roku' });
     expect(fake.cashFlow).not.toHaveBeenCalled();
+  });
+
+  it('pilotaż księgowości: „Odłóż na podatek” z modułu (udział w przychodzie), nie 19% liniowo', async () => {
+    fake.pilot.mockResolvedValue({ wlaczony: true });
+    const body = await (await przeplywyRoute(req('przeplywy'))).json();
+    expect(body.pierscien.dane).toMatchObject({ tytul: 'Odłóż na podatek', procent: 15, linie: ['15%', expect.any(String), 'do odłożenia'] });
+    expect(fake.odlozyc).toHaveBeenCalledWith(expect.anything(), ORG_A, '2026-11-15');
+    expect(fake.cashFlow).not.toHaveBeenCalled();
+  });
+
+  it('dane przykładowe: wpływy z atrapy przez `przykladoweWplywy`, bez pilotażu', async () => {
+    fake.kontekst.mockImplementation(async () => ({ tryb: 'przyklad', demo: true, supabase: {}, tenantId: 'demo', nowIso: NOW.toISOString(), verifiedAt: null, kosztyKsefOd: null }));
+    fake.pilot.mockResolvedValue({ wlaczony: true });
+    const body = await (await przeplywyRoute(req('przeplywy'))).json();
+    expect(body.tryb).toBe('przyklad');
+    expect(fake.inflows).toHaveBeenCalledWith({}, 'demo', expect.any(Object));
+    expect(fake.odlozyc).not.toHaveBeenCalled();
   });
 
   it('błąd odczytu kosztów: karty z ostatnich 12 miesięcy dostają zdanie strażnika, reszta zostaje', async () => {
@@ -189,7 +214,9 @@ describe('GET /api/mobile/v1/analizy', () => {
     expect(body.naleznosci.dane).toMatchObject({ doZaplaty: 615, liczba: 1 });
     expect(body.wynik.dane).toEqual({ przychody: 1000, koszty: 400, wynik: 600 });
     expect(body.kalendarz.dane).toHaveLength(180);
-    expect(body.kalendarz.dane.find((d: { dzien: string }) => d.dzien === '2026-11-10')).toEqual({ dzien: '2026-11-10', kwota: 1000, poziom: 4 });
+    expect(body.kalendarz.dane.find((d: { dzien: string }) => d.dzien === '2026-11-10')).toEqual({ dzien: '2026-11-10', kwota: 1000, poziom: 3 });
+    // Kwantyle jak kalendarz strony (`heatmapIntensityLevel`), nie proporcja do najwyższego dnia: dwa dni z kwotą to 1 i 3.
+    expect(body.kalendarz.dane.find((d: { dzien: string }) => d.dzien === '2026-10-08')).toMatchObject({ kwota: 500, poziom: 1 });
     expect(body.kalendarz.dane.find((d: { dzien: string }) => d.dzien === '2026-11-11')).toMatchObject({ kwota: 0, poziom: 0 });
     expect(body.ostatnie.dane[0]).toMatchObject({ nazwa: 'Klient Sp. z o.o.', kwota: 1230 });
   });
@@ -206,7 +233,7 @@ describe('GET /api/mobile/v1/analizy', () => {
     fake.kontekst.mockImplementation(async () => ({ tryb: 'przyklad', demo: true, supabase: {}, tenantId: 'demo', nowIso: NOW.toISOString(), verifiedAt: null, kosztyKsefOd: null }));
     const body = await (await analizyRoute(req('analizy'))).json();
     expect(body.tryb).toBe('przyklad');
-    expect(body.naleznosci.ok).toBe(false);
+    expect(body.naleznosci).toBeNull();
     expect(fake.receivables).not.toHaveBeenCalled();
   });
 });

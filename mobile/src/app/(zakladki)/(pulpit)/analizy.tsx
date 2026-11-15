@@ -150,6 +150,9 @@ function EkranAnalizZBazy() {
               <BladKarty naglowek={sprzedaz ? 'Ostatnie faktury' : 'Ostatnie wydatki'} blad={a.ostatnie.blad} />
             )}
 
+            {sprzedaz && a.tryb === 'przyklad' ? (
+              <Sekcja naglowek="Należności" stopka="Należności Twojej firmy zobaczysz po połączeniu KSeF na faktway.pl." />
+            ) : null}
             {a.naleznosci ? (
               a.naleznosci.ok ? (
                 <Sekcja naglowek="Należności" stopka={a.naleznosci.dane.pominieteWWalucie > 0 ? `Bez importów i faktur skorygowanych. Pominięto ${odmiana(a.naleznosci.dane.pominieteWWalucie, ['fakturę', 'faktury', 'faktur'])} w walucie obcej.` : 'Bez importów i faktur skorygowanych.'}>
@@ -167,7 +170,7 @@ function EkranAnalizZBazy() {
                 <Sekcja naglowek="VAT z wydatków" stopka="Wybrany miesiąc, VAT do odliczenia według dokumentu.">
                   <Wiersz tytul="VAT naliczony" wartosc={zl(a.vat.dane.vat)} />
                   <Wiersz tytul="VAT do odliczenia" wartosc={zl(a.vat.dane.doOdliczenia)} />
-                  <Wiersz tytul="Do opisania" wartosc={odmiana(a.vat.dane.doOpisania, ['dokument', 'dokumenty', 'dokumentów'])} wartoscKolor={a.vat.dane.doOpisania > 0 ? 'ostrzezenie' : 'etykieta'} strzalka onPress={() => router.push('/koszty')} />
+                  <Wiersz tytul="Do opisania" wartosc={odmiana(a.vat.dane.doOpisania, ['dokument', 'dokumenty', 'dokumentów'])} wartoscKolor={a.vat.dane.doOpisania > 0 ? 'ostrzezenie' : 'etykieta'} strzalka={a.tryb !== 'przyklad'} onPress={a.tryb === 'przyklad' ? undefined : () => router.push('/koszty')} />
                 </Sekcja>
               ) : (
                 <BladKarty naglowek="VAT z wydatków" blad={a.vat.blad} />
@@ -190,7 +193,7 @@ function EkranAnalizZBazy() {
                 {a.stali.dane.map((x) => (
                   <Wiersz key={x.klucz} tytul={x.nazwa} podtytul={`Zwykle ok. ${x.dzien}. dnia miesiąca`} wartosc={zl(x.srednio)} wartoscKolor="etykieta" wartoscPodpis="średnio / mies." />
                 ))}
-                {sprzedaz && a.stali.dane.length > 0 ? (
+                {sprzedaz && a.tryb !== 'przyklad' && a.stali.dane.length > 0 ? (
                   <Wiersz tytul="Zrób fakturę cykliczną" akcja strzalka onPress={() => router.navigate({ pathname: '/faktury', params: { widok: 'cykliczne' } })} />
                 ) : null}
               </Sekcja>
