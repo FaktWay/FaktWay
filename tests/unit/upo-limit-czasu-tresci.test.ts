@@ -60,7 +60,7 @@ vi.mock('@/lib/cache/redis', () => ({
   getRedis: () => mocks.redis.client,
 }));
 
-import { NonRetriableError } from '@/lib/jobs/errors';
+import { NonRetriableError, RetryAfterError } from '@/lib/jobs/errors';
 import { runDownloadUpo } from '@/lib/jobs/runners/download-upo';
 import { downloadUpoFromKsef, type UpoDownloadResponse } from '@/lib/ksef/upo-client';
 
@@ -428,6 +428,31 @@ describe('LIM-05 UPO: treść odpowiedzi w tym samym limicie co nagłówki', () 
     expect(receipt()).toMatchObject({ status: 'failed', download_attempts: 1, last_error: message });
     expect(mocks.xml).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('runner, ponowienie od zera po 429 z zawieszoną treścią: druga próba czeka na pauzę firmy, bez żądania do KSeF i bez kolejnej próby', async () => {
+    const { fetchMock } = stubHeadersThenSilence(429, '{"status":', {
+      'content-type': 'application/json',
+      'retry-after': '120',
+    });
+
+    const first = await settlesAt(LIMIT_MS, runDownloadUpo(event, context));
+    expect(first.error).toBeInstanceOf(Error);
+    expect(first.error).not.toBeInstanceOf(NonRetriableError);
+    expect(receipt()).toMatchObject({ status: 'failed', download_attempts: 1 });
+
+    // Ponowienie pg-boss wykonuje cały handler od nowa; pauza (120 s od
+    // nagłówków) jeszcze trwa, więc bramka runnera zatrzymuje próbę przed
+    // zapisem i przed żądaniem.
+    const second = track(runDownloadUpo(event, context));
+    await realTurnsUntil(() => second.done);
+
+    expect(second.error).toBeInstanceOf(RetryAfterError);
+    expect(second.error).toMatchObject({ pause: true, countsAsAttempt: false });
+    expect((second.error as Error).message).toContain('KSEF_RATE_LIMIT_PAUSE');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(receipt()).toMatchObject({ status: 'failed', download_attempts: 1 });
+    expect(mocks.xml).not.toHaveBeenCalled();
   });
 
   it('treść zerwana przez sieć przed limitem → błąd sieci jak dotąd (nie TIMEOUT), audyt ze statusem 0', async () => {

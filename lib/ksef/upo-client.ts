@@ -260,7 +260,9 @@ export async function downloadUpoFromKsef(
       // może nieść dane kontrahenta (F-093-UPO).
       const codes = ksefErrorCodes(await response.text());
       // Audyt po treści: jedna próba to jeden wiersz. Zawieszona treść (także
-      // przy 429, z pauzą zapisaną wyżej) daje tylko wiersz 408 z `catch`.
+      // przy 429, z pauzą zapisaną wyżej) daje tylko wiersz 408 z `catch`
+      // i `TIMEOUT` do ponowienia (na `main` ten sam wynik do ponowienia
+      // przychodził po 300 s); ponowienie trafia w zapisaną pauzę firmy.
       writeAudit(response.status, `HTTP ${response.status}`);
       return {
         success: false,
