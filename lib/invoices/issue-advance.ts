@@ -53,7 +53,7 @@ import type { AdvanceInvoiceData, BuyerData, SellerData } from '@/types/invoice-
  * czytają sesję z ciasteczek. Teraz akcje strony i trasa telefonu wołają te same
  * funkcje; wołający podaje sesję i firmę (`AdvanceContextSource`). Kolejność
  * kroków i komunikaty są takie jak w akcjach przed wydzieleniem (testy akcji
- * strony bez zmian i `tests/unit/wystawienie-specjalne-lib.test.ts`).
+ * strony bez zmian; telefon: `tests/unit/mobile-api-faktury-rodzaje.test.ts`).
  */
 
 export type AdvanceIssueResult =

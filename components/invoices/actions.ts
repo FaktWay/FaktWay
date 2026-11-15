@@ -50,10 +50,12 @@ export type { LookupBuyerResult };
 export async function lookupBuyerAction(
   nip: string
 ): Promise<LookupBuyerResult> {
-  return lookupBuyer(async () => {
+  const result = await lookupBuyer(async () => {
     const ctx = await getTenantContext();
     return { supabase: ctx.supabase, tenantId: ctx.tenant.id };
   }, nip);
+  // `reason` jest dla telefonu (M8b); formularz strony dostaje to samo co przed wydzieleniem.
+  return result.success ? result : { success: false, error: result.error };
 }
 
 // ═══════════════════════════════════════════════════════════════

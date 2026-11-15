@@ -20,7 +20,8 @@ import type { InvoiceFormValues } from '@/lib/schemas/invoice-form';
 /** Najwięcej pozycji na fakturze z telefonu (jak publiczne API, `MAX_INVOICE_ITEMS`). */
 export const MAX_POZYCJI_TELEFONU = 1000;
 
-export const STAWKI_VAT_TELEFONU = ['23', '8', '5', '0', 'zw', 'oo', 'np'] as const;
+/** „np_ii” od M8b (nabywca z UE); regułę „tylko firma z innego kraju UE” sprawdza schemat formularza strony. */
+export const STAWKI_VAT_TELEFONU = ['23', '8', '5', '0', 'zw', 'oo', 'np', 'np_ii'] as const;
 
 export const pozycjaTelefonuSchema = z.strictObject({
   name: z.string(),
@@ -48,6 +49,13 @@ export const fakturaTelefonuSchema = z.strictObject({
   splitPayment: z.boolean(),
   numberSeriesId: z.string(),
   numberPreview: z.string(),
+  // M8b: osoba z PESEL albo dokumentem, firma z UE (opcjonalne: starsza aplikacja ich nie wysyła).
+  buyerConsumerIdType: z.enum(['pesel', 'id_card', 'passport', 'no_id']).optional(),
+  buyerPesel: z.string().optional(),
+  buyerIdDocument: z.string().optional(),
+  buyerIsEu: z.boolean().optional(),
+  buyerVatUe: z.string().optional(),
+  buyerCountryCode: z.string().optional(),
 });
 
 export const wystawienieSchema = z.strictObject({
@@ -56,25 +64,29 @@ export const wystawienieSchema = z.strictObject({
 });
 
 /**
- * Wartości formularza strony z faktury telefonu. Osoba prywatna bez numeru
- * identyfikacyjnego jak w publicznym API (`toFormValues` w
- * `lib/api/v1/invoice-create.ts`): telefon nie zbiera PESEL ani dokumentu.
+ * Wartości formularza strony z faktury telefonu. Osoba prywatna bez
+ * `buyerConsumerIdType` to „bez numeru identyfikacyjnego”, jak w publicznym API
+ * (`toFormValues` w `lib/api/v1/invoice-create.ts`) i w telefonie przed M8b.
+ * Od M8b PESEL, dokument i firma z UE idą jak pola formularza strony; ich
+ * zasady (suma PESEL, numer VAT-UE, kraj, „np II”) sprawdza schemat strony.
  */
 export function doWartosciFormularza(f: FakturaTelefonu): InvoiceFormValues {
+  const ue = f.buyerIsEu === true;
   return {
     internalNumber: f.internalNumber,
     issueDate: f.issueDate,
     saleDate: f.saleDate,
-    buyerNip: f.buyerIsConsumer ? '' : f.buyerNip,
+    buyerNip: f.buyerIsConsumer || ue ? '' : f.buyerNip,
     buyerName: f.buyerName,
     buyerAddressLine1: f.buyerAddressLine1,
     buyerAddressLine2: f.buyerAddressLine2,
     buyerEmail: f.buyerEmail,
     buyerIsConsumer: f.buyerIsConsumer,
-    buyerConsumerIdType: f.buyerIsConsumer ? 'no_id' : undefined,
-    buyerPesel: '',
-    buyerIdDocument: '',
-    buyerIsEu: false,
+    buyerConsumerIdType: f.buyerIsConsumer ? (f.buyerConsumerIdType ?? 'no_id') : undefined,
+    buyerPesel: f.buyerPesel ?? '',
+    buyerIdDocument: f.buyerIdDocument ?? '',
+    buyerIsEu: ue,
+    ...(ue ? { buyerVatUe: f.buyerVatUe ?? '', buyerCountryCode: f.buyerCountryCode ?? '' } : {}),
     lines: f.lines.map((l) => ({ name: l.name, unit: l.unit, quantity: l.quantity, unitPriceNet: l.unitPriceNet, vatRate: l.vatRate })),
     paymentMethod: f.paymentMethod,
     paymentDueDate: f.paymentDueDate,

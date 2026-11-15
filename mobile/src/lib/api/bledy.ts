@@ -88,6 +88,8 @@ const RODZAJ_KODU: Record<MobileApiErrorCode, RodzajBledu> = {
   deletion_blocked: 'odmowa',
   deletion_in_progress: 'odmowa',
   settlement_refused: 'odmowa',
+  // Rodzaje faktur, ponowienie, szkic (M8b): zdanie strony mówi, co zrobić; ponowienie nic nie zmieni.
+  invoice_change_refused: 'odmowa',
 };
 
 /** Kod błędu z ciała `{ error: { code } }`, gdy jest w kontrakcie. */

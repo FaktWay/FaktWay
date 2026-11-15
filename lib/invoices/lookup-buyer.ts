@@ -29,7 +29,8 @@ export type LookupBuyerResult =
         addressLine2: string;
       };
     }
-  | { success: false; error: string };
+  /** `reason` (M8b, telefon): rodzaj odmowy bez czytania zdania; strona go nie używa. */
+  | { success: false; error: string; reason?: 'nip' | 'not_found' | 'unavailable' | 'context' };
 
 interface ContractorAddress {
   countryCode?: string;
@@ -42,10 +43,10 @@ export async function lookupBuyer(
   nip: string
 ): Promise<LookupBuyerResult> {
   if (!/^\d{10}$/.test(nip)) {
-    return { success: false, error: 'NIP musi zawierać 10 cyfr' };
+    return { success: false, error: 'NIP musi zawierać 10 cyfr', reason: 'nip' };
   }
   if (!validateNipChecksum(nip)) {
-    return { success: false, error: 'Nieprawidłowa suma kontrolna NIP' };
+    return { success: false, error: 'Nieprawidłowa suma kontrolna NIP', reason: 'nip' };
   }
 
   let supabase: SessionDb;
@@ -58,6 +59,7 @@ export async function lookupBuyer(
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Brak kontekstu tenanta',
+      reason: 'context',
     };
   }
 
@@ -96,6 +98,7 @@ export async function lookupBuyer(
     return {
       success: false,
       error: 'Nie znaleziono firmy w GUS. Sprawdź numer NIP.',
+      reason: 'not_found',
     };
   }
   if (gus.kind === 'error') {
@@ -103,6 +106,7 @@ export async function lookupBuyer(
       success: false,
       error:
         'GUS chwilowo niedostępny. Spróbuj ponownie za chwilę lub uzupełnij dane ręcznie.',
+      reason: 'unavailable',
     };
   }
 

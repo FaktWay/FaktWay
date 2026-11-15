@@ -103,6 +103,12 @@ export const MOBILE_API_ERROR_CODES = [
   'deletion_in_progress',
   /** 422: rozliczenia nie zatwierdzono albo zapłaty nie zapisano (miesiąc trwa, dane się zmieniły, zła data); `message` mówi dlaczego. */
   'settlement_refused',
+  // Rodzaje faktur, ponowienie, szkic, GUS (M8b): zdanie z serwera mówi, co zrobić.
+  /**
+   * 422: zmiany stanu faktury nie wykonano (korekta tej faktury, ponowna wysyłka, powrót do szkicu,
+   * usunięcie szkicu); `message` to zdanie strony z tym, co zrobić. Ponowienie nic nie zmieni.
+   */
+  'invoice_change_refused',
   /** 500, opis z identyfikatorem żądania. */
   'internal_error',
 ] as const;
@@ -117,8 +123,11 @@ export interface MobileApiError {
 
 // ─── Faktury (M8): wystawienie i wysyłka do KSeF ─────────────────────
 
-/** Stawki zwykłej faktury z telefonu (jak `vatRateEnum` strony, bez „np II”, które wymaga nabywcy z UE). */
-export type StawkaVatTelefonu = '23' | '8' | '5' | '0' | 'zw' | 'oo' | 'np';
+/**
+ * Stawki zwykłej faktury z telefonu (jak `vatRateEnum` strony). „np_ii” (usługa dla
+ * firmy z innego kraju UE, art. 100 ust. 1 pkt 4) od M8b, tylko z nabywcą z UE.
+ */
+export type StawkaVatTelefonu = '23' | '8' | '5' | '0' | 'zw' | 'oo' | 'np' | 'np_ii';
 
 /** Pozycja jak w formularzu strony (`lineItemSchema`): ilość i cena netto w złotych, do 4 miejsc po przecinku. */
 export interface PozycjaFakturyTelefonu {
@@ -131,9 +140,12 @@ export interface PozycjaFakturyTelefonu {
 
 /**
  * Zwykła faktura VAT w złotych z telefonu: te same pola co formularz strony
- * (`InvoiceFormValues`), bez faktury cyklicznej, proformy, paragonu i nabywcy
- * z UE (te wystawia się na faktway.pl). Osoba prywatna: `buyerIsConsumer`
- * i pusty `buyerNip`; serwer wpisuje „bez numeru identyfikacyjnego”.
+ * (`InvoiceFormValues`), bez faktury cyklicznej, proformy i paragonu (te
+ * wystawia się na faktway.pl). Osoba prywatna: `buyerIsConsumer` i pusty
+ * `buyerNip`; bez `buyerConsumerIdType` serwer wpisuje „bez numeru
+ * identyfikacyjnego” (jak przed M8b). Od M8b także osoba z PESEL albo
+ * dokumentem i firma z UE (numer VAT-UE, kraj adresu); pola opcjonalne, więc
+ * starsza aplikacja wysyła to samo co dotąd.
  */
 export interface FakturaTelefonu {
   internalNumber: string;
@@ -161,9 +173,62 @@ export interface FakturaTelefonu {
    */
   numberSeriesId: string;
   numberPreview: string;
+  /** M8b, osoba prywatna: identyfikator jak w formularzu strony; brak = `no_id`. */
+  buyerConsumerIdType?: RodzajIdOsobyTelefonu;
+  /** M8b: PESEL (11 cyfr) przy `buyerConsumerIdType: 'pesel'`, inaczej pusty tekst. */
+  buyerPesel?: string;
+  /** M8b: numer dowodu albo paszportu przy `id_card` / `passport`, inaczej pusty tekst. */
+  buyerIdDocument?: string;
+  /** M8b: firma z innego kraju UE (numer VAT-UE zamiast NIP; wyklucza `buyerIsConsumer`). */
+  buyerIsEu?: boolean;
+  /** M8b: numer VAT-UE z prefiksem kraju, np. `DE123456789` (Grecja: `EL`). */
+  buyerVatUe?: string;
+  /** M8b: kraj adresu firmy z UE (`KRAJE_UE_TELEFONU`, Grecja `GR`). */
+  buyerCountryCode?: string;
 }
 
-/** `POST /api/mobile/v1/faktury` (z nagłówkiem `Idempotency-Key`): `wyslij` to „Wyślij do KSeF”, inaczej szkic. */
+/** Identyfikator osoby prywatnej jak `buyerConsumerIdTypeEnum` strony. */
+export type RodzajIdOsobyTelefonu = 'pesel' | 'id_card' | 'passport' | 'no_id';
+
+/**
+ * Kraje adresu firmy z UE w formularzu (kopia `EU_BUYER_COUNTRIES` strony bez
+ * importu; zgodność pilnuje `tests/unit/mobile-api-faktury-rodzaje.test.ts`).
+ * Kod domyślny wynika z prefiksu numeru VAT-UE (Grecja: `EL` → `GR`).
+ */
+export const KRAJE_UE_TELEFONU: ReadonlyArray<{ kod: string; nazwa: string }> = [
+  { kod: 'AT', nazwa: 'Austria' },
+  { kod: 'BE', nazwa: 'Belgia' },
+  { kod: 'BG', nazwa: 'Bułgaria' },
+  { kod: 'HR', nazwa: 'Chorwacja' },
+  { kod: 'CY', nazwa: 'Cypr' },
+  { kod: 'CZ', nazwa: 'Czechy' },
+  { kod: 'DK', nazwa: 'Dania' },
+  { kod: 'EE', nazwa: 'Estonia' },
+  { kod: 'FI', nazwa: 'Finlandia' },
+  { kod: 'FR', nazwa: 'Francja' },
+  { kod: 'GR', nazwa: 'Grecja' },
+  { kod: 'ES', nazwa: 'Hiszpania' },
+  { kod: 'NL', nazwa: 'Holandia' },
+  { kod: 'IE', nazwa: 'Irlandia' },
+  { kod: 'XI', nazwa: 'Irlandia Północna' },
+  { kod: 'LT', nazwa: 'Litwa' },
+  { kod: 'LU', nazwa: 'Luksemburg' },
+  { kod: 'LV', nazwa: 'Łotwa' },
+  { kod: 'MT', nazwa: 'Malta' },
+  { kod: 'DE', nazwa: 'Niemcy' },
+  { kod: 'PT', nazwa: 'Portugalia' },
+  { kod: 'RO', nazwa: 'Rumunia' },
+  { kod: 'SK', nazwa: 'Słowacja' },
+  { kod: 'SI', nazwa: 'Słowenia' },
+  { kod: 'SE', nazwa: 'Szwecja' },
+  { kod: 'HU', nazwa: 'Węgry' },
+  { kod: 'IT', nazwa: 'Włochy' },
+];
+
+/**
+ * `POST /api/mobile/v1/faktury` (z nagłówkiem `Idempotency-Key`): `wyslij` to „Wyślij do KSeF”, inaczej szkic.
+ * Od M8b ta sama trasa przyjmuje zaliczkę, rozliczenie i korektę (`WystawienieRodzajuZadanie`).
+ */
 export interface WystawienieZadanie {
   wyslij: boolean;
   faktura: FakturaTelefonu;
@@ -613,4 +678,204 @@ export interface UstawieniaOdpowiedz {
     wstrzymajPoOdpowiedzi: boolean;
     wstrzymajPoCzesciowej: boolean;
   } | null;
+}
+
+// ─── Rodzaje faktur, korekta, ponowienie, szkic, GUS (M8b) ────────────
+
+/**
+ * Nabywca zaliczki i rozliczenia: firma z NIP, jak formularze strony („Nabywca
+ * (B2B)”, `buyerB2BSchema`). Osoby prywatnej i firmy z UE te formularze nie mają.
+ */
+export interface NabywcaRodzajuTelefonu {
+  /** 10 cyfr. */
+  nip: string;
+  name: string;
+  addressLine1: string;
+  addressLine2: string;
+  /** Pusty tekst = brak. */
+  email: string;
+}
+
+/** Metoda płatności zaliczki, rozliczenia i korekty (jak formularze strony, z kompensatą). */
+export type MetodaRodzajuTelefonu = 'transfer' | 'cash' | 'card' | 'compensation' | 'other';
+
+/** Pola wspólne zaliczki, rozliczenia i korekty (jak formularze strony). Daty RRRR-MM-DD. */
+interface DokumentRodzajuTelefonu {
+  internalNumber: string;
+  /** Przy wysyłce do KSeF tylko dziś (czas polski). */
+  issueDate: string;
+  paymentMethod: MetodaRodzajuTelefonu;
+  paymentDueDate: string;
+  /** 26 cyfr albo pusty tekst. */
+  bankAccount: string;
+  notes: string;
+  /** Seria z podpowiedzi (`GET /faktury/podpowiedz?rodzaj=`) albo pusty tekst; numer jak w `FakturaTelefonu`. */
+  numberSeriesId: string;
+  numberPreview: string;
+}
+
+/**
+ * Faktura zaliczkowa (`advanceInvoiceSchema` strony). Kwoty brutto w złotych;
+ * netto i VAT zaliczki liczy serwer (`POST /faktury/wyliczenie`).
+ */
+export interface ZaliczkaTelefonu extends DokumentRodzajuTelefonu {
+  /** Przy MPP: przelew i rachunek. */
+  splitPayment: boolean;
+  buyer: NabywcaRodzajuTelefonu;
+  /** Kwota zaliczki brutto. */
+  advanceAmount: number;
+  /** Wartość zamówienia brutto (co najmniej zaliczka). */
+  totalContractAmount: number;
+  /** Planowana realizacja albo pusty tekst. */
+  expectedDeliveryDate: string;
+  /** Data otrzymania zaliczki (P_6), gdy inna niż wystawienia, albo pusty tekst. */
+  advanceReceivedDate: string;
+  vatRate: '23' | '8' | '5' | '0';
+  /** Za co jest zaliczka (5 do 502 znaków). */
+  description: string;
+}
+
+/** Pozycja rozliczenia i korekty „przed / po” (`invoiceLineSchema` strony, bez „zw”). */
+export interface PozycjaRodzajuTelefonu {
+  name: string;
+  unit: string;
+  quantity: number;
+  unitPriceNet: number;
+  /** Korekta faktury dla firmy z UE dopuszcza też `np_ii`. */
+  vatRate: '23' | '8' | '5' | '0' | 'oo' | 'np' | 'np_ii';
+}
+
+/**
+ * Faktura rozliczająca zaliczki (`finalInvoiceSchema` strony). Zaliczki z
+ * `GET /faktury/zaliczki`; sumę zaliczek i kwotę do zapłaty liczy serwer.
+ * Wysyłka do KSeF faktury rozliczającej jest dziś wstrzymana także na stronie:
+ * `wyslij: true` daje 422 ze zdaniem strony, szkic się zapisuje.
+ */
+export interface RozliczenieTelefonu extends DokumentRodzajuTelefonu {
+  splitPayment: boolean;
+  buyer: NabywcaRodzajuTelefonu;
+  advanceInvoiceIds: string[];
+  lines: PozycjaRodzajuTelefonu[];
+}
+
+/**
+ * Korekta faktury przyjętej w KSeF (`correctionInvoiceSchema` strony).
+ * Sprzedawcę, nabywcę, numer i daty faktury pierwotnej oraz pozycje „przed”
+ * bierze serwer z bazy (`GET /faktury/{id}/korekta`), nigdy z telefonu.
+ */
+export interface KorektaTelefonu extends DokumentRodzajuTelefonu {
+  parentInvoiceId: string;
+  correctionType: 'before_after' | 'amount_change' | 'cancellation';
+  /** Przyczyna korekty (co najmniej 5 znaków). */
+  correctionReason: string;
+  /** MF `TTypKorekty`: 1 skutek w okresie faktury, 2 w dacie korekty, 3 inna data. */
+  typKorekty: '1' | '2' | '3';
+  /** `before_after`: pozycje po korekcie (start: kopia „przed”). Inne typy: pusta lista. */
+  linesAfter: PozycjaRodzajuTelefonu[];
+  /** `amount_change`: różnica wpisana przez klienta, jak na stronie; inne typy: `null`. */
+  amountChange: { netDelta: number; vatDelta: number; grossDelta: number; description: string } | null;
+}
+
+/**
+ * `POST /api/mobile/v1/faktury` dla zaliczki, rozliczenia i korekty (M8b): ta
+ * sama trasa, ten sam nagłówek `Idempotency-Key` i ta sama odpowiedź
+ * (`WystawienieOdpowiedz`) co zwykła faktura. Szkic zaliczki, rozliczenia
+ * i korekty nie wysyła się później do KSeF (jak na stronie): wysyłka idzie
+ * tylko razem z zapisem.
+ */
+export type WystawienieRodzajuZadanie =
+  | { wyslij: boolean; zaliczka: ZaliczkaTelefonu }
+  | { wyslij: boolean; rozliczenie: RozliczenieTelefonu }
+  | { wyslij: boolean; korekta: KorektaTelefonu };
+
+/**
+ * `POST /api/mobile/v1/faktury/wyliczenie` (M8b): kwoty bez zapisu, policzone tymi
+ * samymi funkcjami co zapis (telefon kwot nie liczy). Treść jak przy wystawieniu
+ * bez `wyslij`; błąd danych to 422 `invoice_invalid` z polem.
+ */
+export type WyliczenieZadanie = { zaliczka: ZaliczkaTelefonu } | { rozliczenie: RozliczenieTelefonu } | { korekta: KorektaTelefonu };
+
+/** Pozycja z kwotami serwera (zł). Korekta: pozycje po korekcie albo jedna pozycja różnicy. */
+export interface PozycjaWyliczona {
+  nazwa: string;
+  ilosc: number;
+  jednostka: string;
+  cenaNetto: number;
+  stawka: string;
+  netto: number;
+  vat: number;
+  brutto: number;
+}
+
+/**
+ * Kwoty dokumentu w złotych. Zaliczka: kwoty zaliczki. Rozliczenie: suma
+ * pozycji, `doZaplaty` po odjęciu zaliczek. Korekta: różnica (może być ujemna).
+ */
+export interface WyliczenieOdpowiedz {
+  netto: number;
+  vat: number;
+  brutto: number;
+  doZaplaty: number;
+  pozycje: PozycjaWyliczona[];
+  /** Rozliczenie: zaliczki odjęte od kwoty do zapłaty (kwota brutto zaliczki). */
+  zaliczki: Array<{ id: string; numer: string; brutto: number }>;
+}
+
+/** Zaliczka przyjęta w KSeF, jeszcze nierozliczona (jak lista formularza rozliczenia na stronie). */
+export interface ZaliczkaDoRozliczenia {
+  id: string;
+  numer: string;
+  numerKsef: string | null;
+  dataWystawienia: string;
+  /** Kwota zaliczki brutto (zł). */
+  brutto: number;
+  /** Nabywca zaliczki: rozliczenie obejmuje tylko zaliczki tego samego nabywcy (art. 106f ust. 3). */
+  nabywca: { nazwa: string; nip: string | null; adres1: string; adres2: string; email: string };
+}
+
+/** `GET /api/mobile/v1/faktury/zaliczki` (M8b): najnowsze najpierw, najwyżej 120. */
+export interface ZaliczkiOdpowiedz {
+  zaliczki: ZaliczkaDoRozliczenia[];
+}
+
+/**
+ * `GET /api/mobile/v1/faktury/{id}/korekta` (M8b): faktura pierwotna jak
+ * kontekst formularza korekty strony. Stan „przed” to stan po poprzednich
+ * przyjętych korektach. Odmowa (brak numeru KSeF, korekta w toku, anulowana)
+ * to 422 `invoice_change_refused` ze zdaniem strony.
+ */
+export interface KontekstKorektyOdpowiedz {
+  faktura: { id: string; numer: string; numerKsef: string; dataWystawienia: string; brutto: number | null };
+  nabywca: { nazwa: string; nip: string | null; vatUe: string | null; osoba: boolean; adres1: string; adres2: string };
+  /** `amount_change_only`: po korekcie kwotowej wolno tylko kolejną kwotową. */
+  dozwolone: 'all' | 'amount_change_only';
+  poprzedniaKorekta: { numer: string | null; typ: string | null } | null;
+  /** Wspólna stawka bez VAT pozycji (VAT 0, brutto równe netto w korekcie kwotowej). */
+  stawkaBezVat: 'np' | 'np_ii' | 'oo' | null;
+  npIiDozwolone: boolean;
+  pozycje: PozycjaRodzajuTelefonu[];
+}
+
+/**
+ * `POST /faktury/{id}/ponowienie` („Wyślij ponownie” po błędzie wysyłki) i
+ * `POST /faktury/{id}/szkic` („Wróć do szkicu”), M8b: faktura po zmianie.
+ * Odmowa ze zdaniem strony: 422 `invoice_change_refused`; rola: 403 `forbidden`.
+ */
+export interface ZmianaFakturyOdpowiedz {
+  faktura: FakturaZapisana;
+}
+
+/** `POST /api/mobile/v1/faktury/{id}/usuniecie` (M8b): szkic usunięty (numer wolny). */
+export interface UsuniecieSzkicuOdpowiedz {
+  usuniety: true;
+}
+
+/**
+ * `GET /api/mobile/v1/gus/{nip}` (M8b): nabywca z kontrahentów firmy albo z GUS
+ * (REGON), jak „Pobierz z GUS” na stronie. Zły NIP: 422 `invoice_invalid` z polem
+ * `buyerNip`; brak w GUS: 404 `not_found`; GUS niedostępny: 503 `service_unavailable`.
+ */
+export interface GusOdpowiedz {
+  zrodlo: 'kontrahenci' | 'gus';
+  nabywca: { nip: string; nazwa: string; adres1: string; adres2: string };
 }

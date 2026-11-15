@@ -308,8 +308,9 @@ describe('POST /api/mobile/v1/faktury', () => {
     expect(writes).toEqual([]);
   });
 
-  it('pole spoza kontraktu (faktura cykliczna, nabywca z UE): 400 invalid_request bez zapisu', async () => {
-    for (const extra of [{ recurringInvoiceId: '3f0f6a2e-1111-4111-8111-000000000009' }, { buyerIsEu: true }]) {
+  it('pole spoza kontraktu (faktura cykliczna, waluta): 400 invalid_request bez zapisu', async () => {
+    // Nabywca z UE był tu przykładem do M8b; od M8b jest w kontrakcie (`buyerIsEu`, `tests/unit/mobile-api-faktury-rodzaje.test.ts`).
+    for (const extra of [{ recurringInvoiceId: '3f0f6a2e-1111-4111-8111-000000000009' }, { currency: 'EUR' }]) {
       const response = await wystaw({ wyslij: true, faktura: { ...faktura(), ...extra } });
       expect(response.status).toBe(400);
       expect((await errorOf(response)).code).toBe('invalid_request');
