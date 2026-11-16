@@ -52,6 +52,13 @@ const log = createJobLogger('worker');
 /** Healthcheck HTTP; zamykanie wyłącza go, o ile start do niego doszedł. */
 let healthServer: Server | null = null;
 
+/**
+ * Czy start pg-boss się udał. Jego błąd to prawdziwa awaria także po sygnale:
+ * pg-boss nie przerywa trwającego startu, `stop()` na niego czeka. Dopiero
+ * dalsze kroki mogą paść przez zamykanie, np. na zamkniętej puli połączeń.
+ */
+let pgBossStarted = false;
+
 /** Kolejka smoke — weryfikacja fundamentu (Etap 1/2) i żywotności workera. */
 registerJob<{ ping?: number }>({
   queue: SMOKE_QUEUE,
@@ -78,11 +85,13 @@ async function main(): Promise<void> {
   // Dłuższe limity czasu Supabase niż w żądaniach (plan skalowania, sesja 5).
   enableWorkerSupabaseTimeouts();
   // Sygnał z czasu wczytywania modułów dociera tu, zanim worker połączy się z bazą.
-  // Dalej start sprawdza zatrzymanie przed każdym work(), schedule() i healthcheckiem;
-  // krok w toku, np. zapytanie do bazy, kończy się normalnie (G1-START).
+  // Dalej start sprawdza zatrzymanie przed każdym work(), schedule(), zdjęciem
+  // harmonogramu, usunięciem kolejki i healthcheckiem; krok w toku, np. zapytanie
+  // do bazy, kończy się normalnie (G1-START).
   await receiveQueuedSignals();
   if (shutdownRequested()) return;
   const boss = await startBoss();
+  pgBossStarted = true;
   boss.on('error', (err) => log.error('pg-boss error', err));
   if (shutdownRequested()) return;
 
@@ -101,6 +110,7 @@ async function main(): Promise<void> {
   // Wycofane crony zdejmujemy zawsze — inaczej wpis w `pgboss.schedule`
   // z poprzedniego startu dalej produkuje joby bez workera (AUD-118).
   for (const queue of RETIRED_CRON_QUEUES) {
+    if (shutdownRequested()) return;
     await boss.unschedule(queue);
   }
 
@@ -108,6 +118,7 @@ async function main(): Promise<void> {
   // usuwamy, żeby nie mylić przy przeglądzie `pgboss.queue`. Fail-soft:
   // brak kolejki albo błąd nie zatrzymuje startu workera.
   for (const queue of RETIRED_QUEUES) {
+    if (shutdownRequested()) return;
     if (registeredQueues.has(queue)) continue;
     try {
       await boss.deleteQueue(queue);
@@ -131,6 +142,7 @@ async function main(): Promise<void> {
   const schedulesDisabled = process.env.WORKER_DISABLE_SCHEDULES === 'true';
   if (schedulesDisabled) {
     for (const cron of CRON_JOBS) {
+      if (shutdownRequested()) return;
       await boss.unschedule(cron.queue);
     }
     log.warn(
@@ -185,7 +197,8 @@ async function shutdown(signal: string): Promise<void> {
     await stopBoss();
   } finally {
     await flushWorkerSentry();
-    process.exit(0);
+    // Bez argumentu: kod 0, chyba że start naprawdę padł (`process.exitCode` niżej).
+    process.exit();
   }
 }
 
@@ -193,12 +206,14 @@ async function shutdown(signal: string): Promise<void> {
 onShutdownSignal((signal) => void shutdown(signal));
 
 main().catch((err) => {
-  if (shutdownRequested()) {
-    // Zatrzymanie w trakcie startu kończy shutdown() kodem 0; to nie awaria startu.
+  if (shutdownRequested() && pgBossStarted) {
+    // Krok po starcie pg-boss padł przez zamykanie; shutdown() kończy kodem 0.
     log.info('start przerwany zatrzymaniem workera', err);
     return;
   }
   log.error('Worker padł przy starcie', err);
   reportWorkerStartupFailure(err);
-  void flushWorkerSentry().finally(() => process.exit(1));
+  // Kod 1 także wtedy, gdy pierwszy wyjdzie shutdown() po sygnale z tego czasu.
+  process.exitCode = 1;
+  void flushWorkerSentry().finally(() => process.exit());
 });

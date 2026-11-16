@@ -31,7 +31,13 @@ setImmediate(() => {
   poJednymObrocie = odebrany;
 });
 
+// CommonJS wykonuje importy po kolei, więc pierwszy import działa przed resztą grafu.
+// W ESM cały graf wczytuje się przed pierwszą linią (test pilnuje `type` w package.json).
+const modul = typeof module === 'object' ? 'cjs' : 'esm';
+
 void receiveQueuedSignals().then(() => {
-  console.log(JSON.stringify({ przedPetla, poJednymObrocie, poBramce: odebrany, shutdownRequested: shutdownRequested() }));
+  console.log(
+    JSON.stringify({ modul, przedPetla, poJednymObrocie, poBramce: odebrany, shutdownRequested: shutdownRequested() }),
+  );
   process.exit(0);
 });

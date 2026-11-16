@@ -1,11 +1,13 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createServer as createTcpServer, type AddressInfo, type Socket } from 'node:net';
-import { join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CRON_JOBS } from '@/lib/jobs/queues';
+import { CRON_JOBS, RETIRED_CRON_QUEUES } from '@/lib/jobs/queues';
+
+import { imageEnv, workerCmd } from '../helpers/worker-cmd';
 
 // G1-START (plan „zero zgubionych faktur”, sekcja 8): w kontenerze worker to
 // PID 1 (CMD w formie exec, bez tini). Jądro odrzuca sygnał, dla którego PID 1
@@ -21,8 +23,11 @@ import { CRON_JOBS } from '@/lib/jobs/queues';
 // `sygnalDoPid1()`: bez handlera przepada, z handlerem czeka na obrót pętli
 // zdarzeń, jak w Node.
 
-/** Wywołania pg-boss, które zapisuje atrapa. Joby biorą `work()` i `schedule()`. */
-type Operacja = 'work' | 'schedule' | 'createQueue' | 'updateQueue';
+/**
+ * Wywołania pg-boss, które zapisuje atrapa. Joby biorą `work()` i `schedule()`;
+ * `unschedule()` i `deleteQueue()` sprzątają harmonogram i martwe kolejki.
+ */
+type Operacja = 'work' | 'schedule' | 'createQueue' | 'updateQueue' | 'unschedule' | 'deleteQueue';
 
 const h = vi.hoisted(() => {
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -43,7 +48,7 @@ const h = vi.hoisted(() => {
       operacje: [] as { co: Operacja; kolejka: string; poSygnale: boolean }[],
       /** Kolejka → id joba, który worker pobiera zaraz po `work()`. */
       jobNaStarcie: new Map<string, string>(),
-      /** Po `work()` i `schedule()`: tu test wysyła sygnał w wybranym miejscu startu. */
+      /** Po `work()`, `schedule()` i `unschedule()`: tu test wysyła sygnał w wybranym miejscu startu. */
       po: null as ((co: Operacja, kolejka: string) => void) | null,
     },
     sygnal: { wyslany: false, przyWczytywaniu: null as (() => void) | null },
@@ -126,11 +131,14 @@ vi.mock('pg-boss', () => ({
       return this.zapytanie();
     }
 
-    unschedule() {
+    unschedule(kolejka: string) {
+      this.zapisz('unschedule', kolejka);
+      h.pg.po?.('unschedule', kolejka);
       return this.zapytanie();
     }
 
-    deleteQueue() {
+    deleteQueue(kolejka: string) {
+      this.zapisz('deleteQueue', kolejka);
       return this.zapytanie();
     }
 
@@ -262,6 +270,7 @@ const czekaj = (ms: number) => vi.advanceTimersByTimeAsync(ms);
 const kolejkiZWork = () => h.pg.operacje.filter((o) => o.co === 'work').map((o) => o.kolejka);
 const planowaneCrony = () => h.pg.operacje.filter((o) => o.co === 'schedule').map((o) => o.kolejka);
 const bledy = () => vi.mocked(console.error).mock.calls.map((c) => String(c[0])).join('\n');
+const logi = () => vi.mocked(console.log).mock.calls.map((c) => String(c[0])).join('\n');
 const ostrzezenia = () => vi.mocked(console.warn).mock.calls.map((c) => String(c[0]));
 
 async function uruchomWorker() {
@@ -314,7 +323,8 @@ describe('worker w procesie (atrapy pg-boss i paczek)', () => {
     pierwszySygnalO = null;
     wyjscia = [];
     vi.spyOn(process, 'exit').mockImplementation(((kod?: number) => {
-      wyjscia.push({ kod: kod ?? 0, o: Date.now() });
+      // Bez argumentu Node bierze `process.exitCode`, jak worker przy awarii startu.
+      wyjscia.push({ kod: Number(kod ?? process.exitCode ?? 0), o: Date.now() });
     }) as never);
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -325,6 +335,8 @@ describe('worker w procesie (atrapy pg-boss i paczek)', () => {
     for (const sygnal of ['SIGTERM', 'SIGINT'] as const) {
       for (const sluchacz of nasze(sygnal)) process.removeListener(sygnal, sluchacz);
     }
+    // Worker ustawia kod wyjścia na prawdziwym procesie Vitest; nie może przejść dalej.
+    process.exitCode = undefined;
     vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
@@ -386,6 +398,37 @@ describe('worker w procesie (atrapy pg-boss i paczek)', () => {
       expect(h.http.listen).not.toHaveBeenCalled();
     });
 
+    it('start pg-boss pada po sygnale: to prawdziwa awaria, alarm w Sentry i kod 1', async () => {
+      // pg-boss 12.38.2 nie przerywa trwającego startu, `stop()` na niego czeka
+      // (`dist/index.js`, `stop()`). Błąd startu nie wynika więc z zatrzymania.
+      h.pg.startPada = true;
+      await uruchomWorker();
+      await czekaj(h.pg.startMs / 2);
+
+      sygnalDoPid1('SIGTERM');
+      await czekaj(DO_ROZSTRZYGNIECIA_MS);
+
+      expect(h.sentry.report, 'awaria startu po sygnale schowała się jako zwykłe zatrzymanie').toHaveBeenCalledTimes(1);
+      expect(bledy()).toContain('Worker padł przy starcie');
+      expect(wyjscia.length).toBeGreaterThan(0);
+      expect(wyjscia.map((w) => w.kod)).toEqual(wyjscia.map(() => 1));
+    });
+
+    it('sygnał w trakcie zgłaszania awarii startu: pierwsze wyjście też ma kod 1', async () => {
+      h.pg.startPada = true;
+      // Zamykanie opróżnia ten sam bufor Sentry co zgłoszenie awarii; tu kończy szybciej.
+      h.sentry.flush.mockImplementationOnce(() => h.sleep(FLUSH_SENTRY_MS)).mockImplementation(() => Promise.resolve());
+      await uruchomWorker();
+      await czekaj(h.pg.startMs + FLUSH_SENTRY_MS / 4);
+      expect(h.sentry.report).toHaveBeenCalledTimes(1);
+
+      sygnalDoPid1('SIGTERM');
+      await czekaj(DO_ROZSTRZYGNIECIA_MS);
+
+      expect(wyjscia.length).toBeGreaterThan(0);
+      expect(wyjscia.map((w) => w.kod), 'zamykanie wyszło kodem 0 po prawdziwej awarii startu').toEqual(wyjscia.map(() => 1));
+    });
+
     it('po części kolejek, z jobem w toku: bez następnych kolejek, job dostaje czas z budżetu i trafia do logu przerwanych', async () => {
       const [pierwsza, druga] = h.kolejki;
       h.pg.jobNaStarcie.set(pierwsza!, 'job-w-toku-0001');
@@ -421,6 +464,43 @@ describe('worker w procesie (atrapy pg-boss i paczek)', () => {
       expect(planowaneCrony()).toEqual(CRONY.slice(0, ile));
       expect(h.pg.stopy).toBe(1);
       expect(h.http.listen).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['wycofanego cronu', '', RETIRED_CRON_QUEUES[0]],
+      ['cronów przy WORKER_DISABLE_SCHEDULES=true', 'true', CRON_JOBS[0]!.queue],
+    ] as const)('w trakcie zdejmowania %s: bez dalszego sprzątania kolejek i harmonogramu', async (_co, wylaczone, kolejkaSygnalu) => {
+      vi.stubEnv('WORKER_DISABLE_SCHEDULES', wylaczone);
+      h.pg.po = (co, kolejka) => {
+        if (co === 'unschedule' && kolejka === kolejkaSygnalu) sygnalDoPid1('SIGTERM');
+      };
+
+      await uruchomWorker();
+      await czekaj(DO_ROZSTRZYGNIECIA_MS);
+
+      await oczekujZamknieciaWBudzecie();
+      expect(h.pg.operacje.some((o) => o.co === 'unschedule' && o.kolejka === kolejkaSygnalu)).toBe(true);
+      // Zdejmowanie w toku się kończy. Każde następne poszłoby na pulę, którą zamyka stop().
+      expect(
+        h.pg.operacje.filter((o) => (o.co === 'unschedule' || o.co === 'deleteQueue') && o.poSygnale),
+        'po sygnale worker dalej sprzątał kolejki i harmonogram',
+      ).toEqual([]);
+    });
+
+    it('krok po starcie pg-boss pada przez zamykanie (zamknięta pula): bez alarmu startu, kod 0', async () => {
+      const [pierwsza] = h.kolejki;
+      // Zapytanie dłuższe niż zamknięcie pg-boss bez jobów w toku: następne trafia w zamkniętą pulę.
+      h.pg.zapytanieMs = 200;
+      h.pg.po = (co, kolejka) => {
+        if (co === 'work' && kolejka === pierwsza) sygnalDoPid1('SIGTERM');
+      };
+
+      await uruchomWorker();
+      await czekaj(DO_ROZSTRZYGNIECIA_MS);
+
+      await oczekujZamknieciaWBudzecie();
+      expect(kolejkiZWork()).toEqual([pierwsza]);
+      expect(logi()).toContain('start przerwany zatrzymaniem workera');
     });
 
     it('drugi SIGTERM w trakcie zamykania: to samo zamykanie, jeden stop() pg-boss', async () => {
@@ -498,22 +578,57 @@ describe('worker.ts: kolejność, której atrapy nie widzą (G1-START)', () => {
     const paczki = [...worker.matchAll(/^import '\.\/handlers\/([\w-]+)';$/gm)].map((m) => m[1]);
     expect(paczki).toEqual(ATRAPY_PACZEK);
   });
+
+  it('worker wczytuje się jako CommonJS: pierwszy import działa, zanim wczyta się reszta modułów', () => {
+    // CommonJS wczytuje i wykonuje importy po kolei, więc handler z pierwszego importu
+    // działa, zanim Node skompiluje pg-boss i paczki handlerów. ESM wczytuje najpierw
+    // cały graf i dopiero potem wykonuje pierwszą linię: okno G1-START wróciłoby.
+    // O formacie pliku `.ts` decyduje pole `type` najbliższego package.json.
+    let katalog = join(process.cwd(), 'lib', 'jobs');
+    while (!existsSync(join(katalog, 'package.json')) && katalog !== process.cwd()) katalog = dirname(katalog);
+    const pakiet = JSON.parse(readFileSync(join(katalog, 'package.json'), 'utf8')) as { type?: string };
+    expect(pakiet.type ?? 'commonjs', join(katalog, 'package.json')).toBe('commonjs');
+  });
+
+  it('moduł sygnałów importują tylko worker i sonda: w innym procesie SIGTERM przestałby go kończyć', () => {
+    // Przy wczytaniu `shutdown-signals.ts` podpina SIGTERM i SIGINT. W procesie bez
+    // `onShutdownSignal()`, np. w serwerze Next, słuchacz tylko zapamiętałby sygnał,
+    // a domyślne zakończenie procesu już by nie zadziałało.
+    const importuja = plikiKodu(process.cwd())
+      .filter((plik) => {
+        const tekst = readFileSync(plik, 'utf8');
+        return tekst.includes('shutdown-signals') && IMPORT_SYGNALOW.test(tekst);
+      })
+      .map((plik) => relative(process.cwd(), plik).split('\\').join('/'))
+      .sort();
+    expect(importuja).toEqual(['lib/jobs/worker.ts', 'tests/fixtures/worker-sygnal-sonda.ts']);
+  });
 });
+
+/** Import modułu sygnałów: statyczny (`import`, `export … from`), `import()` albo `require()`. */
+const IMPORT_SYGNALOW =
+  /^\s*(?:import|export)\b[^;]*?['"][^'"]*\/shutdown-signals(?:\.[cm]?[jt]s)?['"]|\b(?:import|require)\s*\(\s*['"][^'"]*\/shutdown-signals(?:\.[cm]?[jt]s)?['"]/m;
+
+/** Pliki kodu w repo, bez `node_modules` i katalogów z kropką (`.next`, `.git`, `.claude`). */
+function plikiKodu(katalog: string): string[] {
+  return readdirSync(katalog, { withFileTypes: true }).flatMap((wpis) => {
+    if (wpis.name.startsWith('.') || wpis.name === 'node_modules') return [];
+    const sciezka = join(katalog, wpis.name);
+    if (wpis.isDirectory()) return plikiKodu(sciezka);
+    return /\.[cm]?[jt]sx?$/.test(wpis.name) ? [sciezka] : [];
+  });
+}
 
 // Prawdziwy Node z flagami z CMD w Dockerfile. Sygnałów POSIX nie da się wysłać
 // na Windowsie (tam kill to TerminateProcess), więc te testy biegną w CI na Linuksie.
 // Proces nie jest tu PID 1: bez handlera SIGTERM zabiłby go od razu (kod null),
 // z handlerem kończy się sam, kodem 0.
-const dockerfile = readFileSync(join(process.cwd(), 'Dockerfile'), 'utf8');
-const etapWorker = dockerfile.split(/^FROM /m).find((etap) => /^\S+ AS worker\b/.test(etap));
-const cmd: string[] = JSON.parse(etapWorker?.match(/^CMD (\[.*\])$/m)?.[1] ?? '[]');
+const cmd = workerCmd();
 const WEJSCIE = 'lib/jobs/worker.ts';
 /** Wejście wczytywane jak `worker.ts`, które w trakcie wczytywania wysyła sobie SIGTERM. */
 const SONDA_SYGNALU = 'tests/fixtures/worker-sygnal-sonda.ts';
 /** Czas łaski z karty G1 (`WORKER_SHUTDOWN_BUDGET.containerGraceMs`, pilnuje `stopboss-czas-laski.test.ts`). */
 const CZAS_LASKI_MS = 10_000;
-/** Proces jak w obrazie workera: NODE_ENV=production, bez NODE_OPTIONS z Vitest. */
-const ENV_OBRAZU: NodeJS.ProcessEnv = { ...process.env, NODE_OPTIONS: '', NODE_ENV: 'production' };
 
 describe.skipIf(process.platform === 'win32')('prawdziwy Node z flagami z Dockerfile (G1-START)', () => {
   it('sonda: sygnał z czasu wczytywania wejścia dociera do zamykania przed bramką receiveQueuedSignals()', () => {
@@ -521,7 +636,7 @@ describe.skipIf(process.platform === 'win32')('prawdziwy Node z flagami z Docker
     const wynik = spawnSync(process.execPath, [...cmd.slice(1, -1), SONDA_SYGNALU], {
       cwd: process.cwd(),
       encoding: 'utf8',
-      env: ENV_OBRAZU,
+      env: imageEnv(),
       timeout: 170_000,
       // Sonda ma handler SIGTERM, więc domyślny sygnał po limicie czasu by jej nie zakończył.
       killSignal: 'SIGKILL',
@@ -538,7 +653,7 @@ describe.skipIf(process.platform === 'win32')('prawdziwy Node z flagami z Docker
         pomiar.poJednymObrocie ? 'już był' : 'jeszcze nie dotarł (wejście w fazie poll)'
       }`,
     );
-    expect(pomiar).toMatchObject({ przedPetla: null, poBramce: 'SIGTERM', shutdownRequested: true });
+    expect(pomiar).toMatchObject({ modul: 'cjs', przedPetla: null, poBramce: 'SIGTERM', shutdownRequested: true });
   }, 180_000);
 
   it('SIGTERM, gdy start pg-boss czeka na milczącą bazę: twardy limit zamykania i kod 0 przed czasem łaski', async () => {
@@ -557,15 +672,14 @@ describe.skipIf(process.platform === 'win32')('prawdziwy Node z flagami z Docker
 
     const worker = spawn(process.execPath, cmd.slice(1), {
       cwd: process.cwd(),
-      env: {
-        ...ENV_OBRAZU,
+      env: imageEnv({
         JOBS_BACKEND: 'pgboss',
         JOBS_PGBOSS_SCHEMA: '',
         WORKER_ONLY_CRONS: '',
         WORKER_DISABLE_SCHEDULES: '',
         SENTRY_DSN: '',
         DATABASE_URL: `postgres://worker@127.0.0.1:${port}/faktway`,
-      },
+      }),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let wyjscie = '';
