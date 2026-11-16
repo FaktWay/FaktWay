@@ -40,6 +40,12 @@
 /scripts/ops/scal-pr.sh      @ezior8888-cpu
 /scripts/ops/odswiez-pr.sh   @ezior8888-cpu
 /scripts/ci/scalanie-etykieta.mjs  @ezior8888-cpu
+# Nocny zespół: bramka nadaje `scal` bez człowieka (docs/runbooks/nocny-zespol.md), więc jej pliki,
+# testy i instrukcja zmieniają się tylko z recenzją; agent-guard blokuje je na gałęziach agent/*
+/scripts/nocny/                  @ezior8888-cpu
+/tests/unit/nocny-*              @ezior8888-cpu
+/docs/nocny/                     @ezior8888-cpu
+/docs/runbooks/nocny-zespol.md   @ezior8888-cpu
 # Nocne wdrożenie i wgrywanie migracji: skrypty z uprawnieniami produkcji, uruchamiane bez człowieka
 /scripts/ops/nocne-wdrozenie.sh            @ezior8888-cpu
 /scripts/ops/kontrola-migracji.mjs         @ezior8888-cpu
