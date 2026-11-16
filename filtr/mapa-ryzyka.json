@@ -131,6 +131,7 @@
         "lib/ksiegowosc/{vat,vat-dane}.ts",
         "app/actions/ksiegowosc-vat.ts",
         "lib/ksiegowosc/vat-plik.ts",
+        "lib/ksiegowosc/ewidencja-pliki.ts",
         "lib/api/mobile/{ksiegowosc-vat,kontrakt-ksiegowosc}.ts"
       ]
     },
@@ -491,6 +492,7 @@
       "opis": "JPK_V7M i JPK_FA: generatory, walidatory, dane, schematy.",
       "sciezki": [
         "lib/exports/{jpk-v7m-generator,jpk-v7m-validator,jpk-fa-generator,jpk-fa-validator,jpk-fa-readiness,jpk-schema-check,suspended-formats,taxpayer-email,tax-office,tax-offices,issuer-address,export-scope,data-fetcher}.ts",
+        "lib/exports/eksport-reczny.ts",
         "lib/exports/schemas/{jpk-v7m3,jpk-fa4}/**"
       ]
     },
