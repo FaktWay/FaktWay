@@ -9,11 +9,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { validateInvoiceEmailTemplate, type InvoiceEmailTemplate } from './invoice-email-template';
 
-export const TEMPLATE_TABLE = 'invoice_email_templates';
-
 export async function readInvoiceEmailTemplate(db: SupabaseClient, tenantId: string): Promise<InvoiceEmailTemplate | null> {
   try {
-    const { data, error } = await db.from(TEMPLATE_TABLE).select('subject, body').eq('tenant_id', tenantId).maybeSingle();
+    const { data, error } = await db.from('invoice_email_templates').select('subject, body').eq('tenant_id', tenantId).maybeSingle();
     if (error || !data) return null;
     const checked = validateInvoiceEmailTemplate(data as { subject: unknown; body: unknown });
     return checked.ok ? { subject: checked.subject, body: checked.body } : null;
@@ -27,7 +25,7 @@ export async function writeInvoiceEmailTemplate(
   input: { tenantId: string; userId: string; template: InvoiceEmailTemplate },
 ): Promise<boolean> {
   try {
-    const { error } = await db.from(TEMPLATE_TABLE).upsert(
+    const { error } = await db.from('invoice_email_templates').upsert(
       {
         tenant_id: input.tenantId,
         subject: input.template.subject,
@@ -45,7 +43,7 @@ export async function writeInvoiceEmailTemplate(
 
 export async function deleteInvoiceEmailTemplate(db: SupabaseClient, tenantId: string): Promise<boolean> {
   try {
-    const { error } = await db.from(TEMPLATE_TABLE).delete().eq('tenant_id', tenantId);
+    const { error } = await db.from('invoice_email_templates').delete().eq('tenant_id', tenantId);
     return !error;
   } catch {
     return false;
