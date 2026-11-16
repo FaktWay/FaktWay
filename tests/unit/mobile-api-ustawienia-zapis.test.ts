@@ -384,6 +384,11 @@ describe('POST /api/mobile/v1/ustawienia/przypomnienia', () => {
     });
     expect(zapis?.tresc).not.toHaveProperty('sender_email');
     expect(fake.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'tenant.updated', tenantId: ORG_A, metadata: expect.objectContaining({ field: 'reminder_settings', client: 'mobile' }) }));
+    // Dziennik bez nadawcy i adresu do odpowiedzi (dane osobowe): tylko czy są podane.
+    const wpis = JSON.stringify(fake.audit.mock.calls[0]?.[0]);
+    expect(wpis).not.toContain('biuro@example.test');
+    expect(wpis).not.toContain('Pracownia Testowa');
+    expect(fake.audit.mock.calls[0]?.[0]).toMatchObject({ metadata: { after: { enabled: true, send_hour: 10, sender_name: true, reply_to_email: true } } });
     const body = await response.json();
     expect(body.przypomnienia).toMatchObject({ zapisane: true, wlaczone: true, godzina: 10, najwiecej: 4, odpowiedzNa: 'biuro@example.test' });
   });
@@ -455,7 +460,7 @@ describe('/api/mobile/v1/ustawienia/powiadomienia', () => {
   it('POST wyłączenie: najpierw wypis (blokuje wysyłkę od razu), potem wycofanie zgody', async () => {
     const response = await powiadomieniaPost(req('powiadomienia', { org: null, body: { kategoria: 'porady', wlaczone: false } }));
     expect(response.status).toBe(200);
-    expect(fake.prefs.unsubscribe).toHaveBeenCalledWith({ userId: OWNER, category: 'product_updates', source: 'settings_ui' });
+    expect(fake.prefs.unsubscribe).toHaveBeenCalledWith({ userId: OWNER, category: 'product_updates', source: 'mobile_settings' });
     expect(fake.consent).toHaveBeenCalledWith({ userId: OWNER, category: 'product_updates', granted: false, method: 'mobile_settings' });
     expect(fake.prefs.unsubscribe.mock.invocationCallOrder[0]!).toBeLessThan(fake.consent.mock.invocationCallOrder[0]!);
   });
@@ -477,6 +482,14 @@ describe('kontrakt zapisów ustawień', () => {
     expect(source).not.toMatch(/^\s*import\s/m);
     expect(source).not.toMatch(/\brequire\s*\(/);
     expect(source).not.toMatch(/\bimport\s*\(/);
+  });
+
+  it('opisy zgód e-mail w telefonie to dosłownie treść zgody ze strony', () => {
+    const strona = readFileSync(resolve(__dirname, '../../app/(dashboard)/settings/notifications/_components/email-preferences.tsx'), 'utf8');
+    const telefon = readFileSync(resolve(__dirname, '../../mobile/src/app/(zakladki)/wiecej/ustawienia/powiadomienia.tsx'), 'utf8');
+    const opisy = [...telefon.matchAll(/opis: '([^']+)'/g)].map((m) => m[1]!).filter((o) => o.includes('zgodę'));
+    expect(opisy).toHaveLength(2);
+    for (const opis of opisy) expect(strona).toContain(opis);
   });
 
   it('podstawy zwolnienia telefonu to te same wartości co podpowiedzi strony, etykiety bez długich myślników', () => {

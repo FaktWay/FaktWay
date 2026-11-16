@@ -130,13 +130,23 @@ const przypomnieniaSchema = z
 function bladPrzypomnien(issue: z.core.$ZodIssue | undefined): { pole: string; zdanie: string } | null {
   const [pierwsze, indeks, drugie] = issue?.path ?? [];
   if (pierwsze === 'etapy' && typeof indeks === 'number' && drugie === 'dniPoTerminie') {
-    return { pole: `etapy.${indeks}.dniPoTerminie`, zdanie: `Liczba dni po terminie: od ${REMINDER_LIMITS.days.min} do ${REMINDER_LIMITS.days.max}.` };
+    return {
+      pole: `etapy.${indeks}.dniPoTerminie`,
+      zdanie: `Etap ${indeks + 1}: liczba dni po terminie od ${REMINDER_LIMITS.days.min} do ${REMINDER_LIMITS.days.max}.`,
+    };
   }
   if (pierwsze === 'godzina') return { pole: 'godzina', zdanie: `Godzina wysyłki: od ${REMINDER_LIMITS.hour.min} do ${REMINDER_LIMITS.hour.max}.` };
   if (pierwsze === 'najwiecej') {
     return { pole: 'najwiecej', zdanie: `Przypomnień na fakturę: od ${REMINDER_LIMITS.perInvoice.min} do ${REMINDER_LIMITS.perInvoice.max}.` };
   }
   return null;
+}
+
+function bezDanychNadawcy<T extends { sender_name: unknown; reply_to_email: unknown }>(w: T): Omit<T, 'sender_name' | 'reply_to_email'> {
+  const { sender_name: _nadawca, reply_to_email: _adres, ...reszta } = w;
+  void _nadawca;
+  void _adres;
+  return reszta;
 }
 
 const NADAWCA_MAX = 200;
@@ -193,7 +203,12 @@ export async function saveRemindersFromMobile(caller: MobileCaller, request: Req
     userId: caller.user.id,
     entityType: 'tenant',
     entityId: caller.org.tenantId,
-    metadata: { field: 'reminder_settings', after: po, ...AUDYT_TELEFONU },
+    // Bez nadawcy i adresu do odpowiedzi (dane osobowe w dzienniku na 10 lat): tylko czy są podane.
+    metadata: {
+      field: 'reminder_settings',
+      after: { ...bezDanychNadawcy(po), sender_name: po.sender_name !== null, reply_to_email: po.reply_to_email !== null },
+      ...AUDYT_TELEFONU,
+    },
   });
   return settingsForMobile(caller);
 }

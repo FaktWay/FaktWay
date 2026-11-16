@@ -20,7 +20,7 @@ export async function toggleEmailCategoryAction(
     return { success: false, error: 'Nieprawidłowe ustawienie powiadomień.' };
   }
   try {
-    await setEmailCategory({ userId: context.user.id, category, subscribed, method: 'settings_ui' });
+    await setEmailCategory({ userId: context.user.id, category, subscribed, channel: 'settings_ui' });
   } catch {
     return { success: false, error: 'Nie udało się zapisać ustawienia. Spróbuj ponownie.' };
   }

@@ -13,8 +13,8 @@ import { readDisabledEmailCategories, setEmailCategory, type ToggleableEmailCate
  * Karta Powiadomienia z telefonu (plan aplikacji mobilnej, M10c): e-maile
  * „Porady i nowości” i „Oferty i kampanie” tą samą logiką co strona
  * (`lib/email/settings-toggle.ts`: wypis, zgoda z art. 398 Prawa komunikacji
- * elektronicznej, wpis w dzienniku). Zgoda z telefonu ma `method:
- * 'mobile_settings'`, ze strony `settings_ui`. Konto, nie firma
+ * elektronicznej, wpis w dzienniku). Zgoda i wypis z telefonu mają źródło
+ * `mobile_settings`, ze strony `settings_ui`. Konto, nie firma
  * (`org: 'none'`). Powiadomienia push w aplikacji dojdą z M11.
  *
  * Ponowienie: zapis ustawia stan (nie przełącza), więc powtórka daje ten sam
@@ -51,7 +51,7 @@ export async function saveNotificationFromMobile(caller: MobileCaller, request: 
       userId: caller.user.id,
       category: KATEGORIA[parsed.data.kategoria],
       subscribed: parsed.data.wlaczone,
-      method: 'mobile_settings',
+      channel: 'mobile_settings',
     });
   } catch {
     // Zdanie strony; telefon ponawia jak przy 503 i zostawia przełącznik w stanie sprzed zmiany.

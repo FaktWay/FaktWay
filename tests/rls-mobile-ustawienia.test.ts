@@ -150,6 +150,8 @@ describe.skipIf(!hasDatabase)('M10c: zapisy ustawień z telefonu na bazie (token
   afterAll(async () => {
     await admin.from('reminder_settings').delete().in('tenant_id', [ORG_A, ORG_B]);
     await admin.from('memberships').delete().in('organization_id', [ORG_A, ORG_B]);
+    await admin.from('tenants').delete().in('id', [ORG_A, ORG_B]);
+    await admin.from('users').delete().in('id', Object.values(ids).filter(Boolean));
     for (const id of Object.values(ids)) if (id) await admin.auth.admin.deleteUser(id).catch(() => null);
   });
 

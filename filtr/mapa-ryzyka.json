@@ -841,7 +841,7 @@
         "mobile/src/stan/kontrahenci.tsx",
         "mobile/src/app/(zakladki)/wiecej/import.tsx",
         "mobile/src/app/(zakladki)/wiecej/ustawienia/{abonament,ksiegowa}.tsx",
-        "mobile/src/app/(zakladki)/wiecej/ustawienia/{firma,firma-zmiana,przypomnienia}.tsx",
+        "mobile/src/app/(zakladki)/wiecej/ustawienia/{firma,firma-zmiana,przypomnienia,powiadomienia}.tsx",
         "mobile/src/stan/ustawienia-zapis.tsx",
         "mobile/src/lib/api/kontrakt-ustawienia.ts"
       ]

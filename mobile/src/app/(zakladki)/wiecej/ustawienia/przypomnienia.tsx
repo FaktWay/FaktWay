@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -42,6 +43,7 @@ export default function EkranPrzypomnienOZaplacie() {
 function EkranPrzypomnienZBazy({ ustawienia }: { ustawienia: StanUstawien }) {
   const zapis = useZapisUstawien();
   const konto = useKontoFirmy();
+  const router = useRouter();
   const [firmaEkranu] = useState(konto?.firma?.id ?? null);
   const { dane } = ustawienia;
   if (!dane) {
@@ -55,6 +57,14 @@ function EkranPrzypomnienZBazy({ ustawienia }: { ustawienia: StanUstawien }) {
       </EkranListy>
     );
   }
+  if (konto?.firma?.id !== firmaEkranu) {
+    // Firma zmieniła się w innej zakładce: formularz nie udaje ustawień, których zapis i tak by odmówił.
+    return (
+      <EkranListy>
+        <StanPusty ikona="building2-line" tytul="Zmieniono firmę" opis="Ten ekran pokazywał przypomnienia innej firmy. Wróć do listy i otwórz go jeszcze raz." akcja={{ tytul: 'Wróć', onPress: () => router.back() }} />
+      </EkranListy>
+    );
+  }
   const p = dane.przypomnienia;
   if (!p || !zapis) {
     return (
@@ -63,8 +73,7 @@ function EkranPrzypomnienZBazy({ ustawienia }: { ustawienia: StanUstawien }) {
       </EkranListy>
     );
   }
-  // Klucz: po zmianie firmy formularz zaczyna od jej ustawień (zapis i tak idzie tylko do firmy z otwarcia).
-  return <FormularzPrzypomnien key={konto?.firma?.id ?? ''} p={p} zapis={zapis} firmaEkranu={firmaEkranu} />;
+  return <FormularzPrzypomnien p={p} zapis={zapis} firmaEkranu={firmaEkranu} />;
 }
 
 type Przypomnienia = NonNullable<UstawieniaOdpowiedz['przypomnienia']>;
@@ -105,6 +114,10 @@ function FormularzPrzypomnien({ p, zapis, firmaEkranu }: { p: Przypomnienia; zap
   const ustaw = <K extends keyof PrzypomnieniaZadanie>(k: K, w: PrzypomnieniaZadanie[K]) => setF((x) => ({ ...x, [k]: w }));
   const ustawEtap = (i: number, wlaczony: boolean) => setF((x) => ({ ...x, etapy: x.etapy.map((e, j) => (j === i ? { ...e, wlaczony } : e)) }));
   const bladPola = (pole: string) => (blad?.pole === pole ? blad.komunikat : undefined);
+  /** Pola z miejscem na zdanie serwera; odmowa o polu schowanym (wyłączony etap) stoi nad przyciskiem. */
+  const polaNaEkranie = f.wlaczone
+    ? [...f.etapy.flatMap((e, i) => (e.wlaczony ? [`etapy.${i}.dniPoTerminie`] : [])), 'najwiecej', 'nadawca', 'odpowiedzNa']
+    : [];
 
   const zapisz = async () => {
     setTrwa(true);
@@ -174,7 +187,7 @@ function FormularzPrzypomnien({ p, zapis, firmaEkranu }: { p: Przypomnienia; zap
         </>
       ) : null}
 
-      {blad && !(blad.pole && f.wlaczone) ? <Sekcja stopka={blad.komunikat}>{null}</Sekcja> : null}
+      {blad && !(blad.pole && polaNaEkranie.includes(blad.pole)) ? <Sekcja stopka={blad.komunikat}>{null}</Sekcja> : null}
 
       <View style={styles.akcja}>
         <PrzyciskGlowny tytul={zmienione ? 'Zapisz ustawienia' : 'Zapisano'} ikona="check-line" trwa={trwa} onPress={() => void zapisz()} />

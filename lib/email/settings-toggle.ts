@@ -50,21 +50,21 @@ export async function readDisabledEmailCategories(userId: string): Promise<Email
  * Porady i oferty wymagają zgody (art. 398 Prawa komunikacji elektronicznej):
  * włączenie przełącznika JEST wyrażeniem zgody, wyłączenie — jej wycofaniem.
  * Przy wyłączaniu najpierw wiersz wypisu (blokuje wysyłkę od razu), potem
- * zgoda. `method` trafia do zapisu zgody (gdzie ją wyrażono). Rzuca przy
- * błędzie zapisu.
+ * zgoda. `channel` (gdzie: strona albo telefon) trafia do wypisu i do zapisu
+ * zgody. Rzuca przy błędzie zapisu.
  */
 export async function setEmailCategory(input: {
   userId: string;
   category: ToggleableEmailCategory;
   subscribed: boolean;
-  method: string;
+  channel: 'settings_ui' | 'mobile_settings';
 }): Promise<void> {
-  const { userId, category, subscribed, method } = input;
+  const { userId, category, subscribed, channel } = input;
   if (subscribed) {
     await resubscribe(userId, category);
   } else {
-    await unsubscribe({ userId, category, source: 'settings_ui' });
+    await unsubscribe({ userId, category, source: channel });
   }
-  const consent = await setEmailConsent({ userId, category, granted: subscribed, method });
+  const consent = await setEmailConsent({ userId, category, granted: subscribed, method: channel });
   if (!consent.ok) throw new Error('consent_write_failed');
 }
