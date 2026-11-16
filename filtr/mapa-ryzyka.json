@@ -1033,7 +1033,8 @@
         "lib/cache/**",
         "lib/supabase/**",
         "app/api/auth/**",
-        "app/(dashboard)/settings/security/**"
+        "app/(dashboard)/settings/security/**",
+        "lib/api/mobile/ustawienia-bezpieczenstwo.ts"
       ],
       "powod": "Logowanie, MFA, klucze dostępu, sesje, limity prób, pamięć podręczna i klienty Supabase: bezpieczeństwo kont i izolacja najemców (pilnują ich testy RLS i CODEOWNERS), bez obliczeń prawnych. Sygnały to słowo KSeF w nazwach uprawnień, usuwanie kluczy i liczby w limitach czasu."
     },
