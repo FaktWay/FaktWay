@@ -5,19 +5,18 @@ import {
   RiDownloadCloud2Line,
   RiFileExcel2Line,
   RiHistoryLine,
+  type RemixiconComponentType,
 } from '@remixicon/react';
 
 import StatsCards, { type StatItem } from '@/components/dashboard/stats-cards';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { buttonVariants } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { formatPlInt } from '@/lib/format/pl';
-import { formatWarsawDateTime } from '@/lib/format/warsaw-date';
 import type { KsefHistorySyncStatus } from '@/lib/ksef/history-sync/status';
 import { cn } from '@/lib/utils';
 
 import { ImportHistory } from './import-history';
-import { IMPORT_HISTORY_LIMIT, summarizeImports, type ImportHistoryJob } from './import-model';
+import { importStatValues, showsImportStats, type ImportHistoryJob, type ImportStatKey } from './import-model';
 import { ImportSourceGrid } from './import-source-grid';
 import { KsefHistoryCard } from './ksef-history-card';
 import type { PauseError } from './ksef-history-model';
@@ -88,68 +87,30 @@ export function ImportHeader({ tenantName, nip }: { tenantName?: string | null; 
   );
 }
 
-/** Czy synchronizacja historii z KSeF już coś ma (strumień albo pobrane faktury). */
-function hasKsefHistory(status: KsefHistorySyncStatus | null): boolean {
-  if (!status) return false;
-  return (
-    status.outgoing.phase !== 'waiting' ||
-    status.incoming.phase !== 'waiting' ||
-    status.outgoing.counts.imported + status.incoming.counts.imported > 0
-  );
-}
+/** Kafle pokazujemy, gdy jest jakikolwiek import albo synchronizacja z KSeF (`import-model.ts`). */
+export { showsImportStats };
 
-/** Kafle pokazujemy, gdy jest jakikolwiek import albo synchronizacja z KSeF. */
-export function showsImportStats(jobs: readonly ImportHistoryJob[], ksefHistory: KsefHistorySyncStatus | null): boolean {
-  return jobs.length > 0 || hasKsefHistory(ksefHistory);
-}
+const STAT_ICONS: Record<ImportStatKey, RemixiconComponentType> = {
+  ksef: RiHistoryLine,
+  files: RiFileExcel2Line,
+  contractors: RiContactsBook3Line,
+  lastFetch: RiDownloadCloud2Line,
+};
 
 /**
  * Kafle: historia z KSeF (automatyczna + dawny ręczny import), faktury
- * z plików, nowi kontrahenci z plików i ostatnie pobranie z KSeF.
- * Naprawione faktury (`repaired`) nie są nowymi — kafel ich nie liczy.
+ * z plików, nowi kontrahenci z plików i ostatnie pobranie z KSeF. Wartości
+ * liczy `importStatValues` (`import-model.ts`, ta sama dla aplikacji na
+ * telefon, M10e); brak wartości to kreska.
  */
 export function importStats(jobs: readonly ImportHistoryJob[], ksefHistory: KsefHistorySyncStatus | null): StatItem[] {
-  const summary = summarizeImports(jobs);
-  const partialNote = summary.partial ? `z ostatnich ${IMPORT_HISTORY_LIMIT} importów` : undefined;
-
-  let ksefTile: StatItem;
-  if (ksefHistory) {
-    const sales = ksefHistory.outgoing.counts.imported + summary.legacyKsefIssued;
-    const purchases = ksefHistory.incoming.counts.imported + summary.legacyKsefReceived;
-    ksefTile = {
-      label: 'Historia z KSeF',
-      value: formatPlInt(sales + purchases),
-      icon: RiHistoryLine,
-      note: `sprzedaż ${formatPlInt(sales)} · zakupy ${formatPlInt(purchases)}`,
-    };
-  } else {
-    // Stanu nie znamy — nie pokazujemy liczby mniejszej niż prawdziwa.
-    ksefTile = { label: 'Historia z KSeF', value: '—', icon: RiHistoryLine, note: 'nie udało się wczytać' };
-  }
-
-  const lastFetch = ksefHistory?.outgoing.lastSuccessAt ?? ksefHistory?.incoming.lastSuccessAt ?? null;
-
-  return [
-    ksefTile,
-    {
-      label: 'Zaimportowane z plików',
-      value: formatPlInt(summary.fileInvoices),
-      icon: RiFileExcel2Line,
-      note: partialNote,
-    },
-    {
-      label: 'Nowi kontrahenci',
-      value: formatPlInt(summary.fileContractors),
-      icon: RiContactsBook3Line,
-      note: partialNote ? `z importów plików, ${partialNote}` : 'z importów plików',
-    },
-    {
-      label: 'Ostatnie pobranie z KSeF',
-      value: lastFetch ? formatWarsawDateTime(lastFetch) : '—',
-      valueClassName: lastFetch ? 'text-lg' : undefined,
-      icon: RiDownloadCloud2Line,
-    },
-  ];
+  return importStatValues(jobs, ksefHistory).map((stat) => ({
+    label: stat.label,
+    value: stat.value ?? '—',
+    icon: STAT_ICONS[stat.key],
+    note: stat.note ?? undefined,
+    ...(stat.key === 'lastFetch' ? { valueClassName: stat.value ? 'text-lg' : undefined } : {}),
+  }));
 }
 
 function HistoryError() {

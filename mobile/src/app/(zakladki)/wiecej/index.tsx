@@ -48,7 +48,7 @@ export default function EkranWiecej() {
   const { wyloguj, biometria, blokada, konto: kontoSesji } = useSesja();
   const kontoFirmy = useKontoFirmy();
   const { dane } = useStanFaktur();
-  // Prawdziwe konto (M7): firma i rola z `GET /konto`; od M9 też wydatki; reszta kart na danych przykładowych do M10.
+  // Prawdziwe konto (M7): firma i rola z `GET /konto`; od M9 wydatki, od M10e kontrahenci, import i karty ustawień.
   const zBazy = dane.zrodlo === 'baza';
   const przyklad = CZLONKOWIE.find((c) => c.ty);
   const konto = zBazy ? (kontoSesji ? { imie: kontoSesji.imie, email: kontoSesji.email } : undefined) : przyklad;
@@ -78,7 +78,7 @@ export default function EkranWiecej() {
       pozycje: [
         { tytul: 'Firma', trasa: '/wiecej/ustawienia/firma', podtytul: 'Dane firmy, VAT, metoda kasowa', slowa: 'nip adres rachunek bank metoda kasowa zwolnienie' },
         { tytul: 'KSeF', trasa: '/wiecej/ustawienia/ksef', stan: ksefStan, stanKolor: ksefPolaczony ? 'sukces' : 'ostrzezenie', slowa: 'certyfikat token uprawnienia' },
-        { tytul: 'Księgowa', trasa: '/wiecej/ustawienia/ksiegowa', podtytul: 'Co-Pilot i udostępnione dostępy', slowa: 'biuro rachunkowe dostęp', strona: '/settings/accountant' },
+        { tytul: 'Księgowa', trasa: '/wiecej/ustawienia/ksiegowa', podtytul: 'Co-Pilot i udostępnione dostępy', slowa: 'biuro rachunkowe dostęp', role: ['owner'] },
       ],
     },
     {
@@ -91,8 +91,8 @@ export default function EkranWiecej() {
     {
       naglowek: 'Zespół i abonament',
       pozycje: [
-        { tytul: 'Zespół', trasa: '/wiecej/ustawienia/zespol', stan: zBazy ? undefined : `${CZLONKOWIE.length} osoby`, slowa: 'użytkownicy zaproszenia role', strona: '/settings/team', role: WLASCICIEL_ADMIN },
-        { tytul: 'Abonament', trasa: '/wiecej/ustawienia/abonament', stan: zBazy ? undefined : 'Plan miesięczny', slowa: 'subskrypcja płatność faktura', strona: '/settings/billing', role: WLASCICIEL_ADMIN },
+        { tytul: 'Zespół', trasa: '/wiecej/ustawienia/zespol', stan: zBazy ? undefined : `${CZLONKOWIE.length} osoby`, slowa: 'użytkownicy zaproszenia role', role: WLASCICIEL_ADMIN },
+        { tytul: 'Abonament', trasa: '/wiecej/ustawienia/abonament', stan: zBazy ? undefined : 'Plan miesięczny', slowa: 'subskrypcja płatność faktura', role: WLASCICIEL_ADMIN },
       ],
     },
     {
@@ -106,7 +106,7 @@ export default function EkranWiecej() {
           stanKolor: dwaEtapy ? 'sukces' : 'ostrzezenie',
           slowa: 'hasło 2fa face id biometria klucz blokada wyloguj',
         },
-        { tytul: 'Dziennik zdarzeń', trasa: '/wiecej/ustawienia/dziennik', slowa: 'logi historia audyt', strona: '/settings/audit' },
+        { tytul: 'Dziennik zdarzeń', trasa: '/wiecej/ustawienia/dziennik', slowa: 'logi historia audyt' },
         { tytul: 'Konto i dane (RODO)', trasa: '/wiecej/ustawienia/konto', slowa: 'usuń konto eksport danych rodo' },
       ],
     },
@@ -224,7 +224,7 @@ export default function EkranWiecej() {
             <Sekcja
               stopka={
                 zBazy
-                  ? `FaktWay ${Constants.expoConfig?.version ?? ''}. Z Twojego konta: firma, faktury i należności, skrzynka KSeF, wydatki, księgowość i ustawienia. Kontrahenci, przepływy, analizy i import danych pokazują jeszcze dane przykładowe. Karty z dopiskiem faktway.pl otwierają stronę.`
+                  ? `FaktWay ${Constants.expoConfig?.version ?? ''}. Z Twojego konta: firma, faktury i należności, skrzynka KSeF, wydatki, kontrahenci, przepływy, analizy, import danych, księgowość i ustawienia. Karty z dopiskiem faktway.pl otwierają stronę.`
                   : `FaktWay ${Constants.expoConfig?.version ?? ''}, dane przykładowe`
               }
             />

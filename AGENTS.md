@@ -129,14 +129,18 @@ Dostęp: `ssh -i $K root@$DB` (i analogicznie `$APP`, `$OPS`).
 
 1. **Agent sam scala PR przez etykietę `scal`** (decyzja Bartosza
    z 14.11.2026: bez pytania go). Jedna linia, ta sama lokalnie, w Codexie
-   i w chmurze (tylko REST): `./scripts/ops/scal-pr.sh N` (z `--czekaj`, gdy
-   chcesz zobaczyć wynik). Workflow „Scalanie na etykietę” włącza wtedy
-   automatyczne scalanie i PR sam wchodzi do kolejki, gdy kontrole są zielone,
-   więc nie czekasz na CI. Kolejka GitHuba sprawdza PR razem z `main` i z PR
+   i w chmurze (etykiety i odczyty przez REST): `./scripts/ops/scal-pr.sh N` (z `--czekaj`, gdy
+   chcesz zobaczyć wynik). Skrypt nadaje etykietę i włącza scalanie z Twojego
+   konta (`gh pr merge`), a PR sam wchodzi do kolejki, gdy kontrole są zielone,
+   więc nie czekasz na CI. Z chmury (GraphQL zablokowany) scalanie włącza
+   workflow z sekretem `SCAL_TOKEN`; bez niego skrypt tylko ostrzega (stan:
+   `./scripts/ops/kolejka-scalania.sh --sprawdz`). Scalanie włączone albo wpis
+   zrobiony tokenem Actions nie działa (PR nie wchodzi do kolejki, kontrole
+   grupy nie ruszają): `docs/runbooks/scalanie-pr.md`. Kolejka GitHuba sprawdza PR razem z `main` i z PR
    przed nim w kolejce, a przy konflikcie albo czerwonym teście wyrzuca go
    zamiast scalić. Wtedy naprawiasz na tej samej gałęzi i nadajesz `scal`
    jeszcze raz (nowy push zdejmuje `scal` i etykiety zgody). Zapas lokalny:
-   `gh pr merge N --auto`. Procedura: `docs/runbooks/scalanie-pr.md`.
+   `gh pr merge N`. Procedura: `docs/runbooks/scalanie-pr.md`.
    - Warunki: nie szkic, baza `main`, gałąź z tego repo, żadna kontrola nie
      jest czerwona, przy R1 i R2 drugi czytelnik bez otwartych uwag
      i potrzebne etykiety zgody („Żelazny filtr” niżej; skrypt nadaje je przed

@@ -106,10 +106,10 @@ o zapłacie (podgląd, zgoda, wstrzymanie), PDF faktury i „Sprawdź teraz” w
 skrzynce KSeF; od M10b księgowość („Ten miesiąc”: terminy, kwoty, dane do
 przelewu, zatwierdzenie miesiąca, zapłata), ustawienia Firma, KSeF,
 Przypomnienia i Bezpieczeństwo (odczyt, zmiany na faktway.pl), wybór firmy
-wspólny ze stroną i usunięcie konta. Na danych przykładowych zostają
-Kontrahenci, Przepływy, Analizy i Import danych; karty
-ustawień bez API (Księgowa, Powiadomienia, Zespół, Abonament, Dziennik)
-otwierają stronę. Stopka w Więcej mówi o tym klientowi.
+wspólny ze stroną i usunięcie konta; od M10e Kontrahenci (lista, karta,
+dodanie, poprawka, usunięcie), Przepływy, Analizy, Import danych i karty
+Księgowa, Zespół, Abonament, Dziennik (odczyt). Karta Powiadomienia i zapisy
+ustawień otwierają stronę (M10c).
 
 | Strona (`app/(dashboard)/`) | Telefon | Trasy |
 |---|---|---|
@@ -424,6 +424,26 @@ a te czytają sesję z ciasteczek. Aplikacja natywna ich nie wywoła. Dlatego:
   serwera), nagłówek Księgowości mówił „Nic do zapłaty”, gdy żadnej kwoty nie
   dało się policzyć (stawki 2026 czekają na sprawdzenie, jak na stronie).
 
+**Stan po M8b (15.11.2026).** Zaliczka, rozliczenie, korekta, ponowienie, szkic, GUS:
+- Logika akcji strony w `lib/invoices/` bez zmiany zachowania (akcje strony podają
+  sesję leniwie, testy strony zielone): `issue-advance.ts`, `issue-final.ts`,
+  `issue-correction.ts` (z wyliczeniem bez zapisu), `ksef-resend.ts` („Wyślij
+  ponownie”, „Wróć do szkicu”), `delete-draft.ts`, `lookup-buyer.ts` (GUS).
+- Trasy: `POST /faktury` przyjmuje też `zaliczka`, `rozliczenie`, `korekta` (ten
+  sam klucz i `endpoint` z 00201, bez migracji; sprzedawca, faktura pierwotna,
+  pozycje „przed” i suma zaliczek z bazy), `POST /faktury/wyliczenie` (kwoty bez
+  zapisu), `GET /faktury/zaliczki`, `GET /faktury/{id}/korekta`, `POST
+  /faktury/{id}/{ponowienie,szkic,usuniecie}`, `GET /gus/{nip}`,
+  `?rodzaj=` i `wysylkaWstrzymana` w podpowiedzi. Zwykła faktura: firma z UE
+  („np II”) i osoba z PESEL albo dokumentem. Kod `invoice_change_refused`.
+- Jak na stronie: ze szkicu do KSeF tylko zwykła VAT; wysyłka faktury
+  rozliczającej wstrzymana (telefon zapisuje szkic); zmiana szkicu to usunięcie
+  i nowy zapis. Ponowienie żądania w trakcie wysyłki dopytuje o stan, zamiast
+  mówić „nie poszło”.
+- Dowód zamiast KSeF TEST z telefonu: koperty z tras przez generator FA(3) i XSD
+  MF (`tests/unit/mobile-api-faktury-rodzaje.test.ts`), test na bazie
+  `tests/rls-mobile-faktury-rodzaje.test.ts`.
+
 ### 4.4 Repozytorium (folder `mobile/`, jeśli D2 przyjęte)
 Dziś konfiguracja obejmuje całe repo, więc w M2 trzeba:
 - `tsconfig.json` (`include: **/*.ts`): dodać `mobile` do `exclude`;
@@ -601,11 +621,18 @@ Android 15 albo nowszy; drugi obraz z Androidem 12 do punktu 13). Zrzuty do
 
 ## 9. Dziennik
 
-**Następny krok:** M12b (Android na emulatorze, checklista w sekcji 7a), gdy
+**Następny krok:** M10c (zapisy ustawień z telefonu, decyzja Bartosza 15.11)
+albo M10d (pełna księgowość), potem M12b (Android na emulatorze, checklista w sekcji 7a), gdy
 Bartosz zainstaluje Android Studio, SDK i obraz emulatora (około 10 GB). M11
 (powiadomienia push, logowanie Apple) i M13 (sklep) czekają na płatne konto
 Apple. M8, M9 i M10 są w `main` i na produkcji od 14.11.2026 (#716, #740, #738,
-#752; migracje 00201 i 00202).
+#752; migracje 00201 i 00202). Wybór Bartosza z 15.11: po M8b (#789) i M10e
+M10c (zapisy ustawień), potem M10d (pełna księgowość).
+**Z M8b zostaje:** obchód w symulatorze i zrzuty (`docs/mobile/zrzuty/m8b/`)
+oraz zaliczka i korekta przyjęte w KSeF TEST z telefonu (dziś dowodem jest
+test tras z generatorem i XSD); nabywcy z UE i z PESEL nie trafiają jeszcze na
+listę nabywców z faktur ani do „Duplikuj” (dojdą z kontrahentami z M10e).
+**Z M10e zostaje:** (1) obchód w symulatorze nie zrobiony (trasy sprawdzone testami i na izolowanym stosie Supabase: RLS kontrahentów); (2) na telefonie bez kart Analiz strony „Udział klientów”, „Ruchy klientów”, limit kasy fiskalnej i próg OSS; (3) Zespół bez adresów e-mail członków (strona czyta je kluczem serwisowym); (4) przypomnienia dla kontrahenta, uprawnienia biura w KSeF, wgranie pliku importu i wstrzymanie historii KSeF na stronie (M10c); (5) lokalny `pnpm build` pada na braku pamięci (16 GB), build sprawdza CI.
 **Z M12a zostaje:** wszystko, czego nie widać bez emulatora (sekcja 7a), w tym
 cztery ryzyka z przeglądu kodu (7a, punkt 17: zasłona w ostatnich aplikacjach,
 blokada a arkusz, zdjęcie po ubiciu aplikacji, znacznik filtra); menu
@@ -643,8 +670,8 @@ powrotu `faktway://**` w GoTrue (Google); logowanie hasłem przez `POST
 limity GoTrue na adres widzą przy logowaniu hasłem tylko adres app-1, kod 2FA
 z telefonu od M6c przez `POST /api/mobile/v1/kod`, z limitem prób i wpisami
 `auth.mfa_challenge_*` jak na stronie.
-**Z M8 zostaje:** zmiana szkicu, korekta, zaliczka, rozliczenie, ponowna
-wysyłka odrzuconej, nabywca z UE i z PESEL, dane z GUS po NIP, pole uwag z
+**Z M8 zostaje:** (zmiana szkicu, korekta, zaliczka, rozliczenie, ponowna
+wysyłka, nabywca z UE i z PESEL i GUS zrobione w M8b) pole uwag z
 polskimi znakami nie było sprawdzone wpisywaniem z Maca (symulator nie
 przyjmuje wklejenia). Z przeglądu #716: (8) `mobile/` zostaje poza mapą
 ryzyka żelaznego filtra (decyzja Bartosza, bez zmiany
@@ -683,3 +710,5 @@ dotknięciem (5.2), D4, D6.
 | 14.11.2026 | M9 | wydatek ze zdjęcia (4.3, „Stan po M9”): `lib/expenses/{review,ocr-status}.ts` (test zgodności także na starej akcji), trasy `/wydatki/zdjecie` (poza proxy, klucz 00202), `/wydatki/odczyt/{id}`, `/wydatki/{id}/zatwierdzenie`; skaner VisionKit (moduł lokalny), galeria, sprawdzenie odczytu, wydatki z bazy. Sprawdzone przez API na osobnym stosie z prawdziwym OCR: wgranie, ponowienie (to samo zadanie), wydatek w bazie, zatwierdzenie. Obchód w symulatorze czeka na zgodę | #738 |
 | 14.11.2026 | M10b | księgowość, ustawienia, wybór firmy i usunięcie konta z telefonu (4.3, „Stan po M10b”): logika strony wydzielona do `lib/` bez zmian zachowania (zapis „Ten miesiąc”, dane do przelewu, usunięcie konta RODO, sprawdzenie hasła, ostatnia firma, model ustawień przypomnień), 8 tras w `app/api/mobile/v1` (`firma`, `ksiegowosc` z zatwierdzeniem i zapłatą, `ustawienia`, `konto/usuniecie` z anulowaniem); w aplikacji „Ten miesiąc” z zatwierdzeniem i danymi do przelewu, Firma, KSeF, Przypomnienia i Bezpieczeństwo z konta (zmiany na faktway.pl), wybór firmy zapisany też dla strony, usunięcie konta hasłem albo świeżym logowaniem Google. Decyzje sesji w 4.3. Testy tras (konto i firma 13, księgowość 9, ustawienia 9; czerwone przed zmianą albo mutacją), testy strony bez zmian zielone; 6 uwag z przeglądu i 4 z obchodu poprawione; zrzuty `docs/mobile/zrzuty/m10/m10b-*` | #752 (zastąpił #751 po trafieniu gitleaks na testowe hasło) |
 | 14.11.2026 | M12a | Android w kodzie, bez emulatora (sekcja 10 zasad, rozpisana w tabeli): pasek Material z tytułem po lewej, na ekranach z gradientem w kolorze góry gradientu z białym tytułem i ikonami, gradient w treści od koloru paska (`wyglad/pasek-android.ts`, kontrast białego tekstu sprawdzony testem); styl paska stanu na każdym ekranie (po Pulpicie zostawał biały na jasnym); przyciski z napisem w pasku przez `PrzyciskPaska` (na Androidzie `Stack.Toolbar.Button` bez ikony nic nie rysował: nie dało się zapisać szkicu ani wysłać e-maila; teraz X po lewej i napis po prawej); menu Compose na białej karcie, grupy filtrów jako podmenu; wyszukiwarka biała na niebieskim pasku; pole wyboru: nasze pole z menu Material (było systemowe pole w naszej ramce); fala przycięta do zaokrągleń w `Dotyk`, pigułkach, wierszach, polach i przyciskach tekstowych; bez kreski Material pod polami; kciuk przełącznika w kolorach marki; wstecz przy blokadzie wychodzi z aplikacji; `app.json`: kolor marki, zablokowane uprawnienia (okno nad innymi, odczyt plików, mikrofon; zapis plików zostaje, bo aparat na Androidzie 7 do 9 go wymaga), pakiet i ikona adaptacyjna bez zmian. Decyzje: skaner na Androidzie to aparat systemowy i galeria (ML Kit wymaga Kotlina, którego nie zbudujemy bez Android Studio, i wysyła Google dane o użyciu; do decyzji po M12b), „Wklej” zwykłym przyciskiem (Android nie pyta o zgodę), biometria przez systemowe okno z nazwą „odcisk palca”. Sprawdzone: `expo export` Android i iOS, `expo prebuild --platform android` (manifest, uprawnienia, ikona, czcionki Outfit), `pnpm run sprawdz`, test `mobile-android` (9, czerwone przed zmianą), testy telefonu (487), filtr. Checklista M12b w sekcji 7a | #765 |
+| 15.11.2026 | M10e | ekrany Więcej i Pulpitu na prawdziwych danych (D3), trasy w `app/api/mobile/v1` na logice strony, klient z tokenem: Kontrahenci (lista z kaflami i należnościami po NIP, karta, dodanie z NIP, poprawka, usunięcie; zapis kontrahenta wydzielony do `lib/contractors/manage.ts`, akcje strony bez zmiany zachowania), Import danych (kafle i zdania modeli strony, `importStatValues`), Księgowa (tylko właściciel, formaty paczki jak wysyłka, `lib/exports/co-pilot-formats.ts`), Zespół, Abonament (bez cen, D5), Dziennik (`lib/audit/labels.ts`); Przepływy i Analizy przez `kontekstDanych` strony (tryb przykładowy oznaczony), każda karta osobno, kwoty, saldo, procenty i kalendarz (kwantyle strony) liczy serwer; w aplikacji wspólny magazyn odczytów `stan/odczyt.tsx` (pyta przy każdym otwarciu, odrzuca odpowiedź sprzed zapisu) i stany z M4f. Testy tras (kontrahenci 27, karty 19, przepływy i analizy 10, kontrakt 5), RLS kontrahentów na bazie (6). Drugi czytelnik: 12 uwag w części 1 i 4 w części 2, poprawione | #791, #792 |
+| 15.11.2026 | M8b | faktury z telefonu w zgodności ze stroną (4.3, „Stan po M8b”): zaliczka, rozliczenie zaliczek (szkic, wysyłka ROZ wstrzymana jak na stronie) i korekta (kwotowa, danych, anulowanie; faktura pierwotna z serwera) przez `POST /faktury`, kwoty z serwera (`/faktury/wyliczenie`), „Wyślij ponownie”, „Wróć do szkicu”, usunięcie i zmiana szkicu, nabywca z UE i z PESEL, GUS po NIP; logika akcji strony w `lib/invoices/` bez zmiany zachowania. Testy: trasy 41 (czerwone na main, z FA(3) przez XSD), formularz 9, baza 5, filtr zielony; pełny vitest znalazł 3 strażniki przeniesionego kodu (poprawione). Bez obchodu w symulatorze (port 8081 i limit użycia), bez KSeF TEST z telefonu | #789 |
