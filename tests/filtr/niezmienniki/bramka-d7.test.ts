@@ -10,12 +10,14 @@ import { describe, expect, it } from 'vitest';
  * klienta: ekran, push, mail, dzwonek, „Odłóż na podatek”, telefon. Test
  * strukturalny na drzewie składni:
  *
- * 1. silniki kwot modułu woła się tylko w `lib/ksiegowosc/`;
- * 2. silnik całego miesiąca (`tenMiesiac`) woła tylko `czytajTenMiesiac`;
+ * 1. silniki kwot modułu woła się tylko tam, gdzie dziś (lista niżej):
+ *    silniki pozycji w `lib/ksiegowosc/ten-miesiac.ts`, a silnik całego
+ *    miesiąca (`tenMiesiac`) tylko w `czytajTenMiesiac`;
  * 3. `czytajTenMiesiac` stosuje bramkę D7 (`brakujace`) i chowa kwoty
  *    pozycji bez podpisu (`bezKwot`);
  * 4. każdy kanał bierze kwoty z `czytajTenMiesiac` (wprost albo przez
- *    `czytajOdlozyc`).
+ *    `czytajOdlozyc`), a każde użycie tych funkcji poza modułem jest na
+ *    liście kanałów albo innych użyć (nowy kanał wymaga dopisania tutaj).
  *
  * Bramkę na danych sprawdzają testy jednostkowe
  * (`tests/unit/ksiegowosc-ten-miesiac-dane.test.ts`, „bramka D7 dla każdej
@@ -25,6 +27,15 @@ import { describe, expect, it } from 'vitest';
 const KATALOG = process.cwd();
 /** Silniki kwot modułu (podatek i składki zależne od parametrów z podpisem księgowej). */
 const SILNIKI = ['tenMiesiac', 'ryczaltMiesiaca', 'skladkiSpoleczne', 'zdrowotnaRyczaltu', 'zdrowotnaOdDochodu', 'zaliczkiPit'];
+/** Gdzie wolno wołać silnik: `plik#funkcja` albo cały plik (`plik#*`). */
+const WOLNO: Readonly<Record<string, readonly string[]>> = {
+  tenMiesiac: ['lib/ksiegowosc/ten-miesiac-dane.ts#czytajTenMiesiac'],
+  ryczaltMiesiaca: ['lib/ksiegowosc/ten-miesiac.ts#*'],
+  skladkiSpoleczne: ['lib/ksiegowosc/ten-miesiac.ts#*'],
+  zdrowotnaRyczaltu: ['lib/ksiegowosc/ten-miesiac.ts#*'],
+  zdrowotnaOdDochodu: ['lib/ksiegowosc/ten-miesiac.ts#*'],
+  zaliczkiPit: ['lib/ksiegowosc/ten-miesiac.ts#*'],
+};
 const KANALY: ReadonlyArray<[string, string]> = [
   ['ekran „Ten miesiąc”', 'app/(dashboard)/reports/ten-miesiac/page.tsx'],
   ['przypomnienie o terminie: push, mail, dzwonek', 'lib/jobs/runners/ksiegowosc-terminy.ts'],
@@ -32,7 +43,10 @@ const KANALY: ReadonlyArray<[string, string]> = [
   ['„Odłóż na podatek”: szacunek', 'lib/ksiegowosc/odlozyc.ts'],
   ['„Odłóż na podatek”: karta Pulpitu', 'components/przeplywy/finora-1do1/sloty.tsx'],
   ['telefon (API M10b)', 'lib/api/mobile/ksiegowosc.ts'],
+  ['telefon: przepływy („Odłóż na podatek”)', 'lib/api/mobile/przeplywy.ts'],
 ];
+/** Użycia bramki, które nie pokazują kwot klientowi wprost. */
+const INNE_UZYCIA: ReadonlyArray<[string, string]> = [['zatwierdzenie miesiąca (zapis wersji z kwotami po bramce)', 'lib/ksiegowosc/ten-miesiac-zapis.ts']];
 
 function pliki(katalog: string): string[] {
   const wynik: string[] = [];
@@ -69,14 +83,21 @@ const KOD = [...pliki('lib'), ...pliki('app'), ...pliki('components')];
 const wywolaniaSilnikow = KOD.flatMap((p) => wywolania(p, new Set(SILNIKI)).map(([s, f]) => ({ plik: p, silnik: s, funkcja: f })));
 
 describe('NZ-ROZL-04: kwoty modułu tylko przez bramkę D7', () => {
-  it('silniki kwot modułu woła się tylko w lib/ksiegowosc/', () => {
-    expect(wywolaniaSilnikow.length).toBeGreaterThan(0);
-    expect(wywolaniaSilnikow.filter((w) => !w.plik.startsWith('lib/ksiegowosc/')).map((w) => `${w.plik}#${w.funkcja} woła ${w.silnik}`)).toEqual([]);
+  it('każdy silnik kwot woła się tylko tam, gdzie wolno', () => {
+    expect(new Set(wywolaniaSilnikow.map((w) => w.silnik))).toEqual(new Set(SILNIKI));
+    const zle = wywolaniaSilnikow.filter((w) => !WOLNO[w.silnik].some((m) => m === `${w.plik}#${w.funkcja}` || m === `${w.plik}#*`));
+    expect(zle.map((w) => `${w.plik}#${w.funkcja} woła ${w.silnik}`)).toEqual([]);
   });
 
   it('silnik całego miesiąca woła tylko czytajTenMiesiac', () => {
     const wolajacy = wywolaniaSilnikow.filter((w) => w.silnik === 'tenMiesiac').map((w) => `${w.plik}#${w.funkcja}`);
     expect(wolajacy).toEqual(['lib/ksiegowosc/ten-miesiac-dane.ts#czytajTenMiesiac']);
+  });
+
+  it('każde użycie czytajTenMiesiac i czytajOdlozyc jest kanałem z listy albo innym znanym użyciem', () => {
+    const znane = new Set([...KANALY, ...INNE_UZYCIA].map(([, plik]) => plik));
+    const uzycia = KOD.filter((p) => p !== 'lib/ksiegowosc/ten-miesiac-dane.ts' && wywolania(p, new Set(['czytajTenMiesiac', 'czytajOdlozyc'])).length > 0);
+    expect(uzycia.filter((p) => !znane.has(p))).toEqual([]);
   });
 
   it('czytajTenMiesiac stosuje bramkę D7 i chowa kwoty pozycji bez podpisu', () => {
