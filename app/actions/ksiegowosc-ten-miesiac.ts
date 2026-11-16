@@ -1,16 +1,10 @@
 'use server';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { revalidatePath } from 'next/cache';
-import { z } from 'zod';
+import type { z } from 'zod';
 
-import { logAudit } from '@/lib/audit/log';
-import { monthLabel, monthRange } from '@/lib/expenses/month';
-import { todayInWarsaw } from '@/lib/format/warsaw-date';
-import { terminDla } from '@/lib/ksiegowosc/kalendarz';
-import { NAZWY_ROZLICZEN } from '@/lib/ksiegowosc/ten-miesiac';
-import { skrot, stabilnyJson } from '@/lib/ksiegowosc/ten-miesiac-dane';
 import {
+  dodajZaplateReczna,
   oznaczZaplacone,
   zaplataSchema,
   zatwierdzenieSchema,
@@ -18,8 +12,7 @@ import {
   type WynikZaplaty,
   type WynikZatwierdzenia,
 } from '@/lib/ksiegowosc/ten-miesiac-zapis';
-import { bladDatyZaplatyRecznej, wejsciaZaplatyRecznej, zaplataRecznaSchema, type ZaplataRecznaWejscie } from '@/lib/ksiegowosc/zaplata-reczna';
-import { czyKsiegowoscWlaczona } from '@/lib/ksiegowosc/wylacznik';
+import type { ZaplataRecznaWejscie } from '@/lib/ksiegowosc/zaplata-reczna';
 import { ActionAuthError, requireOrgRole } from '@/lib/supabase/auth-context';
 
 /**
@@ -42,18 +35,6 @@ import { ActionAuthError, requireOrgRole } from '@/lib/supabase/auth-context';
  */
 
 export type { WynikZatwierdzenia, WynikZaplaty } from '@/lib/ksiegowosc/ten-miesiac-zapis';
-
-const NIEDOSTEPNE = 'Rozliczenie miesiąca nie jest jeszcze dostępne dla tej firmy.';
-const BLAD = 'Nie udało się zapisać i nic się nie zmieniło. Można spróbować jeszcze raz.';
-const STRONA = '/reports/ten-miesiac';
-
-async function wlaczony(client: SupabaseClient, tenantId: string): Promise<boolean> {
-  try {
-    return (await czyKsiegowoscWlaczona(client, tenantId, 'ten_miesiac')).wlaczony;
-  } catch {
-    return false;
-  }
-}
 
 export async function zatwierdzMiesiacAction(wejscie: z.input<typeof zatwierdzenieSchema>): Promise<WynikZatwierdzenia> {
   let ctx;
@@ -91,88 +72,6 @@ export async function dodajZaplateRecznaAction(wejscie: ZaplataRecznaWejscie): P
     if (e instanceof ActionAuthError) return { success: false, error: e.message };
     throw e;
   }
-  const parsed = zaplataRecznaSchema.safeParse(wejscie);
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    return { success: false, error: issue?.message ?? BLAD, pole: issue?.path.join('.') };
-  }
-  const z = parsed.data;
-  const bladDaty = bladDatyZaplatyRecznej(z, todayInWarsaw());
-  if (bladDaty) return { success: false, ...bladDaty };
-
-  const client = ctx.supabase as unknown as SupabaseClient;
-  if (!(await wlaczony(client, ctx.tenantId))) return { success: false, error: NIEDOSTEPNE };
-
-  const okres = `${z.zaMiesiac}-01`;
-  const { data: ostatnia, error: bladOdczytu } = await client
-    .from('tax_settlements')
-    .select('wersja')
-    .eq('tenant_id', ctx.tenantId)
-    .eq('okres', okres)
-    .eq('rodzaj', z.rodzaj)
-    .order('wersja', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (bladOdczytu) return { success: false, error: BLAD };
-  const wersja = ((ostatnia as { wersja?: number } | null)?.wersja ?? 0) + 1;
-  const termin = terminDla({ rodzaj: 'zus', rok: Number(z.zaMiesiac.slice(0, 4)), miesiac: Number(z.zaMiesiac.slice(5, 7)) });
-  const wejscia = wejsciaZaplatyRecznej(z);
-
-  const { data: nowa, error: bladZapisu } = await client
-    .from('tax_settlements')
-    .insert({
-      tenant_id: ctx.tenantId,
-      okres,
-      rodzaj: z.rodzaj,
-      wersja,
-      kwota_gr: z.kwotaGr,
-      termin: termin?.faktyczny ?? monthRange(z.zaMiesiac).to,
-      migawka: {
-        reczna: true,
-        wejscia,
-        szczegoly: { zrodlo: 'PUE ZUS' },
-        spoleczneBezFpGr: z.bezFpGr,
-        wynik: { kwotaGr: z.kwotaGr, termin },
-      },
-      parametry_wersja: 'reczna',
-      wejscia_hash: skrot(stabilnyJson({ miesiac: z.zaMiesiac, rodzaj: z.rodzaj, kwotaGr: z.kwotaGr, wejscia })),
-    })
-    .select('id')
-    .single();
-  if (bladZapisu || !nowa) {
-    if (bladZapisu?.code === '23505') return { success: false, error: 'Ktoś właśnie zapisał rozliczenie tego okresu; po odświeżeniu strony można spróbować jeszcze raz.' };
-    return { success: false, error: BLAD };
-  }
-  const id = (nowa as { id: string }).id;
-  const { error: bladZaplaty } = await client
-    .from('tax_settlements')
-    .update({ status: 'zaplacone', zaplacone_o: z.dataZaplaty })
-    .eq('id', id)
-    .eq('tenant_id', ctx.tenantId);
-
-  await logAudit({
-    action: 'tax_settlement.manual_paid',
-    tenantId: ctx.tenantId,
-    userId: ctx.user.id,
-    entityType: 'tax_settlement',
-    entityId: id,
-    metadata: {
-      zaMiesiac: z.zaMiesiac,
-      rodzaj: z.rodzaj,
-      nazwa: NAZWY_ROZLICZEN[z.rodzaj],
-      wersja,
-      kwotaGr: z.kwotaGr,
-      spoleczneBezFpGr: z.bezFpGr,
-      zaplaconeO: bladZaplaty ? null : z.dataZaplaty,
-    },
-  });
-  revalidatePath(STRONA);
-  if (bladZaplaty) {
-    return {
-      success: false,
-      error: `Kwota za ${monthLabel(z.zaMiesiac)} jest zapisana, ale bez daty zapłaty. Datę ustawia się przy tej zapłacie na liście zapłat spoza wyliczenia.`,
-    };
-  }
-  return { success: true };
+  // Schemat, daty, wyłącznik, zapis wersji, zapłata i audyt: `lib/ksiegowosc/ten-miesiac-zapis.ts` (to samo dla telefonu, M10d).
+  return dodajZaplateReczna({ client: ctx.supabase as unknown as SupabaseClient, tenantId: ctx.tenantId, userId: ctx.user.id }, wejscie);
 }
-

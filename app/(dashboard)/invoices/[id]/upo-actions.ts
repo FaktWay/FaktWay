@@ -1,12 +1,42 @@
 'use server';
 
 import {
+  AUTH_BUSY_MESSAGE,
+  isAuthRateLimited,
+  isAuthServiceFailure,
+  logAuthServiceFailure,
+  SESSION_RETRY_MESSAGE,
+} from '@/lib/auth/gotrue-errors';
+import {
   KsefNotVerifiedError,
   requireKsefVerification,
 } from '@/lib/auth/ksef-verification-guard';
 import { createClient } from '@/lib/supabase/server';
 import { downloadUpoPdf, downloadUpoXml } from '@/lib/ksef/upo-storage';
 import { configuredKsefEnvironment } from '@/lib/ksef/claim-environment';
+
+type Refusal = { success: false; error: string };
+
+/**
+ * Zalogowany użytkownik. Limit albo awaria GoTrue (429, 5xx, brak sieci) to
+ * „spróbuj ponownie” z wpisem w logu, a nie „Niezalogowany” (plan skalowania
+ * 3000, sesja 7). Brak sesji i odrzucony token zostają „Niezalogowany”.
+ */
+async function signedInRefusal(supabase: Awaited<ReturnType<typeof createClient>>): Promise<Refusal | null> {
+  const { data, error } = await supabase.auth.getUser();
+  if (data.user) return null;
+  if (error && isAuthServiceFailure(error)) {
+    logAuthServiceFailure('akcja', error);
+    return { success: false, error: isAuthRateLimited(error) ? AUTH_BUSY_MESSAGE : SESSION_RETRY_MESSAGE };
+  }
+  return { success: false, error: 'Niezalogowany' };
+}
+
+/** Błąd bazy przy odczycie faktury to nie „Faktura nie znaleziona” (plan skalowania 3000, sesja 7). */
+function invoiceReadFailed(error: { code?: string }): Refusal {
+  console.warn('[upo] Odczyt faktury nie powiódł się', { code: error.code ?? null });
+  return { success: false, error: 'Nie udało się odczytać faktury. Spróbuj ponownie za chwilę.' };
+}
 
 function upoPdfFilename(
   internalNumber: string | null | undefined,
@@ -26,13 +56,8 @@ export async function getUpoPdfAction(
   | { success: false; error: string }
 > {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { success: false, error: 'Niezalogowany' };
-  }
+  const refusal = await signedInRefusal(supabase);
+  if (refusal) return refusal;
 
   const { data: invoice, error: invError } = await supabase
     .from('invoices')
@@ -40,7 +65,8 @@ export async function getUpoPdfAction(
     .eq('id', invoiceId)
     .maybeSingle();
 
-  if (invError || !invoice) {
+  if (invError) return invoiceReadFailed(invError);
+  if (!invoice) {
     return { success: false, error: 'Faktura nie znaleziona' };
   }
 
@@ -105,11 +131,8 @@ export async function getUpoXmlAction(
   invoiceId: string,
 ): Promise<{ success: true; xml: string } | { success: false; error: string }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) return { success: false, error: 'Niezalogowany' };
+  const refusal = await signedInRefusal(supabase);
+  if (refusal) return refusal;
 
   const { data: invoice, error: invError } = await supabase
     .from('invoices')
@@ -117,7 +140,8 @@ export async function getUpoXmlAction(
     .eq('id', invoiceId)
     .maybeSingle();
 
-  if (invError || !invoice) return { success: false, error: 'Faktura nie znaleziona' };
+  if (invError) return invoiceReadFailed(invError);
+  if (!invoice) return { success: false, error: 'Faktura nie znaleziona' };
 
   if (invoice.ksef_status !== 'accepted') {
     return {

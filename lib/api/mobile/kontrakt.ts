@@ -101,7 +101,10 @@ export const MOBILE_API_ERROR_CODES = [
   'deletion_blocked',
   /** 409: usuwanie konta już trwa i nie da się go anulować. */
   'deletion_in_progress',
-  /** 422: rozliczenia nie zatwierdzono albo zapłaty nie zapisano (miesiąc trwa, dane się zmieniły, zła data); `message` mówi dlaczego. */
+  /**
+   * 422: rozliczenia nie zatwierdzono albo zapłaty nie zapisano (miesiąc trwa, dane się zmieniły, zła data); `message` mówi dlaczego.
+   * M10d: także odmowa pliku JPK_V7M i zapłaty spoza wyliczenia, z `field` przy złym polu formularza.
+   */
   'settlement_refused',
   // Rodzaje faktur, ponowienie, szkic, GUS (M8b): zdanie z serwera mówi, co zrobić.
   /**

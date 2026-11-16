@@ -35,12 +35,14 @@ export async function classifyByNip(
   tenantId: string,
   nip: string,
   /**
-   * Kwota brutto dokumentu. Reguły agenta FLO mają widełki kwotowe
+   * Kwota brutto dokumentu w złotych. Reguły agenta FLO mają widełki kwotowe
    * (migracja 00063): reguła nauczona na zakupie za 200 zł nie ma prawa
    * księgować sama laptopa za 8000. Wydatek poza widełkami zwraca `null`,
    * czyli spada do kolejnej warstwy i kończy się pytaniem do człowieka.
+   * `null` to kwota w złotych nieznana (dokument w walucie obcej bez kursu
+   * NBP): reguła z widełkami się wtedy nie stosuje, reguła bez widełek tak.
    */
-  grossAmount?: number,
+  grossAmount?: number | null,
 ): Promise<CategorizationResult | null> {
   const normalized = normalizeNip(nip);
   if (!normalized) return null;
@@ -159,13 +161,15 @@ export async function classifyByKeyword(
  *
  * Reguły sprzed migracji 00063 nie mają widełek (NULL po obu stronach)
  * i obowiązują jak dotąd — nie zmieniamy zachowania rzeczy, które działają.
+ * Kwota nieznana (`null`) mieści się tylko w regule bez widełek.
  */
 function withinBounds(
   rule: { min_amount?: number | null; max_amount?: number | null },
-  grossAmount: number,
+  grossAmount: number | null,
 ): boolean {
   const min = rule.min_amount ?? null;
   const max = rule.max_amount ?? null;
+  if (grossAmount === null) return min === null && max === null;
   if (min !== null && grossAmount < Number(min)) return false;
   if (max !== null && grossAmount > Number(max)) return false;
   return true;
