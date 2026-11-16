@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import {
+  REMINDER_LIMITS,
   reminderSettingsFromRow,
   type ReminderSettings,
   type ReminderSettingsRow,
@@ -31,7 +32,7 @@ interface Props {
 const rowToSettings = reminderSettingsFromRow;
 
 function toPayload(s: Settings): ReminderSettingsPayload {
-  const days = (n: number) => Math.min(90, Math.max(1, n));
+  const days = (n: number) => Math.min(REMINDER_LIMITS.days.max, Math.max(REMINDER_LIMITS.days.min, n));
   return {
     enabled: s.enabled,
     stage_1_enabled: s.stage_1_enabled,
@@ -46,10 +47,10 @@ function toPayload(s: Settings): ReminderSettingsPayload {
     pause_on_reply: s.pause_on_reply,
     pause_on_partial_payment: s.pause_on_partial_payment,
     send_on_weekdays_only: s.send_on_weekdays_only,
-    send_hour: Math.min(18, Math.max(6, s.send_hour)),
+    send_hour: Math.min(REMINDER_LIMITS.hour.max, Math.max(REMINDER_LIMITS.hour.min, s.send_hour)),
     max_reminders_per_invoice: Math.min(
-      20,
-      Math.max(1, s.max_reminders_per_invoice),
+      REMINDER_LIMITS.perInvoice.max,
+      Math.max(REMINDER_LIMITS.perInvoice.min, s.max_reminders_per_invoice),
     ),
   };
 }

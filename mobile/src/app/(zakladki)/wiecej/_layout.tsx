@@ -19,6 +19,7 @@ export default function UkladWiecej() {
       <Stack.Screen name="kontrahenci/nowy" options={{ presentation: 'modal', title: 'Nowy kontrahent' }} />
       <Stack.Screen name="import" options={{ title: 'Import danych' }} />
       <Stack.Screen name="ustawienia/firma" options={{ title: 'Firma' }} />
+      <Stack.Screen name="ustawienia/firma-zmiana" options={{ presentation: 'modal', title: 'Firma' }} />
       <Stack.Screen name="ustawienia/bezpieczenstwo" options={{ title: 'Bezpieczeństwo' }} />
       <Stack.Screen name="ustawienia/powiadomienia" options={{ title: 'Powiadomienia' }} />
       <Stack.Screen name="ustawienia/ksef" options={{ title: 'KSeF' }} />

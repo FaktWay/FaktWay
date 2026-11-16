@@ -32,7 +32,17 @@ export interface ReminderSettings {
   max_reminders_per_invoice: number;
 }
 
-/** Propozycja formularza dla firmy bez zapisanych ustawień (bez wiersza scheduler niczego nie przygotowuje). */
+/**
+ * Granice formularza strony (`reminder-settings-form.tsx`, `toPayload`) i zapisu
+ * z telefonu (`lib/api/mobile/ustawienia-zapis.ts`, M10c); godzina jak CHECK w 00023.
+ */
+export const REMINDER_LIMITS = {
+  days: { min: 1, max: 90 },
+  hour: { min: 6, max: 18 },
+  perInvoice: { min: 1, max: 20 },
+} as const;
+
+/** Wartości dla nowego zapisu; firma bez wiersza widzi je z `enabled: false` (`reminderSettingsFromRow`). */
 export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   enabled: true,
   stage_1_enabled: true,
@@ -54,7 +64,9 @@ export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
 export function reminderSettingsFromRow(row: ReminderSettingsRow, tenantName: string): ReminderSettings {
   const nameFallback = tenantName.trim() || null;
   if (!row) {
-    return { ...DEFAULT_REMINDER_SETTINGS, sender_name: nameFallback };
+    // Bez wiersza scheduler niczego nie przygotowuje (`reminder-scheduler.ts` bierze `enabled = true`),
+    // więc formularz pokazuje „wyłączone”; etapy i godzina zostają propozycją, którą zapis włącza (M10c).
+    return { ...DEFAULT_REMINDER_SETTINGS, enabled: false, sender_name: nameFallback };
   }
   return {
     enabled: row.enabled,
@@ -73,10 +85,10 @@ export function reminderSettingsFromRow(row: ReminderSettingsRow, tenantName: st
     pause_on_reply: row.pause_on_reply,
     pause_on_partial_payment: row.pause_on_partial_payment,
     send_on_weekdays_only: row.send_on_weekdays_only,
-    send_hour: Math.min(18, Math.max(6, row.send_hour ?? 9)),
+    send_hour: Math.min(REMINDER_LIMITS.hour.max, Math.max(REMINDER_LIMITS.hour.min, row.send_hour ?? 9)),
     max_reminders_per_invoice: Math.min(
-      20,
-      Math.max(1, row.max_reminders_per_invoice ?? 3),
+      REMINDER_LIMITS.perInvoice.max,
+      Math.max(REMINDER_LIMITS.perInvoice.min, row.max_reminders_per_invoice ?? 3),
     ),
   };
 }

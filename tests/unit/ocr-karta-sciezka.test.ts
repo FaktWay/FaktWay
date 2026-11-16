@@ -492,7 +492,8 @@ describe('onProcessOcrExhausted — karta porażki po wyczerpaniu prób', () => 
 
     await onProcessOcrExhausted(ocrDown, event, ctx);
 
-    expect(jobRow()).toMatchObject({ status: 'failed', error_message: 'R2: HTTP 503' });
+    // `completed_at`: raport dzienny liczy porażki w dobie, w której padły (LIM-05).
+    expect(jobRow()).toMatchObject({ status: 'failed', error_message: 'R2: HTTP 503', completed_at: expect.any(String) });
     const card = onlyCard();
     expect(card.topic_key).toBe(`expense.review:ocr:${OCR_JOB}`);
     expect(card.title).toBe('Nie odczytałem tego zdjęcia');

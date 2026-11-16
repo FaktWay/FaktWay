@@ -207,7 +207,7 @@ export function brakFakturyZImportu(numer: string, dzien: string, powod: Niepewn
   const wyjscie =
     powod === 'przed_odczytem'
       ? 'FaktWay uzupełnia datę sprzedaży automatycznie z oryginału w KSeF (postęp: Import danych → Historia z KSeF) i wtedy policzy miesiąc. ' +
-        'Jeśli ten komunikat zostaje dłużej niż dobę, napisz do nas przez Pomoc.'
+        'Komunikat, który zostaje dłużej niż dobę, sprawdzimy po zgłoszeniu w Pomocy.'
       : 'Miesiąc policzymy ręcznie po zgłoszeniu w Pomocy.';
   return (
     `Faktura ${numer} z ${formatIsoDatePl(dzien)} ${NIEPEWNY_IMPORT[powod]}. Tego miesiąca (${monthLabel(dzien.slice(0, 7))}) ` +
