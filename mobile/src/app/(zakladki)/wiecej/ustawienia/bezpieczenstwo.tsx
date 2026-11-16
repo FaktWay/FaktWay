@@ -53,7 +53,7 @@ function EkranBezpieczenstwaZBazy({ konto }: { konto: KontoFirmy }) {
 
   const usun = (id: string, nazwa: string) =>
     potwierdz(
-      { tytul: `Usunąć klucz „${nazwa}”?`, opis: 'Na tym urządzeniu nie zalogujesz się już kluczem. Pozostałe sesje konta wylogujemy, ta zostaje.', potwierdz: 'Usuń klucz' },
+      { tytul: `Usunąć klucz „${nazwa}”?`, opis: `Na urządzeniu „${nazwa}” nie zalogujesz się już tym kluczem. Pozostałe sesje konta wylogujemy, ta zostaje.`, potwierdz: 'Usuń klucz' },
       () => {
         if (!zapis) return;
         setUsuwany(id);

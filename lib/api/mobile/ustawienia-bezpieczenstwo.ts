@@ -36,9 +36,10 @@ import { isUuid } from '@/lib/supabase/active-org';
  *    pozostałych sesji i wpis w dzienniku, jak strona. Dodanie zostaje na
  *    faktway.pl.
  *
- * Ponowienie: zmiana hasła na to samo kończy się `same_password` z GoTrue (422
- * pod polem `nowe`), choć hasło już jest zmienione; ponowione usunięcie klucza
- * to 404 (klucza już nie ma). Kod z e-maila wysyła się ponownie w limicie.
+ * Ponowienie: po zmianie hasła ponowienie ze starym hasłem odmawia pod polem
+ * `obecne` (jak strona) i zużywa próbę z limitu; zdanie mówi, że hasło mogło
+ * się już zmienić. Ponowione usunięcie klucza to 404 (klucza już nie ma). Kod z
+ * e-maila wysyła się ponownie w limicie.
  */
 
 const KONTRAKT = 'Treść żądania nie pasuje do kontraktu. Zaktualizuj aplikację FaktWay.';
@@ -69,11 +70,9 @@ function zaDuzoProb(caller: MobileCaller, retryAfter: number | undefined, co: st
   return mobileError(429, 'rate_limited', `${co} Spróbuj ponownie za ${sekundy} s.`, { ...caller.headers, 'Retry-After': sekundy });
 }
 
-/** Token z nagłówka: bramka już go sprawdziła w GoTrue (ten sam nagłówek, to samo żądanie). */
+/** Token z nagłówka, tym samym wzorem co bramka (`lib/api/mobile/auth.ts`), która już go sprawdziła w GoTrue. */
 function tokenZadania(request: Request): string | null {
-  const naglowek = request.headers.get('authorization') ?? '';
-  const [schemat, token] = naglowek.split(' ');
-  return schemat?.toLowerCase() === 'bearer' && token ? token : null;
+  return (request.headers.get('authorization') ?? '').trim().match(/^bearer +(\S+)$/i)?.[1] ?? null;
 }
 
 /** Konto bez hasła (tylko Google) nie ma czego zmieniać; strona też pokazuje mu inną drogę. */
@@ -94,7 +93,10 @@ async function aktualneHaslo(caller: MobileCaller, haslo: string): Promise<Odmow
   if (wynik.ok) return null;
   if (wynik.error === 'rate_limited') return { ok: false, response: zaDuzoProb(caller, wynik.retryAfter, 'Za dużo prób hasła.') };
   if (wynik.error === 'invalid_password') {
-    return { ok: false, response: niepoprawne(caller, 'obecne', 'Aktualne hasło jest nieprawidłowe. Sprawdź je i spróbuj ponownie.') };
+    return {
+      ok: false,
+      response: niepoprawne(caller, 'obecne', 'Aktualne hasło jest nieprawidłowe. Sprawdź je; jeśli hasło mogło się już zmienić, użyj nowego.'),
+    };
   }
   return { ok: false, response: niedostepne(caller) };
 }
@@ -137,8 +139,7 @@ function odmowaGoTrue(caller: MobileCaller, blad: Extract<OdpowiedzGoTrue, { ok:
       return niepoprawne(caller, 'nowe', 'Nowe hasło musi być inne niż obecne.');
     case 'weak_password':
       return niepoprawne(caller, 'nowe', 'Hasło jest za słabe: co najmniej 12 znaków, mała i wielka litera, cyfra i znak specjalny.');
-    case 'insufficient_aal':
-      return mobileError(403, 'mfa_required', 'Podaj kod z aplikacji uwierzytelniającej.', caller.headers);
+    // `insufficient_aal` po bramce (sesja już po kodzie) to stan nieoczekiwany: „ponów”, nie ekran kodu 2FA.
     case 'over_request_rate_limit':
     case 'over_email_send_rate_limit':
     case 'over_sms_send_rate_limit':

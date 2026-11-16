@@ -271,6 +271,14 @@ describe('POST /api/mobile/v1/ustawienia/haslo', () => {
     expect(zapisyHasla()).toEqual([]);
   });
 
+  it('GoTrue odrzuca token po bramce (sesja wygasła w międzyczasie): 401 `invalid_token`, telefon odświeży sesję', async () => {
+    odpowiedzZapisu = { status: 401, body: { error_code: 'bad_jwt', msg: 'invalid JWT' } };
+    const response = await haslo({ obecne: OBECNE, nowe: NOWE });
+    expect(response.status).toBe(401);
+    expect((await response.json()).error.code).toBe('invalid_token');
+    expect(fake.audit).not.toHaveBeenCalled();
+  });
+
   it('awaria GoTrue przy zapisie: 503, bez wpisu w dzienniku', async () => {
     odpowiedzZapisu = { status: 500, body: { msg: 'boom' } };
     expect((await haslo({ obecne: OBECNE, nowe: NOWE })).status).toBe(503);
@@ -295,6 +303,13 @@ describe('POST /api/mobile/v1/ustawienia/haslo/kod', () => {
     const response = await kodRoute(req('haslo/kod', { body: { obecne: 'Zle-haslo-123!' } }));
     expect((await response.json()).error).toMatchObject({ code: 'settings_invalid', field: 'obecne' });
     expect(wyjscia.some((w) => w.sciezka === '/auth/v1/reauthenticate')).toBe(false);
+  });
+
+  it('bez Redisa limit wysyłek odmawia (fail-closed): 503, kod nie wychodzi', async () => {
+    fake.state.redis = false;
+    const response = await kodRoute(req('haslo/kod', { body: { obecne: OBECNE } }));
+    expect(response.status).toBe(503);
+    expect(wyjscia.some((w) => w.sciezka === '/auth/v1/token' || w.sciezka === '/auth/v1/reauthenticate')).toBe(false);
   });
 
   it('limit wysyłek strony wyczerpany: 429 z `Retry-After`, bez sprawdzania hasła i wysyłki', async () => {
