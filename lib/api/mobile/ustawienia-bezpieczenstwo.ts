@@ -109,7 +109,8 @@ async function goTrue(request: Request, sciezka: string, init: { method: 'GET' |
   if (!token) return { ok: false, status: 401, code: 'bad_jwt' };
   const { url, anonKey } = resolveTarget({});
   try {
-    const res = await fetch(`${url}/auth/v1${sciezka}`, {
+    // Adres GoTrue projektu (nie strona FaktWay): `new URL` względem adresu Supabase.
+    const res = await fetch(new URL(`auth/v1${sciezka}`, `${url.replace(/\/+$/, '')}/`), {
       method: init.method,
       headers: { apikey: anonKey, authorization: `Bearer ${token}`, ...(init.body ? { 'content-type': 'application/json' } : {}) },
       body: init.body ? JSON.stringify(init.body) : undefined,
