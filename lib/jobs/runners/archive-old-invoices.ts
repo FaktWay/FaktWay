@@ -59,18 +59,71 @@ export async function runArchiveOldInvoices({ step, logger }: JobContext) {
       await step.run(`glacier-${candidate.id}`, async () => {
         if (!candidate.xml_storage_path) return { skipped: true };
 
+        // Dowód pliku czytany po fakturze, nie po ścieżce, i jako lista
+        // (ustalenie z #732, R1 `retencja`). Wcześniej `.maybeSingle()` bez
+        // `error` po ścieżce pliku: limit czasu, 5xx bramki, dwa wiersze dowodu
+        // (możliwe bez indeksu z 00164) i wiersz wskazujący inny plik (konflikt
+        // przy zapisie dowodu, `XmlDocumentConflictError` połknięty w
+        // `save-accepted.ts`) dawały `null` jak brak wiersza. Plik szedł wtedy
+        // do Glacier bez kontroli skrótu, a faktura dostawała znaczniki i datę
+        // usunięcia. Teraz brak dowodu to tylko pusta lista od bazy. Każdy inny
+        // wynik rzuca przed pobraniem pliku: faktura zostaje bez znaczników,
+        // a ponowienie od zera albo następny przebieg weźmie ją jeszcze raz.
+        // Ścieżka operatora: docs/runbooks/joby-pg-boss.md, „Typowe sytuacje”.
         const supabase = createAdminClient();
-        const { data: xmlDoc } = await supabase
+        const { data: xmlDocs, error: xmlDocError } = await supabase
           .from('xml_documents')
-          .select('sha256_hash')
-          .eq('storage_path', candidate.xml_storage_path)
+          .select('storage_path, sha256_hash')
           .eq('tenant_id', candidate.tenant_id)
           .eq('invoice_id', candidate.id)
-          .maybeSingle();
+          .limit(2);
 
-        const hash = xmlDoc?.sha256_hash as string | undefined;
-        const xml = hash
-          ? await downloadInvoiceXml(candidate.xml_storage_path, hash, candidate.tenant_id)
+        if (xmlDocError) {
+          // Odrzucony `fetch` (np. `SupabaseTimeoutError` z limitu czasu
+          // klienta) PostgREST oddaje z pustym kodem, stąd `||`.
+          throw new Error(
+            `Archiwum: nie można odczytać skrótu XML faktury ${candidate.id} ` +
+              `(${xmlDocError.code || 'bez kodu'}: ${xmlDocError.message}); ` +
+              'plik nie trafia do Glacier bez kontroli skrótu'
+          );
+        }
+        // Biblioteka oddaje `data: null` bez `error` przy odpowiedzi spoza
+        // umowy (pusta treść 2xx, 404 bez treści, treść `null`). To nie brak
+        // wiersza.
+        if (!Array.isArray(xmlDocs)) {
+          throw new Error(
+            `Archiwum: nie można odczytać skrótu XML faktury ${candidate.id} ` +
+              '(odpowiedź bazy bez listy wierszy i bez błędu); ' +
+              'plik nie trafia do Glacier bez kontroli skrótu'
+          );
+        }
+        if (xmlDocs.length > 1) {
+          throw new Error(
+            `Archiwum: nie można odczytać skrótu XML faktury ${candidate.id}: ` +
+              'kilka wierszy xml_documents tej faktury (duble do uzgodnienia, zapytanie w nagłówku 00164); ' +
+              'plik nie trafia do Glacier bez kontroli skrótu'
+          );
+        }
+
+        // Wiersz dowodu jest: plik faktury tylko po kontroli skrótem z tego
+        // wiersza, także gdy wiersz wskazuje inną ścieżkę (do Glacier idzie
+        // wtedy plik o treści z dowodu albo nic) i gdy skrót jest pusty (nie
+        // zgodzi się z żadnym plikiem, więc krok padnie na niezgodności).
+        // Bez wiersza (pusta lista) bez zmian: plik bez kontroli, bo nie ma
+        // z czym go porównać.
+        const xmlDoc = xmlDocs[0];
+        if (xmlDoc && xmlDoc.storage_path !== candidate.xml_storage_path) {
+          logger.warn(
+            `Archiwum: wiersz xml_documents faktury ${candidate.id} wskazuje inną ścieżkę pliku niż faktura; ` +
+              'plik faktury idzie do Glacier tylko ze skrótem z tego wiersza'
+          );
+        }
+        const xml = xmlDoc
+          ? await downloadInvoiceXml(
+              candidate.xml_storage_path,
+              String(xmlDoc.sha256_hash ?? ''),
+              candidate.tenant_id
+            )
           : await downloadInvoiceXmlUnchecked(candidate.xml_storage_path, candidate.tenant_id);
 
         const glacierKey = await uploadToGlacier(
