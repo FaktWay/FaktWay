@@ -162,8 +162,7 @@ export function calculateInvoiceTotals(lines: InvoiceLineItem[]): InvoiceTotals 
 export type InvoiceLineItemInput = Pick<
   InvoiceLineItem,
   'ordinal' | 'name' | 'unit' | 'quantity' | 'unitPriceNet' | 'vatRate'
-> &
-  Partial<Pick<InvoiceLineItem, 'classificationCode'>>;
+>;
 
 /** Faktura jaką user podaje z formularza (bez wyliczeń i totali). */
 export interface InvoiceInput {
@@ -191,7 +190,6 @@ export function finalizeInvoice(input: InvoiceInput): Invoice {
     return {
       ordinal: raw.ordinal,
       name: raw.name,
-      classificationCode: raw.classificationCode,
       unit: raw.unit,
       quantity: raw.quantity,
       unitPriceNet: raw.unitPriceNet,
