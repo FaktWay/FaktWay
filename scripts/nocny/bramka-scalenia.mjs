@@ -41,7 +41,7 @@
 //              2 błąd (traktuj jak NIE i jak stop) albo `scal` może wisieć na nieocenionym
 //                commicie, a `wstrzymaj` nie weszła: człowiek dodaje `wstrzymaj` od razu.
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -759,12 +759,20 @@ export async function zbierzDane({ numer, repo, api, git, codeowners, czekaj = c
   };
 }
 
+/**
+ * `scal-pr.sh` z wyjściem i błędami razem: ostrzeżenia (np. brak sekretu SCAL_TOKEN, bez którego
+ * z chmury PR z etykietą nie wejdzie do kolejki) idą na stderr także przy kodzie 0.
+ */
 function uruchomSkryptScalania(numer) {
-  return execFileSync('bash', [join(KATALOG_REPO, SKRYPT_SCALANIA), String(numer)], {
+  const wynik = spawnSync('bash', [join(KATALOG_REPO, SKRYPT_SCALANIA), String(numer)], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 10 * 60_000,
   });
+  if (wynik.error || wynik.status !== 0) {
+    throw Object.assign(new Error(wynik.error?.message ?? `kod ${wynik.status}`), { stdout: wynik.stdout, stderr: wynik.stderr });
+  }
+  return `${wynik.stdout ?? ''}${wynik.stderr ?? ''}`;
 }
 
 /**

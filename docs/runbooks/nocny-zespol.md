@@ -357,6 +357,13 @@ wyjmuje PR z kolejki) i kończy kodem 1; zdejmuje ją człowiek. Kod 2 z „UWAG
 … dodaj ją na #N” znaczy, że i `wstrzymaj` nie weszła: ta linia idzie na górę
 „czeka na Ciebie”.
 
+**Z chmury scalanie włącza workflow z sekretem `SCAL_TOKEN`** (GraphQL jest
+tam zablokowany, więc `scal-pr.sh` nie włączy go z konta; `docs/runbooks/scalanie-pr.md`).
+Bez sekretu PR dostaje etykietę `scal`, ale do kolejki nie wejdzie, a bramka
+pokazuje ostrzeżenie skryptu. Taki PR idzie do „czeka na Ciebie” z linią
+`./scripts/ops/scal-pr.sh N --czekaj` (Bartosz z Maca) i z przypomnieniem
+o sekrecie.
+
 **Po scaleniu** zespół niczego nie wdraża i nie wgrywa: scalony kod wdroży
 nocne wdrożenie o 03:30 (albo następnej nocy), a jego wynik przychodzi od bota
 nocnego wdrożenia, w jego rozmowie (`docs/runbooks/nocne-wdrozenie.md`).
@@ -569,6 +576,9 @@ wprowadza człowiek w zwykłym PR do tego pliku.
      Telegram ma token w adresie, a nie w nagłówku;
    - bez `GH_TOKEN`: GitHub uwierzytelnia proxy (GraphQL i tak jest
      zablokowany);
+   - sekret repozytorium `SCAL_TOKEN` (Bartosz, raz dla obu kont;
+     `docs/runbooks/scalanie-pr.md`, krok 4): bez niego nocne PR z etykietą
+     `scal` nie wejdą do kolejki;
    - konto GitHub połączone z claude.ai i aplikacja Claude zainstalowana na
      `FaktWay/FaktWay`. PR i etykiety z nocy idą jako właściciel konta, które
      musi być w `filtr/zgody.json` (dziś `ezior8888-cpu` i `masloigor`), bo
