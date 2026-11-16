@@ -162,7 +162,7 @@ function EkranKsiegowosciZBazy({ konto }: { konto: KontoFirmy }) {
         />
 
         {d.braki ? (
-          <Sekcja naglowek={`Kwot za ${nazwaMiesiaca(d.miesiac)} nie liczymy`} stopka="Uzupełnij brakujące dane na faktway.pl, w zakładce Księgowość.">
+          <Sekcja naglowek={`Kwot za ${nazwaMiesiaca(d.miesiac)} nie liczymy`} stopka="Brakujące dane uzupełnia się na faktway.pl, w zakładce Księgowość.">
             {d.braki.map((b) => (
               <Wiersz key={b} tytul={b} ikona="error-warning-line" ikonaKolor="ostrzezenie" />
             ))}

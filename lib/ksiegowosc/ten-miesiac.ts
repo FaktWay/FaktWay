@@ -440,7 +440,7 @@ function miesiacKpir(
       return {
         ok: false,
         brak: powod
-          ? `Składka zdrowotna liczy się od dochodu za ${monthLabel(poprzedni)}. ${powod}`
+          ? `Brak KPiR za ${monthLabel(poprzedni)}, od której liczy się składka zdrowotna, więc tej składki nie liczymy. ${powod}`
           : `Nie udało się odczytać KPiR za ${monthLabel(poprzedni)}, więc składki zdrowotnej nie liczymy.`,
       };
     }

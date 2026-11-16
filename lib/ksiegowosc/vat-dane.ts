@@ -204,7 +204,7 @@ export function nadwyzkaZAdresu(wartosc: string | undefined): number | null {
 export function brakNadwyzki(miesiac: string): string {
   return (
     `Do wyliczenia VAT za ${monthLabel(miesiac)} potrzebna jest nadwyżka z deklaracji za ${monthLabel(shiftMonth(miesiac, -1))} ` +
-    '(pole P_62 tamtej deklaracji, także 0 zł).'
+    '(pole P_62 tamtej deklaracji, także 0 zł), więc bez niej VAT nie liczymy.'
   );
 }
 
@@ -232,7 +232,7 @@ async function czytajPrzychodyReczne(client: SupabaseClient, tenantId: string, o
 
 /**
  * Brak VAT przy wpisach ręcznych przychodu (F11-A1): nazwy pierwszych trzech
- * wpisów i co zrobić. Takiej sprzedaży FaktWay nie wykazuje w JPK_V7M, a bez
+ * wpisów i co dalej (bez trybu rozkazującego, D8). Takiej sprzedaży FaktWay nie wykazuje w JPK_V7M, a bez
  * niej podatek należny byłby zaniżony.
  */
 export function komunikatPrzychodowRecznych(miesiac: string, wpisy: readonly PrzychodReczny[]): string {
@@ -244,7 +244,7 @@ export function komunikatPrzychodowRecznych(miesiac: string, wpisy: readonly Prz
   return (
     `W ewidencji za ${monthLabel(miesiac)} są wpisy ręczne przychodu: ${lista}${reszta}. ` +
     'Sprzedaży spoza faktur (np. z kasy rejestrującej) FaktWay nie wykazuje w JPK_V7M, więc nie pokazujemy kwot VAT, żeby nie zaniżyć podatku należnego. ' +
-    'JPK_V7M za ten miesiąc przygotuj poza FaktWay, np. z księgową. Jeśli wpis nie jest sprzedażą opodatkowaną VAT, napisz do nas.'
+    'JPK_V7M za ten miesiąc powstaje wtedy poza FaktWay, np. u księgowej. Wpis, który nie jest sprzedażą opodatkowaną VAT, sprawdzimy po zgłoszeniu w Pomocy.'
   );
 }
 
