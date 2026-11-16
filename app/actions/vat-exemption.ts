@@ -2,9 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 
-import { logAudit } from '@/lib/audit/log';
-import { normalizeExemptionBasis, readTenantVatExemption } from '@/lib/invoices/vat-exemption';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { saveVatExemption } from '@/lib/settings/company-settings';
 import { ActionAuthError, requireOrgRole } from '@/lib/supabase/auth-context';
 
 export type VatExemptionResult =
@@ -28,41 +26,10 @@ export async function updateVatExemptionAction(basisInput: string | null): Promi
     throw e;
   }
 
-  let basis: string | null;
-  try {
-    basis = normalizeExemptionBasis(basisInput);
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : 'Nieprawidłowa podstawa zwolnienia.' };
-  }
-
-  const admin = createAdminClient();
-  const before = await readTenantVatExemption(admin, ctx.tenantId);
-
-  const { error } = await admin
-    .from('tenants')
-    .update({ vat_exemption_basis: basis })
-    .eq('id', ctx.tenantId);
-
-  if (error) {
-    return {
-      success: false,
-      error:
-        error.code === '42703'
-          ? 'Ta funkcja czeka jeszcze na aktualizację bazy danych. Spróbuj ponownie później.'
-          : 'Nie udało się zapisać ustawienia VAT.',
-    };
-  }
-
-  await logAudit({
-    action: 'tenant.updated',
-    tenantId: ctx.tenantId,
-    userId: ctx.user.id,
-    entityType: 'tenant',
-    entityId: ctx.tenantId,
-    metadata: { field: 'vat_exemption_basis', from: before, to: basis },
-  });
+  const result = await saveVatExemption({ tenantId: ctx.tenantId, userId: ctx.user.id }, basisInput);
+  if (!result.ok) return { success: false, error: result.error };
 
   revalidatePath('/settings');
   revalidatePath('/invoices/new/regular');
-  return { success: true, basis };
+  return { success: true, basis: result.value };
 }
