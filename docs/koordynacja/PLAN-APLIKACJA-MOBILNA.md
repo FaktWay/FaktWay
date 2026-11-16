@@ -621,13 +621,28 @@ Android 15 albo nowszy; drugi obraz z Androidem 12 do punktu 13). Zrzuty do
 
 ## 9. Dziennik
 
-**Następny krok:** M10c (zapisy ustawień z telefonu, decyzja Bartosza 15.11)
-albo M10d (pełna księgowość), potem M12b (Android na emulatorze, checklista w sekcji 7a), gdy
+**Następny krok:** M10c część 2 (hasło, 2FA, klucze dostępu, certyfikat KSeF z
+telefonu; ustalenia z rozpoznania w „Z M10c zostaje”) albo M10d (pełna
+księgowość), potem M12b (Android na emulatorze, checklista w sekcji 7a), gdy
 Bartosz zainstaluje Android Studio, SDK i obraz emulatora (około 10 GB). M11
 (powiadomienia push, logowanie Apple) i M13 (sklep) czekają na płatne konto
 Apple. M8, M9 i M10 są w `main` i na produkcji od 14.11.2026 (#716, #740, #738,
-#752; migracje 00201 i 00202). Wybór Bartosza z 15.11: po M8b (#789) i M10e
-M10c (zapisy ustawień), potem M10d (pełna księgowość).
+#752; migracje 00201 i 00202). M10c część 1 (Firma, Przypomnienia,
+Powiadomienia) w #808.
+**Z M10c zostaje:** (1) część 2 jako osobny PR: hasło (potwierdzenie bez captchy
+jak usunięcie konta, `confirmAccountPassword`; kod z maila przy
+`reauthentication_needed`), 2FA (`enrollTotpAction` i reszta z
+`settings/security/actions.ts`, limit w Redisie; po `mfa.verify` GoTrue wydaje
+nową sesję AAL2, którą trasa musi oddać telefonowi jak `POST /kod`), klucze
+dostępu (na telefonie tylko lista i usunięcie: dodanie wymaga WebAuthn w
+aplikacji i powiązanej domeny, czyli konta Apple), certyfikat KSeF (logika w
+całości w `components/settings/actions.ts`, do wydzielenia do `lib/ksef/`;
+wybór pliku wymaga nowej paczki natywnej `expo-document-picker` i nowego
+buildu); (2) obchód w symulatorze nie zrobiony (trasy sprawdzone testami,
+zapisy na bazie testem RLS w CI); (3) akcja strony `updateReminderSettingsAction`
+nie pisze do dziennika zdarzeń i nie ma schematu po stronie serwera (granice
+tylko w formularzu), telefon ma oba; (4) `tests/unit/anthropic-limit-czasu.test.ts`
+(LIM-05) bywa czerwony w pełnym Vitest i osobno (niestabilny czas), poza M10c.
 **Z M8b zostaje:** obchód w symulatorze i zrzuty (`docs/mobile/zrzuty/m8b/`)
 oraz zaliczka i korekta przyjęte w KSeF TEST z telefonu (dziś dowodem jest
 test tras z generatorem i XSD); nabywcy z UE i z PESEL nie trafiają jeszcze na
@@ -712,3 +727,4 @@ dotknięciem (5.2), D4, D6.
 | 14.11.2026 | M12a | Android w kodzie, bez emulatora (sekcja 10 zasad, rozpisana w tabeli): pasek Material z tytułem po lewej, na ekranach z gradientem w kolorze góry gradientu z białym tytułem i ikonami, gradient w treści od koloru paska (`wyglad/pasek-android.ts`, kontrast białego tekstu sprawdzony testem); styl paska stanu na każdym ekranie (po Pulpicie zostawał biały na jasnym); przyciski z napisem w pasku przez `PrzyciskPaska` (na Androidzie `Stack.Toolbar.Button` bez ikony nic nie rysował: nie dało się zapisać szkicu ani wysłać e-maila; teraz X po lewej i napis po prawej); menu Compose na białej karcie, grupy filtrów jako podmenu; wyszukiwarka biała na niebieskim pasku; pole wyboru: nasze pole z menu Material (było systemowe pole w naszej ramce); fala przycięta do zaokrągleń w `Dotyk`, pigułkach, wierszach, polach i przyciskach tekstowych; bez kreski Material pod polami; kciuk przełącznika w kolorach marki; wstecz przy blokadzie wychodzi z aplikacji; `app.json`: kolor marki, zablokowane uprawnienia (okno nad innymi, odczyt plików, mikrofon; zapis plików zostaje, bo aparat na Androidzie 7 do 9 go wymaga), pakiet i ikona adaptacyjna bez zmian. Decyzje: skaner na Androidzie to aparat systemowy i galeria (ML Kit wymaga Kotlina, którego nie zbudujemy bez Android Studio, i wysyła Google dane o użyciu; do decyzji po M12b), „Wklej” zwykłym przyciskiem (Android nie pyta o zgodę), biometria przez systemowe okno z nazwą „odcisk palca”. Sprawdzone: `expo export` Android i iOS, `expo prebuild --platform android` (manifest, uprawnienia, ikona, czcionki Outfit), `pnpm run sprawdz`, test `mobile-android` (9, czerwone przed zmianą), testy telefonu (487), filtr. Checklista M12b w sekcji 7a | #765 |
 | 15.11.2026 | M10e | ekrany Więcej i Pulpitu na prawdziwych danych (D3), trasy w `app/api/mobile/v1` na logice strony, klient z tokenem: Kontrahenci (lista z kaflami i należnościami po NIP, karta, dodanie z NIP, poprawka, usunięcie; zapis kontrahenta wydzielony do `lib/contractors/manage.ts`, akcje strony bez zmiany zachowania), Import danych (kafle i zdania modeli strony, `importStatValues`), Księgowa (tylko właściciel, formaty paczki jak wysyłka, `lib/exports/co-pilot-formats.ts`), Zespół, Abonament (bez cen, D5), Dziennik (`lib/audit/labels.ts`); Przepływy i Analizy przez `kontekstDanych` strony (tryb przykładowy oznaczony), każda karta osobno, kwoty, saldo, procenty i kalendarz (kwantyle strony) liczy serwer; w aplikacji wspólny magazyn odczytów `stan/odczyt.tsx` (pyta przy każdym otwarciu, odrzuca odpowiedź sprzed zapisu) i stany z M4f. Testy tras (kontrahenci 27, karty 19, przepływy i analizy 10, kontrakt 5), RLS kontrahentów na bazie (6). Drugi czytelnik: 12 uwag w części 1 i 4 w części 2, poprawione | #791, #792 |
 | 15.11.2026 | M8b | faktury z telefonu w zgodności ze stroną (4.3, „Stan po M8b”): zaliczka, rozliczenie zaliczek (szkic, wysyłka ROZ wstrzymana jak na stronie) i korekta (kwotowa, danych, anulowanie; faktura pierwotna z serwera) przez `POST /faktury`, kwoty z serwera (`/faktury/wyliczenie`), „Wyślij ponownie”, „Wróć do szkicu”, usunięcie i zmiana szkicu, nabywca z UE i z PESEL, GUS po NIP; logika akcji strony w `lib/invoices/` bez zmiany zachowania. Testy: trasy 41 (czerwone na main, z FA(3) przez XSD), formularz 9, baza 5, filtr zielony; pełny vitest znalazł 3 strażniki przeniesionego kodu (poprawione). Bez obchodu w symulatorze (port 8081 i limit użycia), bez KSeF TEST z telefonu | #789 |
+| 16.11.2026 | M10c (część 1) | zapisy ustawień z telefonu (D3) na logice strony: karta Firma (nazwa i adres, rachunek, data rozpoczęcia, zwolnienie z VAT, metoda kasowa; zapis wydzielony z akcji strony do `lib/settings/company-settings.ts` bez zmiany zachowania, właściciel i administrator, dziennik z `client: mobile`), Przypomnienia o zapłacie (cały formularz strony, granice `REMINDER_LIMITS`, tylko właściciel, upsert tokenem z RLS), e-maile w Powiadomieniach (zgoda i wypis wydzielone do `lib/email/settings-toggle.ts`, źródło `mobile_settings`); trasy `POST /ustawienia/firma`, `POST /ustawienia/przypomnienia`, `GET/POST /ustawienia/powiadomienia`, kod `settings_invalid` (422 z polem); w aplikacji arkusz `firma-zmiana` z „Odrzucić zmiany?”, formularz przypomnień, przełączniki e-mail. Naprawa z M10b (4): formularz przypomnień strony bez zapisu pokazuje „wyłączone”. Testy: trasy (37, brak i zły token, rola, schematy, audyt), formularz strony (czerwony na main), RLS zapisów w CI; drugi czytelnik z listą kontrolną, 6 uwag poprawionych. Bez migracji, bez obchodu w symulatorze | #808 |
