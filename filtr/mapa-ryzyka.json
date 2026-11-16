@@ -345,6 +345,16 @@
       ]
     },
     {
+      "id": "faktury.autozapis",
+      "poziom": "R3",
+      "opis": "Autozapis formularza zwykłej faktury (krok 2.8): kopia robocza surowych wartości w tabeli invoice_form_drafts. To nie jest faktura ani szkic faktury (bez numeru, poza listami, KSeF i JPK); kwoty i zapis faktury zostają w obszarach faktury.kwoty i faktury.wystawianie.",
+      "sciezki": [
+        "lib/invoices/form-autosave.ts",
+        "components/invoices/invoice-form-parts/use-form-autosave.ts",
+        "supabase/migrations/00207_invoice_form_drafts.sql"
+      ]
+    },
+    {
       "id": "faktury.pdf",
       "poziom": "R1",
       "opis": "PDF faktury, kody QR weryfikacji, PDF UPO.",
