@@ -138,6 +138,13 @@ const statementTimeout: Respond = () => Response.json(
   { status: 500 },
 );
 
+/**
+ * PostgREST bez tabeli w pamięci schematu (albo brama bez trasy) odpowiada 404,
+ * a odpowiedź na HEAD nie ma treści. postgrest-js robi z tego „brak treści”:
+ * bez błędu i bez licznika.
+ */
+const notFoundEmpty: Respond = () => new Response(null, { status: 404 });
+
 const GOTRUE_DOWN: [string, Respond][] = [
   ['503 z GoTrue', () => gotrueError(503, 'unexpected_failure', 'Service Unavailable')],
   ['brak sieci', networkDown],
@@ -185,8 +192,10 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   const method = (init?.method ?? request?.method ?? 'GET').toUpperCase();
   const select = url.searchParams.get('select') ?? undefined;
   const fail = failures.find((f) => f.path === url.pathname && (f.select === undefined || f.select === select));
-  if (fail) return fail.respond();
-  return answer(method, url, init);
+  const res = fail ? fail.respond() : answer(method, url, init);
+  // Jak prawdziwy fetch: odpowiedź na HEAD nigdy nie ma treści (także błąd).
+  if (method !== 'HEAD') return res;
+  return new Response(null, { status: res.status, statusText: res.statusText, headers: res.headers });
 }
 
 /** Pierwsze argumenty wpisów `[auth] gotrue_…` w logu. */
@@ -413,16 +422,22 @@ describe('akcje firm: błąd zapytania to „spróbuj ponownie” bez zapisu, a 
     expect(logged(NIP_CHECK_LOG)).toEqual([]);
   });
 
+  // Zliczenie idzie jako HEAD, więc kodu błędu z treści odpowiedzi w logu nie ma.
   it.each([
-    ['nowa firma', () => createOrganizationAction(company)],
-    ['„Pomiń NIP” bez szkicu', () => skipOnboardingWithoutNipAction()],
-  ])('%s przy zamkniętej rejestracji: błąd zliczenia firm klienta to „spróbuj ponownie”, a nie „wstrzymane”', async (_name, run) => {
-    tables.global_feature_flags = [{ enabled: true }];
-    failures.push({ path: '/rest/v1/memberships', select: 'organization_id', respond: statementTimeout });
-    await expect(run()).resolves.toEqual({ success: false, error: MEMBERSHIP_RETRY });
-    expect(writes).toEqual([]);
-    expect(logged(MEMBERSHIP_LOG)).toEqual([{ flow: 'akcja', step: 'firstCompanyBlocked', code: '57014' }]);
-  });
+    ['nowa firma', 'błąd bazy (500)', statementTimeout, () => createOrganizationAction(company)],
+    ['„Pomiń NIP” bez szkicu', 'błąd bazy (500)', statementTimeout, () => skipOnboardingWithoutNipAction()],
+    ['nowa firma', 'licznik nieznany (pusta odpowiedź 404)', notFoundEmpty, () => createOrganizationAction(company)],
+    ['„Pomiń NIP” bez szkicu', 'licznik nieznany (pusta odpowiedź 404)', notFoundEmpty, () => skipOnboardingWithoutNipAction()],
+  ] as [string, string, Respond, () => Promise<unknown>][])(
+    '%s przy zamkniętej rejestracji, zliczenie firm klienta: %s to „spróbuj ponownie”, a nie „wstrzymane”',
+    async (_name, _failure, respond, run) => {
+      tables.global_feature_flags = [{ enabled: true }];
+      failures.push({ path: '/rest/v1/memberships', select: 'organization_id', respond });
+      await expect(run()).resolves.toEqual({ success: false, error: MEMBERSHIP_RETRY });
+      expect(writes).toEqual([]);
+      expect(logged(MEMBERSHIP_LOG)).toEqual([{ flow: 'akcja', step: 'firstCompanyBlocked', code: null }]);
+    },
+  );
 
   it('zamknięta rejestracja: pierwsza firma dalej dostaje „wstrzymane”, a klient z firmą zakłada kolejną', async () => {
     tables.global_feature_flags = [{ enabled: true }];
