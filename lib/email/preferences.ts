@@ -36,7 +36,8 @@ export const ALL_CATEGORIES: EmailCategory[] = [
 export interface UnsubscribeInput {
   userId: string;
   category: EmailCategory;
-  source: 'one_click' | 'settings_ui' | 'hard_bounce_auto' | 'complaint_auto' | 'admin';
+  /** `mobile_settings`: ustawienia w aplikacji na telefon (M10c). */
+  source: 'one_click' | 'settings_ui' | 'mobile_settings' | 'hard_bounce_auto' | 'complaint_auto' | 'admin';
   reason?: string;
 }
 
