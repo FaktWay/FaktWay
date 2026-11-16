@@ -35,8 +35,9 @@ export default function EkranPrzelewu() {
  */
 function EkranPrzelewuZBazy({ konto }: { konto: KontoFirmy }) {
   const router = useRouter();
-  const { id, miesiac } = useLocalSearchParams<{ id: string; miesiac?: string }>();
-  const ten = useTenMiesiac(miesiac);
+  // `nadwyzka` (M10d): ta sama nadwyżka VAT co na liście „Ten miesiąc”, więc ten sam wpis magazynu.
+  const { id, miesiac, nadwyzka } = useLocalSearchParams<{ id: string; miesiac?: string; nadwyzka?: string }>();
+  const ten = useTenMiesiac(miesiac, nadwyzka);
   const d = ten?.dane;
   const p = d?.pozycje.find((x) => x.rodzaj === id);
   const [dzien, setDzien] = useState<string>();

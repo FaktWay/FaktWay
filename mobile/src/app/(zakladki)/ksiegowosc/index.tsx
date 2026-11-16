@@ -18,6 +18,7 @@ import { otworzStrone } from '@/komponenty/na-stronie';
 import { StanPusty } from '@/komponenty/stan-pusty';
 import { SzkieletKwoty, SzkieletListy } from '@/komponenty/szkielet';
 import type { PozycjaRozliczeniaTelefonu, ZatwierdzenieMiesiacaOdpowiedz } from '@/lib/api/kontrakt';
+import { ZaplatySpozaWyliczenia } from '@/komponenty/zaplaty-spoza-wyliczenia';
 import { useKontoFirmy, type KontoFirmy } from '@/stan/dane';
 import { useFlaga, useStanFaktur } from '@/stan/faktury';
 import { doZaplatyGr, nazwaMiesiaca, useTenMiesiac } from '@/stan/ksiegowosc';
@@ -46,13 +47,19 @@ function stanPozycji(p: PozycjaRozliczeniaTelefonu): { tekst: string; kolor: 'su
  * „Ten miesiąc” na prawdziwym koncie (M10b): wyliczenie strony z serwera,
  * terminy pogrupowane po dniu, „Zatwierdź miesiąc” (właściciel, administrator,
  * po końcu miesiąca, ze skrótami z tego widoku) i dane do przelewu z zapłatą.
- * KPiR, ewidencja, VAT, eksport i zapłaty spoza wyliczenia otwierają stronę.
+ * Od M10d nadwyżka VAT przy pozycji VAT (serwer liczy z nią jak `?nadwyzka=`
+ * strony, zatwierdzenie niesie tę samą kwotę), zapłaty spoza wyliczenia i ekran
+ * VAT z plikiem JPK_V7M w aplikacji. KPiR, ewidencja i eksport otwierają stronę.
  */
 function EkranKsiegowosciZBazy({ konto }: { konto: KontoFirmy }) {
   const pasek = useKoloryPaska(true);
   const router = useRouter();
   const [miesiac, setMiesiac] = useState<string>();
-  const ten = useTenMiesiac(miesiac);
+  // P_39 wpisane przy pozycji VAT (pełne złote, same cyfry), jak `?nadwyzka=` strony.
+  const [nadwyzka, setNadwyzka] = useState<string>();
+  const [poleNadwyzki, setPoleNadwyzki] = useState('');
+  const [bladNadwyzki, setBladNadwyzki] = useState<string>();
+  const ten = useTenMiesiac(miesiac, nadwyzka);
   const [trwa, setTrwa] = useState(false);
   const [blad, setBlad] = useState<string>();
   const wToku = useRef(false);
@@ -67,7 +74,8 @@ function EkranKsiegowosciZBazy({ konto }: { konto: KontoFirmy }) {
     wToku.current = true;
     setTrwa(true);
     setBlad(undefined);
-    const w = await konto.zapytaj<ZatwierdzenieMiesiacaOdpowiedz>('ksiegowosc/zatwierdz', { metoda: 'POST', cialo: { miesiac: d.miesiac, skroty: d.skroty }, firmaEkranu });
+    const cialo = { miesiac: d.miesiac, skroty: d.skroty, nadwyzkaVat: d.nadwyzkaVat?.wpisana ?? null };
+    const w = await konto.zapytaj<ZatwierdzenieMiesiacaOdpowiedz>('ksiegowosc/zatwierdz', { metoda: 'POST', cialo, firmaEkranu });
     wToku.current = false;
     setTrwa(false);
     if (!w.ok) {
@@ -80,11 +88,29 @@ function EkranKsiegowosciZBazy({ konto }: { konto: KontoFirmy }) {
     void ten?.odswiez();
   };
 
+  const zmienMiesiac = (m: string) => {
+    setMiesiac(m);
+    // Nadwyżka dotyczy deklaracji za miesiąc wcześniej: inny miesiąc liczymy bez niej.
+    setNadwyzka(undefined);
+    setPoleNadwyzki('');
+    setBladNadwyzki(undefined);
+  };
+
+  const przelicz = () => {
+    const tekst = poleNadwyzki.trim();
+    if (!/^\d{1,13}$/.test(tekst)) {
+      setBladNadwyzki('Nadwyżkę wpisuje się w pełnych złotych, bez znaku (także 0).');
+      return;
+    }
+    setBladNadwyzki(undefined);
+    setNadwyzka(String(Number(tekst)));
+  };
+
   const menu = d ? (
     <Stack.Toolbar placement="right" {...pasek.narzedzia}>
       <Stack.Toolbar.Menu icon={IKONY_PASKA.kalendarz} iconRenderingMode="template" tintColor={pasek.ikona} title="Miesiąc rozliczenia">
         {d.miesiace.map((m) => (
-          <Stack.Toolbar.MenuAction key={m} isOn={d.miesiac === m} onPress={() => setMiesiac(m)}>
+          <Stack.Toolbar.MenuAction key={m} isOn={d.miesiac === m} onPress={() => zmienMiesiac(m)}>
             {nazwaMiesiaca(m)}
           </Stack.Toolbar.MenuAction>
         ))}
@@ -187,7 +213,7 @@ function EkranKsiegowosciZBazy({ konto }: { konto: KontoFirmy }) {
                     wartoscPodpis={st.tekst}
                     wartoscPodpisKolor={st.kolor}
                     strzalka={p.kwotaGr !== null}
-                    onPress={p.kwotaGr === null ? undefined : () => router.push({ pathname: '/ksiegowosc/przelew', params: { id: p.rodzaj, miesiac: d.miesiac } })}
+                    onPress={p.kwotaGr === null ? undefined : () => router.push({ pathname: '/ksiegowosc/przelew', params: { id: p.rodzaj, miesiac: d.miesiac, ...(nadwyzka ? { nadwyzka } : {}) } })}
                     etykietaDostepnosci={`${p.nazwa}, ${p.kwotaGr === null ? 'bez kwoty' : kwota(p.kwotaGr)}, ${st.tekst}.${p.kwotaGr === null ? '' : ' Dotknij, żeby zobaczyć dane przelewu.'}`}
                   />
                 );
@@ -195,6 +221,26 @@ function EkranKsiegowosciZBazy({ konto }: { konto: KontoFirmy }) {
             ])}
           </Sekcja>
         )}
+
+        {d.nadwyzkaVat ? (
+          <Sekcja naglowek="Nadwyżka VAT z poprzedniej deklaracji" stopka={d.nadwyzkaVat.opis ?? 'Po zatwierdzeniu miesiąca kolejny bierze nadwyżkę z tego rozliczenia.'}>
+            {d.nadwyzkaVat.pole ? (
+              <>
+                <PoleTekstowe
+                  etykieta={`Nadwyżka z deklaracji za ${d.nadwyzkaVat.poprzedni} (P_62 tamtej deklaracji)`}
+                  wartosc={poleNadwyzki}
+                  onZmiana={setPoleNadwyzki}
+                  podpowiedz="zł"
+                  klawiatura="number-pad"
+                  blad={bladNadwyzki}
+                  klawiszZatwierdz="done"
+                  onZatwierdz={przelicz}
+                />
+                <Wiersz tytul="Przelicz z tą nadwyżką" ikona="refresh-line" akcja onPress={przelicz} />
+              </>
+            ) : null}
+          </Sekcja>
+        ) : null}
 
         {d.mozeEdytowac && d.miesiacZakonczony && d.doZatwierdzenia > 0 ? (
           <View style={styles.akcja}>
@@ -218,9 +264,16 @@ function EkranKsiegowosciZBazy({ konto }: { konto: KontoFirmy }) {
           </View>
         </Karta>
 
-        <Sekcja naglowek="Rejestry i pliki" stopka="KPiR, ewidencję, VAT, eksport i zapłaty spoza wyliczenia prowadzisz na faktway.pl.">
+        <ZaplatySpozaWyliczenia key={d.miesiac} konto={konto} d={d} firmaEkranu={firmaEkranu} poZapisie={() => void ten.odswiez()} />
+
+        <Sekcja naglowek="Rejestry i pliki" stopka="KPiR, ewidencję i eksport prowadzisz na faktway.pl.">
+          <Wiersz
+            tytul="VAT i JPK_V7M"
+            podtytul="Deklaracja, termin, przelew i plik"
+            strzalka
+            onPress={() => router.push({ pathname: '/ksiegowosc/vat', params: { miesiac: d.miesiac, ...(nadwyzka ? { nadwyzka } : {}) } })}
+          />
           <Wiersz tytul="KPiR i ewidencja" strzalka onPress={() => otworzStrone(d.forma === 'ryczalt' ? '/reports/ewidencja' : '/reports/kpir')} />
-          <Wiersz tytul="VAT i JPK_V7M" strzalka onPress={() => otworzStrone('/reports/vat')} />
           <Wiersz tytul="Ustawienia podatkowe" strzalka onPress={() => otworzStrone('/reports/ustawienia-podatkowe')} />
         </Sekcja>
 

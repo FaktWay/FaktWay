@@ -407,3 +407,22 @@ describe('„Ten miesiąc”: nadwyżka VAT i zapłaty spoza wyliczenia', () => 
     expect(fake.reczna).toHaveBeenCalledTimes(3);
   });
 });
+
+describe('odmowa w telefonie', () => {
+  it('`settlement_refused` z `field`: zdanie serwera pod polem formularza', async () => {
+    const { bladApi } = await import('../../mobile/src/lib/api/bledy');
+    const b = bladApi(422, { error: { code: 'settlement_refused', message: 'To nie jest adres e-mail.', field: 'email' } });
+    expect(b).toMatchObject({ rodzaj: 'odmowa', kod: 'settlement_refused', pole: 'email', komunikat: 'To nie jest adres e-mail.' });
+    expect(bladApi(422, { error: { code: 'settlement_refused', message: 'Dane miesiąca zmieniły się od otwarcia.' } }).pole).toBeUndefined();
+  });
+});
+
+describe('miesiące formularza zapłaty spoza wyliczenia', () => {
+  it('od ostatniego dozwolonego wstecz do stycznia 2025, przez przełom roku', async () => {
+    const { miesiaceWstecz } = await import('../../mobile/src/lib/miesiace');
+    const m = miesiaceWstecz('2025-01', '2026-02');
+    expect(m.slice(0, 3)).toEqual(['2026-02', '2026-01', '2025-12']);
+    expect(m.at(-1)).toBe('2025-01');
+    expect(m).toHaveLength(14);
+  });
+});

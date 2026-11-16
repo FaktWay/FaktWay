@@ -129,7 +129,9 @@
       "opis": "VAT do zapłaty za miesiąc w module księgowości.",
       "sciezki": [
         "lib/ksiegowosc/{vat,vat-dane}.ts",
-        "app/actions/ksiegowosc-vat.ts"
+        "app/actions/ksiegowosc-vat.ts",
+        "lib/ksiegowosc/vat-plik.ts",
+        "lib/api/mobile/{ksiegowosc-vat,kontrakt-ksiegowosc}.ts"
       ]
     },
     {
@@ -831,6 +833,9 @@
         "mobile/src/app/(zakladki)/(pulpit)/**",
         "mobile/src/app/(zakladki)/ksiegowosc/**",
         "mobile/src/stan/ksiegowosc.tsx",
+        "mobile/src/komponenty/zaplaty-spoza-wyliczenia.tsx",
+        "mobile/src/lib/{plik-jpk,miesiace}.ts",
+        "mobile/src/lib/api/kontrakt-ksiegowosc.ts",
         "mobile/src/stan/ustawienia.tsx",
         "mobile/src/app/(zakladki)/wiecej/kontrahenci/**",
         "mobile/src/stan/kontrahenci.tsx",
