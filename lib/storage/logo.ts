@@ -14,6 +14,7 @@ import type { LogoFormat } from '@/lib/pdf/logo-obraz';
 import { LOGO_FILE_LIMIT_BYTES } from '@/lib/upload-limit';
 
 import { getR2Client, getR2Config } from './r2-client';
+import { uploadRequestOptions } from './s3-timeouts';
 import { isTenantStoragePath } from './tenant-path';
 
 /**
@@ -91,6 +92,7 @@ export async function putTenantLogo(key: string, tenantId: string, data: Buffer,
       IfNoneMatch: '*',
       Metadata: { 'tenant-id': tenantId, 'document-type': 'company-logo' },
     }),
+    uploadRequestOptions(data.length),
   );
 }
 

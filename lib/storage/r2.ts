@@ -12,6 +12,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createHash } from 'node:crypto';
 
 import { getR2Client, getR2Config } from './r2-client';
+import { uploadRequestOptions } from './s3-timeouts';
 import { assertTenantStoragePath, isDocumentArchiveFileKey } from './tenant-path';
 import { XmlArchiveConflictError } from './xml-archive-conflict';
 
@@ -268,6 +269,7 @@ async function uploadXmlDocument(params: {
           ...metadata,
         },
       }),
+      uploadRequestOptions(bodyBuffer.length),
     );
 
     return {
@@ -310,6 +312,7 @@ export async function uploadToR2(
       Body: body,
       ContentType: contentType,
     }),
+    uploadRequestOptions(body.length),
   );
 }
 
@@ -339,6 +342,7 @@ export async function uploadToR2IfAbsent(
         IfNoneMatch: '*',
         ...(metadata ? { Metadata: metadata } : {}),
       }),
+      uploadRequestOptions(body.length),
     );
     return true;
   } catch (error) {
