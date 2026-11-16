@@ -3,12 +3,16 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { PolePrzelacznik, PoleTekstowe, PoleWyboru } from '@/komponenty/formularz';
-import { EkranListy, Sekcja, Wiersz } from '@/komponenty/lista';
-import { MA_ADRES_STRONY, otworzStrone } from '@/komponenty/na-stronie';
+import { EkranListy, Sekcja } from '@/komponenty/lista';
 import { PrzyciskGlowny } from '@/komponenty/przycisk-glowny';
 import { StanPusty } from '@/komponenty/stan-pusty';
 import { SzkieletListy } from '@/komponenty/szkielet';
+import type { BladApi } from '@/lib/api/bledy';
+import type { UstawieniaOdpowiedz } from '@/lib/api/kontrakt';
+import type { PrzypomnieniaZadanie } from '@/lib/api/kontrakt-ustawienia';
+import { useKontoFirmy } from '@/stan/dane';
 import { useUstawienia, type StanUstawien } from '@/stan/ustawienia';
+import { useOchronaZmian, useZapisUstawien, type ZapisUstawien } from '@/stan/ustawienia-zapis';
 import { useStanFaktur } from '@/stan/faktury';
 import { MARGINES, ODSTEP } from '@/wyglad/odstepy';
 
@@ -26,15 +30,19 @@ export default function EkranPrzypomnienOZaplacie() {
   return <EkranUstawienPrzypomnien />;
 }
 
-const tak = (w: boolean) => (w ? 'Tak' : 'Nie');
-
 /**
- * Przypomnienia na prawdziwym koncie (M10b): ustawienia z `GET /ustawienia`
- * do odczytu, tylko dla właściciela (jak zakładka strony). Zmiany na
- * faktway.pl (decyzja M10b: formularz strony ma granice i podgląd treści).
- * Same przypomnienia (podgląd, zgoda, wstrzymanie) idą z telefonu od M10a.
+ * Przypomnienia na prawdziwym koncie (M10b, zapis od M10c): formularz strony
+ * z `GET /ustawienia`, tylko dla właściciela (jak zakładka strony). Granice
+ * (dni po terminie, godzina, liczba przypomnień) i adres sprawdza serwer tym
+ * samym zakresem co strona; jego zdanie stoi pod polem. Bez zapisu FaktWay nie
+ * przygotowuje przypomnień, więc formularz pokazuje wtedy „wyłączone”, a zapis
+ * je włącza. Same przypomnienia (podgląd, zgoda, wstrzymanie) idą z telefonu
+ * od M10a.
  */
 function EkranPrzypomnienZBazy({ ustawienia }: { ustawienia: StanUstawien }) {
+  const zapis = useZapisUstawien();
+  const konto = useKontoFirmy();
+  const [firmaEkranu] = useState(konto?.firma?.id ?? null);
   const { dane } = ustawienia;
   if (!dane) {
     return (
@@ -48,60 +56,129 @@ function EkranPrzypomnienZBazy({ ustawienia }: { ustawienia: StanUstawien }) {
     );
   }
   const p = dane.przypomnienia;
-  if (!p) {
+  if (!p || !zapis) {
     return (
       <EkranListy>
-        <StanPusty ikona="shield-keyhole-line" tytul="Przypomnienia ustawia właściciel firmy" opis="Etapy, godzinę wysyłki i nadawcę ustawia właściciel firmy na faktway.pl." />
+        <StanPusty ikona="shield-keyhole-line" tytul="Przypomnienia ustawia właściciel firmy" opis="Etapy, godzinę wysyłki i nadawcę ustawia właściciel firmy." />
       </EkranListy>
     );
   }
-  const zmien = MA_ADRES_STRONY ? <Wiersz tytul="Zmień na faktway.pl" ikona="global-line" akcja onPress={() => otworzStrone('/settings/reminders', () => void ustawienia.odswiez())} /> : null;
-  if (!p.zapisane) {
-    return (
-      <EkranListy onOdswiez={ustawienia.odswiez}>
-        <Sekcja
-          naglowek="Przypomnienia o zapłacie"
-          stopka="Firma nie zapisała jeszcze ustawień, więc FaktWay nie przygotowuje przypomnień. Ustawisz je na faktway.pl; każde przypomnienie i tak czeka na Twoje zatwierdzenie.">
-          <Wiersz tytul="Nie ustawione" ikona="error-warning-line" ikonaKolor="ostrzezenie" />
-          {zmien}
-        </Sekcja>
-      </EkranListy>
-    );
-  }
+  // Klucz: po zmianie firmy formularz zaczyna od jej ustawień (zapis i tak idzie tylko do firmy z otwarcia).
+  return <FormularzPrzypomnien key={konto?.firma?.id ?? ''} p={p} zapis={zapis} firmaEkranu={firmaEkranu} />;
+}
+
+type Przypomnienia = NonNullable<UstawieniaOdpowiedz['przypomnienia']>;
+
+function zadanie(p: Przypomnienia): PrzypomnieniaZadanie {
+  return {
+    wlaczone: p.zapisane && p.wlaczone,
+    etapy: p.etapy.map((e) => ({ etap: e.etap, wlaczony: e.wlaczony, dniPoTerminie: e.dniPoTerminie })),
+    godzina: p.godzina,
+    tylkoDniRobocze: p.tylkoDniRobocze,
+    najwiecej: p.najwiecej,
+    nadawca: p.nadawca ?? '',
+    odpowiedzNa: p.odpowiedzNa ?? '',
+    wstrzymajPoOdpowiedzi: p.wstrzymajPoOdpowiedzi,
+    wstrzymajPoCzesciowej: p.wstrzymajPoCzesciowej,
+  };
+}
+
+/** Liczba z pola: same cyfry; pusty albo zły tekst idzie jako 0 i serwer mówi, jaki jest zakres. */
+const liczba = (t: string) => (/^\d{1,3}$/.test(t.trim()) ? Number(t.trim()) : 0);
+
+function FormularzPrzypomnien({ p, zapis, firmaEkranu }: { p: Przypomnienia; zapis: ZapisUstawien; firmaEkranu: string | null }) {
+  const [start, setStart] = useState(() => zadanie(p));
+  const [f, setF] = useState(start);
+  const [dni, setDni] = useState(() => start.etapy.map((e) => String(e.dniPoTerminie)));
+  const [maks, setMaks] = useState(String(start.najwiecej));
+  const [blad, setBlad] = useState<BladApi>();
+  const [trwa, setTrwa] = useState(false);
+  const [zapisane, setZapisane] = useState(p.zapisane);
+
+  const tresc: PrzypomnieniaZadanie = {
+    ...f,
+    etapy: f.etapy.map((e, i) => ({ ...e, dniPoTerminie: liczba(dni[i] ?? '') })),
+    najwiecej: liczba(maks),
+  };
+  const zmienione = JSON.stringify(tresc) !== JSON.stringify(start) || !zapisane;
+  useOchronaZmian(JSON.stringify(tresc) !== JSON.stringify(start));
+  const ustaw = <K extends keyof PrzypomnieniaZadanie>(k: K, w: PrzypomnieniaZadanie[K]) => setF((x) => ({ ...x, [k]: w }));
+  const ustawEtap = (i: number, wlaczony: boolean) => setF((x) => ({ ...x, etapy: x.etapy.map((e, j) => (j === i ? { ...e, wlaczony } : e)) }));
+  const bladPola = (pole: string) => (blad?.pole === pole ? blad.komunikat : undefined);
+
+  const zapisz = async () => {
+    setTrwa(true);
+    setBlad(undefined);
+    const w = await zapis.przypomnienia(tresc, firmaEkranu);
+    setTrwa(false);
+    if (!w.ok) {
+      setBlad(w.blad);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    const po = w.dane.przypomnienia;
+    if (po) {
+      const nowy = zadanie(po);
+      setStart(nowy);
+      setF(nowy);
+      setDni(nowy.etapy.map((e) => String(e.dniPoTerminie)));
+      setMaks(String(nowy.najwiecej));
+      setZapisane(po.zapisane);
+    }
+  };
+
   return (
-    <EkranListy onOdswiez={ustawienia.odswiez}>
-      <Sekcja naglowek="Przypomnienia o zapłacie" stopka="Przypomnienia przygotowujemy do Twojego zatwierdzenia. Nic nie wychodzi samo.">
-        <Wiersz tytul={p.wlaczone ? 'Włączone' : 'Wyłączone'} ikona={p.wlaczone ? 'checkbox-circle-fill' : 'close-line'} ikonaKolor={p.wlaczone ? 'sukces' : 'etykietaDrugorzedna'} />
+    <EkranListy keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+      <Sekcja
+        stopka={
+          zapisane
+            ? 'Przypomnienia przygotowujemy do Twojego zatwierdzenia. Nic nie wychodzi samo.'
+            : 'Firma nie zapisała jeszcze ustawień, więc FaktWay nie przygotowuje przypomnień. Włącz je i zapisz; każde przypomnienie i tak czeka na Twoje zatwierdzenie.'
+        }>
+        <PolePrzelacznik etykieta="Przypomnienia o zapłacie" wartosc={f.wlaczone} onZmiana={(v) => ustaw('wlaczone', v)} />
       </Sekcja>
 
-      {p.wlaczone ? (
+      {f.wlaczone ? (
         <>
           <Sekcja naglowek="Etapy przypomnień">
-            {p.etapy.map((e) => (
-              <Wiersz
-                key={e.etap}
-                tytul={ETAPY[e.etap - 1]?.nazwa ?? `Etap ${e.etap}`}
-                wartosc={e.wlaczony ? `${e.dniPoTerminie} ${e.dniPoTerminie === 1 ? 'dzień' : 'dni'} po terminie` : 'Wyłączony'}
-              />
+            {f.etapy.map((e, i) => (
+              <View key={e.etap}>
+                <PolePrzelacznik etykieta={ETAPY[i]?.nazwa ?? `Etap ${e.etap}`} wartosc={e.wlaczony} onZmiana={(v) => ustawEtap(i, v)} />
+                {e.wlaczony ? (
+                  <PoleTekstowe
+                    etykieta="Dni po terminie"
+                    wartosc={dni[i] ?? ''}
+                    onZmiana={(t) => setDni((d) => d.map((x, j) => (j === i ? t : x)))}
+                    klawiatura="number-pad"
+                    cyfry
+                    blad={bladPola(`etapy.${i}.dniPoTerminie`)}
+                  />
+                ) : null}
+              </View>
             ))}
           </Sekcja>
 
           <Sekcja naglowek="Inteligentne reguły">
-            <Wiersz tytul="Pauza po odpowiedzi klienta" wartosc={tak(p.wstrzymajPoOdpowiedzi)} />
-            <Wiersz tytul="Pauza po częściowej płatności" wartosc={tak(p.wstrzymajPoCzesciowej)} />
-            <Wiersz tytul="Wysyłaj tylko w dni robocze" wartosc={tak(p.tylkoDniRobocze)} />
-            <Wiersz tytul="Godzina wysyłki" wartosc={`${p.godzina}:00`} />
-            <Wiersz tytul="Maks. przypomnień na fakturę" wartosc={String(p.najwiecej)} />
+            <PolePrzelacznik etykieta="Pauza po odpowiedzi klienta" wartosc={f.wstrzymajPoOdpowiedzi} onZmiana={(v) => ustaw('wstrzymajPoOdpowiedzi', v)} />
+            <PolePrzelacznik etykieta="Pauza po częściowej płatności" wartosc={f.wstrzymajPoCzesciowej} onZmiana={(v) => ustaw('wstrzymajPoCzesciowej', v)} />
+            <PolePrzelacznik etykieta="Wysyłaj tylko w dni robocze" wartosc={f.tylkoDniRobocze} onZmiana={(v) => ustaw('tylkoDniRobocze', v)} />
+            <PoleWyboru etykieta="Godzina wysyłki" wartosc={String(f.godzina)} opcje={GODZINY.map((g) => ({ wartosc: g, etykieta: `${g}:00` }))} onZmiana={(g) => ustaw('godzina', Number(g))} />
+            <PoleTekstowe etykieta="Maks. przypomnień na fakturę" wartosc={maks} onZmiana={setMaks} klawiatura="number-pad" cyfry blad={bladPola('najwiecej')} />
           </Sekcja>
 
-          <Sekcja naglowek="Dane nadawcy">
-            <Wiersz tytul="Nadawca" podtytul={p.nadawca ?? 'Nazwa firmy'} />
-            <Wiersz tytul="Odpowiedzi na adres" podtytul={p.odpowiedzNa ?? 'Nie podano'} />
+          <Sekcja naglowek="Dane nadawcy" stopka="Pusty nadawca: nazwa firmy. Odpowiedzi klientów trafią na podany adres.">
+            <PoleTekstowe etykieta="Nadawca" wartosc={f.nadawca} onZmiana={(t) => ustaw('nadawca', t)} blad={bladPola('nadawca')} />
+            <PoleTekstowe etykieta="Odpowiedzi na adres" wartosc={f.odpowiedzNa} onZmiana={(t) => ustaw('odpowiedzNa', t)} klawiatura="email-address" blad={bladPola('odpowiedzNa')} />
           </Sekcja>
         </>
       ) : null}
 
-      <Sekcja stopka="Etapy, reguły i nadawcę zmienisz na faktway.pl.">{zmien}</Sekcja>
+      {blad && !(blad.pole && f.wlaczone) ? <Sekcja stopka={blad.komunikat}>{null}</Sekcja> : null}
+
+      <View style={styles.akcja}>
+        <PrzyciskGlowny tytul={zmienione ? 'Zapisz ustawienia' : 'Zapisano'} ikona="check-line" trwa={trwa} onPress={() => void zapisz()} />
+      </View>
     </EkranListy>
   );
 }
