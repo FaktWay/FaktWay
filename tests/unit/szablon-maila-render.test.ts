@@ -65,6 +65,11 @@ describe('walidacja', () => {
     expect(r.ok).toBe(false);
   });
 
+  it.each(['\u0085', '\u2028', '\u2029'])('separatory wierszy Unicode %j w temacie i treści odrzucone', (znak) => {
+    expect(validateInvoiceEmailTemplate({ subject: `a${znak}b`, body: 'x' }).ok).toBe(false);
+    expect(validateInvoiceEmailTemplate({ subject: 'x', body: `a${znak}b` }).ok).toBe(false);
+  });
+
   it('znaki sterujące w treści odrzucone, nowe wiersze dozwolone', () => {
     expect(validateInvoiceEmailTemplate({ subject: 'x', body: 'a\u0000b' }).ok).toBe(false);
     expect(validateInvoiceEmailTemplate({ subject: 'x', body: 'a\r\nb\n\nc' }).ok).toBe(true);

@@ -42,8 +42,8 @@ export const DEFAULT_INVOICE_EMAIL_TEMPLATE: InvoiceEmailTemplate = {
 
 const KNOWN = new Set<string>(INVOICE_EMAIL_PLACEHOLDERS.map((p) => p.key));
 const FIELD = /\{([A-Za-z0-9_]+)\}/g;
-// Znaki sterujące poza tabulatorem i nowym wierszem.
-const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+// Znaki sterujące poza tabulatorem i nowym wierszem oraz separatory wierszy Unicode (U+0085, U+2028, U+2029).
+const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u0085\u2028\u2029]/;
 
 const allowedList = () => INVOICE_EMAIL_PLACEHOLDERS.map((p) => `{${p.key}}`).join(', ');
 
