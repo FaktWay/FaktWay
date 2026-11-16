@@ -120,11 +120,23 @@ function domainLinesForCorrection(data: CorrectionInvoiceData): InvoiceLine[] {
 type CorrectionRow = InvoiceLineItem & { stanPrzed?: true };
 
 /**
+ * Pola pozycji, po których paruje się stany korekty: bez kodów i kwot. Pozycja
+ * koperty (`InvoiceLine`) i pozycja stanu korekty w JPK (`JpkInvoiceLine`).
+ */
+export interface CorrectionPairLine {
+  name: string;
+  unit: string;
+  quantity: number;
+  unitPriceNet: number;
+  vatRate: string;
+}
+
+/**
  * Ta sama pozycja w obu stanach. Bez kodów (PKWiU, GTU): kody pozycji „po”
  * nadaje serwer z pary „przed” (`withCodesFromBefore`), więc różnica kodu nie
  * jest korektą pozycji (krok 2.6, część 2b-3).
  */
-function sameLine(a: InvoiceLine, b: InvoiceLine): boolean {
+function sameLine(a: CorrectionPairLine, b: CorrectionPairLine): boolean {
   return (
     a.name === b.name &&
     a.unit === b.unit &&
@@ -148,15 +160,18 @@ export interface CorrectionLinePairs {
  * od kolejności — przesunięcie to nie korekta), potem zmienione po nazwie,
  * a reszta po kolejności (np. zmieniona nazwa). Samo parowanie po indeksie
  * po usunięciu środkowej pozycji opisywało inną zmianę („B przed → C po”).
- * Jedno parowanie dla pliku (`beforeAfterRows`) i dla kodów pozycji „po”
- * (`withCodesFromBefore`).
+ * Jedno parowanie dla pliku (`beforeAfterRows`), kodów pozycji „po”
+ * (`withCodesFromBefore`) i oznaczeń GTU korekty w JPK_V7M (`gtuOfCorrection`).
  */
-export function correctionLinePairs(before: readonly InvoiceLine[], after: readonly InvoiceLine[]): CorrectionLinePairs {
+export function correctionLinePairs(
+  before: readonly CorrectionPairLine[],
+  after: readonly CorrectionPairLine[],
+): CorrectionLinePairs {
   const pairOf = new Map<number, number | null>();
   const usedAfter = new Set<number>();
   const unchanged = new Set<number>();
 
-  const claim = (bi: number, match: (a: InvoiceLine) => boolean): boolean => {
+  const claim = (bi: number, match: (a: CorrectionPairLine) => boolean): boolean => {
     const ai = after.findIndex((a, i) => !usedAfter.has(i) && match(a));
     if (ai === -1) return false;
     usedAfter.add(ai);
@@ -177,17 +192,37 @@ export function correctionLinePairs(before: readonly InvoiceLine[], after: reado
 }
 
 /**
+ * Indeksy „po” sparowane po kolejności z pozycją „przed” o innej nazwie
+ * (krok 2.6, część 2b-3). Plik opisuje je jak zmianę tej pozycji (F-019), ale
+ * kodów pozycji FaktWay im nie przypisuje: to może być inna pozycja.
+ */
+export function renamedAfter(
+  before: readonly CorrectionPairLine[],
+  after: readonly CorrectionPairLine[],
+  pairOf: CorrectionLinePairs['pairOf'],
+): Set<number> {
+  const renamed = new Set<number>();
+  pairOf.forEach((ai, bi) => {
+    if (ai != null && before[bi]!.name !== after[ai]!.name) renamed.add(ai);
+  });
+  return renamed;
+}
+
+/**
  * Kody pozycji „po” korekty (krok 2.6, część 2b-3): pozycja z parą „przed”
- * dostaje kody tej pary (PKWiU i GTU z dokumentu faktury korygowanej), pozycja
- * dopisana żadnych. Kody przysłane w „po” się nie liczą: formularz strony
- * i telefon kodów nie edytują (telefon ich nie wysyła), a plik i JPK mają
- * mieć kody z dokumentu, nie z żądania.
+ * o tej samej nazwie dostaje kody tej pary (PKWiU i GTU z dokumentu faktury
+ * korygowanej). Pozycja dopisana i pozycja sparowana po kolejności ze zmienioną
+ * nazwą żadnych: FaktWay nie wie, czy to ta sama pozycja (`renamedAfter`).
+ * Kody przysłane w „po” się nie liczą: formularz strony i telefon kodów nie
+ * edytują (telefon ich nie wysyła), a plik i JPK mają mieć kody z dokumentu,
+ * nie z żądania.
  */
 export function withCodesFromBefore(before: readonly InvoiceLine[], after: readonly InvoiceLine[]): InvoiceLine[] {
   const { pairOf } = correctionLinePairs(before, after);
+  const renamed = renamedAfter(before, after, pairOf);
   const pairBefore = new Map<number, InvoiceLine>();
   pairOf.forEach((ai, bi) => {
-    if (ai != null) pairBefore.set(ai, before[bi]!);
+    if (ai != null && !renamed.has(ai)) pairBefore.set(ai, before[bi]!);
   });
   return after.map((line, ai) => {
     const { pkwiuCode: _pkwiu, gtuCode: _gtu, ...bezKodow } = line;

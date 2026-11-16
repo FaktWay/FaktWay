@@ -179,6 +179,24 @@ describe('korekta: kody pozycji z dokumentu faktury korygowanej', () => {
     ]);
   });
 
+  it('zmiana nazwy pozycji (para po kolejności): wiersz „przed” z kodami, „po” bez kodów, bo FaktWay nie wie, czy to ta sama pozycja; XSD', async () => {
+    faktura(PARENT, [DORADZTWO, DOJAZD]);
+    const ctx = await getCorrectionParentContextAction(PARENT);
+    if (!ctx.success) throw new Error(ctx.error);
+    const r = await saveCorrectionDraftAction(
+      payload({ correctionType: 'before_after', linesBefore: ctx.linesBefore, linesAfter: [linia({ ...DORADZTWO, name: 'Doradztwo podatkowe' }), linia(DOJAZD)] }),
+      TENANT,
+    );
+    expect(r).toMatchObject({ success: true });
+    expect(koperta().linesAfter).toEqual([linia({ ...DORADZTWO, name: 'Doradztwo podatkowe' }), linia(DOJAZD)]);
+    const xml = generateCorrectionInvoiceXml(koperta(), { generatedAt: new Date('2026-11-16T10:00:00Z') });
+    expect((await validateInvoiceXml(xml)).errors).toEqual([]);
+    expect(kodyWierszy(xml)).toEqual([
+      { nazwa: 'Doradztwo', pkwiu: '69.20.2', gtu: 'GTU_12', przed: true },
+      { nazwa: 'Doradztwo podatkowe', pkwiu: null, gtu: null, przed: false },
+    ]);
+  });
+
   it('anulowanie: wiersze ujemne z PKWiU i GTU pozycji faktury; XSD', async () => {
     faktura(PARENT, [DORADZTWO, DOJAZD]);
     const ctx = await getCorrectionParentContextAction(PARENT);
@@ -269,8 +287,9 @@ describe('niezmiennik: kody wierszy korekty „przed/po”', () => {
             return;
           }
           const para = wiersze[i - 1];
-          // „Po” zaraz za „przed” to jego para (ta sama pozycja po korekcie): te same kody.
-          if (para?.przed) expect({ pkwiu: w.pkwiu, gtu: w.gtu }).toEqual({ pkwiu: para.pkwiu, gtu: para.gtu });
+          // „Po” zaraz za „przed” o tej samej nazwie to jego para (ta sama pozycja po korekcie): te same
+          // kody. Inny „po” (dopisany albo sparowany po kolejności ze zmienioną nazwą) bez kodów.
+          if (para?.przed && para.nazwa === w.nazwa) expect({ pkwiu: w.pkwiu, gtu: w.gtu }).toEqual({ pkwiu: para.pkwiu, gtu: para.gtu });
           else expect({ pkwiu: w.pkwiu, gtu: w.gtu }).toEqual({ pkwiu: null, gtu: null });
         });
         expect(xml).not.toContain('99.99');
