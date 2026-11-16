@@ -16,6 +16,12 @@ import { logger } from '@/lib/observability/logger';
 import { isSensitiveDebugAllowed } from '@/lib/security/debug';
 import { Resend } from 'resend';
 
+import {
+  renderInvoiceEmailBodyHtml,
+  renderInvoiceEmailSubject,
+  type InvoiceEmailTemplate,
+  type InvoiceEmailValues,
+} from './invoice-email-template';
 import AccountDeletionConfirmation from './templates/AccountDeletionConfirmation';
 import CertExpiry from './templates/CertExpiry';
 import GdprDeletionScheduled from './templates/GdprDeletionScheduled';
@@ -646,6 +652,12 @@ export interface InvoiceEmailPayload {
   transferTitle?: string | null;
   pdf: Buffer;
   pdfFilename: string;
+  /**
+   * Własny szablon firmy (krok 2.8, `lib/email/invoice-email-template.ts`):
+   * zmienia temat i akapity powitania. Tabela z kwotą, terminem i tytułem
+   * przelewu oraz stopka zostają zawsze. Brak: mail jak dotąd.
+   */
+  customTemplate?: InvoiceEmailTemplate | null;
 }
 
 /**
@@ -674,12 +686,28 @@ export async function sendInvoiceEmail(
     return { sent: false, reason: 'not-configured' };
   }
 
+  const defaultSubject = `Faktura ${payload.invoiceNumber} od ${payload.sellerName}`;
+  let subject = defaultSubject;
+  let greeting = `<p>Dzień dobry,</p>
+      <p>W załączniku przesyłamy fakturę <strong>${escapeHtml(payload.invoiceNumber)}</strong>
+      od <strong>${escapeHtml(payload.sellerName)}</strong>.</p>`;
+  if (payload.customTemplate) {
+    const values: InvoiceEmailValues = {
+      numer: payload.invoiceNumber,
+      sprzedawca: payload.sellerName,
+      // Ta sama kwota co w tabeli niżej i na PDF (`invoiceEmailAmount`).
+      kwota: payload.amountLabel,
+      termin: payload.dueDate,
+      tytul_przelewu: payload.transferTitle ?? '',
+    };
+    subject = renderInvoiceEmailSubject(payload.customTemplate.subject, values) || defaultSubject;
+    greeting = renderInvoiceEmailBodyHtml(payload.customTemplate.body, values) || greeting;
+  }
+
   const html = `
     <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:560px;margin:0 auto;color:#374151">
       <h1 style="font-size:20px;color:#111827">Faktura ${escapeHtml(payload.invoiceNumber)}</h1>
-      <p>Dzień dobry,</p>
-      <p>W załączniku przesyłamy fakturę <strong>${escapeHtml(payload.invoiceNumber)}</strong>
-      od <strong>${escapeHtml(payload.sellerName)}</strong>.</p>
+      ${greeting}
       <table style="margin:16px 0;font-size:14px">
         <tr><td style="color:#6b7280;padding-right:16px">${escapeHtml(payload.amountCaption)}</td><td><strong>${escapeHtml(payload.amountLabel)}</strong></td></tr>
         <tr><td style="color:#6b7280;padding-right:16px">Termin płatności</td><td>${escapeHtml(payload.dueDate)}</td></tr>
@@ -691,7 +719,7 @@ export async function sendInvoiceEmail(
 
   return sendViaResend({
     to: payload.to,
-    subject: `Faktura ${payload.invoiceNumber} od ${payload.sellerName}`,
+    subject,
     html,
     category: 'transactional',
     attachments: [{ filename: payload.pdfFilename, content: payload.pdf }],
