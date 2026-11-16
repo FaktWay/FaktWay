@@ -112,7 +112,11 @@ export interface PlikVatOdpowiedz {
 export interface ZaplataRecznaTelefonu {
   id: string;
   rodzaj: 'zus_spoleczne' | 'zdrowotna';
-  /** Zdanie strony: rodzaj, okres, kwota, część bez Funduszu Pracy, data zapłaty. */
+  /** Rodzaj i okres („Składki społeczne za grudzień 2025”). */
+  tytul: string;
+  /** Kwota, część bez Funduszu Pracy i data zapłaty albo jej brak. */
+  szczegoly: string;
+  /** Całe zdanie strony (`tytul: szczegoly`), dla czytnika ekranu. */
   opis: string;
   zaplacone: boolean;
   /** Najwcześniejszy dzień zapłaty (pierwszy dzień okresu). */

@@ -66,6 +66,8 @@ export function ZaplatySpozaWyliczenia({
       if (w.blad.pole) setBledy({ [w.blad.pole]: w.blad.komunikat });
       else setBlad(w.blad.komunikat);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      // Zerwane połączenie mogło zapisać: lista od nowa, zanim klient dotknie jeszcze raz.
+      if (w.blad.rodzaj !== 'odmowa') poZapisie();
       return;
     }
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -98,7 +100,8 @@ export function ZaplatySpozaWyliczenia({
         const wiersz = (
           <Wiersz
             key={z.id}
-            tytul={z.opis}
+            tytul={z.tytul}
+            podtytul={z.szczegoly}
             ikona={z.zaplacone ? 'checkbox-circle-fill' : 'time-line'}
             ikonaKolor={z.zaplacone ? 'sukces' : 'ostrzezenie'}
             onPress={f ? () => setWybrana(rozwiniety ? undefined : z.id) : undefined}

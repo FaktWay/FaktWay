@@ -38,7 +38,6 @@ type DaneOk = Extract<DaneVat, { ok: true }>;
 
 const zl = (gr: number) => `${formatPlMoney(gr / 100)} zł`;
 
-
 export default async function VatPage({ searchParams }: { searchParams: Promise<{ month?: string; year?: string; nadwyzka?: string }> }) {
   const ctx = await getPageContext();
   const werdykt = await czyKsiegowoscWlaczona(ctx.supabase, ctx.tenantId, 'vat');

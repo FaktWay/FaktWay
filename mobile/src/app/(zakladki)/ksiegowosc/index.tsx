@@ -30,7 +30,8 @@ const MIESIACE = ['październik 2026', 'wrzesień 2026', 'sierpień 2026'];
 
 export default function EkranKsiegowosci() {
   const konto = useKontoFirmy();
-  if (konto) return <EkranKsiegowosciZBazy konto={konto} />;
+  // Klucz firmy: wpisana nadwyżka VAT i otwarty formularz zapłaty nie przechodzą na inną firmę (zakładka zostaje otwarta).
+  if (konto) return <EkranKsiegowosciZBazy key={konto.firma?.id ?? ''} konto={konto} />;
   return <EkranKsiegowosciPrzyklad />;
 }
 
@@ -188,9 +189,12 @@ function EkranKsiegowosciZBazy({ konto }: { konto: KontoFirmy }) {
         />
 
         {d.braki ? (
-          <Sekcja naglowek={`Kwot za ${nazwaMiesiaca(d.miesiac)} nie liczymy`} stopka="Uzupełnij brakujące dane na faktway.pl, w zakładce Księgowość.">
+          // Całe zdania (bez ucinania wiersza listy): każdy brak mówi, co zrobić.
+          <Sekcja naglowek={`Kwot za ${nazwaMiesiaca(d.miesiac)} nie liczymy`} stopka="Uzupełnij brakujące dane na faktway.pl, w zakładce Księgowość." swobodna>
             {d.braki.map((b) => (
-              <Wiersz key={b} tytul={b} ikona="error-warning-line" ikonaKolor="ostrzezenie" />
+              <Tekst key={b} styl="body">
+                {b}
+              </Tekst>
             ))}
           </Sekcja>
         ) : (
@@ -223,7 +227,7 @@ function EkranKsiegowosciZBazy({ konto }: { konto: KontoFirmy }) {
         )}
 
         {d.nadwyzkaVat ? (
-          <Sekcja naglowek="Nadwyżka VAT z poprzedniej deklaracji" stopka={d.nadwyzkaVat.opis ?? 'Po zatwierdzeniu miesiąca kolejny bierze nadwyżkę z tego rozliczenia.'}>
+          <Sekcja naglowek="Nadwyżka VAT z poprzedniej deklaracji" opis={d.nadwyzkaVat.opis ?? undefined} bezKarty={!d.nadwyzkaVat.pole}>
             {d.nadwyzkaVat.pole ? (
               <>
                 <PoleTekstowe

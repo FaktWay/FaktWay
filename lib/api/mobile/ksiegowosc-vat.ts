@@ -63,6 +63,7 @@ const ROLE_ZAPISU = new Set(['owner', 'admin']);
 const TYLKO_PLIK = 'Plik JPK_V7M pobiera właściciel, administrator albo księgowa firmy.';
 const TYLKO_ZAPLATY = 'Zapłaty zapisuje właściciel albo administrator firmy.';
 const POZA_KONTRAKTEM = 'Treść żądania nie pasuje do kontraktu. Zaktualizuj aplikację FaktWay.';
+const PRZED_V7M3 = 'JPK_V7M(3) obowiązuje od rozliczenia za luty 2026 r.';
 
 /** Kwota w groszach jak na stronie („1 234,56 zł”). */
 const zl = (gr: number) => `${formatPlMoney(gr / 100)} zł`;
@@ -86,7 +87,8 @@ export function miesiaceDoWyboru(dzis: string): string[] {
 export function okresZAdresu(request: Request, dzis: string): { ok: true; miesiac: string; nadwyzka: number | null } | { ok: false; komunikat: string } {
   const sp = new URL(request.url).searchParams;
   const miesiac = sp.get('miesiac');
-  if (miesiac !== null && (!MIESIAC.test(miesiac) || miesiac > dzis.slice(0, 7))) {
+  // Jak `miesiacZParametrow` strony: rok od 2026 (parametry modułu), najpóźniej bieżący miesiąc.
+  if (miesiac !== null && (!MIESIAC.test(miesiac) || miesiac > dzis.slice(0, 7) || miesiac < PIERWSZY_MIESIAC)) {
     return { ok: false, komunikat: 'Wybierz miesiąc z listy (RRRR-MM, najpóźniej bieżący).' };
   }
   const surowa = sp.get('nadwyzka');
@@ -121,10 +123,14 @@ export function poleNadwyzki(
 /** Zapłata spoza wyliczenia jak wiersz listy strony (`ZaplatySpozaWyliczenia`). */
 export function zaplataRecznaTelefonu(r: Rozliczenie): ZaplataRecznaTelefonu {
   const bezFp = r.rodzaj === 'zus_spoleczne' ? `, w tym bez Funduszu Pracy i FS ${zl(r.spoleczneBezFpGr)}` : '';
+  const tytul = `${NAZWY_ROZLICZEN[r.rodzaj]} za ${monthLabel(r.miesiac)}`;
+  const szczegoly = `${zl(r.kwotaGr)}${bezFp}. ${r.zaplaconeO ? `Zapłacone ${formatIsoDatePl(r.zaplaconeO)}.` : 'Bez daty zapłaty.'}`;
   return {
     id: r.id,
     rodzaj: r.rodzaj as ZaplataRecznaTelefonu['rodzaj'],
-    opis: `${NAZWY_ROZLICZEN[r.rodzaj]} za ${monthLabel(r.miesiac)}: ${zl(r.kwotaGr)}${bezFp}. ${r.zaplaconeO ? `Zapłacone ${formatIsoDatePl(r.zaplaconeO)}.` : 'Bez daty zapłaty.'}`,
+    tytul,
+    szczegoly,
+    opis: `${tytul}: ${szczegoly}`,
     zaplacone: r.status === 'zaplacone',
     najwczesniej: `${r.miesiac}-01`,
   };
@@ -174,10 +180,15 @@ export async function vatForMobile(caller: MobileCaller, request: Request): Prom
   const przelew = daneDoPrzelewu('vat', miesiac, nip, nip ? mikrorachunekZNip(nip) : null, null, 'ryczalt');
   const wspolne = { ...pusta, przelew, wysylkaWlaczona: wysylka.wlaczony && srodowisko !== null };
 
-  if (!dane.ok) return mobileJson({ ...wspolne, komunikat: dane.komunikat, zwolniona: dane.zwolniona === true } satisfies VatTelefonuOdpowiedz, 200, headers);
+  // Jak strona: termin i przelew tylko przy odczytanym VAT (firma zwolniona nie składa JPK_V7M, więc nie dostaje jego terminu).
+  if (!dane.ok) {
+    return mobileJson({ ...wspolne, termin: null, przelew: '', komunikat: dane.komunikat, zwolniona: dane.zwolniona === true } satisfies VatTelefonuOdpowiedz, 200, headers);
+  }
 
   const wynik = dane.wynik;
   const policzony = wynik?.ok ? wynik : null;
+  // Ta sama granica co `plikJpkV7m`: klient wie od razu, zanim wpisze dane osoby.
+  const przedV7m3 = miesiac < '2026-02';
   const odpowiedz: VatTelefonuOdpowiedz = {
     ...wspolne,
     komunikat: wynik && !wynik.ok ? wynik.brak : null,
@@ -197,8 +208,8 @@ export async function vatForMobile(caller: MobileCaller, request: Request): Prom
         `Podatek naliczony obejmuje nadwyżkę z poprzedniej deklaracji (${zl(policzony.nadwyzkaPoprzedniaGr)}). Kwoty deklaracji są w pełnych złotych.`
       : null,
     plik: {
-      mozna: mozePobrac && zakonczony && policzony !== null,
-      powod: !policzony ? null : !mozePobrac ? TYLKO_PLIK : !zakonczony ? `Plik za ${monthLabel(miesiac)} powstaje po zakończeniu miesiąca.` : null,
+      mozna: mozePobrac && zakonczony && policzony !== null && !przedV7m3,
+      powod: !policzony ? null : przedV7m3 ? PRZED_V7M3 : !mozePobrac ? TYLKO_PLIK : !zakonczony ? `Plik za ${monthLabel(miesiac)} powstaje po zakończeniu miesiąca.` : null,
       email: caller.user.email,
     },
     wysylki: dane.wysylki.map((w) => ({

@@ -25,7 +25,8 @@ import { MARGINES, ODSTEP } from '@/wyglad/odstepy';
 
 export default function EkranVat() {
   const konto = useKontoFirmy();
-  if (konto) return <EkranVatZBazy konto={konto} />;
+  // Klucz firmy: wpisana nadwyżka i dane osoby nie przechodzą na inną firmę wybraną w Więcej.
+  if (konto) return <EkranVatZBazy key={konto.firma?.id ?? ''} konto={konto} />;
   return <EkranVatPrzyklad />;
 }
 
@@ -166,13 +167,14 @@ function EkranVatZBazy({ konto }: { konto: KontoFirmy }) {
         ) : null}
 
         {d.komunikat ? (
-          <Sekcja naglowek={`Kwot VAT za ${tytul} nie liczymy`}>
-            <Wiersz tytul={d.komunikat} ikona="error-warning-line" ikonaKolor="ostrzezenie" />
+          // Całe zdanie z tym, co zrobić (bez ucinania wiersza listy): blokada musi mieć widoczne wyjście.
+          <Sekcja naglowek={`Kwot VAT za ${tytul} nie liczymy`} swobodna>
+            <Tekst styl="body">{d.komunikat}</Tekst>
           </Sekcja>
         ) : null}
 
         {d.nadwyzka && (d.nadwyzka.pole || d.nadwyzka.opis) ? (
-          <Sekcja naglowek="Nadwyżka z poprzedniej deklaracji" stopka={d.nadwyzka.opis ?? undefined}>
+          <Sekcja naglowek="Nadwyżka z poprzedniej deklaracji" opis={d.nadwyzka.opis ?? undefined} bezKarty={!d.nadwyzka.pole}>
             {d.nadwyzka.pole ? (
               <>
                 <PoleTekstowe
@@ -195,8 +197,9 @@ function EkranVatZBazy({ konto }: { konto: KontoFirmy }) {
           <>
             <Kafle
               kafle={[
-                { klucz: 'p38', ikona: 'arrow-right-up-line', podpis: 'Podatek należny (P_38)', wartosc: kwotaKrotka(k.naleznyGr) },
-                { klucz: 'p48', ikona: 'arrow-right-down-line', podpis: 'Podatek naliczony (P_48)', wartosc: kwotaKrotka(k.naliczonyGr) },
+                // Pełne kwoty jak na stronie: pola deklaracji, nie skrót „tys. zł”.
+                { klucz: 'p38', ikona: 'arrow-right-up-line', podpis: 'Podatek należny (P_38)', wartosc: kwota(k.naleznyGr) },
+                { klucz: 'p48', ikona: 'arrow-right-down-line', podpis: 'Podatek naliczony (P_48)', wartosc: kwota(k.naliczonyGr) },
               ]}
             />
             {d.podpis ? (
@@ -207,6 +210,7 @@ function EkranVatZBazy({ konto }: { konto: KontoFirmy }) {
           </>
         ) : null}
 
+        {d.termin || d.przelew ? (
         <Sekcja naglowek="Termin i przelew" stopka="Przytrzymaj tekst, żeby go zaznaczyć i skopiować.">
           {d.termin ? (
             <Wiersz
@@ -219,13 +223,14 @@ function EkranVatZBazy({ konto }: { konto: KontoFirmy }) {
           <Wiersz tytul="Rachunek i opis" podtytul={d.przelew} zaznaczalna />
           {k ? <Wiersz tytul="Kwota" wartosc={kwota(k.doZaplatyGr)} wartoscKolor="etykieta" zaznaczalna /> : null}
         </Sekcja>
+        ) : null}
 
         {k ? (
           <Sekcja
             naglowek="Plik JPK_V7M"
             stopka={
               d.plik.mozna
-                ? 'Ewidencja sprzedaży i zakupów z deklaracją VAT-7 według schematu JPK_V7M(3). Imię, nazwisko i data urodzenia trafiają tylko do pliku, nie zapisujemy ich.'
+                ? 'Ewidencja sprzedaży i zakupów z deklaracją VAT-7 według schematu JPK_V7M(3). Imię, nazwisko i data urodzenia trafiają tylko do pliku: FaktWay ich nie zapisuje, a plik w telefonie usuwa wylogowanie.'
                 : (d.plik.powod ?? undefined)
             }
           >

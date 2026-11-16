@@ -306,6 +306,9 @@ describe('GET /api/mobile/v1/ksiegowosc/vat', () => {
     fake.czytajVat.mockResolvedValue({ ok: false, komunikat: 'Firma korzysta ze zwolnienia z VAT (art. 113), więc nie składa JPK_V7M.', zwolniona: true });
     const zw = (await (await vatRoute(req('ksiegowosc/vat'))).json()) as VatTelefonuOdpowiedz;
     expect(zw).toMatchObject({ zwolniona: true, kwoty: null, nadwyzka: null, komunikat: expect.stringContaining('art. 113') });
+    // Jak strona: bez terminu i przelewu JPK_V7M, gdy VAT nie jest odczytany (firma zwolniona go nie składa).
+    expect(zw).toMatchObject({ termin: null, przelew: '' });
+    expect(zw.plik.mozna).toBe(false);
     fake.czytajVat.mockClear();
     fake.obszary = { ten_miesiac: true };
     const wyl = (await (await vatRoute(req('ksiegowosc/vat'))).json()) as VatTelefonuOdpowiedz;
@@ -320,7 +323,7 @@ describe('GET /api/mobile/v1/ksiegowosc/vat', () => {
     const ksiegowa = (await (await vatRoute(req('ksiegowosc/vat', { token: TOKEN_KSIEGOWA }))).json()) as VatTelefonuOdpowiedz;
     expect(ksiegowa.plik.mozna).toBe(true);
     fake.czytajVat.mockClear();
-    for (const q of ['miesiac=2026-13', 'miesiac=2026-12', 'nadwyzka=-5', 'nadwyzka=1,5']) {
+    for (const q of ['miesiac=2026-13', 'miesiac=2026-12', 'miesiac=2025-12', 'nadwyzka=-5', 'nadwyzka=1,5']) {
       expect((await vatRoute(req(`ksiegowosc/vat?${q}`))).status).toBe(400);
     }
     expect(fake.czytajVat).not.toHaveBeenCalled();
@@ -369,7 +372,11 @@ describe('„Ten miesiąc”: nadwyżka VAT i zapłaty spoza wyliczenia', () => 
     const body = (await response.json()) as TenMiesiacOdpowiedz & TenMiesiacDodatki;
     expect(body.nadwyzkaVat).toMatchObject({ nadwyzka: null, pole: true, wpisana: null, poprzedni: 'wrzesień 2026' });
     expect(body.zaplatyReczne).toEqual([
-      { id: REC_ID, rodzaj: 'zus_spoleczne', zaplacone: true, najwczesniej: '2025-12-01', opis: expect.stringMatching(/^Składki społeczne za grudzień 2025: 1\s?500,00 zł, w tym bez Funduszu Pracy i FS 1\s?400,00 zł\. Zapłacone 15\.10\.2026\.$/) },
+      {
+        id: REC_ID, rodzaj: 'zus_spoleczne', zaplacone: true, najwczesniej: '2025-12-01', tytul: 'Składki społeczne za grudzień 2025',
+        szczegoly: expect.stringMatching(/^1\s?500,00 zł, w tym bez Funduszu Pracy i FS 1\s?400,00 zł\. Zapłacone 15\.10\.2026\.$/),
+        opis: expect.stringMatching(/^Składki społeczne za grudzień 2025: 1\s?500,00 zł, w tym bez Funduszu Pracy i FS 1\s?400,00 zł\. Zapłacone 15\.10\.2026\.$/),
+      },
     ]);
     expect(body.zaplataReczna).toEqual({ od: '2025-01', doMiesiaca: '2026-10', domyslnyMiesiac: '2026-09', domyslnaData: '2026-10-31' });
     const czlonek = (await (await miesiacRoute(req('ksiegowosc', { token: TOKEN_MEMBER }))).json()) as TenMiesiacDodatki;
@@ -424,5 +431,51 @@ describe('miesiące formularza zapłaty spoza wyliczenia', () => {
     expect(m.slice(0, 3)).toEqual(['2026-02', '2026-01', '2025-12']);
     expect(m.at(-1)).toBe('2025-01');
     expect(m).toHaveLength(14);
+  });
+});
+
+describe('źródła nadwyżki, wysyłka i granice pliku', () => {
+  it('nadwyżka z zatwierdzonych rozliczeń: zdania strony na ekranie VAT i w „Ten miesiąc”', async () => {
+    fake.czytajVat.mockResolvedValue(daneVat({ zl: 70, zrodlo: 'zatwierdzone' }));
+    const vat = (await (await vatRoute(req('ksiegowosc/vat?miesiac=2026-10'))).json()) as VatTelefonuOdpowiedz;
+    expect(vat.nadwyzka).toMatchObject({ pole: true, wpisana: null });
+    expect(vat.nadwyzka?.opis).toMatch(/^Nadwyżka z deklaracji za wrzesień 2026 \(P_39\): 70,00 zł, z rozliczenia VAT za wrzesień 2026 zatwierdzonego w „Ten miesiąc”\. Inna kwota z deklaracji złożonej poza FaktWay wpisuje się niżej\.$/);
+    fake.czytajVat.mockResolvedValue(daneVat({ zl: 70, zrodlo: 'ten_miesiac' }));
+    const vatTen = (await (await vatRoute(req('ksiegowosc/vat?miesiac=2026-10'))).json()) as VatTelefonuOdpowiedz;
+    expect(vatTen.nadwyzka?.opis).toMatch(/, z zatwierdzonego rozliczenia VAT za październik 2026 w „Ten miesiąc”\. Inna kwota/);
+
+    const zVat = (vat: unknown) => ({ ...daneMiesiaca(), wynik: { ...daneMiesiaca().wynik, vat } });
+    fake.czytaj.mockResolvedValue(zVat({ wynik: null, nadwyzka: { zl: 70, zrodlo: 'ten_miesiac' }, nadwyzkaNieznana: false }));
+    const ten = (await (await miesiacRoute(req('ksiegowosc?miesiac=2026-10'))).json()) as TenMiesiacDodatki;
+    expect(ten.nadwyzkaVat?.opis).toMatch(/^Nadwyżka z deklaracji za wrzesień 2026 \(P_39\): 70,00 zł, z zatwierdzonego rozliczenia VAT za październik 2026\.$/);
+    fake.czytaj.mockResolvedValue(zVat({ wynik: null, nadwyzka: { zl: 0, zrodlo: 'mf' }, nadwyzkaNieznana: false }));
+    const mf = (await (await miesiacRoute(req('ksiegowosc?miesiac=2026-10'))).json()) as TenMiesiacDodatki;
+    expect(mf.nadwyzkaVat).toMatchObject({ pole: false, wpisana: null });
+    // Brak z innego powodu niż nadwyżka (odczyt, wpisy ręczne): pole nic nie zmieni, więc go nie ma (jak `NadwyzkaVat` strony).
+    fake.czytaj.mockResolvedValue(zVat({ wynik: null, nadwyzka: null, nadwyzkaNieznana: false }));
+    const bez = (await (await miesiacRoute(req('ksiegowosc?miesiac=2026-10'))).json()) as TenMiesiacDodatki;
+    expect(bez.nadwyzkaVat).toBeNull();
+  });
+
+  it('wysyłka do MF włączona tylko z obszarem `wysylka_jpk` i środowiskiem MF', async () => {
+    const bez = (await (await vatRoute(req('ksiegowosc/vat'))).json()) as VatTelefonuOdpowiedz;
+    expect(bez.wysylkaWlaczona).toBe(false);
+    fake.obszary = { vat: true, ten_miesiac: true, wysylka_jpk: true };
+    const z = (await (await vatRoute(req('ksiegowosc/vat'))).json()) as VatTelefonuOdpowiedz;
+    expect(z.wysylkaWlaczona).toBe(true);
+    vi.stubEnv('JPK_MF_ENV', '');
+    const bezSrodowiska = (await (await vatRoute(req('ksiegowosc/vat'))).json()) as VatTelefonuOdpowiedz;
+    expect(bezSrodowiska.wysylkaWlaczona).toBe(false);
+  });
+
+  it('plik za styczeń 2026: od razu powód (JPK_V7M(3) od lutego); obszar `vat` wyłączony: plik 422 ze zdaniem strony', async () => {
+    fake.czytajVat.mockResolvedValue({ ...daneVat(), miesiac: '2026-01' });
+    const styczen = (await (await vatRoute(req('ksiegowosc/vat?miesiac=2026-01'))).json()) as VatTelefonuOdpowiedz;
+    expect(styczen.plik).toMatchObject({ mozna: false, powod: 'JPK_V7M(3) obowiązuje od rozliczenia za luty 2026 r.' });
+    fake.obszary = { ten_miesiac: true };
+    const wylaczony = await plikRoute(req('ksiegowosc/vat/plik', { method: 'POST', body: { miesiac: '2026-10', nadwyzka: 50, ...OSOBA } }));
+    expect(wylaczony.status).toBe(422);
+    expect(await kod(wylaczony)).toMatchObject({ code: 'settlement_refused', message: 'VAT w Księgowości nie jest jeszcze dostępny dla tej firmy.' });
+    expect(fake.audit).not.toHaveBeenCalled();
   });
 });

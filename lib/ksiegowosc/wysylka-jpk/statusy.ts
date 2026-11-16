@@ -8,6 +8,8 @@
  * kod i opis MF w Sentry.
  */
 
+import type { StanZapisu } from './zapis';
+
 export type StanWysylki = 'w_toku' | 'przyjeta' | 'odrzucona';
 
 export interface OcenaStatusu {
@@ -75,7 +77,7 @@ export function numerOryginalu(opis: string): string | null {
  * Nazwa stanu wysyłki na liście (strona `reports/vat` i telefon, M10d). Przeniesione
  * ze strony bez zmian; stany zapisu z `zapis.ts` (`StanZapisu`).
  */
-export const NAZWY_STANOW_WYSYLKI: Readonly<Record<'wysylanie' | 'w_toku' | 'przyjeta' | 'odrzucona' | 'przerwana', string>> = {
+export const NAZWY_STANOW_WYSYLKI: Readonly<Record<StanZapisu, string>> = {
   wysylanie: 'Wysyłanie',
   w_toku: 'MF sprawdza plik',
   przyjeta: 'Przyjęty, UPO gotowe',
