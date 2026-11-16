@@ -18,8 +18,8 @@ import { formatujRachunek, mikrorachunekZNip } from '@/lib/ksiegowosc/mikrorachu
 import { brakNadwyzki, czytajVat, nadwyzkaZAdresu, type DaneVat } from '@/lib/ksiegowosc/vat-dane';
 import { czyKsiegowoscWlaczona } from '@/lib/ksiegowosc/wylacznik';
 import { srodowiskoMf } from '@/lib/ksiegowosc/wysylka-jpk/certyfikaty';
-import { ocenOdmoweInit, ocenStatus } from '@/lib/ksiegowosc/wysylka-jpk/statusy';
-import { trwa, type StanZapisu, type Wysylka } from '@/lib/ksiegowosc/wysylka-jpk/zapis';
+import { NAZWY_STANOW_WYSYLKI, opisOdmowyWysylki } from '@/lib/ksiegowosc/wysylka-jpk/statusy';
+import { trwa, type Wysylka } from '@/lib/ksiegowosc/wysylka-jpk/zapis';
 import { getPageContext } from '@/lib/supabase/page-context';
 
 export const dynamic = 'force-dynamic';
@@ -38,13 +38,6 @@ type DaneOk = Extract<DaneVat, { ok: true }>;
 
 const zl = (gr: number) => `${formatPlMoney(gr / 100)} zł`;
 
-const STANY: Readonly<Record<StanZapisu, string>> = {
-  wysylanie: 'Wysyłanie',
-  w_toku: 'MF sprawdza plik',
-  przyjeta: 'Przyjęty, UPO gotowe',
-  odrzucona: 'Odrzucony',
-  przerwana: 'Przerwana',
-};
 
 export default async function VatPage({ searchParams }: { searchParams: Promise<{ month?: string; year?: string; nadwyzka?: string }> }) {
   const ctx = await getPageContext();
@@ -252,13 +245,6 @@ function Wysylki({
   );
 }
 
-/** Odmowa z kodem MF: kody poniżej 200 to odmowy InitUploadSigned, reszta to statusy po przyjęciu plików. */
-function opisOdmowy(w: Wysylka): string {
-  if (w.statusKod === null) return ocenOdmoweInit(null).tresc;
-  const ocena = w.statusKod < 200 ? ocenOdmoweInit(w.statusKod) : ocenStatus(w.statusKod);
-  return `${ocena.tresc} Kod MF ${w.statusKod}${w.statusOpis ? `: ${w.statusOpis}` : ''}.`;
-}
-
 function ListaWysylek({ wysylki, canEdit }: { wysylki: Wysylka[]; canEdit: boolean }) {
   return (
     <Table aria-label="Wysyłki JPK_V7M za miesiąc">
@@ -279,10 +265,10 @@ function ListaWysylek({ wysylki, canEdit }: { wysylki: Wysylka[]; canEdit: boole
             <TableCell>{formatTimestampDatePl(w.utworzonoO)}</TableCell>
             <TableCell>
               <span className="text-sm">
-                {STANY[w.stan]}
+                {NAZWY_STANOW_WYSYLKI[w.stan]}
                 {w.srodowisko === 'test' ? ' (środowisko testowe)' : ''}
               </span>
-              {w.stan === 'odrzucona' ? <span className="text-muted-foreground block text-xs">{opisOdmowy(w)}</span> : null}
+              {w.stan === 'odrzucona' ? <span className="text-muted-foreground block text-xs">{opisOdmowyWysylki(w)}</span> : null}
             </TableCell>
             <TableCell className="font-mono text-xs">{w.numerReferencyjny ?? ''}</TableCell>
             <TableCell className="text-right tabular-nums">{zl(w.deklaracja.P_51 * 100)}</TableCell>
