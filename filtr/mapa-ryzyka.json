@@ -653,7 +653,10 @@
         "lib/invoices/logo-firmy.ts",
         "components/settings/company-logo-form.tsx",
         "lib/api/mobile/ustawienia.ts",
-        "app/api/mobile/v1/ustawienia/**"
+        "app/api/mobile/v1/ustawienia/**",
+        "lib/settings/company-settings.ts",
+        "lib/api/mobile/ustawienia-zapis.ts",
+        "lib/api/mobile/kontrakt-ustawienia.ts"
       ]
     },
     {
@@ -748,6 +751,8 @@
         "app/actions/{analytics-consent,newsletter}.ts",
         "lib/email/{preferences,unsubscribe-token}.ts",
         "app/(dashboard)/settings/notifications/email-actions.ts",
+        "lib/email/settings-toggle.ts",
+        "lib/api/mobile/ustawienia-powiadomienia.ts",
         "lib/analytics/privacy.ts",
         "app/api/email/unsubscribe/**",
         "app/(auth)/register/actions.ts",
@@ -835,7 +840,10 @@
         "mobile/src/app/(zakladki)/wiecej/kontrahenci/**",
         "mobile/src/stan/kontrahenci.tsx",
         "mobile/src/app/(zakladki)/wiecej/import.tsx",
-        "mobile/src/app/(zakladki)/wiecej/ustawienia/{abonament,ksiegowa}.tsx"
+        "mobile/src/app/(zakladki)/wiecej/ustawienia/{abonament,ksiegowa}.tsx",
+        "mobile/src/app/(zakladki)/wiecej/ustawienia/{firma,firma-zmiana,przypomnienia,powiadomienia}.tsx",
+        "mobile/src/stan/ustawienia-zapis.tsx",
+        "mobile/src/lib/api/kontrakt-ustawienia.ts"
       ]
     },
     {
