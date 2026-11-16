@@ -96,11 +96,11 @@ function zdublowanyDokument(wiersze: readonly WierszKosztu[]): DubelKosztu | nul
   return null;
 }
 
-/** Brak KPiR przy zdublowanym dokumencie kosztu: numer, sprzedawca i co zrobić. */
+/** Brak KPiR przy zdublowanym dokumencie kosztu: numer, sprzedawca i co dalej (bez trybu rozkazującego, D8). */
 export function komunikatDublaKosztu(d: DubelKosztu): string {
   return (
     `Dokument ${d.numer} od ${d.sprzedawca} jest w kosztach ${d.ile} razy (np. zdjęcie i ta sama faktura ze Skrzynki KSeF), więc KPiR teraz nie liczymy, żeby nie wpisać kosztu podwójnie. ` +
-    'W Kosztach zostaw w KPiR jeden koszt tego dokumentu (u pozostałych wyłącz „Uwzględnij w KPiR”). Jeśli to jeden dokument podzielony na kilka kosztów, napisz do nas.'
+    'Do KPiR wchodzi jeden koszt tego dokumentu, a przy pozostałych w Kosztach wyłącza się „Uwzględnij w KPiR”. Jeden dokument podzielony na kilka kosztów rozdzielimy po zgłoszeniu w Pomocy.'
   );
 }
 
