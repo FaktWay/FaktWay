@@ -705,7 +705,11 @@ describe('glowna', () => {
     expect(skrypt).toHaveBeenCalledWith(900);
     expect(api.mock.calls.filter((c) => c[0] === `repos/${REPO}/pulls/900`)).toHaveLength(3);
     expect(wynik.wyjscie).toContain('✔ etykieta scal nadana');
-    expect(wynik.wyjscie).toContain(`SCAL: #900 ma etykietę scal; kolejka scalania scali go po zielonych kontrolach (głowa ${SHA}).`);
+    expect(wynik.wyjscie).toContain(`SCAL: #900 ma etykietę scal (głowa ${SHA}). Do kolejki wejdzie, gdy scalanie włączy`);
+    // Bez SCAL_TOKEN PR utknie z etykietą: zapasowa linia scala dokładnie oceniony SHA.
+    expect(wynik.wyjscie).toContain(
+      `Dla Bartosza (gdy na koniec nocy PR nie jest w drodze): gh pr merge 900 -R ${REPO} --match-head-commit ${SHA} && ./scripts/ops/scal-pr.sh 900 --czekaj`,
+    );
   });
 
   it('NIE z --scal: scal-pr.sh nie rusza, kod 1', async () => {

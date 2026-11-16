@@ -910,12 +910,19 @@ export async function glowna(argv, zaleznosci = {}) {
         if (blad instanceof NiepewnaEtykieta) niepewnaEtykieta = blad.wstrzymane ? 'wstrzymane' : 'do-wstrzymania';
       }
     }
-    if (opcje.json) wypisz(JSON.stringify({ ...ocena, scal, odmowa, niepewna: niepewnaEtykieta }, null, 2));
+    // Z chmury scal-pr.sh nie wie, czy workflow ma SCAL_TOKEN (ostrzega zawsze), więc o tym, czy PR
+    // wszedł do kolejki, mówi dopiero stan na koniec nocy. Na ten wypadek linia dla Bartosza z ocenionym SHA.
+    const liniaZapasowa =
+      scal === null ? null : `gh pr merge ${ocena.numer} -R ${repo} --match-head-commit ${ocena.sha} && ./${SKRYPT_SCALANIA} ${ocena.numer} --czekaj`;
+    if (opcje.json) wypisz(JSON.stringify({ ...ocena, scal, odmowa, niepewna: niepewnaEtykieta, liniaZapasowa }, null, 2));
     else {
       wypisz(opisOceny(ocena));
       if (scal !== null) {
         if (scal) wypisz(scal);
-        wypisz(`SCAL: #${ocena.numer} ma etykietę ${ETYKIETA_SCAL}; kolejka scalania scali go po zielonych kontrolach (głowa ${ocena.sha}).`);
+        wypisz(
+          `SCAL: #${ocena.numer} ma etykietę ${ETYKIETA_SCAL} (głowa ${ocena.sha}). Do kolejki wejdzie, gdy scalanie włączy konto człowieka albo workflow z sekretem SCAL_TOKEN; stan sprawdź na koniec nocy (instrukcja, sekcja 3, krok 6).`,
+        );
+        wypisz(`Dla Bartosza (gdy na koniec nocy PR nie jest w drodze): ${liniaZapasowa}`);
       }
       if (niepewnaEtykieta === 'do-wstrzymania') wypisz(`UWAGA: ${odmowa}`);
       else if (niepewnaEtykieta === 'wstrzymane') wypisz(`NIE: ${odmowa}`);

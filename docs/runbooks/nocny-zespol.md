@@ -158,11 +158,11 @@ bramka mówi przy nich NIE.
   wypychasz** (ani gałęzi, ani commita z testem), bez PR, bez zgłoszenia i bez
   szczegółów w dzienniku (`docs/runbooks/agent-kodu.md`, sekcja 2). Test
   i opis idą do poufnego zgłoszenia GitHub (Security Advisory:
-  `gh api --method POST repos/FaktWay/FaktWay/security-advisories --input advisory.json`,
+  `gh api --method POST repos/FaktWay/FaktWay/security-advisories --input /tmp/advisory.json`,
   w pliku `summary`, `description`, `severity` i
   `"vulnerabilities": [{"package": {"ecosystem": "other", "name": "faktway"}}]`);
-  potem plik testu usuwasz z katalogu repo, żeby nie trafił do kolejnego
-  commita. Gdy konto nie może założyć zgłoszenia,
+  plik z opisem trzymasz poza repo (`/tmp`), a potem i jego, i plik testu
+  usuwasz, żeby nic nie trafiło do kolejnego commita. Gdy konto nie może założyć zgłoszenia,
   szczegóły idą osobną wiadomością na Telegram do Bartosza i nigdzie na
   GitHub. W raporcie głównym i w dzienniku: „1 sprawa poufna”, jednym zdaniem
   bez szczegółów. Naprawa w sesji z człowiekiem.
@@ -180,6 +180,10 @@ zdarzenie `added_to_merge_queue`. Wypadł z kolejki: ostatnie zdarzenie
 `removed_from_merge_queue`. Workflow odmówił: brak etykiety `scal` i powód
 w ostatnim komentarzu PR
 (`gh api repos/FaktWay/FaktWay/issues/N/comments --jq '.[-1].body'`).
+**Utknął bez sekretu:** etykieta `scal` jest, PR nie jest w drodze, nie ma
+zdarzenia kolejki, a ostatni komentarz zaczyna się od „Nie włączam scalania
+z workflow: brak sekretu `SCAL_TOKEN`”. Taki PR idzie do „czeka na Ciebie”
+z zapasową linią z bramki i z przypomnieniem o sekrecie (sekcja 12).
 
 **7. Raport** na Telegram (sekcja 9) i komentarz w dzienniku (sekcja 10).
 
@@ -358,11 +362,15 @@ wyjmuje PR z kolejki) i kończy kodem 1; zdejmuje ją człowiek. Kod 2 z „UWAG
 „czeka na Ciebie”.
 
 **Z chmury scalanie włącza workflow z sekretem `SCAL_TOKEN`** (GraphQL jest
-tam zablokowany, więc `scal-pr.sh` nie włączy go z konta; `docs/runbooks/scalanie-pr.md`).
-Bez sekretu PR dostaje etykietę `scal`, ale do kolejki nie wejdzie, a bramka
-pokazuje ostrzeżenie skryptu. Taki PR idzie do „czeka na Ciebie” z linią
-`./scripts/ops/scal-pr.sh N --czekaj` (Bartosz z Maca) i z przypomnieniem
-o sekrecie.
+tam zablokowany, więc `scal-pr.sh` nie włączy go z konta;
+`docs/runbooks/scalanie-pr.md`). Skrypt nie wie, czy sekret jest, więc
+w chmurze ostrzega o nim zawsze: samo ostrzeżenie niczego nie znaczy. Czy PR
+wszedł do kolejki, mówi stan na koniec nocy (sekcja 3, krok 6). Przy TAK
+bramka podaje od razu zapasową linię `Dla Bartosza (gdy na koniec nocy PR nie
+jest w drodze): gh pr merge N -R FaktWay/FaktWay --match-head-commit <SHA> &&
+./scripts/ops/scal-pr.sh N --czekaj`, z SHA ocenionym przez bramkę: gdy głowa
+się zmieniła, `gh pr merge` odmówi. Tę linię wpisujesz do „czeka na Ciebie”
+tylko przy PR, który na koniec nocy utknął.
 
 **Po scaleniu** zespół niczego nie wdraża i nie wgrywa: scalony kod wdroży
 nocne wdrożenie o 03:30 (albo następnej nocy), a jego wynik przychodzi od bota
