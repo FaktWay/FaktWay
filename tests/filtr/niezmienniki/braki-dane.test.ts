@@ -26,13 +26,15 @@ import { profil } from '../generatory/ksiegowosc';
  * - brak miesiąca (lista pod tytułem „Kwot za {miesiąc} nie liczymy”) i brak
  *   odczytu na stronach VAT, ewidencji i KPiR: nazwa braku;
  * - brak dokumentu (lista z dopiskiem „Dopóki są braki…”): komunikat zaczyna
- *   się od dokumentu, którego dotyczy;
+ *   się od dokumentu, którego dotyczy (reprezentatywne rodzaje braków
+ *   ewidencji i KPiR, także każdy powód niepewnego importu z KSeF);
  * - wszystkie bez słów z listy roboczej NZ-TRESC-01, bez form rozkazujących
  *   z tekstów ekranów i bez długich myślników.
  */
 
-// „należy do” (= „jest częścią”, np. „dokument należy do KPiR”) to nie tryb rozkazujący; „należy” bez „do” tak.
-const ZAKAZANE = /(?<![\p{L}])(?:zapłać\p{L}*|musisz|musicie|powinieneś|powinnaś|powinniście|należy(?!\s+do(?![\p{L}]))|zalecamy|radzimy|wybierz\p{L}*|opłaca się|lepiej|najkorzystniej\p{L}*|oszczędzisz|zaoszczędzisz)(?![\p{L}])/iu;
+// „należy do” z nazwą (= „jest częścią”, np. „dokument należy do KPiR”) to nie tryb rozkazujący;
+// „należy” bez tego, także „należy do 25. dnia złożyć”, tak.
+const ZAKAZANE = /(?<![\p{L}])(?:zapłać\p{L}*|musisz|musicie|powinieneś|powinnaś|powinniście|należy(?!\s+do\s+[^\d\s])|zalecamy|radzimy|wybierz\p{L}*|opłaca się|lepiej|najkorzystniej\p{L}*|oszczędzisz|zaoszczędzisz)(?![\p{L}])/iu;
 const ROZKAZUJACE = /(?<![\p{L}])(?:uzupełnij|sprawdź|dodaj|wpisz|zmień|kliknij|przejdź|otwórz|zostaw|wyłącz|włącz|przygotuj|napisz|zapisz|skontaktuj|pamiętaj|ustaw|podaj|złóż|prześlij|wyślij|popraw|zaznacz)(?![\p{L}])/iu;
 const DLUGIE_MYSLNIKI = /[—–]/;
 const NAZWA = /parametr|stawk|ustawie|etap|dat[aęy]|ewidencj|KPiR|kwot[ay]|limit|prog|próg|deklaracj|nadwyżk|faktur|koszt|rozlicze|środowisk|wpis/iu;
@@ -74,6 +76,7 @@ describe('NZ-TRESC-04 i FZ-015: braki z warstwy danych, dokumentów i telefonu',
     expect(bledyTresci('Uzupełnij brakujące dane na faktway.pl.')).not.toEqual([]);
     expect(bledyTresci('Należy złożyć JPK_V7M do 25 listopada.')).not.toEqual([]);
     expect(bledyTresci('Dokument należy do KPiR za marzec.')).toEqual([]);
+    expect(bledyTresci('Należy do 25. dnia złożyć deklarację.')).not.toEqual([]);
   });
 
   it('pozycja VAT na stronie „Ten miesiąc”: każdy brak z odczytu VAT ma nazwę i skutek', () => {
@@ -130,8 +133,11 @@ describe('NZ-TRESC-04 i FZ-015: braki z warstwy danych, dokumentów i telefonu',
         faktura('FV/2', '2026-04-10', { waluta: 'EUR' }),
         faktura('FV/3', '2026-04-11', { niepewnyImport: 'sumy' }),
         faktura('FV/4', '2026-04-12', { fp: true }),
+        faktura('FV/7', '2026-04-13', { niepewnyImport: 'przed_odczytem' }),
+        faktura('FV/8', '2026-04-14', { niepewnyImport: 'daty_sprzedazy' }),
+        faktura('FV/9', '2026-05-12', { fp: true, nettoGr: 500_000 }),
       ],
-      wpisy: [wpisReczny('W/1', '2026-02-05'), wpisReczny('W/2', '2026-07-05')],
+      wpisy: [wpisReczny('W/1', '2026-02-05'), wpisReczny('W/2', '2026-07-05'), { ...wpisReczny('RK/5', '2026-05-31'), rodzaj: 'raport_kasy', kwotaGr: 1_000 }],
     });
     const skala = [profil({ forma: 'skala', validFrom: '2026-03-01' }), profil({ id: 'p2', forma: 'ryczalt', validFrom: '2026-06-01' })];
     const koszt = (dowod: string, data: string, kolumnaAplikacji: string | null): KosztKpir => ({
@@ -149,7 +155,9 @@ describe('NZ-TRESC-04 i FZ-015: braki z warstwy danych, dokumentów i telefonu',
     });
     const braki = [...ewidencja.braki, ...kpir.braki];
     // Każdy rodzaj braku z listy wyżej rzeczywiście powstał (inaczej test byłby pusty).
-    expect(new Set(braki.map((b) => b.dokument))).toEqual(new Set(['FV/1', 'FV/2', 'FV/3', 'FV/4', 'W/1', 'W/2', 'FV/5', 'FV/6', 'K/1', 'K/2', 'K/3', 'WK/1']));
+    expect(new Set(braki.map((b) => b.dokument))).toEqual(
+      new Set(['FV/1', 'FV/2', 'FV/3', 'FV/4', 'FV/7', 'FV/8', 'FV/9', 'W/1', 'W/2', 'FV/5', 'FV/6', 'K/1', 'K/2', 'K/3', 'WK/1']),
+    );
     const bledy = braki.flatMap((b) => [
       ...bledyTresci(b.komunikat),
       ...(pierwszeZdanie(b.komunikat).includes(b.dokument) ? [] : [`brak dokumentu ${b.dokument} w pierwszym zdaniu: ${b.komunikat}`]),

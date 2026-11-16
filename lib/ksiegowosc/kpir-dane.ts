@@ -100,7 +100,7 @@ function zdublowanyDokument(wiersze: readonly WierszKosztu[]): DubelKosztu | nul
 export function komunikatDublaKosztu(d: DubelKosztu): string {
   return (
     `Dokument ${d.numer} od ${d.sprzedawca} jest w kosztach ${d.ile} razy (np. zdjęcie i ta sama faktura ze Skrzynki KSeF), więc KPiR teraz nie liczymy, żeby nie wpisać kosztu podwójnie. ` +
-    'Do KPiR wchodzi jeden koszt tego dokumentu, a przy pozostałych w Kosztach wyłącza się „Uwzględnij w KPiR”. Jeden dokument podzielony na kilka kosztów rozdzielimy po zgłoszeniu w Pomocy.'
+    'Do KPiR wchodzi jeden koszt tego dokumentu, a przy pozostałych w Kosztach wyłącza się „Uwzględnij w KPiR”. Dokument celowo podzielony na kilka kosztów sprawdzimy po zgłoszeniu w Pomocy.'
   );
 }
 
