@@ -548,28 +548,25 @@ export async function runProcessOcr(data: Parameters<typeof ocrProcessPhotoReque
         : { net: extractedData.net_amount, vat: extractedData.vat_amount, gross: extractedData.gross_amount };
 
     // Klasyfikator liczy w złotych: widełki reguł firmy (`min_amount`,
-    // `max_amount`) i prompt modelu (`kwota_brutto_pln`). Dostaje więc kwoty
-    // po kursie NBP, te same, które idą do wydatku, jak w jobie skrzynki
-    // (`auto-categorize-inbox.ts`). Bez kursu kwoty w złotych nie ma: reguła
-    // nie może rozstrzygać na liczbie w walucie dokumentu, a model nie dostaje
-    // euro opisanych jako złote (ani danych dostawcy). Kategorię ustali klient
-    // razem z kwotą w złotych (karta FLO „Uzupełnij kwotę w złotych”).
-    const categorization = await step.run('categorize', async () => {
-      if (cost.kind === 'missing_rate') {
-        return {
-          kpir_column: 'col_13' as const,
-          category_label: 'Do weryfikacji waluty',
-          confidence: 0,
-          method: 'manual' as const,
-        };
-      }
-      return categorizeExpense(tenantId, {
-        ...extractedData,
-        net_amount: cost.net,
-        vat_amount: cost.vat,
-        gross_amount: cost.gross,
-      });
-    });
+    // `max_amount`) i prompt modelu (`kwota_brutto_pln`). Z kursem dostaje
+    // więc kwoty po kursie NBP, te same, które idą do wydatku, jak w jobie
+    // skrzynki (`auto-categorize-inbox.ts`). Bez kursu kwoty w złotych nie ma:
+    // reguła z widełkami się nie stosuje, a modelu klasyfikator nie pyta
+    // (dostałby euro opisane jako złote). Warstwy niezależne od kwoty (reguły
+    // bez widełek, globalna reguła NIP, słowa kluczowe, heurystyki, w tym
+    // „Reprezentacja”) działają jak dotąd. Koszt jest wtedy poza KPiR, dopóki
+    // klient nie wpisze kwot w złotych w formularzu wydatku; tam, w karcie
+    // „Kategoryzacja KPiR”, może też zmienić kategorię.
+    const categorization = await step.run('categorize', () =>
+      cost.kind === 'pln'
+        ? categorizeExpense(tenantId, {
+            ...extractedData,
+            net_amount: cost.net,
+            vat_amount: cost.vat,
+            gross_amount: cost.gross,
+          })
+        : categorizeExpense(tenantId, extractedData, { plnAmountUnknown: true }),
+    );
 
     const created = await step.run(
       'create-expense',

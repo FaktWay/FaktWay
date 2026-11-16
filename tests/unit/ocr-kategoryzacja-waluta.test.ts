@@ -16,8 +16,10 @@ import type { JobContext } from '@/lib/jobs/registry';
  *
  * Niezmiennik: klasyfikator ocenia tę samą kwotę w złotych, która trafia do
  * wydatku (`expenses.gross_amount`). Bez kursu kwoty w złotych nie ma, więc
- * klasyfikator nie rozstrzyga (jak w skrzynce): kategoria do weryfikacji,
- * a karta FLO prosi o kwotę w złotych.
+ * wynik nie zależy od liczby w walucie dokumentu: rozstrzygają warstwy
+ * niezależne od kwoty (reguła firmy bez widełek, globalna reguła NIP, słowa
+ * kluczowe, heurystyki), a reguła z widełkami i model nie. Karta FLO prosi
+ * o kwotę w złotych.
  *
  * Prawdziwa ścieżka: `runProcessOcr` z prawdziwym `categorizeExpense`
  * (reguły NIP i nazwy, słowa kluczowe, heurystyki, model) i prawdziwym
@@ -236,6 +238,20 @@ function regulaNip(widelki: { min_amount: number | null; max_amount: number | nu
   };
 }
 
+/** Reguła firmy po nazwie sprzedawcy (`name_exact`), widełki jak przy NIP. */
+function regulaNazwy(widelki: { min_amount: number | null; max_amount: number | null }) {
+  return {
+    id: RULE_ID,
+    tenant_id: TENANT,
+    match_type: 'name_exact',
+    match_value: 'Kontrahent Testowy Sp. z o.o.',
+    hit_count: 1,
+    kpir_column: 'col_13',
+    category_label: 'Usługi informatyczne',
+    ...widelki,
+  };
+}
+
 /** Jedyny wydatek zapisany przez job. */
 function wydatek(): Record<string, unknown> {
   expect(st.inserts).toHaveLength(1);
@@ -357,21 +373,93 @@ describe('job OCR: koszt w walucie obcej bez kursu NBP', () => {
     st.nbp.mockResolvedValue({ found: false, reason: 'no_table_before' });
   });
 
-  it('reguła z widełkami w złotych nie rozstrzyga na kwocie w walucie dokumentu', async () => {
-    // 100 mieści się w „do 300 zł” tylko jako liczba; 100 EUR to ok. 430 zł.
-    st.tables.categorization_rules = [regulaNip({ min_amount: null, max_amount: 300 })];
+  // Niezmiennik: bez kursu wynik nie zależy od liczby w walucie dokumentu.
+  // Np. 100 mieści się w „do 300 zł” tylko jako liczba; 100 EUR to ok. 430 zł.
+  it.each([
+    ['NIP', 100, { min_amount: null, max_amount: 300 }],
+    ['NIP', 50, { min_amount: 100, max_amount: 300 }],
+    ['NIP', 250, { min_amount: 100, max_amount: 300 }],
+    ['NIP', 5000, { min_amount: 1000, max_amount: null }],
+    ['nazwy', 100, { min_amount: null, max_amount: 300 }],
+    ['nazwy', 250, { min_amount: 100, max_amount: 300 }],
+    ['nazwy', 5000, { min_amount: 1000, max_amount: null }],
+  ] as const)(
+    'reguła %s przy %d EUR i widełkach %j nie stosuje się bez kursu',
+    async (rodzaj, kwota, widelki) => {
+      st.tables.categorization_rules = [rodzaj === 'NIP' ? regulaNip(widelki) : regulaNazwy(widelki)];
+      st.doc = dokument('EUR', kwota);
+
+      await run();
+
+      expect(wydatek()).toMatchObject({
+        gross_amount: kwota,
+        is_deductible: false,
+        kpir_column: 'col_13',
+        category_label: 'Pozostałe wydatki',
+        categorization_method: 'manual',
+        categorization_confidence: 0.3,
+      });
+      expect(uzyciaReguly()).toEqual([]);
+      expect(st.ai).not.toHaveBeenCalled();
+    },
+  );
+
+  // Warstwy, które od kwoty nie zależą, rozstrzygają bez kursu jak dotąd.
+  // Najczęstsza to reguła z poprawki klienta (`learnFromCorrection`, bez
+  // widełek), a heurystyka „Reprezentacja” wyłącza koszt z KPiR (F11-C2).
+  it.each([
+    [
+      'reguła firmy po NIP bez widełek',
+      () => {
+        st.tables.categorization_rules = [regulaNip({ min_amount: null, max_amount: null })];
+      },
+      { kpir_column: 'col_10', category_label: 'Towary handlowe', categorization_method: 'learned' },
+      1,
+    ],
+    [
+      'reguła firmy po nazwie bez widełek',
+      () => {
+        st.tables.categorization_rules = [regulaNazwy({ min_amount: null, max_amount: null })];
+      },
+      { kpir_column: 'col_13', category_label: 'Usługi informatyczne', categorization_method: 'learned' },
+      1,
+    ],
+    [
+      'słowo kluczowe firmy',
+      () => {
+        st.tables.categorization_rules = [
+          { ...regulaNazwy({ min_amount: null, max_amount: null }), match_type: 'keyword', match_value: 'testowy' },
+        ];
+      },
+      { kpir_column: 'col_13', category_label: 'Usługi informatyczne', categorization_method: 'rule_keyword' },
+      0,
+    ],
+    [
+      'globalna reguła NIP',
+      () => {
+        st.tables.kpir_global_rules = [
+          { nip: NIP, keyword: null, kpir_column: 'col_13', category_label: 'Oprogramowanie' },
+        ];
+      },
+      { kpir_column: 'col_13', category_label: 'Oprogramowanie', categorization_method: 'rule_global_nip' },
+      0,
+    ],
+    [
+      'heurystyka (restauracja)',
+      () => {
+        st.doc = { ...dokument('EUR', 100), seller_name: 'Sushi Bar Tokio' };
+      },
+      { kpir_column: 'col_13', category_label: 'Reprezentacja', categorization_method: 'ml_heuristic' },
+      0,
+    ],
+  ] as const)('%s rozstrzyga także bez kursu', async (_warstwa, przygotuj, kategoria, uzycia) => {
+    przygotuj();
 
     await run();
 
-    expect(wydatek()).toMatchObject({
-      gross_amount: 100,
-      is_deductible: false,
-      kpir_column: 'col_13',
-      category_label: 'Do weryfikacji waluty',
-      categorization_method: 'manual',
-      categorization_confidence: 0,
-    });
-    expect(uzyciaReguly()).toEqual([]);
+    expect(wydatek()).toMatchObject({ gross_amount: 100, is_deductible: false, ...kategoria });
+    expect(uzyciaReguly()).toHaveLength(uzycia);
+    expect(st.ai).not.toHaveBeenCalled();
   });
 
   it('model nie dostaje dokumentu, a budżet AI klasyfikacji zostaje nietknięty', async () => {
@@ -381,7 +469,7 @@ describe('job OCR: koszt w walucie obcej bez kursu NBP', () => {
     expect(st.budget).toHaveBeenCalledWith(TENANT, 'ocr');
     expect(st.budget).not.toHaveBeenCalledWith(TENANT, 'classify');
     expect(wydatek()).toMatchObject({
-      category_label: 'Do weryfikacji waluty',
+      category_label: 'Pozostałe wydatki',
       categorization_method: 'manual',
     });
   });
