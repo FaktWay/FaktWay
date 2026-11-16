@@ -38,15 +38,32 @@ function normalizeNipDigits(raw: string): string | null {
   return digits.length === 10 ? digits : null;
 }
 
+/** Jak klasyfikator ma traktować kwoty z `data`. */
+export interface CategorizeOptions {
+  /**
+   * Kwoty w `data` są w walucie dokumentu, a kwoty w złotych nie ma (koszt
+   * z OCR w walucie obcej bez kursu NBP). Widełki reguł firmy i prompt modelu
+   * (`kwota_brutto_pln`) są w złotych, więc reguła z widełkami się nie
+   * stosuje, a modelu klasyfikator nie pyta. Rozstrzygają warstwy niezależne
+   * od kwoty: reguły bez widełek, globalna reguła NIP, słowa kluczowe
+   * i heurystyki. Gdy żadna nie pasuje, zostaje kategoria domyślna.
+   */
+  plnAmountUnknown?: boolean;
+}
+
 export async function categorizeExpense(
   tenantId: string,
-  data: ExtractedInvoice
+  data: ExtractedInvoice,
+  options: CategorizeOptions = {},
 ): Promise<CategorizationResult> {
+  // Kwota brutto w złotych do widełek reguł; `null` = nieznana.
+  const grossPln = options.plnAmountUnknown ? null : (data.gross_amount ?? undefined);
+
   if (data.seller_nip) {
     const nipResult = await classifyByNip(
       tenantId,
       data.seller_nip,
-      data.gross_amount ?? undefined,
+      grossPln,
     );
     if (nipResult) return nipResult;
   }
@@ -56,7 +73,7 @@ export async function categorizeExpense(
   const nameResult = await classifyByExactName(
     tenantId,
     data.seller_name,
-    data.gross_amount ?? undefined,
+    grossPln,
   );
   if (nameResult) return nameResult;
 
@@ -66,14 +83,18 @@ export async function categorizeExpense(
   const heuristicResult = classifyByHeuristics(data);
   if (heuristicResult) return heuristicResult;
 
-  // AUD-107: model tylko w budżecie AI firmy; po odmowie kategoria domyślna
-  // do ręcznej poprawki (koszt i tak wymaga przeglądu).
-  const budget = await checkTenantAiBudget(tenantId, 'classify');
-  if (budget.allowed) {
-    let usage: { inputTokens: number; outputTokens: number } | null = null;
-    const aiResult = await classifyByAI(data, (u) => { usage = u; });
-    if (usage) await recordTenantAiUsage(tenantId, usage);
-    if (aiResult) return aiResult;
+  // Bez kwoty w złotych modelu nie pytamy: dostałby liczbę w walucie
+  // dokumentu jako `kwota_brutto_pln` (`ai-classifier.ts`).
+  if (!options.plnAmountUnknown) {
+    // AUD-107: model tylko w budżecie AI firmy; po odmowie kategoria domyślna
+    // do ręcznej poprawki (koszt i tak wymaga przeglądu).
+    const budget = await checkTenantAiBudget(tenantId, 'classify');
+    if (budget.allowed) {
+      let usage: { inputTokens: number; outputTokens: number } | null = null;
+      const aiResult = await classifyByAI(data, (u) => { usage = u; });
+      if (usage) await recordTenantAiUsage(tenantId, usage);
+      if (aiResult) return aiResult;
+    }
   }
 
   return {
