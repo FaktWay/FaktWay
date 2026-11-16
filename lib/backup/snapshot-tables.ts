@@ -49,6 +49,8 @@ export const SNAPSHOT_KEYS: ReadonlyMap<string, readonly string[]> = new Map([
   ['stripe_refund_operations', ['payment_id']],
   ['stripe_subscription_sync_leases', ['stripe_subscription_id']],
   ['tenant_feature_flags', ['tenant_id']],
+  // Domyślne ustawienia nowej faktury (00209, krok 2.8): jeden wiersz na firmę, kluczem jest firma.
+  ['tenant_invoice_defaults', ['tenant_id']],
 ]);
 
 const DOMYSLNY_KLUCZ: readonly string[] = ['id'];

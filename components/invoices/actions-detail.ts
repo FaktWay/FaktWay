@@ -1,6 +1,7 @@
 'use server';
 
 import * as Sentry from '@sentry/nextjs';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { revalidatePath } from 'next/cache';
 
 import { logAudit } from '@/lib/audit/log';
@@ -54,6 +55,7 @@ import { loadInvoiceForPdf } from '@/lib/pdf/invoice-data';
 import { transferTitleOnPdf } from '@/lib/pdf/invoice-renderer';
 import { invoiceEmailAmount } from '@/lib/email/invoice-email-amount';
 import { sendInvoiceEmail } from '@/lib/email/send';
+import { sendInvoiceCopyToAccountant } from '@/lib/invoices/invoice-copy-email';
 import { checkRateLimit } from '@/lib/rate-limit';
 import {
   resendInvoice,
@@ -683,7 +685,8 @@ export async function decideKsefDuplicateAction(
 // ═══════════════════════════════════════════════════════════════
 
 export type EmailInvoiceResult =
-  | { success: true }
+  /** `copyFailed`: faktura poszła do nabywcy, ale kopia do księgowej (ustawienie firmy) się nie wysłała. */
+  | { success: true; copyFailed?: true }
   | { success: false; error: string };
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -788,5 +791,23 @@ export async function emailInvoiceAction(
     metadata: { recipient: email },
   });
 
-  return { success: true };
+  // Krok 2.8: osobna wiadomość z kopią do księgowej, jeśli firma ustawiła jej adres.
+  // Dopiero po udanej wysyłce do nabywcy; błąd kopii jej nie cofa.
+  const copy = await sendInvoiceCopyToAccountant({
+    db: context.supabase as unknown as SupabaseClient,
+    tenantId,
+    userId: user.id,
+    invoiceId,
+    buyerEmail: email,
+    invoiceNumber: inv.internalNumber,
+    sellerName: inv.seller.name,
+    amountCaption: amount.caption,
+    amountLabel: amount.label,
+    dueDate: inv.payment.dueDate,
+    transferTitle: transferTitleOnPdf(inv, data.ksefNumber),
+    pdf: pdfResult.pdf,
+    pdfFilename: pdfResult.filename,
+  });
+
+  return copy === 'failed' ? { success: true, copyFailed: true } : { success: true };
 }
