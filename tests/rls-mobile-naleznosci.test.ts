@@ -72,7 +72,8 @@ function databaseToday(): string {
   const result = spawnSync(
     cmd!,
     [...prefix, '-X', '-q', '-At', '-v', 'ON_ERROR_STOP=1', '-c', "SELECT to_char(current_date, 'YYYY-MM-DD')", databaseUrl],
-    { encoding: 'utf8' },
+    // Strefa sesji jak w PostgREST (domyślna bazy), więc bez PGTZ i PGOPTIONS z otoczenia.
+    { encoding: 'utf8', timeout: 30_000, env: { ...process.env, PGTZ: undefined, PGOPTIONS: undefined, PGCONNECT_TIMEOUT: '10' } },
   );
   if (result.error) throw new Error(`psql niedostępny: ${result.error.message}`);
   if (result.status !== 0) throw new Error(`psql: ${result.stderr}`);
