@@ -128,9 +128,9 @@ function formatTenantInsertError(err: {
  * Klient z aktywnym członkostwem dodaje kolejne firmy jak dotąd.
  * Błąd odczytu członkostw przy zamkniętej rejestracji = odmowa (fail-closed),
  * ale z prawdziwym powodem: „spróbuj ponownie”, a nie „wstrzymane” (plan
- * skalowania 3000, sesja 7). Tak samo brak licznika bez błędu: pustą
- * odpowiedź 404 na HEAD postgrest-js oddaje jako „brak treści”, więc nie
- * wiemy, czy klient ma już firmę.
+ * skalowania 3000, sesja 7). Tak samo licznik, który nie jest liczbą: pustą
+ * odpowiedź 404 na HEAD postgrest-js oddaje bez błędu i bez licznika,
+ * a Content-Range bez sumy daje NaN. Nie wiemy wtedy, czy klient ma już firmę.
  */
 async function firstCompanyBlocked(
   admin: ReturnType<typeof createAdminClient>,
@@ -142,7 +142,7 @@ async function firstCompanyBlocked(
     .select('organization_id', { count: 'exact', head: true })
     .eq('user_id', userId)
     .eq('status', 'active');
-  if (error || count === null) {
+  if (error || !Number.isInteger(count)) {
     logMembershipQueryFailed('firstCompanyBlocked', error ?? {});
     return MEMBERSHIP_RETRY_MESSAGE;
   }

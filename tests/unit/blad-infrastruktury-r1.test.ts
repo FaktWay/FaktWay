@@ -145,6 +145,9 @@ const statementTimeout: Respond = () => Response.json(
  */
 const notFoundEmpty: Respond = () => new Response(null, { status: 404 });
 
+/** 200 z Content-Range bez sumy (np. pośrednik przed PostgREST): postgrest-js liczy wtedy NaN. */
+const countWithoutTotal: Respond = () => new Response(null, { status: 200, headers: { 'content-range': '0-0/*' } });
+
 const GOTRUE_DOWN: [string, Respond][] = [
   ['503 z GoTrue', () => gotrueError(503, 'unexpected_failure', 'Service Unavailable')],
   ['brak sieci', networkDown],
@@ -428,8 +431,10 @@ describe('akcje firm: błąd zapytania to „spróbuj ponownie” bez zapisu, a 
     ['„Pomiń NIP” bez szkicu', 'błąd bazy (500)', statementTimeout, () => skipOnboardingWithoutNipAction()],
     ['nowa firma', 'licznik nieznany (pusta odpowiedź 404)', notFoundEmpty, () => createOrganizationAction(company)],
     ['„Pomiń NIP” bez szkicu', 'licznik nieznany (pusta odpowiedź 404)', notFoundEmpty, () => skipOnboardingWithoutNipAction()],
+    ['nowa firma', 'licznik bez sumy (NaN)', countWithoutTotal, () => createOrganizationAction(company)],
+    ['„Pomiń NIP” bez szkicu', 'licznik bez sumy (NaN)', countWithoutTotal, () => skipOnboardingWithoutNipAction()],
   ] as [string, string, Respond, () => Promise<unknown>][])(
-    '%s przy zamkniętej rejestracji, zliczenie firm klienta: %s to „spróbuj ponownie”, a nie „wstrzymane”',
+    '%s przy zamkniętej rejestracji, zliczenie firm klienta: %s to „spróbuj ponownie” bez zapisu, a nie „wstrzymane” ani nowa firma',
     async (_name, _failure, respond, run) => {
       tables.global_feature_flags = [{ enabled: true }];
       failures.push({ path: '/rest/v1/memberships', select: 'organization_id', respond });
