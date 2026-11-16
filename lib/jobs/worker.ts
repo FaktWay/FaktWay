@@ -189,7 +189,10 @@ async function main(): Promise<void> {
   );
 }
 
-/** Zamykanie na SIGTERM/SIGINT; drugi sygnał woła je znowu, a `stopBoss()` oddaje to samo zamykanie. */
+/**
+ * Zamykanie na SIGTERM/SIGINT; drugi sygnał woła je znowu, a `stopBoss()` oddaje to samo zamykanie.
+ * `process.exit()` bez argumentu: kod 0, chyba że start naprawdę padł (`process.exitCode` niżej).
+ */
 async function shutdown(signal: string): Promise<void> {
   log.info(`${signal} — graceful shutdown...`);
   healthServer?.close();
@@ -197,7 +200,6 @@ async function shutdown(signal: string): Promise<void> {
     await stopBoss();
   } finally {
     await flushWorkerSentry();
-    // Bez argumentu: kod 0, chyba że start naprawdę padł (`process.exitCode` niżej).
     process.exit();
   }
 }
