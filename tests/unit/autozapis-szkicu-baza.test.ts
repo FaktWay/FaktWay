@@ -48,7 +48,13 @@ function from(name: string) {
   return q;
 }
 
-const m = vi.hoisted(() => ({ tenant: '', user: '' }));
+const m = vi.hoisted(() => ({ tenant: '', user: '', allowed: true, rate: vi.fn() }));
+vi.mock('@/lib/rate-limit', () => ({
+  checkRateLimit: async (cfg: unknown) => {
+    m.rate(cfg);
+    return { allowed: m.allowed, remaining: 0, retryAfter: 5 };
+  },
+}));
 vi.mock('@/lib/supabase/auth-context', () => ({
   requireUserAndActiveOrg: vi.fn(async (check?: { expectedTenantId?: string }) => {
     if (check?.expectedTenantId && check.expectedTenantId !== m.tenant) throw new Error('Firma w formularzu jest inna niż aktywna');
@@ -56,7 +62,7 @@ vi.mock('@/lib/supabase/auth-context', () => ({
   }),
 }));
 
-import { loadInvoiceAutosave, saveInvoiceAutosave } from '@/lib/invoices/form-autosave';
+import { AUTOSAVE_MAX_BYTES, AUTOSAVE_MAX_ROWS_PER_USER, loadInvoiceAutosave, saveInvoiceAutosave } from '@/lib/invoices/form-autosave';
 import { discardInvoiceAutosaveAction, saveInvoiceAutosaveAction } from '@/app/actions/invoice-autosave';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -71,6 +77,8 @@ beforeEach(() => {
   for (const k of Object.keys(tables)) delete tables[k];
   m.tenant = TENANT;
   m.user = USER;
+  m.allowed = true;
+  m.rate.mockReset();
 });
 
 describe('zapis autozapisu', () => {
@@ -123,6 +131,43 @@ describe('zapis autozapisu', () => {
     ];
     await saveInvoiceAutosave(db(), { tenantId: TENANT, userId: USER, requestKey: KEY, values: { buyerName: 'A' } });
     expect(wiersze().map((r) => `${r.user_id}:${r.request_key}`).sort()).toEqual([`${USER}:${KEY}`, `inna-osoba:${KEY2}`].sort());
+  });
+});
+
+describe('limity zapisu', () => {
+  const uuidN = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+  it('na osobę zostaje najwyżej 20 najnowszych wierszy, najstarsze ponad limit są kasowane, cudze nietknięte', async () => {
+    expect(AUTOSAVE_MAX_ROWS_PER_USER).toBe(20);
+    tables.invoice_form_drafts = [
+      ...Array.from({ length: 22 }, (_, i) => ({ tenant_id: TENANT, user_id: USER, request_key: uuidN(i + 1), form_values: {}, updated_at: dzien(25 - i) })),
+      { tenant_id: TENANT, user_id: 'inna-osoba', request_key: uuidN(900), form_values: {}, updated_at: dzien(28) },
+    ];
+    const r = await saveInvoiceAutosave(db(), { tenantId: TENANT, userId: USER, requestKey: KEY, values: { buyerName: 'A' } });
+    expect(r.ok).toBe(true);
+    const moje = wiersze().filter((x) => x.user_id === USER);
+    expect(moje).toHaveLength(20);
+    expect(moje.some((x) => x.request_key === KEY)).toBe(true);
+    // Skasowane najstarsze (1, 2, 3), zostały najnowsze.
+    expect(moje.some((x) => x.request_key === uuidN(1))).toBe(false);
+    expect(moje.some((x) => x.request_key === uuidN(22))).toBe(true);
+    expect(wiersze().filter((x) => x.user_id === 'inna-osoba')).toHaveLength(1);
+  });
+
+  it('rozmiar liczony w bajtach jak CHECK w bazie: tekst wielobajtowy ponad limit odrzucony', async () => {
+    expect(AUTOSAVE_MAX_BYTES).toBeLessThanOrEqual(150_000);
+    const wielobajtowe = 'ą'.repeat(80_000); // 80 000 znaków, 160 000 bajtów
+    const r = await saveInvoiceAutosave(db(), { tenantId: TENANT, userId: USER, requestKey: KEY, values: { notes: wielobajtowe } });
+    expect(r).toEqual({ ok: false, reason: 'invalid' });
+    expect(wiersze()).toHaveLength(0);
+  });
+
+  it('akcja: za częste zapisy odrzucone po stronie serwera (kubełek na osobę), bez zapisu', async () => {
+    m.allowed = false;
+    const r = await saveInvoiceAutosaveAction({ buyerName: 'Acme', numberRequestKey: KEY }, TENANT);
+    expect(r.ok).toBe(false);
+    expect(wiersze()).toHaveLength(0);
+    expect(m.rate).toHaveBeenCalledWith(expect.objectContaining({ bucket: 'invoice_autosave', identifier: USER, limit: 30, windowSeconds: 60 }));
   });
 });
 

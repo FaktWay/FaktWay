@@ -2,6 +2,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { checkRateLimit } from '@/lib/rate-limit';
 import { requireUserAndActiveOrg } from '@/lib/supabase/auth-context';
 import { discardInvoiceAutosave, saveInvoiceAutosave } from '@/lib/invoices/form-autosave';
 
@@ -20,6 +21,19 @@ export async function saveInvoiceAutosaveAction(
 ): Promise<InvoiceAutosaveResult> {
   try {
     const { supabase, user, tenantId } = await requireUserAndActiveOrg({ expectedTenantId });
+    // Klient zapisuje co kilka sekund (najwyżej ok. 15 razy na minutę); 30 na minutę
+    // na osobę zostawia zapas, a pętla albo skrypt dostaje odmowę. Odmowa nie
+    // dopisuje się do okna (`countDenied: false`): uczciwy klient wraca po chwili.
+    // Brak Redisa: limit w pamięci procesu (`checkRateLimit`), autozapis nie zależy
+    // od Redisa; odmowa to po prostu pominięty zapis, formularz działa dalej.
+    const quota = await checkRateLimit({
+      bucket: 'invoice_autosave',
+      identifier: user.id,
+      limit: 30,
+      windowSeconds: 60,
+      countDenied: false,
+    });
+    if (!quota.allowed) return { ok: false };
     const requestKey =
       typeof values === 'object' && values !== null ? (values as { numberRequestKey?: unknown }).numberRequestKey : undefined;
     const result = await saveInvoiceAutosave(supabase as unknown as SupabaseClient, {

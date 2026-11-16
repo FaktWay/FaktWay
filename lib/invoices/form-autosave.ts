@@ -28,8 +28,14 @@ import type { InvoiceFormValues } from '@/lib/schemas/invoice-form';
 export const AUTOSAVE_TABLE = 'invoice_form_drafts';
 /** Wiersze starsze niż tyle dni nie wracają do formularza i są usuwane przy kolejnym autozapisie. */
 export const AUTOSAVE_RETENTION_DAYS = 30;
-/** Granica CHECK w 00207 (znaki JSON). */
-export const AUTOSAVE_MAX_CHARS = 200_000;
+/**
+ * Granica rozmiaru wartości w BAJTACH UTF-8. CHECK w 00207 liczy `octet_length`
+ * tekstu jsonb (z odstępami po dwukropkach i przecinkach, więc dłuższego niż
+ * `JSON.stringify`), a limit bazy to 200000; aplikacja trzyma zapas.
+ */
+export const AUTOSAVE_MAX_BYTES = 150_000;
+/** Najwyżej tyle kopii roboczych na osobę (kolejne otwarcia formularza); najstarsze ponad limit są kasowane przy zapisie. */
+export const AUTOSAVE_MAX_ROWS_PER_USER = 20;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -73,7 +79,7 @@ export function autosaveSnapshot(values: unknown): Record<string, unknown> | nul
   } catch {
     return null;
   }
-  return json.length <= AUTOSAVE_MAX_CHARS ? copy : null;
+  return Buffer.byteLength(json, 'utf8') <= AUTOSAVE_MAX_BYTES ? copy : null;
 }
 
 /** Wartości wkładane w formularz po przywróceniu: bez numeru, serii, dat i pól trybów specjalnych. */
@@ -113,13 +119,33 @@ export async function saveInvoiceAutosave(
     );
     if (error) return { ok: false, reason: 'unavailable' };
 
-    // Sprzątanie własnych wygasłych wierszy; błąd nie cofa zapisu.
+    // Sprzątanie własnych wygasłych wierszy i wierszy ponad limit na osobę;
+    // błąd nie cofa zapisu (wygasłe sprząta też nocny job).
     await db
       .from(AUTOSAVE_TABLE)
       .delete()
       .eq('tenant_id', input.tenantId)
       .eq('user_id', input.userId)
       .lt('updated_at', cutoffIso());
+    const { data: mine } = await db
+      .from(AUTOSAVE_TABLE)
+      .select('request_key')
+      .eq('tenant_id', input.tenantId)
+      .eq('user_id', input.userId)
+      .order('updated_at', { ascending: false })
+      .limit(AUTOSAVE_MAX_ROWS_PER_USER + 50);
+    const excess = ((mine ?? []) as Array<{ request_key: string }>)
+      .slice(AUTOSAVE_MAX_ROWS_PER_USER)
+      .map((r) => r.request_key)
+      .filter((key) => key !== input.requestKey);
+    if (excess.length > 0) {
+      await db
+        .from(AUTOSAVE_TABLE)
+        .delete()
+        .eq('tenant_id', input.tenantId)
+        .eq('user_id', input.userId)
+        .in('request_key', excess);
+    }
     return { ok: true, savedAt };
   } catch {
     return { ok: false, reason: 'unavailable' };
@@ -193,4 +219,16 @@ export async function discardInvoiceAutosave(
   } catch {
     // Wiersz roboczy sprzątnie przy odczycie (faktura zapisana) albo po 30 dniach.
   }
+}
+
+/**
+ * Nocne sprzątanie (`cron.cleanup-invoice-form-drafts`): wiersze starsze niż
+ * `AUTOSAVE_RETENTION_DAYS` znikają także wtedy, gdy nikt nie wraca do
+ * formularza. Idempotentne: usuwa tylko to, co wygasło. Klient serwisowy
+ * (job nie ma sesji); zwraca liczbę usuniętych wierszy.
+ */
+export async function purgeExpiredInvoiceAutosaves(db: SupabaseClient): Promise<number> {
+  const { count, error } = await db.from(AUTOSAVE_TABLE).delete({ count: 'exact' }).lt('updated_at', cutoffIso());
+  if (error) throw new Error(`invoice_form_drafts_purge_failed: ${error.message}`);
+  return count ?? 0;
 }

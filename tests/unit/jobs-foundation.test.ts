@@ -234,10 +234,14 @@ describe('CRON_JOBS', () => {
     // 32 → 33: `cron.document-archive-cleanup` (11.11.2026, plan kompletnej
     // aplikacji, krok 6.4, część 2): raz na dobę o 04:30 (1 przebieg na dobę)
     // usuwa z magazynu pliki paczek archiwum po wygaśnięciu linku (00190).
+    // 33 → 34: `cron.cleanup-invoice-form-drafts` (16.11.2026, plan kompletnej
+    // aplikacji, krok 2.8, 00207): raz na dobę o 03:30 (1 lekki przebieg na dobę:
+    // jedno DELETE) usuwa kopie robocze formularza faktury starsze niż 30 dni
+    // (dane nabywcy, retencja także wtedy, gdy nikt nie wraca do formularza).
     // Ta liczba jest celowo wpisana na sztywno: cron dokłada się cicho,
     // a każdy nowy kosztuje przebiegi na produkcji. Zmiana tu ma być
     // świadoma, nie automatyczna.
-    expect(CRON_JOBS.length).toBe(33);
+    expect(CRON_JOBS.length).toBe(34);
     const queues = CRON_JOBS.map((c) => c.queue);
     expect(new Set(queues).size).toBe(queues.length);
     for (const c of CRON_JOBS) {

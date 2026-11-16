@@ -26,9 +26,17 @@
 --   nadpisuje ten sam wiersz (upsert po PK), więc nie ma drugiego szkicu.
 --   Gdy faktura z tym kluczem już istnieje, aplikacja nie pokazuje wiersza
 --   do przywrócenia i go usuwa.
---   form_values: surowe wartości formularza (JSON), do 200000 znaków.
---   updated_at: kiedy zapisano. Aplikacja ignoruje wiersze starsze niż
---   30 dni i usuwa je przy kolejnym autozapisie tej osoby.
+--   form_values: surowe wartości formularza (JSON); CHECK: obiekt, `octet_length`
+--   tekstu jsonb do 200000 BAJTÓW (aplikacja trzyma zapas: 150000 bajtów JSON).
+--   updated_at: kiedy zapisano. Retencja 30 dni: aplikacja ignoruje starsze
+--   wiersze, przy autozapisie usuwa wygasłe wiersze zapisującej osoby, a nocny
+--   job `cron.cleanup-invoice-form-drafts` (03:30, lib/jobs/runners) usuwa
+--   wygasłe wiersze wszystkich, także gdy nikt nie wraca do formularza.
+--   Limit na osobę: najwyżej 20 kopii, przy zapisie kasowane są najstarsze
+--   ponad limit (aplikacja; baza limitu nie pilnuje). Zapisy ogranicza też
+--   limit częstości po stronie serwera (30 na minutę na osobę).
+--   id: unikalny identyfikator wiersza, klucz stron eksportu danych konta
+--   (art. 15 i 20 RODO): tabela jest w eksporcie (`invoice_form_drafts`).
 --
 -- RLS: osoba widzi i zmienia tylko własne wiersze w aktywnej firmie
 --   (public.get_current_tenant_id(): nagłówek x-active-org i aktywne
@@ -37,14 +45,16 @@
 --   pełny dostęp (obsługa i sprzątanie). anon: nic.
 --
 -- Dane osobowe: wiersz może zawierać dane nabywcy wpisane w formularzu.
---   Znikają przy usunięciu konta osoby albo firmy (ON DELETE CASCADE) i po
---   zapisie faktury z tego formularza.
+--   Znikają: po zapisie faktury z tego formularza, po 30 dniach (nocny job),
+--   przy usunięciu konta osoby albo firmy (ON DELETE CASCADE). Wiersz jest
+--   w eksporcie danych konta osoby.
 --
 -- Ponowienie: zapis to upsert po kluczu głównym, więc powtórzenie po
 -- zerwanym połączeniu daje ten sam wiersz.
 -- ═══════════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS public.invoice_form_drafts (
+  id UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
   tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   request_key UUID NOT NULL,
