@@ -15,6 +15,8 @@
  * drugi raz (jedno przejście).
  */
 
+import { isXmlSafe } from '@/lib/xml/fa3-limits';
+
 export const INVOICE_EMAIL_PLACEHOLDERS = [
   { key: 'numer', label: 'Numer faktury' },
   { key: 'sprzedawca', label: 'Nazwa sprzedawcy' },
@@ -42,8 +44,9 @@ export const DEFAULT_INVOICE_EMAIL_TEMPLATE: InvoiceEmailTemplate = {
 
 const KNOWN = new Set<string>(INVOICE_EMAIL_PLACEHOLDERS.map((p) => p.key));
 const FIELD = /\{([A-Za-z0-9_]+)\}/g;
-// Znaki sterujące poza tabulatorem i nowym wierszem oraz separatory wierszy Unicode (U+0085, U+2028, U+2029).
-const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u0085\u2028\u2029]/;
+// Znaki sterujące: wyrażenie z modułu granic (jedno źródło, C1) plus separatory wierszy Unicode (U+0085, U+2028, U+2029).
+const LINE_SEPARATORS = /[\u0085\u2028\u2029]/;
+const hasForbiddenChars = (text: string) => !isXmlSafe(text) || LINE_SEPARATORS.test(text);
 
 const allowedList = () => INVOICE_EMAIL_PLACEHOLDERS.map((p) => `{${p.key}}`).join(', ');
 
@@ -64,14 +67,14 @@ export function validateInvoiceEmailTemplate(input: { subject: unknown; body: un
   if (subject.length > INVOICE_EMAIL_SUBJECT_MAX) {
     return { ok: false, error: `Temat jest za długi: najwyżej ${INVOICE_EMAIL_SUBJECT_MAX} znaków.` };
   }
-  if (/[\r\n]/.test(subject) || CONTROL.test(subject)) {
+  if (/[\r\n]/.test(subject) || hasForbiddenChars(subject)) {
     return { ok: false, error: 'Temat musi być w jednym wierszu i bez znaków sterujących.' };
   }
   if (!body) return { ok: false, error: 'Wpisz treść wiadomości.' };
   if (body.length > INVOICE_EMAIL_BODY_MAX) {
     return { ok: false, error: `Treść jest za długa: najwyżej ${INVOICE_EMAIL_BODY_MAX} znaków.` };
   }
-  if (CONTROL.test(body)) return { ok: false, error: 'Treść zawiera niedozwolone znaki sterujące.' };
+  if (hasForbiddenChars(body)) return { ok: false, error: 'Treść zawiera niedozwolone znaki sterujące.' };
   const unknown = unknownField(subject) ?? unknownField(body);
   if (unknown) {
     return { ok: false, error: `Nieznane pole ${unknown}. Dostępne pola: ${allowedList()}.` };
