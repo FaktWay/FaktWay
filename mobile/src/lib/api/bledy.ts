@@ -28,7 +28,7 @@ export type BladApi = {
   ponowZaSekund?: number;
   /** Zdanie dla klienta: co się stało i co zrobić. */
   komunikat: string;
-  /** Przy `invoice_invalid`: pole formularza strony (`buyerName`, `lines.0.name`); przy `contractor_invalid` (M10e) pole kontrahenta (`nip`, `nazwa`); przy `settings_invalid` (M10c) pole ustawień (`nazwa`, `rachunek`, `godzina`). */
+  /** Przy `invoice_invalid`: pole formularza strony (`buyerName`, `lines.0.name`); przy `contractor_invalid` (M10e) pole kontrahenta (`nip`, `nazwa`); przy `settings_invalid` (M10c) pole ustawień (`nazwa`, `rachunek`, `godzina`); przy `settlement_refused` (M10d) pole pliku JPK albo zapłaty. */
   pole?: string;
 };
 
@@ -146,7 +146,9 @@ export function bladApi(status: number, cialo: unknown, retryAfter?: string | nu
   // Odmowa z powodu treści: tylko serwer wie, co poprawić (te same zdania co na stronie).
   const zSerwera = rodzaj === 'odmowa' ? poleBledu(cialo, 'message') : undefined;
   const komunikatSerwera = zSerwera ? bezDlugichMyslnikow(zSerwera) : undefined;
-  const pole = kod === 'invoice_invalid' || kod === 'contractor_invalid' || kod === 'settings_invalid' ? poleBledu(cialo, 'field') : undefined;
+  // M10d: `settlement_refused` z polem pliku JPK_V7M albo zapłaty spoza wyliczenia (`email`, `kwota`, `dataZaplaty`).
+  const zPolem = kod === 'invoice_invalid' || kod === 'contractor_invalid' || kod === 'settings_invalid' || kod === 'settlement_refused';
+  const pole = zPolem ? poleBledu(cialo, 'field') : undefined;
   return {
     rodzaj,
     kod,
