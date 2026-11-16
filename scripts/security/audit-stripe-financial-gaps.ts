@@ -7,14 +7,13 @@
  * Requires explicit complete UTC days, matching Stripe key and a database
  * with migration 00080. Never run this from CI with live credentials.
  */
-import { createClient } from '@supabase/supabase-js';
-
 import { getStripe } from '../../lib/stripe/client';
 import {
   AuditFailure, assertStripeKeyMode, auditStripeFinancialGaps,
   FINANCIAL_EVENT_TYPES, parseAuditWindow,
   type AuditSources, type CaseRow, type DatabasePage, type ReceiptRow,
 } from '../../lib/stripe/financial-gap-audit';
+import { createScriptAdminClient } from '../_supabase';
 
 type DbError = { code?: string } | null;
 const FINANCIAL_TYPES: string[] = [...FINANCIAL_EVENT_TYPES];
@@ -35,9 +34,9 @@ async function main(): Promise<void> {
   if (!url || !roleKey) throw new AuditFailure('invalid_input');
 
   const stripe = getStripe();
-  const db = createClient(url, roleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  // Limity workera (odczyt 60 s, zapis 120 s): milcząca baza kończy audyt
+  // raportem `incomplete` (`database_unavailable`), a nie wiszącym procesem.
+  const db = createScriptAdminClient();
 
   const sources: AuditSources = {
     async probeSchema() {

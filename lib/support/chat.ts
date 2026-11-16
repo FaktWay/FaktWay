@@ -1,4 +1,4 @@
-import { getAnthropic } from '@/lib/anthropic/client';
+import { ANTHROPIC_REQUEST_LIMITS, getAnthropic } from '@/lib/anthropic/client';
 import { SUPPORT_EMAIL } from '@/lib/site';
 import { buildKnowledgeBaseContext } from './knowledge-base';
 import { META_LINE_PREFIX, UNCERTAIN_PREFIX } from './meta';
@@ -15,6 +15,15 @@ export const SUPPORT_MODEL =
   process.env.ANTHROPIC_SUPPORT_MODEL?.trim() || 'claude-haiku-4-5';
 
 const MAX_TOKENS = 1024;
+
+/**
+ * LIM-05: limit na całą odpowiedź, od wysłania pytania do ostatniego
+ * fragmentu, razem z ponowieniem SDK. Limit SDK (`ANTHROPIC_REQUEST_LIMITS`)
+ * obejmuje tylko początek strumienia, więc odpowiedź, która stanęła w połowie,
+ * wisiałaby bez końca. SDK szacuje `MAX_TOKENS` na 28,8 s, tu ok. dwa takie
+ * szacunki. Po limicie trasa pokazuje zwykły komunikat o błędzie.
+ */
+export const SUPPORT_REPLY_TIMEOUT_MS = 60_000;
 
 export interface SupportTurn {
   role: 'user' | 'assistant';
@@ -88,20 +97,42 @@ export async function* streamSupportReply(
     return;
   }
   const anthropic = getAnthropic();
-  const stream = anthropic.messages.stream({
-    model: SUPPORT_MODEL,
-    max_tokens: MAX_TOKENS,
-    system: buildSystemBlocks(),
-    messages: history.map((t) => ({ role: t.role, content: t.content })),
-  });
+  const limit = new AbortController();
+  const zegar = setTimeout(() => limit.abort(), SUPPORT_REPLY_TIMEOUT_MS);
+  try {
+    const stream = anthropic.messages.stream(
+      {
+        model: SUPPORT_MODEL,
+        max_tokens: MAX_TOKENS,
+        system: buildSystemBlocks(),
+        messages: history.map((t) => ({ role: t.role, content: t.content })),
+      },
+      { ...ANTHROPIC_REQUEST_LIMITS, signal: limit.signal },
+    );
 
-  for await (const event of stream) {
-    if (
-      event.type === 'content_block_delta' &&
-      event.delta.type === 'text_delta'
-    ) {
-      yield event.delta.text;
+    for await (const event of stream) {
+      if (
+        event.type === 'content_block_delta' &&
+        event.delta.type === 'text_delta'
+      ) {
+        yield event.delta.text;
+      }
     }
+    // Pętla SDK kończy się bez błędu, gdy przerwanie albo błąd przyjdzie, kiedy
+    // nikt nie czeka na następny fragment. `done()` zgłasza go wtedy, żeby
+    // ucięta odpowiedź nie poszła do zapisu jako cała.
+    await stream.done();
+  } catch (e) {
+    // SDK zgłasza przerwanie jak rezygnację wywołującego; w Sentry ma być widać limit.
+    if (limit.signal.aborted) {
+      throw new Error(
+        `Czat pomocy: model nie skończył odpowiedzi w ${SUPPORT_REPLY_TIMEOUT_MS / 1000} s`,
+        { cause: e },
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(zegar);
   }
 }
 

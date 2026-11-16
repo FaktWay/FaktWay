@@ -4,18 +4,9 @@ import * as Sentry from '@sentry/nextjs';
 import { revalidatePath } from 'next/cache';
 
 import { logAudit } from '@/lib/audit/log';
-import {
-  KSEF_RESEND_SOURCE_COLUMNS,
-  ksefResendFacts,
-  ksefSendPayloadFromRow,
-} from '@/lib/invoices/ksef-requeue-event';
+import { ksefResendFacts, ksefSendPayloadFromRow } from '@/lib/invoices/ksef-requeue-event';
 import { enqueueKsefSubmitAfterDraft } from '@/lib/invoices/ksef-submit-enqueue';
-import {
-  canManageKsefSend,
-  decideResend,
-  describeResetError,
-  KSEF_SEND_MESSAGES,
-} from '@/lib/invoices/ksef-send-policy';
+import { canManageKsefSend, KSEF_SEND_MESSAGES } from '@/lib/invoices/ksef-send-policy';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { ActionAuthError, requireOrgRole, requireUserAndActiveOrg } from '@/lib/supabase/auth-context';
 import { downloadInvoiceXml } from '@/lib/storage/r2';
@@ -58,13 +49,18 @@ import {
 } from '@/lib/ksef/duplicate-original-import';
 import type { KsefOriginalImportProjection } from '@/lib/ksef/duplicate-original-projection';
 import type { KsefEnvironment } from '@/types/ksef';
-import { validateInvoice } from '@/lib/xml/invoice-calculator';
 import { generateInvoicePdf, verifyInvoicePdfDeliveryState } from '@/lib/pdf/invoice-pdf';
 import { loadInvoiceForPdf } from '@/lib/pdf/invoice-data';
 import { transferTitleOnPdf } from '@/lib/pdf/invoice-renderer';
 import { invoiceEmailAmount } from '@/lib/email/invoice-email-amount';
 import { sendInvoiceEmail } from '@/lib/email/send';
 import { checkRateLimit } from '@/lib/rate-limit';
+import {
+  resendInvoice,
+  resetInvoiceToDraft,
+  type ResendResult,
+  type ResetToDraftResult,
+} from '@/lib/invoices/ksef-resend';
 
 // ═══════════════════════════════════════════════════════════════
 // downloadInvoiceXmlAction
@@ -155,140 +151,18 @@ export async function downloadInvoiceXmlAction(
 }
 
 // ═══════════════════════════════════════════════════════════════
-// resendInvoiceAction
+// resendInvoiceAction (logika od M8b w lib/invoices/ksef-resend.ts, ta sama dla telefonu)
 // ═══════════════════════════════════════════════════════════════
 
-export type ResendResult =
-  | { success: true }
-  | { success: false; error: string; code?: 'KSEF_NOT_VERIFIED' | 'MFA_REQUIRED' };
+export type { ResendResult };
 
-interface ResendRow {
-  ksef_status: string | null;
-  direction: string | null;
-  invoice_kind: string | null;
-  invoice_type: string | null;
-  last_error_code: string | null;
-  issue_date: string | null;
-  fa3_data: unknown;
-  special_data: unknown;
-}
-
-/** Kolumny źródła ponowienia (A4b) + stan wysyłki — bez eksportu (plik 'use server'). */
-const RESEND_ROW_COLUMNS = `${KSEF_RESEND_SOURCE_COLUMNS}, ksef_status, direction, invoice_type, last_error_code` as const;
-
-/**
- * „Wyślij ponownie” (cykl życia faktury, PR 3b — K3): `failed → queued` przez
- * RPC `requeue_ksef_send` w jednej transakcji ze zleceniem pg-boss. Kto i kiedy:
- * `lib/invoices/ksef-send-policy.ts` (właściciel/admin — D4; `rejected` nigdy,
- * wraca do szkicu — D2; klasy terminal/hold/reconcile nie). Runner i tak
- * zaczyna od uzgodnienia po referencji, więc historyczny `failed` bez kodu
- * nie wysyła faktury drugi raz, jeśli KSeF ją ma.
- *
- * Korektę, zaliczkę i ROZ wysyłamy z kopii na wierszu (A4b PR2b) — te same
- * fakty i builder co cron i operator; tylko w dniu wystawienia (decyzja b),
- * po północy worker kończy kodem ISSUE_DATE_PASSED. `validateInvoice` tylko
- * dla zwykłej faktury: korekta anulująca ma ujemne ilości, a treść dokumentu
- * specjalnego sprawdził zapis, generator i XSD.
- */
 export async function resendInvoiceAction(
   invoiceId: string
 ): Promise<ResendResult> {
-  try {
+  return resendInvoice(async () => {
     const { supabase, user, tenantId, role } = await requireUserAndActiveOrg();
-    if (!canManageKsefSend(role)) {
-      return { success: false, error: KSEF_SEND_MESSAGES.role };
-    }
-    const { data, error } = await supabase
-      .from('invoices')
-      .select(RESEND_ROW_COLUMNS)
-      .eq('id', invoiceId)
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
-
-    if (error || !data) {
-      return { success: false, error: KSEF_SEND_MESSAGES.notFound };
-    }
-    const row = data as unknown as ResendRow;
-    const env = configuredKsefEnvironment();
-    const now = new Date();
-    const facts = ksefResendFacts(row, env, now);
-    const decision = decideResend({
-      direction: row.direction,
-      status: row.ksef_status,
-      errorCode: row.last_error_code,
-      invoiceKind: row.invoice_kind,
-      facts,
-      environmentKnown: env !== null,
-    });
-    if (!decision.allowed) {
-      if (decision.reason === 'reconcile') {
-        // Klient prosi o wysyłkę faktury „do uzgodnienia” — operator ma to zobaczyć.
-        Sentry.captureMessage('Klient prosi o ponowną wysyłkę faktury wymagającej uzgodnienia', {
-          level: 'warning',
-          tags: { area: 'ksef.resend' },
-          extra: { tenantId, invoiceId, code: row.last_error_code },
-        });
-      }
-      return { success: false, error: decision.message };
-    }
-
-    const built = ksefSendPayloadFromRow(row, { environment: env, reconcileOnly: false, now });
-    if (!built.ok) {
-      // Nieosiągalne: decyzja wyżej odmówiła braku danych, rodzaju i daty na tych samych faktach.
-      throw new Error(`resend: decyzja i dane zdarzenia się rozjechały (${built.reason})`);
-    }
-    const payload = built.payload;
-    const invoice = payload.invoice;
-    if (payload.auditKind === 'regular') {
-      const problems = validateInvoice(invoice);
-      if (problems.length > 0) {
-        return { success: false, error: problems[0]! };
-      }
-    }
-
-    const { data: tenant } = await supabase
-      .from('tenants')
-      .select('nip')
-      .eq('id', tenantId)
-      .maybeSingle();
-    const nip = (tenant?.nip as string | null | undefined) ?? invoice.seller?.nip;
-    if (!nip) return { success: false, error: 'Brak NIP firmy.' };
-
-    const enq = await enqueueKsefSubmitAfterDraft({
-      supabase,
-      tenantId,
-      userId: user.id,
-      invoiceId,
-      nip,
-      invoice,
-      correctionData: payload.correctionData,
-      advanceData: payload.advanceData,
-      finalData: payload.finalData,
-      finalAdvanceSettlementRows: payload.finalAdvanceSettlementRows,
-      auditKind: payload.auditKind,
-      internalNumberForAudit: invoice.internalNumber,
-      mode: { kind: 'requeue', actorUserId: user.id },
-    });
-    if (!enq.ok) {
-      return enq.code
-        ? { success: false, error: enq.error, code: enq.code }
-        : { success: false, error: enq.error };
-    }
-
-    revalidatePath('/invoices');
-    revalidatePath(`/invoices/${invoiceId}`);
-    return { success: true };
-  } catch (err) {
-    if (err instanceof ActionAuthError) {
-      return { success: false, error: err.message };
-    }
-    // Np. kolumna spoza KSEF_RESEND_SOURCE_COLUMNS albo rozjazd decyzji — błąd programu, nie klienta.
-    Sentry.captureException(err, { tags: { area: 'ksef.resend' }, extra: { invoiceId } });
-    return {
-      success: false,
-      error: 'Nie można sprawdzić możliwości ponownej wysyłki. Spróbuj później.',
-    };
-  }
+    return { supabase, userId: user.id, tenantId, role };
+  }, invoiceId);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -421,43 +295,18 @@ export async function recheckKsefDuplicateAction(invoiceId: string): Promise<Rec
 }
 
 // ═══════════════════════════════════════════════════════════════
-// resetInvoiceToDraftAction
+// resetInvoiceToDraftAction (logika od M8b w lib/invoices/ksef-resend.ts, ta sama dla telefonu)
 // ═══════════════════════════════════════════════════════════════
 
-export type ResetToDraftResult =
-  | { success: true }
-  | { success: false; error: string };
+export type { ResetToDraftResult };
 
-/**
- * „Wróć do szkicu” (PR 3b, decyzja D2): `failed`/`rejected → draft` przez RPC
- * `reset_ksef_send` (00131). RPC odmawia, gdy faktura ma dowód kontaktu
- * z KSeF (numer KSeF albo wpis `sent`/`accepted`/`duplicate`) albo kod klasy
- * reconcile — wtedy sprawą zajmuje się operator. Klucz serwisowy, bo
- * przejścia stanu są serwerowe (RPC przepuszczają tylko service_role);
- * firma i rola pochodzą z sesji (`requireOrgRole`).
- */
 export async function resetInvoiceToDraftAction(
   invoiceId: string
 ): Promise<ResetToDraftResult> {
-  try {
+  return resetInvoiceToDraft(async () => {
     const { user, tenantId } = await requireOrgRole(['owner', 'admin']);
-    const { error } = await createAdminClient().rpc('reset_ksef_send', {
-      p_invoice_id: invoiceId,
-      p_tenant_id: tenantId,
-      p_actor_user_id: user.id,
-    });
-    if (error) {
-      return { success: false, error: describeResetError(error) };
-    }
-    revalidatePath('/invoices');
-    revalidatePath(`/invoices/${invoiceId}`);
-    return { success: true };
-  } catch (err) {
-    if (err instanceof ActionAuthError) {
-      return { success: false, error: err.message };
-    }
-    return { success: false, error: KSEF_SEND_MESSAGES.resetFailed };
-  }
+    return { userId: user.id, tenantId };
+  }, invoiceId);
 }
 
 // ═══════════════════════════════════════════════════════════════

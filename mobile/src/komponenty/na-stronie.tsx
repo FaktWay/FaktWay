@@ -1,8 +1,9 @@
 /**
  * Zmiana prawdziwej faktury, której API telefonu jeszcze nie ma (od M8
  * wystawienie zwykłej faktury i wysyłka szkicu idą przez API, od M10a zapłata,
- * przypomnienia i PDF; korekta, zaliczka, rozliczenie, zmiana szkicu, e-mail,
- * XML i cykliczne zostają na stronie).
+ * przypomnienia i PDF, od M8b zaliczka, rozliczenie, korekta, zmiana szkicu
+ * zwykłej faktury, ponowna wysyłka i powrót do szkicu; e-mail, XML, cykliczne
+ * i szkic, którego telefon nie skopiuje, zostają na stronie).
  * Telefon nie udaje zapisu: mówi, gdzie to zrobić, i otwiera tę samą
  * fakturę na stronie. Systemowy arkusz akcji jak `potwierdz()`.
  */

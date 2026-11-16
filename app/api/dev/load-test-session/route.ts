@@ -1,8 +1,10 @@
 import { createServerClient } from '@supabase/ssr';
+import { isAuthRetryableFetchError } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { isBypassAllowedEnv } from '@/lib/security/environment';
+import { createSupabaseFetch } from '@/lib/supabase/fetch-timeout';
 
 /**
  * Bootstrap sesji dla k6 (Faza 34).
@@ -57,11 +59,22 @@ export async function POST(request: Request) {
           for (const [name, value] of Object.entries(headers)) response.headers.set(name, value);
         },
       },
+      // Limit czasu jak w kliencie z ciasteczek (LIM-05): logowanie to zapis, 30 s.
+      global: { fetch: createSupabaseFetch() },
     },
   );
 
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
+    // Pod obciążeniem GoTrue potrafi milczeć, odmawiać limitem albo odpowiadać bez
+    // kodu HTTP (ciało nie-JSON, np. strona błędu po drodze). To nie złe dane konta
+    // testowego, więc k6 dostaje inny kod niż 401. Złe hasło GoTrue opisuje w JSON z 400.
+    if (error.status === 429) {
+      return NextResponse.json({ ok: false, error: 'rate_limited' }, { status: 429 });
+    }
+    if (isAuthRetryableFetchError(error) || typeof error.status !== 'number' || error.status >= 500) {
+      return NextResponse.json({ ok: false, error: 'auth_unavailable' }, { status: 503 });
+    }
     return NextResponse.json(
       { ok: false, error: 'invalid_credentials' },
       { status: 401 },

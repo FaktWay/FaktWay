@@ -243,19 +243,11 @@
     "myslniki": 2,
     "plakietki": 0
   },
-  "components/invoices/correction-actions.ts": {
-    "myslniki": 1,
-    "plakietki": 0
-  },
   "components/invoices/correction-form.tsx": {
     "myslniki": 9,
     "plakietki": 0
   },
   "components/invoices/draft-invoice-actions.tsx": {
-    "myslniki": 1,
-    "plakietki": 0
-  },
-  "components/invoices/final-actions.ts": {
     "myslniki": 1,
     "plakietki": 0
   },
@@ -540,6 +532,14 @@
     "plakietki": 0
   },
   "lib/invoices/display-date.ts": {
+    "myslniki": 1,
+    "plakietki": 0
+  },
+  "lib/invoices/issue-correction.ts": {
+    "myslniki": 1,
+    "plakietki": 0
+  },
+  "lib/invoices/issue-final.ts": {
     "myslniki": 1,
     "plakietki": 0
   },

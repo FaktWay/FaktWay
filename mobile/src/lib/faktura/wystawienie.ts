@@ -11,7 +11,7 @@
  * tylko szybkie sprawdzenie przed wysłaniem (`sprawdz` w formularzu).
  */
 import type { Faktura, MetodaPlatnosci, Pozycja } from '../../dane-przykladowe';
-import type { FakturaTelefonu, StawkaVatTelefonu } from '../api/kontrakt';
+import type { FakturaTelefonu, RodzajIdOsobyTelefonu, StawkaVatTelefonu } from '../api/kontrakt';
 import { dniMiedzy } from '../format';
 
 /** Pozycja w polach formularza: tekst z klawiatury („1500,50”, „1,5”). */
@@ -24,8 +24,16 @@ export type FormularzZwyklej = {
   dataSprzedazy: string;
   /** Termin w dniach od daty wystawienia (7, 14, 30). */
   terminDni: number;
-  rodzajNabywcy: 'firma' | 'osoba';
+  /** `ue` od M8b: firma z innego kraju UE (numer VAT-UE i kraj adresu). */
+  rodzajNabywcy: 'firma' | 'osoba' | 'ue';
   nip: string;
+  /** M8b, firma z UE: numer VAT-UE z prefiksem kraju i kod kraju adresu. */
+  vatUe?: string;
+  kraj?: string;
+  /** M8b, osoba prywatna: identyfikator (brak = bez numeru) i jego numer. */
+  idOsoby?: RodzajIdOsobyTelefonu;
+  pesel?: string;
+  dokument?: string;
   nazwa: string;
   adres1: string;
   adres2: string;
@@ -39,7 +47,8 @@ export type FormularzZwyklej = {
   seria?: { id: string; podglad: string } | null;
 };
 
-const STAWKI: readonly StawkaVatTelefonu[] = ['23', '8', '5', '0', 'zw', 'oo', 'np'];
+/** „np_ii” od M8b: tylko dla firmy z innego kraju UE (regułę sprawdza serwer schematem strony). */
+const STAWKI: readonly StawkaVatTelefonu[] = ['23', '8', '5', '0', 'zw', 'oo', 'np', 'np_ii'];
 
 const METODY: Partial<Record<MetodaPlatnosci, FakturaTelefonu['paymentMethod']>> = {
   Przelew: 'transfer',
@@ -47,7 +56,7 @@ const METODY: Partial<Record<MetodaPlatnosci, FakturaTelefonu['paymentMethod']>>
   Karta: 'card',
 };
 
-/** Stawka, którą telefon wystawia (`StawkaVatTelefonu`); inna (np. „np_ii”, „0 WDT”) to `null`: na stronie, nigdy jako 0% ani 23%. */
+/** Stawka, którą telefon wystawia (`StawkaVatTelefonu`); inna (np. „0 WDT”) to `null`: na stronie, nigdy jako 0% ani 23%. */
 export function stawkaTelefonu(stawka: string): StawkaVatTelefonu | null {
   return STAWKI.find((s) => s === stawka) ?? null;
 }
@@ -72,12 +81,14 @@ export function dodajDni(iso: string, dni: number): string {
  */
 export function doFakturyTelefonu(f: FormularzZwyklej): FakturaTelefonu {
   const osoba = f.rodzajNabywcy === 'osoba';
+  const ue = f.rodzajNabywcy === 'ue';
   const metoda = METODY[f.metoda] ?? 'other';
+  const idOsoby = f.idOsoby ?? 'no_id';
   return {
     internalNumber: f.numer.trim(),
     issueDate: f.dataWystawienia,
     saleDate: f.dataSprzedazy && f.dataSprzedazy !== f.dataWystawienia ? f.dataSprzedazy : '',
-    buyerNip: osoba ? '' : f.nip.replace(/\D/g, ''),
+    buyerNip: osoba || ue ? '' : f.nip.replace(/\D/g, ''),
     buyerName: f.nazwa.trim(),
     buyerAddressLine1: f.adres1.trim(),
     buyerAddressLine2: f.adres2.trim(),
@@ -99,6 +110,15 @@ export function doFakturyTelefonu(f: FormularzZwyklej): FakturaTelefonu {
     // Numer z licznika serii nadaje baza, gdy w polu została podpowiedź (jak formularz strony).
     numberSeriesId: f.seria?.id ?? '',
     numberPreview: f.seria?.podglad ?? '',
+    // M8b: osoba z identyfikatorem i firma z UE jak pola formularza strony (bez nich treść jak w M8).
+    ...(osoba && idOsoby !== 'no_id'
+      ? {
+          buyerConsumerIdType: idOsoby,
+          buyerPesel: idOsoby === 'pesel' ? (f.pesel ?? '').replace(/\D/g, '') : '',
+          buyerIdDocument: idOsoby === 'pesel' ? '' : (f.dokument ?? '').trim(),
+        }
+      : {}),
+    ...(ue ? { buyerIsEu: true, buyerVatUe: (f.vatUe ?? '').replace(/[\s.-]/g, '').toUpperCase(), buyerCountryCode: f.kraj ?? '' } : {}),
   };
 }
 
@@ -118,6 +138,12 @@ export function poleFormularza(pole: string | undefined): PoleBledu {
     case 'buyerNip':
     case 'buyerIsConsumer':
     case 'buyerConsumerIdType':
+    // M8b: numer VAT-UE, kraj, PESEL i dokument stoją w polu identyfikatora nabywcy.
+    case 'buyerIsEu':
+    case 'buyerVatUe':
+    case 'buyerCountryCode':
+    case 'buyerPesel':
+    case 'buyerIdDocument':
       return 'nip';
     case 'buyerAddressLine1':
     case 'buyerAddressLine2':
@@ -183,7 +209,11 @@ export function kopiaNaTelefonie(f: Faktura): boolean {
     f.rodzaj === 'vat' &&
     (f.waluta ?? 'PLN') === 'PLN' &&
     (f.nabywcaTyp === 'firma' || f.nabywcaTyp === 'osoba') &&
-    f.pozycje.every((p) => stawkaPozycji(p) !== null)
+    // „np II” tylko z firmą z UE, a tej kopii telefon nie robi (nabywca `inny`): strona kopiuje całość.
+    f.pozycje.every((p) => {
+      const stawka = stawkaPozycji(p);
+      return stawka !== null && stawka !== 'np_ii';
+    })
   );
 }
 

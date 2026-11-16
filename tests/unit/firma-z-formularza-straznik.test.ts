@@ -56,6 +56,20 @@ const EXEMPT: Record<string, string> = {
 const ISSUING_FILES = Object.keys(ISSUING).map((file) => `components/invoices/${file}`);
 
 /**
+ * Od M8 (zwykła faktura) i M8b (zaliczka, rozliczenie, korekta) planu aplikacji
+ * mobilnej zapis dokumentu leży w `lib/invoices/issue-*.ts` (ta sama droga dla
+ * telefonu), a plik akcji podaje tylko sesję i firmę formularza. Skan widzi wtedy
+ * zapis w pliku z `lib/`, który plik akcji importuje; kontrolę firmy formularza
+ * w samej akcji sprawdzają dalej testy akcja po akcji.
+ */
+const ISSUING_LIB: Record<string, string> = {
+  'components/invoices/actions.ts': 'lib/invoices/issue-regular.ts',
+  'components/invoices/advance-actions.ts': 'lib/invoices/issue-advance.ts',
+  'components/invoices/final-actions.ts': 'lib/invoices/issue-final.ts',
+  'components/invoices/correction-actions.ts': 'lib/invoices/issue-correction.ts',
+};
+
+/**
  * Pliki z zapisem dokumentu albo zleceniem wysyłki (wg `writesDocument`), które
  * nie wystawiają dokumentu z formularza faktury. Powód mówi, czemu — i skąd
  * plik bierze firmę.
@@ -81,8 +95,12 @@ const EXEMPT_FILES: Record<string, string> = {
   'lib/jobs/runners/bulk-import.ts': 'job: import z pliku (silnik importu); firma z danych joba',
   'lib/jobs/runners/ksef-history-sync.ts': 'job: pobranie historii z KSeF (silnik importu); firma z danych joba',
   'lib/invoices/issue-regular.ts': 'logika „Wystaw i wyślij” i szkicu (M8 planu aplikacji mobilnej); firmę podaje wołający: akcje strony po requireUserAndActiveOrg z expectedTenantId (UX-01 w akcji, ISSUING), telefon po authenticateMobileRequest',
+  'lib/invoices/issue-advance.ts': 'logika zaliczki: szkic i „Wystaw i wyślij” (M8b planu aplikacji mobilnej); firmę podaje wołający: akcje strony po requireUserAndActiveOrg z expectedTenantId (UX-01 w akcji, ISSUING), telefon po authenticateMobileRequest',
+  'lib/invoices/issue-final.ts': 'logika faktury rozliczającej: szkic (wysyłka ROZ wstrzymana; M8b planu aplikacji mobilnej); firmę podaje wołający: akcje strony po requireUserAndActiveOrg z expectedTenantId (UX-01 w akcji, ISSUING), telefon po authenticateMobileRequest',
+  'lib/invoices/issue-correction.ts': 'logika korekty: szkic i „Wystaw i wyślij” (M8b planu aplikacji mobilnej); faktura pierwotna z bazy tej firmy; firmę podaje wołający: akcje strony po requireUserAndActiveOrg z expectedTenantId (UX-01 w akcji, ISSUING), telefon po authenticateMobileRequest',
+  'lib/invoices/ksef-resend.ts': 'ponowienie wysyłki istniejącego dokumentu wskazanego id (resendInvoiceAction, trasa telefonu, M8b); zapytanie filtruje tenant_id firmy z sesji, więc faktura innej firmy to „nie znaleziono”',
   'lib/invoices/send-draft.ts': 'wysyłka istniejącego szkicu wskazanego id (sendDraftInvoiceAction, trasa telefonu); zapytanie filtruje tenant_id firmy z sesji, więc szkic innej firmy to „nie znaleziono”',
-  'lib/api/mobile/faktury.ts': 'API telefonu (POST /api/mobile/v1/faktury, M8): bez ciasteczka firmy; firma z nagłówka X-Active-Org wysłanego z formularza, członkostwo sprawdzone tokenem w authenticateMobileRequest, zapis klientem z tym nagłówkiem (RLS get_current_tenant_id); telefon zapamiętuje firmę przy otwarciu formularza i odmawia zapisu w innej (bladFirmyZapisu w mobile/src/lib/faktura/wystawienie.ts, jak expectedTenantId)',
+  'lib/api/mobile/faktury-wspolne.ts': 'API telefonu (POST /api/mobile/v1/faktury, M8 i M8b; kroki klucza przeniesione z faktury.ts): bez ciasteczka firmy; firma z nagłówka X-Active-Org wysłanego z formularza, członkostwo sprawdzone tokenem w authenticateMobileRequest, zapis klientem z tym nagłówkiem (RLS get_current_tenant_id); telefon zapamiętuje firmę przy otwarciu formularza i odmawia zapisu w innej (bladFirmyZapisu w mobile/src/lib/faktura/wystawienie.ts, jak expectedTenantId)',
   'lib/api/v1/invoice-create.ts': 'publiczne API (POST /api/v1/invoices, krok 7.1): bez sesji i ciasteczka firmy; firmę ustala baza ze skrótu klucza w tokenie (api_create_invoice, 00184), a wysyłka dostaje firmę klucza z api_key_session',
 };
 
@@ -242,8 +260,13 @@ describe('UX-01 strażnik: akcje wystawiania sprawdzają firmę formularza', () 
   describe('pliki z zapisem dokumentu w app/, components/, lib/', () => {
     const writers = documentWriters();
 
-    it('skan widzi pliki akcji wystawiania', () => {
-      expect(ISSUING_FILES.filter((f) => !writers.includes(f))).toEqual([]);
+    it('skan widzi pliki akcji wystawiania (zapis w pliku akcji albo w jej pliku z lib/)', () => {
+      const delegates = (f: string) => {
+        const lib = ISSUING_LIB[f];
+        if (!lib || !writers.includes(lib)) return false;
+        return readFileSync(join(process.cwd(), f), 'utf8').includes(`'@/${lib.replace(/\.ts$/, '')}'`);
+      };
+      expect(ISSUING_FILES.filter((f) => !writers.includes(f) && !delegates(f))).toEqual([]);
     });
 
     it('skan migracji rozpoznaje funkcje SQL tworzące faktury (wprost i przez rdzeń)', () => {
