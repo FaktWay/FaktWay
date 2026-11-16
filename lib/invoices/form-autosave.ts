@@ -107,7 +107,7 @@ export async function saveInvoiceAutosave(
     if (Array.isArray(saved) && saved.length > 0) return { ok: false, reason: 'already_saved' };
 
     const savedAt = new Date().toISOString();
-    const { error } = await db.from(AUTOSAVE_TABLE).upsert(
+    const { error } = await db.from('invoice_form_drafts').upsert(
       {
         tenant_id: input.tenantId,
         user_id: input.userId,
