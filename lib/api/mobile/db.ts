@@ -1,5 +1,12 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
+import { createSupabaseFetch } from '@/lib/supabase/fetch-timeout';
+
+// Każdy klient z tego pliku ma limit czasu wywołania (`createSupabaseFetch`,
+// LIM-05): odczyt 10 s, zapis 30 s (także logowanie hasłem). Zawieszony GoTrue
+// albo PostgREST daje wtedy błąd przejściowy, a trasa odpowiada 503, zamiast
+// trzymać telefon do 300 s.
+
 /** Adres i klucze bazy; domyślnie z konfiguracji aplikacji, w testach RLS jawnie. */
 export interface MobileSupabaseTarget {
   url?: string;
@@ -24,7 +31,7 @@ const NO_SESSION = { persistSession: false, autoRefreshToken: false, detectSessi
  */
 export function createMobileAuthClient(target: MobileSupabaseTarget = {}): SupabaseClient {
   const { url, anonKey } = resolveTarget(target);
-  return createClient(url, anonKey, { auth: NO_SESSION });
+  return createClient(url, anonKey, { auth: NO_SESSION, global: { fetch: createSupabaseFetch() } });
 }
 
 /**
@@ -42,6 +49,7 @@ export function createMobileDbClient(
   return createClient(url, anonKey, {
     auth: NO_SESSION,
     global: {
+      fetch: createSupabaseFetch(),
       headers: {
         Authorization: `Bearer ${token}`,
         ...(options.activeOrg ? { 'x-active-org': options.activeOrg } : {}),
@@ -65,5 +73,5 @@ export function createMobileLoginClient(target: MobileSupabaseTarget = {}): Supa
   const { url } = resolveTarget(target);
   const serviceRoleKey = target.serviceRoleKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!serviceRoleKey) throw new Error('Brak klucza serwisowego Supabase');
-  return createClient(url, serviceRoleKey, { auth: NO_SESSION });
+  return createClient(url, serviceRoleKey, { auth: NO_SESSION, global: { fetch: createSupabaseFetch() } });
 }

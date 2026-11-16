@@ -4,9 +4,8 @@ import { revalidatePath } from 'next/cache';
 
 import type { createClient } from '@/lib/supabase/server';
 import { requireUserAndActiveOrg, type FormTenantCheck } from '@/lib/supabase/auth-context';
-import { lookupCompanyByNip } from '@/lib/gus/client';
+import { lookupBuyer, type LookupBuyerResult } from '@/lib/invoices/lookup-buyer';
 import { formatJobSendError } from '@/lib/jobs/error-message';
-import { validateNipChecksum } from '@/lib/xml/invoice-calculator';
 import type { TenantSnapshot } from '@/lib/invoices/build-from-form';
 import {
   parseRegularInvoiceForm,
@@ -15,6 +14,7 @@ import {
   saveRegularDraft,
   type RegularIssueResult,
 } from '@/lib/invoices/issue-regular';
+import { isGtuCode, isPkwiuCode } from '@/lib/invoices/line-codes';
 import { addressCountryForKodUE, parseVatUe } from '@/lib/invoices/vat-ue';
 import { RECURRING_DRAFT_REFUSED_MESSAGE } from '@/lib/invoices/recurring/issue';
 import { suggestNextInvoiceNumberForTenant } from '@/lib/invoices/next-number';
@@ -43,127 +43,20 @@ async function getTenantContext(formTenant?: FormTenantCheck): Promise<{
 
 // ═══════════════════════════════════════════════════════════════
 // lookupBuyerAction - cache kontrahentów + GUS fallback
+// (logika od M8b w lib/invoices/lookup-buyer.ts, ta sama dla telefonu)
 // ═══════════════════════════════════════════════════════════════
 
-export type LookupBuyerResult =
-  | {
-      success: true;
-      source: 'cache' | 'gus';
-      data: {
-        nip: string;
-        name: string;
-        addressLine1: string;
-        addressLine2: string;
-      };
-    }
-  | { success: false; error: string };
-
-interface ContractorAddress {
-  countryCode?: string;
-  addressLine1?: string;
-  addressLine2?: string;
-}
+export type { LookupBuyerResult };
 
 export async function lookupBuyerAction(
   nip: string
 ): Promise<LookupBuyerResult> {
-  if (!/^\d{10}$/.test(nip)) {
-    return { success: false, error: 'NIP musi zawierać 10 cyfr' };
-  }
-  if (!validateNipChecksum(nip)) {
-    return { success: false, error: 'Nieprawidłowa suma kontrolna NIP' };
-  }
-
-  let supabase: Awaited<ReturnType<typeof createClient>>;
-  let tenantId: string;
-  try {
+  const result = await lookupBuyer(async () => {
     const ctx = await getTenantContext();
-    supabase = ctx.supabase;
-    tenantId = ctx.tenant.id;
-  } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : 'Brak kontekstu tenanta',
-    };
-  }
-
-  // 1) Cache - lokalna tabela `contractors` (per tenant).
-  const { data: cached } = await supabase
-    .from('contractors')
-    .select('nip, name, address')
-    .eq('tenant_id', tenantId)
-    .eq('nip', nip)
-    .maybeSingle();
-
-  if (cached) {
-    const addr = (cached.address as ContractorAddress | null) ?? {};
-    // Update last_used_at żeby rozpinać "ostatnio używane" w przyszłym UI.
-    await supabase
-      .from('contractors')
-      .update({ last_used_at: new Date().toISOString() })
-      .eq('tenant_id', tenantId)
-      .eq('nip', nip);
-
-    return {
-      success: true,
-      source: 'cache',
-      data: {
-        nip: cached.nip as string,
-        name: cached.name as string,
-        addressLine1: addr.addressLine1 ?? '',
-        addressLine2: addr.addressLine2 ?? '',
-      },
-    };
-  }
-
-  // 2) Fallback: GUS REGON.
-  const gus = await lookupCompanyByNip(nip);
-  if (gus.kind === 'not-found') {
-    return {
-      success: false,
-      error: 'Nie znaleziono firmy w GUS. Sprawdź numer NIP.',
-    };
-  }
-  if (gus.kind === 'error') {
-    return {
-      success: false,
-      error:
-        'GUS chwilowo niedostępny. Spróbuj ponownie za chwilę lub uzupełnij dane ręcznie.',
-    };
-  }
-
-  const addressLine1 = `${gus.data.street} ${gus.data.buildingNumber}${
-    gus.data.localNumber ? '/' + gus.data.localNumber : ''
-  }`.trim();
-  const addressLine2 = `${gus.data.postalCode} ${gus.data.city}`.trim();
-
-  // Zapisz w cache (upsert po unique (tenant_id, nip)). Używamy fire-and-forget
-  // bez przerywania flow jeśli cache padnie - user i tak dostanie dane.
-  await supabase.from('contractors').upsert(
-    {
-      tenant_id: tenantId,
-      nip: gus.data.nip,
-      name: gus.data.name,
-      address: {
-        countryCode: 'PL',
-        addressLine1,
-        addressLine2,
-      },
-      last_used_at: new Date().toISOString(),
-    },
-    { onConflict: 'tenant_id,nip' }
-  );
-
-  return {
-    success: true,
-    source: 'gus',
-    data: {
-      nip: gus.data.nip,
-      name: gus.data.name,
-      addressLine1,
-      addressLine2,
-    },
-  };
+    return { supabase: ctx.supabase, tenantId: ctx.tenant.id };
+  }, nip);
+  // `reason` jest dla telefonu (M8b); formularz strony dostaje to samo co przed wydzieleniem.
+  return result.success ? result : { success: false, error: result.error };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -322,14 +215,25 @@ async function prefillCore(
     .eq('invoice_id', row.id)
     .order('ordinal', { ascending: true });
 
+  // Krok 2.6, część 2b: PKWiU i GTU pozycji są w dokumencie faktury (`fa3_data`),
+  // nie w `invoice_line_items`; tylko poprawne kody wracają do formularza.
+  const kodyPozycji = new Map(
+    (Array.isArray(faktura.lines) ? faktura.lines : []).map((l) => [l.ordinal, l] as const),
+  );
   const lines = (pozycje ?? [])
-    .map((poz) => ({
-      name: String(poz.name ?? ''),
-      unit: String(poz.unit ?? 'szt'),
-      quantity: Number(poz.quantity) || 0,
-      unitPriceNet: Number(poz.unit_price_net) || 0,
-      vatRate: String(poz.vat_rate ?? '23'),
-    }))
+    .map((poz) => {
+      const kody = kodyPozycji.get(Number(poz.ordinal));
+      const pkwiuCode = typeof kody?.pkwiuCode === 'string' ? kody.pkwiuCode.trim() : '';
+      return {
+        name: String(poz.name ?? ''),
+        unit: String(poz.unit ?? 'szt'),
+        quantity: Number(poz.quantity) || 0,
+        unitPriceNet: Number(poz.unit_price_net) || 0,
+        vatRate: String(poz.vat_rate ?? '23'),
+        ...(isPkwiuCode(pkwiuCode) ? { pkwiuCode } : {}),
+        ...(isGtuCode(kody?.gtuCode) ? { gtuCode: kody.gtuCode } : {}),
+      };
+    })
     .filter((poz) => poz.name.length > 0 && poz.quantity > 0);
 
   // Faktura bez czytelnych pozycji nie jest podkładem, tylko pułapką:

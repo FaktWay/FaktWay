@@ -12,7 +12,8 @@
 #   ./scripts/ops/kolejka-scalania.sh --sprawdz  # tylko stan, bez zmian
 #
 # Zmienia ruleset „main - ochrona podstawowa”:
-# - dodaje regułę kolejki (merge, grupy po 5, czekanie na CI do 60 min);
+# - dodaje regułę kolejki (merge, do 3 grup budowanych naraz, czekanie na CI do
+#   120 min: plan free ma 20 równoległych zadań, a grupa to ok. 15);
 # - dopisuje wymagane kontrole: Filtr: straż, Filtr: testy prawne,
 #   RLS isolation, Mobile (typy i eslint);
 # - wyłącza „gałąź aktualna względem main” (to robi kolejka).
@@ -53,7 +54,20 @@ pokaz() {
 
 echo "── Ruleset $id ($NAZWA), teraz:"
 pokaz "$obecny"
-[ "$TRYB" = sprawdz ] && exit 0
+if [ "$TRYB" = sprawdz ]; then
+  # Sekret z kontem człowieka: bez niego workflow „Scalanie na etykietę” niczego
+  # nie włącza (token Actions nie uruchamia kontroli grupy kolejki).
+  if sekrety=$(gh secret list -R "$REPO" 2>/dev/null); then
+    if printf '%s\n' "$sekrety" | cut -f1 | grep -qx SCAL_TOKEN; then
+      echo "sekret SCAL_TOKEN: jest (workflow włącza scalanie kontem człowieka, także dla sesji chmurowych)"
+    else
+      echo "sekret SCAL_TOKEN: BRAK (sesje lokalne włączają scalanie same przez scal-pr.sh, sesje chmurowe potrzebują sekretu: docs/runbooks/scalanie-pr.md, „Sekret SCAL_TOKEN”)"
+    fi
+  else
+    echo "sekret SCAL_TOKEN: nie wiem (gh nie odczytał listy sekretów, to wymaga uprawnień administratora repozytorium)"
+  fi
+  exit 0
+fi
 
 nowy=$(jq --argjson nowe "$NOWE_KONTROLE" --argjson app "$ACTIONS_APP" '
   {
@@ -74,12 +88,14 @@ nowy=$(jq --argjson nowe "$NOWE_KONTROLE" --argjson app "$ACTIONS_APP" '
           type: "merge_queue",
           parameters: {
             merge_method: "MERGE",
+            # ALLGREEN: każdy wpis kolejki ma własną ocenę (straż w kolejce
+            # ocenia tylko ostatni PR grupy, filtr-straz.yml).
             grouping_strategy: "ALLGREEN",
-            max_entries_to_build: 5,
-            max_entries_to_merge: 5,
+            max_entries_to_build: 3,
+            max_entries_to_merge: 3,
             min_entries_to_merge: 1,
             min_entries_to_merge_wait_minutes: 1,
-            check_response_timeout_minutes: 60
+            check_response_timeout_minutes: 120
           }
         } ]
     )
@@ -100,4 +116,14 @@ echo "── Kopia stanu sprzed zmiany: $kopia"
 gh api -X PUT "repos/$REPO/rulesets/$id" --input - <<<"$nowy" >/dev/null
 echo "── Zapisane. Stan z GitHuba:"
 pokaz "$(gh api "repos/$REPO/rulesets/$id")"
-echo "Agent wrzuca PR do kolejki: gh pr merge N --auto"
+
+# Etykiety scalania na etykietę (workflow „Scalanie na etykietę”): `scal` włącza
+# automatyczne scalanie, `wstrzymaj` je wstrzymuje. Zakładane po zapisie ochrony.
+gh label create "scal" --repo "$REPO" --force --color 0E8A16 \
+  --description "Agent: scal, gdy kontrole będą zielone (wygasa po pushu)"
+gh label create "wstrzymaj" --repo "$REPO" --force --color B60205 \
+  --description "Nie scalaj: agenci i workflow wstrzymują scalanie"
+echo "── Etykiety scal i wstrzymaj założone."
+echo "Agent scala PR jedną linią (etykieta scal, działa też w chmurze): ./scripts/ops/scal-pr.sh N"
+echo "Zapas lokalny: gh pr merge N --auto"
+echo "PR otwarte przed zmianą nie mają nowych wymaganych kontroli: ./scripts/ops/odswiez-pr.sh pokazuje je, a z numerami odświeża."

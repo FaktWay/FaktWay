@@ -117,8 +117,38 @@ describe('suggestProducts', () => {
     ]);
     const out = await suggestProducts(f.client, 'T1', 'abonament');
     expect(out).toEqual([
-      { id: expect.any(String), name: 'Abonament A', unit: 'mies.', priceNet: 1250.5, vatRate: '8' },
-      { id: expect.any(String), name: 'Abonament B', unit: 'szt.', priceNet: null, vatRate: null },
+      { id: expect.any(String), name: 'Abonament A', unit: 'mies.', priceNet: 1250.5, vatRate: '8', pkwiuCode: null, gtuCode: null },
+      { id: expect.any(String), name: 'Abonament B', unit: 'szt.', priceNet: null, vatRate: null, pkwiuCode: null, gtuCode: null },
+    ]);
+  });
+
+  it('PKWiU z katalogu (krok 2.6, część 2b-1); kod niepoprawny to brak kodu', async () => {
+    const f = fake([
+      produkt({ name: 'Szkolenie A', pkwiu_code: ' 85.59.13.0 ' }),
+      produkt({ name: 'Szkolenie B', pkwiu_code: '85.59.A' }),
+    ]);
+    const out = await suggestProducts(f.client, 'T1', 'szkolenie');
+    expect(out.map(({ name, pkwiuCode }) => ({ name, pkwiuCode }))).toEqual([
+      { name: 'Szkolenie A', pkwiuCode: '85.59.13.0' },
+      { name: 'Szkolenie B', pkwiuCode: null },
+    ]);
+  });
+
+  it('GTU z katalogu (krok 2.6, część 2b-2): kod z listy GTU_01-GTU_13 idzie do podpowiedzi, kod spoza listy i brak to brak oznaczenia', async () => {
+    const f = fake([
+      produkt({ name: 'Doradztwo A', gtu_code: 'GTU_12' }),
+      produkt({ name: 'Doradztwo B', gtu_code: ' GTU_06 ' }),
+      produkt({ name: 'Doradztwo C', gtu_code: 'GTU_14' }),
+      produkt({ name: 'Doradztwo D', gtu_code: 'gtu_12' }),
+      produkt({ name: 'Doradztwo E', gtu_code: null }),
+    ]);
+    const out = await suggestProducts(f.client, 'T1', 'doradztwo');
+    expect(out.map(({ name, gtuCode }) => ({ name, gtuCode }))).toEqual([
+      { name: 'Doradztwo A', gtuCode: 'GTU_12' },
+      { name: 'Doradztwo B', gtuCode: 'GTU_06' },
+      { name: 'Doradztwo C', gtuCode: null },
+      { name: 'Doradztwo D', gtuCode: null },
+      { name: 'Doradztwo E', gtuCode: null },
     ]);
   });
 

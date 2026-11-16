@@ -9,6 +9,7 @@
  */
 
 import { buildInvoiceAnnotations } from '@/lib/invoices/annotations';
+import { isGtuCode } from '@/lib/invoices/line-codes';
 import { addressCountryForKodUE, parseVatUe } from '@/lib/invoices/vat-ue';
 import {
   receiptBuyerKindOfForm,
@@ -53,6 +54,8 @@ export function buildInvoiceFromForm(
       unitPriceNet: line.unitPriceNet,
       vatRate: line.vatRate,
     });
+    // Krok 2.6, część 2b-1: PKWiU z jawnym typem tylko, gdy jest (puste pole = brak).
+    const pkwiuCode = line.pkwiuCode?.trim();
     return {
       ordinal: idx + 1,
       name: line.name,
@@ -63,6 +66,11 @@ export function buildInvoiceFromForm(
       netAmount: calc.netAmount,
       vatAmount: calc.vatAmount,
       grossAmount: calc.grossAmount,
+      ...(pkwiuCode ? { pkwiuCode } : {}),
+      // Krok 2.6, część 2b-2: oznaczenie GTU tylko z listy (puste pole = brak).
+      // Akcje przekazują dalej także niesparsowane wartości, więc kod jeszcze raz
+      // sprawdzony tutaj; to samo oznaczenie idzie do FA(3) i do JPK_V7M.
+      ...(isGtuCode(line.gtuCode) ? { gtuCode: line.gtuCode } : {}),
     };
   });
 

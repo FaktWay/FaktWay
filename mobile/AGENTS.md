@@ -134,6 +134,38 @@ uruchamiasz po kolei, nigdy razem.
   magazynie (`useSyncExternalStore`, wzór `stan/naleznosci.tsx`): osobny
   `useState` w każdym ekranie zostawia pod arkuszem stary stan.
 
+## Android (od M12a, sprawdzone w kodzie expo-router 58, bez emulatora)
+
+Zasady wyglądu: `ZASADY-DESIGNU.md`, sekcja 10. Pilnuje `tests/unit/mobile-android.test.ts`.
+
+- `Stack.Toolbar.Button` bez `icon` na Androidzie nic nie rysuje, a przycisk
+  `placement="left"` zastępuje strzałkę wstecz. Przycisk z napisem w pasku
+  tylko przez `PrzyciskPaska` (na iOS ten sam systemowy przycisk).
+- Menu i przyciski paska rysuje tam Compose (`@expo/ui`). Ikona musi być
+  obrazem (`IKONY_PASKA`), symbole SF w `MenuAction` Android pomija. Kolory:
+  `useKoloryPaska(naGradiencie)` (`ikona` do `tintColor`, `narzedzia` do
+  `Stack.Toolbar`; na iOS pusty obiekt). Grupy `inline` gubią tam tytuł:
+  `inline={GRUPY_MENU_W_LINII}`.
+- Pasek Androida jest nieprzezroczysty i bez dużego tytułu. Ekran z
+  `EkranListy gradient` dostaje w układzie `useOpcjeGradientu` (lista) albo
+  `useOpcjeSzczegoluNaGradiencie` (szczegół), a wyszukiwarka
+  `useOpcjeWyszukiwarki`; inaczej biały tytuł na szarym pasku albo szary pasek
+  nad niebieskim pasem.
+- Gdy jeden ekran ustawi `statusBarStyle`, Android stosuje domyślny jasny styl
+  na wszystkich pozostałych. `useOpcjeStosu` podaje go na każdym ekranie.
+- Fala (`android_ripple`) ma w React Native prostokątną maskę: na zaokrąglonym
+  przycisku przycina ją `DotykFala` (widok zewnętrzny z `overflow: 'hidden'`).
+  Gdy treść ma nieprzezroczyste tło, fala musi być nad nią (`nadTrescia`).
+- Komponent z `@expo/ui/jetpack-compose` trzymaj w pliku `.android.tsx` z
+  zapasem dla innych platform (wzór `komponenty/menu-wyboru`), żeby Compose
+  nie trafiał do pakietu iOS.
+- `TextInput` na Androidzie ma kreskę Material z motywu
+  (`rn_edit_text_material`): `underlineColorAndroid="transparent"`.
+- Bez Android SDK sprawdzasz: `pnpm exec expo export --platform android` (pakiet
+  JS) i `pnpm exec expo prebuild --platform android --no-install --clean`
+  (manifest, uprawnienia, ikona, czcionki; katalog `android/` jest poza gitem).
+  Kotlin i Compose sprawdzi dopiero build w Android Studio (M12b).
+
 ## Dane z bazy i API (od M7)
 
 - Odczyty idą z telefonu wprost do bazy (RLS), z tokenem sesji i nagłówkiem
@@ -169,8 +201,26 @@ uruchamiasz po kolei, nigdy razem.
   `useKontoFirmy().zapytaj` (firma z wyboru, reakcje na koniec sesji, kod 2FA
   i utratę firmy jak przy zapisach M8). Kwoty z API są w złotych: na ekranie
   `kwota(grosze(x))`, bo model telefonu trzyma grosze.
-- Pozostałe zapisy na prawdziwych fakturach (zmiana szkicu, korekta, zaliczka,
-  rozliczenie, ponowna wysyłka odrzuconej, e-mail, XML, cykliczne) nie mają
+- Od M8b zaliczka, rozliczenie zaliczek i korekta idą tą samą trasą `POST
+  /faktury` (klucz rodzaju zamiast `faktura`, ten sam `Idempotency-Key`), treść z
+  `lib/faktura/rodzaje.ts` (bez React Native, testy
+  `tests/unit/mobile-faktura-rodzaje.test.ts`). Kwot tych dokumentów telefon nie
+  liczy: pokazuje je z `POST /faktury/wyliczenie` (`useWyliczenie` w
+  `stan/faktury-rodzaje.tsx`, po chwili od ostatniej zmiany pól; tekst, którego
+  klient jeszcze nie wpisał, zastępuje `NA_PODGLAD`). Faktura pierwotna korekty
+  (nabywca, „było” po przyjętych korektach, dozwolone typy) przychodzi z `GET
+  /faktury/{id}/korekta`, zaliczki do rozliczenia z `GET /faktury/zaliczki`, nazwa
+  i adres po NIP z `GET /gus/{nip}`. Zwykła faktura ma od M8b firmę z UE (VAT-UE,
+  kraj z prefiksu, „np II”) i osobę z PESEL albo dokumentem.
+- Od M8b w szczególe jak na stronie: do KSeF ze szkicu tylko zwykła faktura VAT
+  (szkic zaliczki, rozliczenia i korekty się usuwa i wystawia od nowa), „Wyślij
+  ponownie” po błędzie wysyłki, „Wróć do szkicu”, „Usuń szkic” (`stan/dane.tsx`:
+  `wyslijDoKsef`, `wrocDoSzkicu`, `usunSzkic`). Zmiana szkicu VAT to formularz z
+  jego danymi, a zapis najpierw usuwa stary szkic, potem zapisuje nowy (strona
+  zmienia szkic tak samo). Wysyłka wstrzymana także na stronie (rozliczenie;
+  korekta na produkcji) przychodzi w podpowiedzi (`wysylkaWstrzymana`): przycisk
+  główny zapisuje wtedy szkic.
+- Pozostałe zapisy na prawdziwych fakturach (e-mail, XML, cykliczne) nie mają
   jeszcze API: telefon mówi, gdzie to zrobić, i otwiera stronę
   (`komponenty/na-stronie.tsx`). Nie udawaj zapisu w pamięci.
 - Od M9 wydatki: lista z bazy (`pobierzWydatki`, 200 najnowszych według daty
@@ -202,8 +252,15 @@ uruchamiasz po kolei, nigdy razem.
   funkcję dostawcy w efekcie ekranu (np. `firmaTeraz` w `zapytaj`) ustawiaj w
   `useLayoutEffect`, inaczej ekran otwarty linkiem przy zimnym starcie widzi
   jeszcze `null`. Trasy konta bez firmy (`org: 'none'`) wołaj z `bezFirmy: true`.
-- Na danych przykładowych zostają Kontrahenci, Przepływy, Analizy i Import
-  danych; stopka w Więcej mówi o tym klientowi.
+- Od M10e Kontrahenci (lista, karta, dodanie, poprawka, usunięcie), Import
+  danych i karty Księgowa, Zespół, Abonament, Dziennik idą przez API
+  (`stan/odczyt.tsx`: jeden magazyn odczytów, pyta przy każdym otwarciu ekranu
+  i po zapisie; `stan/kontrahenci.tsx`: zapisy z `firmaEkranu`). Typy odpowiedzi
+  w `lib/api/mobile/kontrakt-wiecej.ts` strony. Też Przepływy i Analizy
+  (`GET /przeplywy`, `GET /analizy`): wejście `kontekstDanych` strony, więc
+  przed potwierdzeniem KSeF serwer oddaje dane przykładowe z `tryb: 'przyklad'`
+  i ekran to mówi; każda karta osobno (`CzescTelefonu`), kwoty, saldo, procenty
+  i odcienie kalendarza liczy serwer.
 - `supabase.auth.onAuthStateChange` woła słuchacza wewnątrz blokady
   `supabase-js`: wywołanie klienta w słuchaczu czeka na samo siebie. Odłóż je
   (`setTimeout(…, 0)`), jak w `stan/dane.tsx`.

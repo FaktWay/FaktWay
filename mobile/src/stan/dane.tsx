@@ -48,9 +48,11 @@ import {
   type PodpowiedzFakturyOdpowiedz,
   type SesjaOdpowiedz,
   type WgranieWydatkuOdpowiedz,
+  type UsuniecieSzkicuOdpowiedz,
   type WystawienieOdpowiedz,
   type WysylkaSzkicuOdpowiedz,
   type ZaplataOdpowiedz,
+  type ZmianaFakturyOdpowiedz,
   type ZatwierdzenieWydatkuOdpowiedz,
 } from '@/lib/api/kontrakt';
 import { zapytajApi } from '@/lib/api/polaczenie';
@@ -141,13 +143,18 @@ export type PodpowiedzFaktury = {
   zwolnienieVat: boolean;
   /** Seria numeracji (krok 2.5), z której pochodzi `numer`; `null`: numeracja jak dotąd. */
   seria?: { id: string; podglad: string } | null;
+  /** M8b: wysyłka tego rodzaju do KSeF wstrzymana także na stronie (zdanie strony); formularz proponuje szkic. */
+  wysylkaWstrzymana?: string;
 };
+
+/** Rodzaj dokumentu w podpowiedzi (M8b, `?rodzaj=`): numer z serii tego dokumentu. */
+export type RodzajPodpowiedzi = 'vat' | 'zaliczka' | 'rozliczenie' | 'korekta';
 
 /**
  * `GET /faktury/podpowiedz` dla wybranej firmy, raz na otwarcie formularza.
  * Na danych przykładowych i bez sieci: `gotowe` bez numeru (klient wpisze go sam).
  */
-export function usePodpowiedzFaktury(): PodpowiedzFaktury {
+export function usePodpowiedzFaktury(rodzaj: RodzajPodpowiedzi = 'vat'): PodpowiedzFaktury {
   const kontekst = use(Kontekst);
   const firma = kontekst?.firma?.id;
   // Dane przykładowe (bez kontekstu konta): od razu gotowe. Prawdziwe konto czeka na firmę z `GET /konto`.
@@ -155,7 +162,7 @@ export function usePodpowiedzFaktury(): PodpowiedzFaktury {
   useEffect(() => {
     if (!firma) return;
     let biezace = true;
-    void zapytajApi<PodpowiedzFakturyOdpowiedz>('faktury/podpowiedz', { firma }).then((w) => {
+    void zapytajApi<PodpowiedzFakturyOdpowiedz>(rodzaj === 'vat' ? 'faktury/podpowiedz' : `faktury/podpowiedz?rodzaj=${rodzaj}`, { firma }).then((w) => {
       if (!biezace) return;
       setPodpowiedz(
         w.ok
@@ -165,6 +172,7 @@ export function usePodpowiedzFaktury(): PodpowiedzFaktury {
               dzis: w.dane.dzis,
               zwolnienieVat: w.dane.zwolnienieVat,
               seria: w.dane.seria && w.dane.numer ? { id: w.dane.seria, podglad: w.dane.numer } : null,
+              ...(w.dane.wysylkaWstrzymana ? { wysylkaWstrzymana: bezDlugichMyslnikow(w.dane.wysylkaWstrzymana) } : {}),
             }
           : { gotowe: true, zwolnienieVat: false },
       );
@@ -172,7 +180,7 @@ export function usePodpowiedzFaktury(): PodpowiedzFaktury {
     return () => {
       biezace = false;
     };
-  }, [firma]);
+  }, [firma, rodzaj]);
   return podpowiedz;
 }
 
@@ -551,7 +559,7 @@ function DaneZBazy({ children }: { children: ReactNode }) {
     void odswiezFaktury();
   };
 
-  // Wystawienie i wysyłka szkicu przez API (M8), zapłata (M10a); edycja i reszta zapisów na stronie.
+  // Wystawienie i wysyłka szkicu przez API (M8), zapłata (M10a), rodzaje, ponowienie, szkic (M8b); reszta zapisów na stronie.
   const zmiana = (wyzej: Stan): Stan => ({
     ...wyzej,
     dzis: dzienWarszawa(),
@@ -583,7 +591,8 @@ function DaneZBazy({ children }: { children: ReactNode }) {
         metoda: 'POST',
         firma,
         klucz: naKoncie.klucz,
-        cialo: { wyslij, faktura: naKoncie.faktura },
+        // M8b: zaliczka, rozliczenie i korekta tą samą trasą, z kluczem rodzaju.
+        cialo: naKoncie.tresc ? { wyslij, ...naKoncie.tresc } : { wyslij, faktura: naKoncie.faktura },
       });
       if (!w.ok)
         return bladZapisu(
@@ -591,7 +600,7 @@ function DaneZBazy({ children }: { children: ReactNode }) {
           'Nie wiemy, czy faktura się zapisała: brak odpowiedzi serwera. Sprawdź internet i dotknij jeszcze raz; ten sam formularz nie wystawi drugiej faktury.',
         );
       // Stawka bez procentu („zw”, „oo”, „np”) od razu z opisem, nie jako 0% modelu formularza.
-      const linie = naKoncie.faktura.lines;
+      const linie = naKoncie.faktura?.lines ?? [];
       const zOpisem = { ...f, pozycje: f.pozycje.map((p, i) => (linie[i] && !/^\d+$/.test(linie[i].vatRate) ? { ...p, stawkaOpis: linie[i].vatRate } : p)) };
       pokazZapisana(zOpisem, w.dane.faktura);
       // „Nie zlecono” to zawsze uwaga, także bez zdania serwera: nigdy fałszywe „Wysyłamy do KSeF”.
@@ -603,7 +612,15 @@ function DaneZBazy({ children }: { children: ReactNode }) {
     wyslijDoKsef: async (id) => {
       const firma = dane.firmaId;
       const f = dane.faktury?.lista.find((x) => x.id === id);
-      // Odrzucona albo z błędem wysyłki: poprawka i ponowna wysyłka na stronie (M10).
+      // M8b: błąd wysyłki to „Wyślij ponownie” jak na stronie (zasady i odmowy liczy serwer).
+      if (firma && f && f.statusKsef === 'blad') {
+        const w = await zapytajApi<ZmianaFakturyOdpowiedz>(`faktury/${id}/ponowienie`, { metoda: 'POST', firma });
+        if (!w.ok)
+          return bladZapisu(w.blad, 'Nie wiemy, czy wysyłka została zlecona: brak odpowiedzi serwera. Odśwież listę; ponowne dotknięcie nie wyśle faktury drugi raz.');
+        pokazZapisana({ ...f, blad: undefined }, w.dane.faktura);
+        return { ok: true, id };
+      }
+      // Odrzucona: najpierw „Wróć do szkicu” (jak na stronie), potem wysyłka szkicu.
       if (!firma || !f || f.statusKsef !== 'robocza') {
         naStronie('wysylka', id);
         return { ok: false, komunikat: 'Tę fakturę wyślesz ponownie na faktway.pl.' };
@@ -614,8 +631,25 @@ function DaneZBazy({ children }: { children: ReactNode }) {
       pokazZapisana(f, w.dane.faktura);
       return { ok: true, id };
     },
-    wrocDoSzkicu: (id) => naStronie('edycja', id),
-    usunSzkic: (id) => naStronie('edycja', id),
+    // M8b: „Wróć do szkicu” i usunięcie szkicu przez API, tymi samymi funkcjami co przyciski strony.
+    wrocDoSzkicu: async (id) => {
+      const firma = dane.firmaId;
+      if (!firma) return { ok: false, komunikat: 'Wybierz firmę w Więcej i spróbuj ponownie.' };
+      const w = await zapytajApi<ZmianaFakturyOdpowiedz>(`faktury/${id}/szkic`, { metoda: 'POST', firma });
+      if (!w.ok) return bladZapisu(w.blad, 'Nie wiemy, czy faktura wróciła do szkicu: brak odpowiedzi serwera. Odśwież listę faktur.');
+      setDane((d) => (d.faktury ? { ...d, faktury: { ...d.faktury, lista: d.faktury.lista.map((x) => (x.id === id ? { ...x, statusKsef: 'robocza', blad: undefined } : x)) } } : d));
+      void odswiezFaktury();
+      return { ok: true, id };
+    },
+    usunSzkic: async (id) => {
+      const firma = dane.firmaId;
+      if (!firma) return { ok: false, komunikat: 'Wybierz firmę w Więcej i spróbuj ponownie.' };
+      const w = await zapytajApi<UsuniecieSzkicuOdpowiedz>(`faktury/${id}/usuniecie`, { metoda: 'POST', firma });
+      if (!w.ok) return bladZapisu(w.blad, 'Nie wiemy, czy szkic został usunięty: brak odpowiedzi serwera. Odśwież listę faktur.');
+      setDane((d) => (d.faktury ? { ...d, faktury: { ...d.faktury, lista: d.faktury.lista.filter((x) => x.id !== id) } } : d));
+      void odswiezFaktury();
+      return { ok: true, id };
+    },
     // Wydatki (M9): lista z bazy; wpis ręczny i usunięcie na stronie do M10.
     koszty: dane.wydatki?.lista ?? [],
     zapiszKoszt: () => {

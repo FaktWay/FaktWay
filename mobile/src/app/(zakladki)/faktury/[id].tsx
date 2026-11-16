@@ -15,14 +15,14 @@ import { StanPusty } from '@/komponenty/stan-pusty';
 import { SzkieletListy } from '@/komponenty/szkielet';
 import { potwierdz } from '@/komponenty/potwierdz';
 import { naStronie, otworzNaStronie } from '@/komponenty/na-stronie';
+import { kopiaNaTelefonie } from '@/lib/faktura/wystawienie';
 import { dataKrotka, dataPelna, kwota } from '@/lib/format';
 import { doZaplaty, pozostaloDoZaplaty, statusFaktury } from '@/lib/status-faktury';
 import { useStanFaktur } from '@/stan/faktury';
 import { useUdostepnijPdf } from '@/stan/pdf';
 import { MARGINES, ODSTEP } from '@/wyglad/odstepy';
 import { IKONY_PASKA } from '@/wyglad/ikony-paska';
-import { useKolory } from '@/wyglad/kolory';
-import { useTytulNaGradiencie } from '@/wyglad/naglowki';
+import { useKoloryPaska, useTytulNaGradiencie } from '@/wyglad/naglowki';
 
 const NAZWA_STATUSU_KSEF: Record<StatusKsef, string> = {
   przyjeta: 'Przyjęta w KSeF',
@@ -51,7 +51,7 @@ function wedlugStawek(f: Faktura) {
  * Rzadsze akcje (XML, korekta, duplikat, cykliczna) w menu „…”.
  */
 export default function EkranFaktury() {
-  const kolory = useKolory();
+  const pasek = useKoloryPaska(true);
   const router = useRouter();
   // `uwaga`: szkic zapisany z formularza, ale kolejka KSeF odmówiła (M8); zdanie serwera, co zrobić.
   const { id, uwaga } = useLocalSearchParams<{ id: string; uwaga?: string }>();
@@ -62,6 +62,8 @@ export default function EkranFaktury() {
   const { tytul, onScroll, scrollEventThrottle } = useTytulNaGradiencie();
   const f = faktury.find((x) => x.id === id);
   const [wysylanie, setWysylanie] = useState(false);
+  // M8b: „Wróć do szkicu” i usunięcie szkicu na prawdziwym koncie idą przez API (kółko w przycisku).
+  const [cofanie, setCofanie] = useState(false);
   const [bladWysylki, setBladWysylki] = useState<string>();
   // PDF z serwera w arkuszu udostępniania (M10a); na danych przykładowych opis faktury.
   const udostepnijPdf = useUdostepnijPdf();
@@ -98,13 +100,37 @@ export default function EkranFaktury() {
   const doZaplatyKwota = pozostaloDoZaplaty(f);
   const vat = f.brutto - f.netto;
 
+  /** Odmowa serwera przy zmianie faktury: zdanie nad przyciskami i wibracja (ZASADY-DESIGNU.md, sekcja 7). */
+  const odmowa = (komunikat: string) => {
+    setBladWysylki(komunikat);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+  };
+
   const usun = () =>
     potwierdz({ tytul: 'Usunąć szkic?', opis: 'Numer faktury będzie można użyć ponownie.', potwierdz: 'Usuń szkic' }, () => {
-      usunSzkic(f.id);
-      router.back();
+      void usunSzkic(f.id).then((wynik) => (wynik.ok ? router.back() : odmowa(wynik.komunikat)));
     });
 
-  const edytuj = () => router.push({ pathname: '/faktury/nowa/[rodzaj]', params: { rodzaj: f.rodzaj, edytuj: f.id, wprost: '1' } });
+  // Jak „Wróć do szkicu” na stronie: dane wysyłki znikają, numer zostaje; potem szkic poprawisz i wyślesz.
+  const doSzkicu = () =>
+    potwierdz(
+      { tytul: 'Wrócić do szkicu?', opis: 'Dane wysyłki zostaną wyczyszczone, numer faktury zostaje.', potwierdz: 'Wróć do szkicu', zwykly: true },
+      () => {
+        setCofanie(true);
+        setBladWysylki(undefined);
+        void wrocDoSzkicu(f.id).then((wynik) => {
+          setCofanie(false);
+          if (!wynik.ok) odmowa(wynik.komunikat);
+        });
+      },
+    );
+
+  // Zmiana szkicu na prawdziwym koncie (M8b): formularz z jego danymi, zapis usuwa stary szkic i zapisuje nowy
+  // (strona zmienia szkic tak samo: usunięcie i nowa faktura). Szkic, którego telefon nie skopiuje, na stronie.
+  const edytuj = () =>
+    zBazy && (f.rodzaj !== 'vat' || !kopiaNaTelefonie(f))
+      ? naStronie('edycja', f.id)
+      : router.push({ pathname: '/faktury/nowa/[rodzaj]', params: { rodzaj: f.rodzaj, edytuj: f.id, wprost: '1' } });
 
   // Szkic do KSeF: na prawdziwym koncie przez API (M8), z kółkiem w przycisku i zdaniem serwera przy odmowie.
   const wyslij = async () => {
@@ -122,7 +148,9 @@ export default function EkranFaktury() {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     }
   };
-  const powodBezWysylki = f.statusKsef === 'robocza' ? (bladWysylki ?? uwaga) : undefined;
+  const powodBezWysylki = bladWysylki ?? (f.statusKsef === 'robocza' ? uwaga : undefined);
+  // Jak na stronie (`DraftInvoiceActions`): ze szkicu do KSeF idzie tylko zwykła faktura VAT.
+  const szkicDoWysylki = f.statusKsef === 'robocza' && (!zBazy || f.rodzaj === 'vat');
 
   const stawki = wedlugStawek(f);
 
@@ -166,9 +194,9 @@ export default function EkranFaktury() {
       {podglad ? null : (
         <>
           <Stack.Screen options={{ title: f.numer, headerTitleStyle: tytul }} />
-          <Stack.Toolbar placement="right">
-            <Stack.Toolbar.Button icon={IKONY_PASKA.udostepnij} iconRenderingMode="template" tintColor={kolory.etykieta} accessibilityLabel="Pobierz PDF i udostępnij" onPress={() => udostepnijPdf(f)} />
-            <Stack.Toolbar.Menu icon={IKONY_PASKA.wiecej} iconRenderingMode="template" tintColor={kolory.etykieta} title="Akcje faktury">
+          <Stack.Toolbar placement="right" {...pasek.narzedzia}>
+            <Stack.Toolbar.Button icon={IKONY_PASKA.udostepnij} iconRenderingMode="template" tintColor={pasek.ikona} accessibilityLabel="Pobierz PDF i udostępnij" onPress={() => udostepnijPdf(f)} />
+            <Stack.Toolbar.Menu icon={IKONY_PASKA.wiecej} iconRenderingMode="template" tintColor={pasek.ikona} title="Akcje faktury">
               <Stack.Toolbar.MenuAction icon="envelope" onPress={() => router.push({ pathname: '/faktury/email', params: { id: f.id } })}>
                 Wyślij e-mailem
               </Stack.Toolbar.MenuAction>
@@ -180,7 +208,7 @@ export default function EkranFaktury() {
                   Pobierz XML
                 </Stack.Toolbar.MenuAction>
               ) : null}
-              {przyjeta && f.rodzaj !== 'korygujaca' ? (
+              {przyjeta && (zBazy ? f.rodzaj === 'vat' : f.rodzaj !== 'korygujaca') ? (
                 <Stack.Toolbar.MenuAction
                   icon="arrow.uturn.left.square"
                   onPress={() => router.push({ pathname: '/faktury/nowa/[rodzaj]', params: { rodzaj: 'korygujaca', z: f.id, wprost: '1' } })}>
@@ -197,8 +225,8 @@ export default function EkranFaktury() {
                   Ustaw jako cykliczną
                 </Stack.Toolbar.MenuAction>
               ) : null}
-              {f.statusKsef === 'odrzucona' ? (
-                <Stack.Toolbar.MenuAction icon="arrow.uturn.backward" onPress={() => wrocDoSzkicu(f.id)}>
+              {f.statusKsef === 'odrzucona' || (zBazy && f.statusKsef === 'blad') ? (
+                <Stack.Toolbar.MenuAction icon="arrow.uturn.backward" onPress={zBazy ? doSzkicu : () => void wrocDoSzkicu(f.id)}>
                   Wróć do szkicu
                 </Stack.Toolbar.MenuAction>
               ) : null}
@@ -225,19 +253,38 @@ export default function EkranFaktury() {
         ) : null}
 
         {!podglad && powodBezWysylki ? (
-          <Sekcja naglowek="Nie wysłaliśmy do KSeF" stopka="Szkic jest zapisany. Gdy to poprawisz, wyślij go jeszcze raz.">
+          <Sekcja
+            naglowek={f.statusKsef === 'robocza' ? 'Nie wysłaliśmy do KSeF' : 'Nie zmieniliśmy faktury'}
+            stopka={f.statusKsef === 'robocza' ? 'Szkic jest zapisany. Gdy to poprawisz, wyślij go jeszcze raz.' : undefined}>
             <Wiersz tytul={powodBezWysylki} ikona="alert-fill" ikonaKolor="ostrzezenie" />
           </Sekcja>
         ) : null}
 
-        {!podglad && ((!zBazy && f.statusKsef === 'odrzucona') || f.statusKsef === 'robocza') ? (
+        {!podglad && f.statusKsef === 'robocza' && !szkicDoWysylki ? (
+          // Szkic zaliczki, rozliczenia albo korekty (M8b): jak na stronie, bez późniejszej wysyłki.
+          <Sekcja naglowek="Szkic do wystawienia od nowa" stopka="Szkicu zaliczki, rozliczenia ani korekty nie wyślesz do KSeF później (tak samo na stronie). Usuń go i wystaw dokument od nowa, od razu z wysyłką.">
+            <Wiersz tytul={NAZWA_RODZAJU[f.rodzaj]} podtytul={f.numer} />
+          </Sekcja>
+        ) : null}
+
+        {!podglad && (f.statusKsef === 'robocza' || f.statusKsef === 'odrzucona' || (zBazy && f.statusKsef === 'blad')) ? (
           <View style={styles.akcja}>
-            {f.statusKsef === 'robocza' ? (
+            {f.statusKsef === 'robocza' && szkicDoWysylki ? (
               <>
                 <PrzyciskGlowny tytul="Wyślij do KSeF" ikona="send-plane-line" trwa={wysylanie} onPress={() => void wyslij()} />
-                {/* Zmiana szkicu z telefonu na prawdziwym koncie dochodzi w M10; do tego czasu na stronie. */}
-                <PrzyciskGlowny tytul="Edytuj" ikona="pencil-line" wariant="drugorzedny" onPress={zBazy ? () => naStronie('edycja', f.id) : edytuj} />
+                <PrzyciskGlowny tytul="Edytuj" ikona="pencil-line" wariant="drugorzedny" onPress={edytuj} />
               </>
+            ) : f.statusKsef === 'robocza' ? (
+              <PrzyciskGlowny tytul="Usuń szkic" ikona="delete-bin-line" wariant="drugorzedny" onPress={usun} />
+            ) : f.statusKsef === 'blad' ? (
+              // Błąd wysyłki (M8b): „Wyślij ponownie” jak na stronie; czy wolno, mówi serwer (np. błąd danych: wróć do szkicu).
+              <>
+                <PrzyciskGlowny tytul="Wyślij ponownie" ikona="send-plane-line" trwa={wysylanie} onPress={() => void wyslij()} />
+                <PrzyciskGlowny tytul="Wróć do szkicu" ikona="arrow-go-back-line" wariant="drugorzedny" trwa={cofanie} onPress={doSzkicu} />
+              </>
+            ) : zBazy ? (
+              // Odrzucona przez KSeF: jak na stronie najpierw szkic, potem poprawka i wysyłka.
+              <PrzyciskGlowny tytul="Wróć do szkicu" ikona="arrow-go-back-line" trwa={cofanie} onPress={doSzkicu} />
             ) : (
               // Odrzucona: najpierw poprawka (np. NIP), ponowna wysyłka bez zmian jako druga droga.
               <>
@@ -252,7 +299,14 @@ export default function EkranFaktury() {
         {f.blad ? (
           <Sekcja
             naglowek={f.statusKsef === 'blad' ? 'Dlaczego wysyłka się nie udała' : 'Dlaczego KSeF odrzucił fakturę'}
-            stopka={[f.blad.podpowiedz, zBazy ? 'Poprawisz i wyślesz ponownie na faktway.pl.' : ''].filter(Boolean).join(' ') || undefined}>
+            stopka={
+              [
+                f.blad.podpowiedz,
+                zBazy ? (f.statusKsef === 'blad' ? 'Wyślij ponownie albo wróć do szkicu i popraw dane.' : 'Wróć do szkicu, popraw dane i wyślij jeszcze raz.') : '',
+              ]
+                .filter(Boolean)
+                .join(' ') || undefined
+            }>
             <Wiersz tytul={f.blad.komunikat} ikona="alert-fill" ikonaKolor="blad" />
             {f.blad.pole ? <Wiersz tytul="Pole" wartosc={f.blad.pole} /> : null}
             {zBazy ? (

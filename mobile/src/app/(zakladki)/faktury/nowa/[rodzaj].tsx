@@ -26,6 +26,7 @@ import { NaglowekKwoty } from '@/komponenty/naglowek';
 import { PrzyciskGlowny } from '@/komponenty/przycisk-glowny';
 import { Tekst } from '@/komponenty/tekst';
 import { EkranTylkoNaStronie } from '@/komponenty/na-stronie';
+import { PrzyciskPaska } from '@/komponenty/przycisk-paska';
 import {
   bladFirmyZapisu,
   dodajDni,
@@ -41,8 +42,21 @@ import {
   type NabywcaZFaktury,
   type PozycjaFormularza,
 } from '@/lib/faktura/wystawienie';
+import { KRAJE_UE_TELEFONU, type RodzajIdOsobyTelefonu, type WyliczenieZadanie } from '@/lib/api/kontrakt';
+import { grosze as groszeZApi } from '@/lib/dane/mapowanie';
+import {
+  doKorektyTelefonu,
+  doRozliczeniaTelefonu,
+  doZaliczkiTelefonu,
+  krajZVatUe,
+  poleRodzaju,
+  poleZPozycji,
+  type DokumentFormularza,
+  type TypKorektyTelefonu,
+} from '@/lib/faktura/rodzaje';
 import { dataKrotka, dniMiedzy, doPola, groszeZPola as grosze, kwota } from '@/lib/format';
-import { useKontoFirmy, usePodpowiedzFaktury } from '@/stan/dane';
+import { useKontoFirmy, usePodpowiedzFaktury, type RodzajPodpowiedzi } from '@/stan/dane';
+import { szukajWGus, useKontekstKorekty, useWyliczenie, useZaliczkiDoRozliczenia } from '@/stan/faktury-rodzaje';
 import { useStanFaktur, type ZapisNaKoncie } from '@/stan/faktury';
 import { useKolory } from '@/wyglad/kolory';
 import { CEL_DOTYKU, MARGINES, ODSTEP, PROMIEN_PIGULKI } from '@/wyglad/odstepy';
@@ -67,6 +81,26 @@ const STAWKI_ZWYKLE = [
 ];
 const STAWKI_ZALICZKI = STAWKI_ZWYKLE.slice(0, 4);
 const STAWKI_ROZLICZENIA = STAWKI_ZWYKLE.filter((s) => s.wartosc !== 'zw');
+/** M8b: „np II” (usługa dla firmy z innego kraju UE) tylko przy nabywcy z UE; regułę sprawdza serwer schematem strony. */
+const STAWKA_NP_II = { wartosc: 'np_ii', etykieta: 'np II (usługa dla firmy z UE)' };
+
+const RODZAJ_PODPOWIEDZI: Record<RodzajFaktury, RodzajPodpowiedzi> = {
+  vat: 'vat',
+  zaliczkowa: 'zaliczka',
+  rozliczajaca: 'rozliczenie',
+  korygujaca: 'korekta',
+};
+
+/** Identyfikator osoby prywatnej jak w formularzu strony (`buyerConsumerIdType`). */
+const IDENTYFIKATORY_OSOBY: { wartosc: RodzajIdOsobyTelefonu; etykieta: string }[] = [
+  { wartosc: 'no_id', etykieta: 'Bez numeru identyfikacyjnego' },
+  { wartosc: 'pesel', etykieta: 'PESEL' },
+  { wartosc: 'id_card', etykieta: 'Dowód osobisty' },
+  { wartosc: 'passport', etykieta: 'Paszport' },
+];
+
+/** Tekst w polach wyliczenia, gdy klient jeszcze go nie wpisał: kwoty od tekstu nie zależą (M8b). */
+const NA_PODGLAD = { numer: 'PODGLAD', opis: 'Podgląd kwot', pozycja: 'Pozycja' } as const;
 
 function stawkaProcent(s: string): number {
   return /^\d+$/.test(s) ? Number(s) : 0;
@@ -108,16 +142,22 @@ const NABYWCY_PRZYKLADOWI: NabywcaZFaktury[] = KONTRAHENCI.map((k: Kontrahent) =
 });
 
 /**
- * Na prawdziwym koncie (M8) z telefonu wystawisz zwykłą fakturę VAT (szkic albo
- * wysyłka do KSeF). Korekta, zaliczka, rozliczenie i zmiana szkicu idą do M10
- * na stronę: ekran mówi, gdzie to zrobić.
+ * Na prawdziwym koncie z telefonu wystawisz zwykłą fakturę VAT (M8), zaliczkę,
+ * rozliczenie zaliczek i korektę (M8b), szkic albo z wysyłką do KSeF. Zmiana
+ * szkicu (M8b) jak na stronie: szkic zwykłej faktury, który telefon kopiuje w
+ * całości, otwiera się z danymi, a zapis usuwa stary szkic i zapisuje nowy;
+ * reszta na stronie.
  */
 export default function EkranFormularzaFaktury() {
   const { dane, faktury } = useStanFaktur();
-  const { rodzaj, edytuj, wzor } = useLocalSearchParams<{ rodzaj: string; edytuj?: string; wzor?: string }>();
-  if (dane.zrodlo === 'baza' && (rodzaj !== 'vat' || edytuj)) {
-    return <EkranTylkoNaStronie co={edytuj ? 'edycja' : 'wystawienie'} idFaktury={edytuj} />;
-  }
+  const { edytuj, wzor } = useLocalSearchParams<{ rodzaj: string; edytuj?: string; wzor?: string }>();
+  // Decyzja z otwarcia: zapis zmiany usuwa stary szkic z listy, a formularz ma zostać do końca zapisu.
+  const [edycjaNaStronie] = useState(() => {
+    if (dane.zrodlo !== 'baza' || !edytuj) return false;
+    const szkic = faktury.find((f) => f.id === edytuj);
+    return !szkic || szkic.statusKsef !== 'robocza' || szkic.rodzaj !== 'vat' || !kopiaNaTelefonie(szkic);
+  });
+  if (edycjaNaStronie) return <EkranTylkoNaStronie co="edycja" idFaktury={edytuj} />;
   // Kopia faktury dla firmy z UE, osoby z PESEL, w walucie albo ze stawką spoza telefonu: strona kopiuje ją w całości.
   const wzorFaktury = wzor ? faktury.find((f) => f.id === wzor) : undefined;
   if (dane.zrodlo === 'baza' && wzorFaktury && !kopiaNaTelefonie(wzorFaktury)) {
@@ -138,18 +178,22 @@ function FormularzFaktury() {
   const router = useRouter();
   const { rodzaj: rodzajParam, wzor, z, edytuj, wprost } = useLocalSearchParams<{ rodzaj: string; wzor?: string; z?: string; edytuj?: string; wprost?: string }>();
   const rodzaj: RodzajFaktury = (['vat', 'zaliczkowa', 'rozliczajaca', 'korygujaca'] as const).find((r) => r === rodzajParam) ?? 'vat';
-  const { faktury, dodajFakture, zastapFakture, pokazPotwierdzenie, dane, dzis } = useStanFaktur();
+  const { faktury, dodajFakture, zastapFakture, usunSzkic, pokazPotwierdzenie, dane, dzis } = useStanFaktur();
   // Prawdziwe konto (M8): zwykła faktura przez API, nabywcy z ostatnich faktur, numer z podpowiedzi serwera.
+  // M8b: zaliczka, rozliczenie i korekta też przez API; ich kwoty liczy serwer (`useWyliczenie`).
   const zBazy = dane.zrodlo === 'baza';
-  const podpowiedz = usePodpowiedzFaktury();
+  const kwotySerweraWlaczone = zBazy && rodzaj !== 'vat';
+  const podpowiedz = usePodpowiedzFaktury(RODZAJ_PODPOWIEDZI[rodzaj]);
   // Firma, w której otwarto formularz (jak `expectedTenantId` na stronie, UX-01): zapis w innej odmawia.
-  const firmaTeraz = useKontoFirmy()?.firma?.id ?? null;
+  const konto = useKontoFirmy();
+  const firmaTeraz = konto?.firma?.id ?? null;
   const [firmaFormularza, setFirmaFormularza] = useState(firmaTeraz);
   if (!firmaFormularza && firmaTeraz) setFirmaFormularza(firmaTeraz);
   const kolory = useKolory();
   const stylKarty = useStylKarty();
-  // Edycja szkicu albo odrzuconej faktury: te same pola, zapis w miejscu starej.
-  const edytowana = faktury.find((f) => f.id === edytuj && (f.statusKsef === 'robocza' || f.statusKsef === 'odrzucona'));
+  // Edycja szkicu albo odrzuconej faktury: te same pola, zapis w miejscu starej. Na prawdziwym koncie
+  // (M8b) zapis usuwa stary szkic z listy, więc szkic z otwarcia formularza trzymamy w stanie.
+  const [edytowana] = useState(() => faktury.find((f) => f.id === edytuj && (f.statusKsef === 'robocza' || f.statusKsef === 'odrzucona')));
   const wzorFaktury = edytowana ?? faktury.find((f) => f.id === wzor);
   const nabywcy = zBazy ? nabywcyZFaktur(faktury) : NABYWCY_PRZYKLADOWI;
   const dzien = zBazy ? dzis : DZIS;
@@ -161,12 +205,19 @@ function FormularzFaktury() {
   const [termin, setTermin] = useState(
     edytowana ? String(najblizszyTermin(dniMiedzy(edytowana.dataWystawienia, edytowana.terminPlatnosci))) : String(startowy?.terminDni ?? 14),
   );
-  const [rodzajNabywcy, setRodzajNabywcy] = useState<'firma' | 'osoba' | 'ue'>(startowy?.osoba ? 'osoba' : 'firma');
+  const [rodzajNabywcy, setRodzajNabywcy] = useState<'firma' | 'osoba' | 'ue'>(edytowana?.nabywcaTyp === 'osoba' || startowy?.osoba ? 'osoba' : 'firma');
   const [nip, setNip] = useState(edytowana?.nipKontrahenta ?? startowy?.nip ?? '');
   const [nazwa, setNazwa] = useState(edytowana?.kontrahent ?? startowy?.nazwa ?? '');
-  const [adres1, setAdres1] = useState(startowy?.adres1 ?? '');
-  const [adres2, setAdres2] = useState(startowy?.adres2 ?? '');
-  const [email, setEmail] = useState(startowy?.email ?? '');
+  const [adres1, setAdres1] = useState(edytowana?.adresKontrahentaLinie?.linia1 ?? startowy?.adres1 ?? '');
+  const [adres2, setAdres2] = useState(edytowana?.adresKontrahentaLinie?.linia2 ?? startowy?.adres2 ?? '');
+  const [email, setEmail] = useState(edytowana?.emailKontrahenta ?? startowy?.email ?? '');
+  // M8b: firma z UE (numer VAT-UE, kraj adresu) i osoba z PESEL albo dokumentem, jak w formularzu strony.
+  const [vatUe, setVatUe] = useState('');
+  const [kraj, setKraj] = useState('');
+  const [idOsoby, setIdOsoby] = useState<RodzajIdOsobyTelefonu>('no_id');
+  const [pesel, setPesel] = useState('');
+  const [dokumentOsoby, setDokumentOsoby] = useState('');
+  const [gusTrwa, setGusTrwa] = useState(false);
   const [metoda, setMetoda] = useState<MetodaPlatnosci>(edytowana?.metodaPlatnosci ?? 'Przelew');
   // Rachunek z ostatniej faktury z rachunkiem (strona podpowiada go tak samo przy „Wypełnij z ostatniej”).
   const [rachunek, setRachunek] = useState(edytowana?.rachunek ?? (zBazy ? (faktury.find((f) => f.rachunek)?.rachunek ?? '') : SPRZEDAWCA.rachunek));
@@ -195,21 +246,50 @@ function FormularzFaktury() {
   const [wartoscUmowy, setWartoscUmowy] = useState('');
   const [kwotaZaliczki, setKwotaZaliczki] = useState(edytowana?.rodzaj === 'zaliczkowa' ? doPola(edytowana.brutto) : '');
   const [stawkaZaliczki, setStawkaZaliczki] = useState('23');
-  const [realizacja, setRealizacja] = useState(dodajDni(DZIS, 30));
+  const [realizacja, setRealizacja] = useState(dodajDni(dzien, 30));
   const [opisZaliczki, setOpisZaliczki] = useState(edytowana?.rodzaj === 'zaliczkowa' ? (edytowana.pozycje[0]?.nazwa ?? '') : '');
+  // Data otrzymania zaliczki (P_6, F12-D1); równa dacie wystawienia idzie jako brak.
+  const [otrzymana, setOtrzymana] = useState(dzien);
   // Rozliczenie zaliczek.
-  const zaliczki = faktury.filter((f) => f.rodzaj === 'zaliczkowa' && f.statusKsef === 'przyjeta');
+  // Na prawdziwym koncie (M8b) lista z serwera: przyjęte w KSeF i jeszcze nierozliczone, z nabywcą.
+  const zaliczkiSerwera = useZaliczkiDoRozliczenia(zBazy && rodzaj === 'rozliczajaca', firmaFormularza);
+  const nipNabywcy = nip.replace(/\D/g, '');
+  const zaliczki: { id: string; numer: string; kontrahent: string; nip: string; brutto: number; netto: number; nabywca?: { nazwa: string; adres1: string; adres2: string; email: string } }[] = zBazy
+    ? zaliczkiSerwera.stan === 'gotowe'
+      ? zaliczkiSerwera.zaliczki
+          // Rozliczenie obejmuje tylko zaliczki tego samego nabywcy (art. 106f ust. 3): przy wpisanym NIP tylko jego.
+          .filter((a) => nipNabywcy.length !== 10 || a.nabywca.nip === nipNabywcy)
+          .map((a) => ({ id: a.id, numer: a.numer, kontrahent: a.nabywca.nazwa, nip: a.nabywca.nip ?? '', brutto: groszeZApi(a.brutto), netto: 0, nabywca: a.nabywca }))
+      : []
+    : faktury.filter((f) => f.rodzaj === 'zaliczkowa' && f.statusKsef === 'przyjeta').map((f) => ({ id: f.id, numer: f.numer, kontrahent: f.kontrahent, nip: f.nipKontrahenta, brutto: f.brutto, netto: f.netto }));
   const [wybraneZaliczki, setWybraneZaliczki] = useState<Record<string, boolean>>({});
   // Korekta.
   const [zrodloId, setZrodloId] = useState<string | undefined>(z);
-  const [typKorekty, setTypKorekty] = useState<'kwotowa' | 'dane' | 'anulowanie'>('kwotowa');
-  const [typKsef, setTypKsef] = useState('2');
+  const [typKorekty, setTypKorekty] = useState<TypKorektyTelefonu>('kwotowa');
+  const [typKsef, setTypKsef] = useState<'1' | '2' | '3'>('2');
   const [przyczyna, setPrzyczyna] = useState('');
+  // Korekta kwotowa (M8b): zmiana netto, VAT i brutto wpisana jak na stronie, opis pozycji korekty.
+  const [zmianaNetto, setZmianaNetto] = useState('');
+  const [zmianaVat, setZmianaVat] = useState('');
+  const [zmianaBrutto, setZmianaBrutto] = useState('');
+  const [opisZmiany, setOpisZmiany] = useState('');
   const zrodlo = faktury.find((f) => f.id === zrodloId);
+  // Faktura pierwotna z serwera (stan po przyjętych korektach): nabywca, pozycje „przed”, dozwolone typy.
+  const kontekst = useKontekstKorekty(zBazy && rodzaj === 'korygujaca' ? zrodloId : undefined, firmaFormularza);
+  const kontekstKorekty = kontekst.stan === 'gotowe' ? kontekst.kontekst : undefined;
+  const [kontekstWpisany, setKontekstWpisany] = useState<string | null>(null);
+  if (kontekstKorekty && kontekstWpisany !== kontekstKorekty.faktura.id) {
+    // „Jest” startuje jako kopia „było” z serwera; po korekcie kwotowej wolno tylko kolejną kwotową.
+    setKontekstWpisany(kontekstKorekty.faktura.id);
+    setPozycje(kontekstKorekty.pozycje.map(poleZPozycji));
+    if (kontekstKorekty.dozwolone === 'amount_change_only') setTypKorekty('kwotowa');
+  }
+  const stawkaBezVat = kontekstKorekty?.stawkaBezVat ?? null;
 
   // Zamknięcie ze zmianami pyta „Odrzucić zmiany?” (ZASADY-DESIGNU.md, sekcja 6), także gestem w dół.
   const migawka = JSON.stringify([numer, dataWyst, dataSprz, termin, rodzajNabywcy, nip, nazwa, adres1, adres2, email, metoda, rachunek, mpp, pozycje, uwagi,
-    wartoscUmowy, kwotaZaliczki, stawkaZaliczki, realizacja, opisZaliczki, wybraneZaliczki, zrodloId, typKorekty, typKsef, przyczyna]);
+    wartoscUmowy, kwotaZaliczki, stawkaZaliczki, realizacja, opisZaliczki, wybraneZaliczki, zrodloId, typKorekty, typKsef, przyczyna,
+    vatUe, kraj, idOsoby, pesel, dokumentOsoby, otrzymana, zmianaNetto, zmianaVat, zmianaBrutto, opisZmiany]);
   // Na prawdziwym koncie punkt startowy to formularz po wpisaniu podpowiedzi serwera (to nie zmiana klienta).
   const [migawkaStartowa, setMigawkaStartowa] = useState<string | null>(zBazy && !edytowana ? null : migawka);
   if (migawkaStartowa === null && podpowiedzWpisana) setMigawkaStartowa(migawka);
@@ -259,12 +339,99 @@ function FormularzFaktury() {
   const sumaNetto = pozycjeGotowe.reduce((s, p) => s + nettoPozycji(p), 0);
   const sumaVat = pozycjeGotowe.reduce((s, p) => s + vatPozycji(p), 0);
   const zaliczkaBrutto = grosze(kwotaZaliczki) || 0;
+  // Na prawdziwym koncie kwoty zaliczki liczy serwer (POST /faktury/wyliczenie, M8b); to liczenie zostaje dla danych przykładowych.
   // filtr-wyjatek: kwoty-bez-float podgląd zaliczki tylko w trybie przykładowym; telefon wysyła do serwera wyłącznie zwykłą fakturę VAT (lib/api/mobile/schematy.ts)
   const zaliczkaNetto = Math.round(zaliczkaBrutto / (1 + stawkaProcent(stawkaZaliczki) / 100));
   const wybrane = zaliczki.filter((f) => wybraneZaliczki[f.id]);
+  const idWybranych = wybrane.map((f) => f.id);
   const sumaWybranychZaliczek = wybrane.reduce((s, f) => s + f.brutto, 0);
   // Korekta pokazuje i zapisuje różnicę „jest” minus „było”, nie nową sumę.
   const zmianaKorekty = typKorekty === 'anulowanie' ? -(zrodlo?.brutto ?? 0) : sumaNetto + sumaVat - (zrodlo?.brutto ?? 0);
+
+  // Prawdziwe konto (M8b): treść zaliczki, rozliczenia albo korekty dla serwera. `naPodglad` wstawia tekst
+  // tam, gdzie klient go jeszcze nie wpisał, bo kwoty od tekstu nie zależą (wyliczenie niczego nie zapisuje).
+  const dokumentFormularza = (naPodglad: boolean): DokumentFormularza => ({
+    numer: numer.trim() || (naPodglad ? NA_PODGLAD.numer : ''),
+    dataWystawienia: dataWyst,
+    terminDni: Number(termin),
+    metoda,
+    rachunek,
+    uwagi,
+    seria: podpowiedz.seria ?? null,
+  });
+  const nabywcaFormularza = { nip, nazwa, adres1, adres2, email };
+  const trescRodzaju = (naPodglad: boolean): WyliczenieZadanie | null => {
+    if (!kwotySerweraWlaczone) return null;
+    const tekst = (t: string, zamiast: string) => (naPodglad && t.trim().length < 5 ? zamiast : t);
+    const pozycjeTresci = pozycje.map((p) => ({ ...p, nazwa: naPodglad && !p.nazwa.trim() ? NA_PODGLAD.pozycja : p.nazwa }));
+    if (rodzaj === 'zaliczkowa') {
+      return {
+        zaliczka: doZaliczkiTelefonu({
+          dokument: dokumentFormularza(naPodglad),
+          nabywca: nabywcaFormularza,
+          mpp,
+          kwota: kwotaZaliczki,
+          wartoscUmowy: naPodglad && !wartoscUmowy.trim() ? kwotaZaliczki : wartoscUmowy,
+          stawka: stawkaZaliczki as '23' | '8' | '5' | '0',
+          realizacja,
+          otrzymana,
+          opis: tekst(opisZaliczki, NA_PODGLAD.opis),
+        }),
+      };
+    }
+    if (rodzaj === 'rozliczajaca') {
+      if (idWybranych.length === 0) return null;
+      return { rozliczenie: doRozliczeniaTelefonu({ dokument: dokumentFormularza(naPodglad), nabywca: nabywcaFormularza, mpp, zaliczki: idWybranych, pozycje: pozycjeTresci }) };
+    }
+    if (!kontekstKorekty || !zrodloId) return null;
+    return {
+      korekta: doKorektyTelefonu({
+        dokument: dokumentFormularza(naPodglad),
+        fakturaId: zrodloId,
+        typ: typKorekty,
+        przyczyna: tekst(przyczyna, NA_PODGLAD.opis),
+        typKsef,
+        pozycje: pozycjeTresci,
+        zmiana: { netto: zmianaNetto, vat: zmianaVat, brutto: zmianaBrutto, opis: naPodglad && !opisZmiany.trim() ? NA_PODGLAD.opis : opisZmiany },
+      }),
+    };
+  };
+  const wyliczenie = useWyliczenie(trescRodzaju(true), firmaFormularza);
+  const kwotySerwera = wyliczenie.stan === 'gotowe' || wyliczenie.stan === 'liczymy' ? wyliczenie.kwoty : undefined;
+  /** Kwota z serwera (zł) na ekranie; „…”, póki serwer jej nie policzył. */
+  const zKwot = (v: number | undefined) => (v === undefined ? '…' : kwota(groszeZApi(v)));
+  /** Brutto pozycji: z serwera dla zaliczki, rozliczenia i korekty (M8b), w zwykłej fakturze jak na serwerze (M8). */
+  const bruttoWiersza = (i: number, p: PozycjaFormularza) => (kwotySerweraWlaczone ? zKwot(kwotySerwera?.pozycje[i]?.brutto) : kwota(bruttoPozycji(doPozycji(p))));
+  const stopkaKwot = !kwotySerweraWlaczone
+    ? undefined
+    : wyliczenie.stan === 'blad'
+      ? wyliczenie.komunikat
+      : wyliczenie.stan === 'liczymy'
+        ? 'Liczymy kwoty…'
+        : wyliczenie.stan === 'czeka'
+          ? rodzaj === 'korygujaca'
+            ? 'Kwoty policzymy po wybraniu faktury pierwotnej.'
+            : 'Kwoty policzymy po wybraniu zaliczek.'
+          : 'Kwoty liczy FaktWay tak samo jak na stronie.';
+  // Wysyłka tego rodzaju wstrzymana także na stronie (rozliczenie; korekta na produkcji): przycisk zapisuje szkic.
+  const wysylkaWstrzymana = zBazy ? podpowiedz.wysylkaWstrzymana : undefined;
+
+  /** Nazwa i adres firmy z Polski po NIP (kontrahenci firmy, potem GUS), jak „Pobierz z GUS” na stronie (M8b). */
+  const pobierzZGus = async () => {
+    if (gusTrwa) return;
+    setGusTrwa(true);
+    const w = await szukajWGus(konto, nip, firmaFormularza);
+    setGusTrwa(false);
+    if (!w.ok) {
+      setBledy((b) => ({ ...b, nip: w.komunikat }));
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
+    setBledy(({ nip: _bez, ...reszta }) => reszta);
+    setNazwa(w.nabywca.nazwa);
+    setAdres1(w.nabywca.adres1);
+    setAdres2(w.nabywca.adres2);
+  };
 
   const ustawPozycje = (i: number, zmiana: Partial<PozycjaFormularza>) =>
     setPozycje((lista) => lista.map((p, j) => (j === i ? { ...p, ...zmiana } : p)));
@@ -272,24 +439,39 @@ function FormularzFaktury() {
   const sprawdz = (): boolean => {
     const b: Record<string, string> = {};
     if (!numer.trim()) b.numer = 'Wpisz numer faktury.';
-    if (rodzaj !== 'korygujaca' || zrodlo) {
+    // Nabywcę korekty na prawdziwym koncie bierze serwer z faktury pierwotnej (M8b): telefon go nie zmienia.
+    if (rodzaj !== 'korygujaca' || (zrodlo && !zBazy)) {
       if (!nazwa.trim()) b.nazwa = 'Wpisz nazwę nabywcy.';
       if (!adres1.trim() || !adres2.trim()) b.adres = 'Wpisz oba wiersze adresu.';
       if ((rodzajNabywcy === 'firma' || rodzaj !== 'vat') && !/^\d{10}$/.test(nip.replace(/\D/g, ''))) b.nip = 'NIP ma 10 cyfr.';
+      if (zBazy && rodzaj === 'vat' && rodzajNabywcy === 'ue' && !krajZVatUe(vatUe)) b.nip = 'Wpisz numer VAT-UE z prefiksem kraju UE, np. DE123456789.';
+      if (zBazy && rodzaj === 'vat' && rodzajNabywcy === 'osoba') {
+        if (idOsoby === 'pesel' && !/^\d{11}$/.test(pesel.replace(/\D/g, ''))) b.nip = 'PESEL ma 11 cyfr.';
+        if ((idOsoby === 'id_card' || idOsoby === 'passport') && dokumentOsoby.trim().length < 3) b.nip = 'Wpisz numer dokumentu.';
+      }
     }
     if (rodzaj === 'korygujaca' && !zrodlo) b.zrodlo = 'Wybierz fakturę, którą korygujesz.';
+    if (rodzaj === 'korygujaca' && zBazy && zrodlo && !kontekstKorekty)
+      b.zrodlo = kontekst.stan === 'blad' ? kontekst.komunikat : 'Poczekaj, aż wczytamy fakturę pierwotną.';
     if (rodzaj === 'korygujaca' && !przyczyna.trim()) b.przyczyna = 'Podaj przyczynę korekty (obowiązkowe).';
-    if (rodzaj === 'zaliczkowa' && !(zaliczkaBrutto > 0)) b.zaliczka = 'Wpisz kwotę zaliczki brutto.';
+    if (rodzaj === 'korygujaca' && zBazy && typKorekty === 'kwotowa') {
+      if (![zmianaNetto, zmianaVat, zmianaBrutto].every((t) => Number.isFinite(liczbaZPola(t)))) b.zmiana = 'Wpisz zmianę netto, VAT i brutto (przy zwrocie ze znakiem minus).';
+      else if (!opisZmiany.trim()) b.zmiana = 'Opisz zmianę kwoty (to nazwa pozycji korekty).';
+    }
+    if (rodzaj === 'zaliczkowa' && !(zBazy ? liczbaZPola(kwotaZaliczki) > 0 : zaliczkaBrutto > 0)) b.zaliczka = 'Wpisz kwotę zaliczki brutto.';
+    else if (rodzaj === 'zaliczkowa' && zBazy && !(liczbaZPola(wartoscUmowy) > 0)) b.zaliczka = 'Wpisz wartość zamówienia brutto.';
+    else if (rodzaj === 'zaliczkowa' && zBazy && opisZaliczki.trim().length < 5) b.zaliczka = 'Opisz, za co jest zaliczka (co najmniej 5 znaków).';
     if (rodzaj === 'rozliczajaca' && wybrane.length === 0)
       b.zaliczki = zaliczki.length === 0 ? 'Najpierw wystaw fakturę zaliczkową.' : 'Zaznacz zaliczki, które rozliczasz.';
-    if ((rodzaj === 'vat' || rodzaj === 'rozliczajaca' || (rodzaj === 'korygujaca' && typKorekty !== 'anulowanie')) && pozycje.some((p) => !p.nazwa.trim()))
+    if ((rodzaj === 'vat' || rodzaj === 'rozliczajaca' || (rodzaj === 'korygujaca' && (zBazy ? typKorekty === 'dane' : typKorekty !== 'anulowanie'))) && pozycje.some((p) => !p.nazwa.trim()))
       b.pozycje = 'Każda pozycja potrzebuje nazwy.';
     if (mpp && !rachunek.trim()) b.rachunek = 'MPP wymaga numeru rachunku.';
-    // Stawki spoza telefonu (np. „np II” z kopii) wystawia strona: nie zamieniamy ich na inną.
-    if (zBazy && !b.pozycje && pozycje.some((p) => stawkaTelefonu(p.stawka) === null))
-      b.pozycje = 'Tę stawkę VAT (np. „np II” dla firmy z UE) wystawisz na faktway.pl.';
+    // Stawki spoza telefonu (np. „0 WDT” z kopii) wystawia strona: nie zamieniamy ich na inną.
+    const zPozycjami = rodzaj === 'vat' || rodzaj === 'rozliczajaca' || (rodzaj === 'korygujaca' && typKorekty === 'dane');
+    if (zBazy && zPozycjami && !b.pozycje && pozycje.some((p) => stawkaTelefonu(p.stawka) === null))
+      b.pozycje = 'Tę stawkę VAT wystawisz na faktway.pl.';
     // Prawdziwe konto: liczby idą do serwera bez zaokrąglania, więc puste albo błędne pole mówimy od razu.
-    if (zBazy && !b.pozycje && pozycje.some((p) => !(liczbaZPola(p.ilosc) > 0) || !(liczbaZPola(p.cena) >= 0)))
+    if (zBazy && zPozycjami && !b.pozycje && pozycje.some((p) => !(liczbaZPola(p.ilosc) > 0) || !(liczbaZPola(p.cena) >= 0)))
       b.pozycje = 'Każda pozycja potrzebuje ilości i ceny netto.';
     setBledy(b);
     const ok = Object.keys(b).length === 0;
@@ -307,12 +489,16 @@ function FormularzFaktury() {
           : pozycjeGotowe;
     let netto = pozycjeFaktury.reduce((s, p) => s + nettoPozycji(p), 0);
     let brutto = pozycjeFaktury.reduce((s, p) => s + bruttoPozycji(p), 0);
-    if (rodzaj === 'rozliczajaca') {
+    if (kwotySerweraWlaczone) {
+      // Prawdziwe konto (M8b): na liście od razu kwoty z serwera; lista z bazy przychodzi zaraz po zapisie.
+      netto = kwotySerwera ? groszeZApi(kwotySerwera.netto) : 0;
+      brutto = kwotySerwera ? groszeZApi(rodzaj === 'korygujaca' ? kwotySerwera.brutto : kwotySerwera.doZaplaty) : 0;
+    } else if (rodzaj === 'rozliczajaca') {
       // Do zapłaty zostaje tylko to, czego nie pokryły zaliczki.
       netto -= wybrane.reduce((s, f) => s + f.netto, 0);
       brutto -= sumaWybranychZaliczek;
     }
-    if (rodzaj === 'korygujaca' && typKorekty !== 'anulowanie' && zrodlo) {
+    if (!kwotySerweraWlaczone && rodzaj === 'korygujaca' && typKorekty !== 'anulowanie' && zrodlo) {
       netto -= zrodlo.netto;
       brutto -= zrodlo.brutto;
     }
@@ -327,14 +513,14 @@ function FormularzFaktury() {
       brutto,
       statusKsef: 'robocza',
       zaplacona: false,
-      pozycje: pozycjeFaktury,
+      pozycje: kwotySerweraWlaczone ? [] : pozycjeFaktury,
       rodzaj,
       metodaPlatnosci: metoda,
       rachunek: metoda === 'Przelew' ? rachunek : undefined,
       mpp,
       uwagi: [rodzaj === 'korygujaca' ? `Przyczyna korekty: ${przyczyna.trim()}` : '', uwagi.trim()].filter(Boolean).join('\n') || undefined,
     };
-    if (edytowana) {
+    if (edytowana && !zBazy) {
       setBezPytania(true);
       wylaczOchrone();
       zastapFakture(edytowana.id, nowa, wyslij);
@@ -353,24 +539,39 @@ function FormularzFaktury() {
         return;
       }
     }
-    const naKoncie: ZapisNaKoncie | undefined = zBazy && firmaFormularza
-      ? {
-          klucz,
-          firma: firmaFormularza,
-          faktura: doFakturyTelefonu({
-            numer, dataWystawienia: dataWyst, dataSprzedazy: dataSprz, terminDni: Number(termin), rodzajNabywcy: rodzajNabywcy === 'osoba' ? 'osoba' : 'firma',
-            nip, nazwa, adres1, adres2, email, metoda, rachunek, mpp, pozycje, uwagi,
-            // Numer z serii (krok 2.5): podpowiedź serwera; zmieniony w polu numer zapisze się jak wpisany ręcznie.
-            seria: podpowiedz.seria ?? null,
-          }),
-        }
-      : undefined;
+    const tresc = trescRodzaju(false);
+    const naKoncie: ZapisNaKoncie | undefined = !zBazy || !firmaFormularza
+      ? undefined
+      : tresc
+        ? { klucz, firma: firmaFormularza, tresc }
+        : {
+            klucz,
+            firma: firmaFormularza,
+            faktura: doFakturyTelefonu({
+              numer, dataWystawienia: dataWyst, dataSprzedazy: dataSprz, terminDni: Number(termin), rodzajNabywcy,
+              nip, nazwa, adres1, adres2, email, metoda, rachunek, mpp, pozycje, uwagi,
+              vatUe, kraj, idOsoby, pesel, dokument: dokumentOsoby,
+              // Numer z serii (krok 2.5): podpowiedź serwera; przy zmianie szkicu numer szkicu zapisze się jak wpisany ręcznie.
+              seria: edytowana ? null : (podpowiedz.seria ?? null),
+            }),
+          };
     setTrwa(wyslij ? 'wyslij' : 'szkic');
+    if (zBazy && edytowana) {
+      // Zmiana szkicu (M8b) jak na stronie: najpierw usunięcie starego szkicu (numer wolny), potem nowy zapis.
+      // Ponowienie po nieudanym zapisie usuwa „już usunięty” szkic bez błędu, więc dane z formularza nie giną.
+      const usuniety = await usunSzkic(edytowana.id);
+      if (!usuniety.ok) {
+        setTrwa(null);
+        setBledy({ serwer: usuniety.komunikat });
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        return;
+      }
+    }
     const wynik = await dodajFakture(nowa, wyslij, naKoncie);
     setTrwa(null);
     if (!wynik.ok) {
       // Zdanie serwera (te same zasady co strona) pod polem, którego dotyczy, i na liście nad przyciskiem.
-      const pole = poleFormularza(wynik.pole);
+      const pole = kwotySerweraWlaczone ? poleRodzaju(wynik.pole) : poleFormularza(wynik.pole);
       setBledy({ [pole === 'ogolny' ? 'serwer' : pole]: wynik.komunikat });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       return;
@@ -384,9 +585,20 @@ function FormularzFaktury() {
   };
 
   const przyciskWyslij = rodzaj === 'zaliczkowa' ? 'Wyślij zaliczkę' : rodzaj === 'korygujaca' ? 'Wyślij korektę' : 'Wyślij do KSeF';
-  const stawki = rodzaj === 'rozliczajaca' ? STAWKI_ROZLICZENIA : STAWKI_ZWYKLE;
-  const doZaplatyFormularza =
-    rodzaj === 'zaliczkowa'
+  const stawki =
+    rodzaj === 'rozliczajaca'
+      ? STAWKI_ROZLICZENIA
+      : rodzaj === 'korygujaca' && zBazy
+        ? [...STAWKI_ROZLICZENIA, ...(kontekstKorekty?.npIiDozwolone ? [STAWKA_NP_II] : [])]
+        : zBazy && rodzajNabywcy === 'ue'
+          ? [...STAWKI_ZWYKLE, STAWKA_NP_II]
+          : STAWKI_ZWYKLE;
+  // Kwota na przycisku: na prawdziwym koncie dla zaliczki, rozliczenia i korekty z serwera (M8b), `undefined` przed wyliczeniem.
+  const doZaplatyFormularza: number | undefined = kwotySerweraWlaczone
+    ? kwotySerwera
+      ? groszeZApi(rodzaj === 'korygujaca' ? kwotySerwera.brutto : kwotySerwera.doZaplaty)
+      : undefined
+    : rodzaj === 'zaliczkowa'
       ? zaliczkaBrutto
       : rodzaj === 'rozliczajaca'
         ? sumaNetto + sumaVat - sumaWybranychZaliczek
@@ -397,12 +609,37 @@ function FormularzFaktury() {
   const znanyNabywca = nabywcy.some((k) => k.nazwa === nazwa);
   const nabywcaZwiniety = znanyNabywca && !edycjaNabywcy && !bledy.nazwa && !bledy.nip && !bledy.adres;
   const szczegolyZwiniete = rodzaj !== 'korygujaca' && !edycjaSzczegolow && !bledy.numer;
-  const mamPozycje = !(rodzaj === 'zaliczkowa' || (rodzaj === 'korygujaca' && (!zrodlo || typKorekty === 'anulowanie')));
+  const mamPozycje = zBazy && rodzaj === 'korygujaca'
+    ? Boolean(kontekstKorekty) && typKorekty === 'dane'
+    : !(rodzaj === 'zaliczkowa' || (rodzaj === 'korygujaca' && (!zrodlo || typKorekty === 'anulowanie')));
   // Pozycja bez nazwy zostaje rozwinięta: tam trzeba coś wpisać.
   const rozwinietaPozycja = (i: number) => i === rozwinieta || !(pozycje[i]?.nazwa.trim() ?? '');
 
-  const podsumowanie =
+  const k = kwotySerwera;
+  const podsumowanie = kwotySerweraWlaczone ? (
+    // Prawdziwe konto (M8b): kwoty z serwera, tymi samymi funkcjami co zapis na stronie.
     rodzaj === 'zaliczkowa' ? (
+      <>
+        <Wiersz tytul="Zaliczka netto" wartosc={zKwot(k?.netto)} />
+        <Wiersz tytul={`VAT ${stawkaZaliczki}%`} wartosc={zKwot(k?.vat)} />
+        <Wiersz tytul="Do zapłaty" wartosc={zKwot(k?.doZaplaty)} wartoscKolor="etykieta" />
+      </>
+    ) : rodzaj === 'rozliczajaca' ? (
+      <>
+        <Wiersz tytul="Razem brutto pozycji" wartosc={zKwot(k?.brutto)} />
+        {(k?.zaliczki ?? []).map((a) => (
+          <Wiersz key={a.id} tytul={`Zaliczka ${a.numer}`} wartosc={zKwot(-a.brutto)} />
+        ))}
+        <Wiersz tytul="Do zapłaty po odliczeniu zaliczek" wartosc={zKwot(k?.doZaplaty)} wartoscKolor="etykieta" />
+      </>
+    ) : (
+      <>
+        <Wiersz tytul="Zmiana netto" wartosc={zKwot(k?.netto)} />
+        <Wiersz tytul="Zmiana VAT" wartosc={zKwot(k?.vat)} />
+        <Wiersz tytul="Zmiana brutto" wartosc={zKwot(k?.brutto)} wartoscKolor="etykieta" />
+      </>
+    )
+  ) : rodzaj === 'zaliczkowa' ? (
       <>
         <Wiersz tytul="Zaliczka netto" wartosc={kwota(zaliczkaNetto)} />
         <Wiersz tytul={`VAT ${stawkaZaliczki}%`} wartosc={kwota(zaliczkaBrutto - zaliczkaNetto)} />
@@ -431,13 +668,9 @@ function FormularzFaktury() {
       />
       {wprost ? (
         // Otwarty ze szczegółu albo karty kontrahenta: pod spodem nie ma wyboru rodzaju, więc „Anuluj” zamyka arkusz.
-        <Stack.Toolbar placement="left">
-          <Stack.Toolbar.Button onPress={() => router.back()}>Anuluj</Stack.Toolbar.Button>
-        </Stack.Toolbar>
+        <PrzyciskPaska strona="lewa" tytul="Anuluj" onPress={() => router.back()} />
       ) : null}
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button onPress={() => void zapisz(false)}>{trwa === 'szkic' ? 'Zapisujemy…' : 'Szkic'}</Stack.Toolbar.Button>
-      </Stack.Toolbar>
+      <PrzyciskPaska strona="prawa" tytul={trwa === 'szkic' ? 'Zapisujemy…' : 'Szkic'} onPress={() => void zapisz(false)} />
 
       <EkranListy keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets contentContainerStyle={{ paddingBottom: WYSOKOSC_PASKA + ODSTEP.xl }}>
         {podglad ? (
@@ -446,7 +679,7 @@ function FormularzFaktury() {
             <NaglowekKwoty
               podpis={nazwa.trim() || 'Nabywca bez nazwy'}
               podpisWyrozniony
-              wartosc={kwota(doZaplatyFormularza)}
+              wartosc={doZaplatyFormularza === undefined ? '…' : kwota(doZaplatyFormularza)}
               status={`${numer} · termin ${dataKrotka(terminData)}`}
             />
             <Sekcja naglowek="Nabywca">
@@ -455,11 +688,11 @@ function FormularzFaktury() {
             {mamPozycje ? (
               <Sekcja naglowek="Pozycje">
                 {pozycjeGotowe.map((p, i) => (
-                  <Wiersz key={i} tytul={p.nazwa || `Pozycja ${i + 1}`} podtytul={`${p.ilosc} ${p.jednostka} × ${cenaPozycji(p)} netto · VAT ${stawkaTekst(p)}`} wartosc={kwota(bruttoPozycji(p))} wartoscKolor="etykieta" />
+                  <Wiersz key={i} tytul={p.nazwa || `Pozycja ${i + 1}`} podtytul={`${p.ilosc} ${p.jednostka} × ${cenaPozycji(p)} netto · VAT ${stawkaTekst(p)}`} wartosc={bruttoWiersza(i, pozycje[i]!)} wartoscKolor="etykieta" />
                 ))}
               </Sekcja>
             ) : null}
-            <Sekcja naglowek="Podsumowanie" stopka="Po wysłaniu do KSeF fakturę zmienisz tylko korektą.">
+            <Sekcja naglowek="Podsumowanie" stopka={[stopkaKwot, 'Po wysłaniu do KSeF fakturę zmienisz tylko korektą.'].filter(Boolean).join(' ')}>
               {podsumowanie}
             </Sekcja>
             <Sekcja naglowek="Płatność">
@@ -473,15 +706,30 @@ function FormularzFaktury() {
         ) : (
           <>
             {rodzaj === 'korygujaca' ? (
-              <Sekcja naglowek="Faktura pierwotna" stopka={bledy.zrodlo ?? 'Korygować można fakturę przyjętą w KSeF.'}>
-                {zrodlo ? (
+              <Sekcja naglowek="Faktura pierwotna" stopka={bledy.zrodlo ?? (zBazy && kontekst.stan === 'blad' ? kontekst.komunikat : 'Korygować można fakturę przyjętą w KSeF.')}>
+                {zrodlo && zBazy && kontekst.stan !== 'gotowe' ? (
+                  // Faktura pierwotna z serwera (M8b): czekamy na stan po korektach albo mówimy, czemu jej nie skorygujemy.
                   <>
-                    <Wiersz tytul={zrodlo.numer} podtytul={`${zrodlo.kontrahent} · ${dataKrotka(zrodlo.dataWystawienia)}`} wartosc={kwota(zrodlo.brutto)} />
+                    <Wiersz
+                      tytul={zrodlo.numer}
+                      podtytul={kontekst.stan === 'blad' ? 'Tej faktury nie skorygujesz z telefonu' : 'Wczytujemy fakturę pierwotną…'}
+                      {...(kontekst.stan === 'blad' ? { ikona: 'alert-fill' as const, ikonaKolor: 'ostrzezenie' as const } : {})}
+                    />
+                    <Wiersz tytul="Wybierz inną fakturę" akcja onPress={() => setZrodloId(undefined)} />
+                  </>
+                ) : zrodlo ? (
+                  <>
+                    <Wiersz
+                      tytul={zrodlo.numer}
+                      podtytul={`${zrodlo.kontrahent} · ${dataKrotka(zrodlo.dataWystawienia)}${kontekstKorekty?.poprzedniaKorekta ? `\nPo korekcie ${kontekstKorekty.poprzedniaKorekta.numer ?? ''}` : ''}`}
+                      wartosc={kontekstKorekty?.faktura.brutto != null ? kwota(groszeZApi(kontekstKorekty.faktura.brutto)) : kwota(zrodlo.brutto)}
+                    />
                     <Wiersz tytul="Wybierz inną fakturę" akcja onPress={() => setZrodloId(undefined)} />
                   </>
                 ) : (
                   faktury
-                    .filter((f) => f.statusKsef === 'przyjeta' && f.rodzaj !== 'korygujaca')
+                    // Na prawdziwym koncie korekta zwykłej faktury VAT, jak lista na stronie (M8b).
+                    .filter((f) => f.statusKsef === 'przyjeta' && (zBazy ? f.rodzaj === 'vat' : f.rodzaj !== 'korygujaca'))
                     .slice(0, 8)
                     .map((f) => (
                       <Wiersz
@@ -493,6 +741,7 @@ function FormularzFaktury() {
                         wartoscPodpisKolor="akcent"
                         onPress={() => {
                           setZrodloId(f.id);
+                          if (zBazy) return; // nabywca i pozycje „przed” przychodzą z serwera (`useKontekstKorekty`)
                           wypelnijZ(f.kontrahent);
                           // „Jest” startuje jako kopia „było”: zmienia się tylko to, co trzeba.
                           setPozycje(f.pozycje.map(zPozycji));
@@ -500,6 +749,22 @@ function FormularzFaktury() {
                       />
                     ))
                 )}
+              </Sekcja>
+            ) : null}
+
+            {rodzaj === 'korygujaca' && kontekstKorekty ? (
+              // Nabywca korekty to nabywca faktury pierwotnej (strona też go nie zmienia).
+              <Sekcja naglowek="Nabywca" stopka="Korekta wskazuje nabywcę faktury pierwotnej.">
+                <Wiersz
+                  tytul={kontekstKorekty.nabywca.nazwa}
+                  podtytul={[
+                    kontekstKorekty.nabywca.nip ? `NIP ${kontekstKorekty.nabywca.nip}` : kontekstKorekty.nabywca.vatUe ? `VAT-UE ${kontekstKorekty.nabywca.vatUe}` : '',
+                    [kontekstKorekty.nabywca.adres1, kontekstKorekty.nabywca.adres2].filter(Boolean).join(', '),
+                  ]
+                    .filter(Boolean)
+                    .join('\n')}
+                  zaznaczalna
+                />
               </Sekcja>
             ) : null}
 
@@ -515,7 +780,7 @@ function FormularzFaktury() {
             {rodzaj !== 'korygujaca' && !nabywcaZwiniety ? (
               <Sekcja
                 naglowek={rodzaj === 'vat' ? 'Nabywca' : 'Nabywca (B2B)'}
-                stopka={zBazy ? 'Na liście są nabywcy z ostatnich faktur. Dane z GUS po NIP uzupełnisz na faktway.pl.' : 'Dane firmy z Polski uzupełnimy z GUS po wpisaniu NIP.'}>
+                stopka={zBazy ? 'Na liście są nabywcy z ostatnich faktur. Nazwę i adres firmy z Polski uzupełnisz z GUS po NIP.' : 'Dane firmy z Polski uzupełnimy z GUS po wpisaniu NIP.'}>
                 <PoleWyboru
                   etykieta="Kontrahent"
                   wartosc={znanyNabywca ? nazwa : ''}
@@ -533,13 +798,45 @@ function FormularzFaktury() {
                     opcje={[
                       { wartosc: 'firma', etykieta: 'Firma z Polski (NIP)' },
                       { wartosc: 'osoba', etykieta: 'Osoba prywatna' },
-                      // Nabywca z UE (VAT-UE, np. II) na prawdziwym koncie na faktway.pl (M10).
-                      ...(zBazy ? [] : [{ wartosc: 'ue' as const, etykieta: 'Firma z UE (VAT-UE)' }]),
+                      // Od M8b nabywca z UE (VAT-UE, np. II) także na prawdziwym koncie.
+                      { wartosc: 'ue' as const, etykieta: 'Firma z UE (VAT-UE)' },
                     ]}
                     onZmiana={setRodzajNabywcy}
                   />
                 ) : null}
-                {rodzajNabywcy !== 'osoba' || rodzaj !== 'vat' ? (
+                {zBazy && rodzaj === 'vat' && rodzajNabywcy === 'ue' ? (
+                  // Firma z UE (M8b): numer VAT-UE i kraj adresu jak na stronie (kraj domyślnie z prefiksu numeru).
+                  <>
+                    <PoleTekstowe
+                      etykieta="Numer VAT-UE"
+                      wartosc={vatUe}
+                      onZmiana={(t) => {
+                        const zNumeru = krajZVatUe(t);
+                        if (zNumeru && (!kraj || kraj === krajZVatUe(vatUe))) setKraj(zNumeru);
+                        setVatUe(t);
+                      }}
+                      podpowiedz="DE123456789"
+                      blad={bledy.nip}
+                      cyfry
+                    />
+                    <PoleWyboru
+                      etykieta="Kraj adresu"
+                      wartosc={kraj}
+                      opcje={[{ wartosc: '', etykieta: 'Wybierz kraj' }, ...KRAJE_UE_TELEFONU.map((x) => ({ wartosc: x.kod, etykieta: x.nazwa }))]}
+                      onZmiana={setKraj}
+                    />
+                  </>
+                ) : zBazy && rodzaj === 'vat' && rodzajNabywcy === 'osoba' ? (
+                  // Osoba prywatna (M8b): identyfikator jak na stronie; bez numeru jak dotąd.
+                  <>
+                    <PoleWyboru etykieta="Identyfikator" wartosc={idOsoby} opcje={IDENTYFIKATORY_OSOBY} onZmiana={setIdOsoby} />
+                    {idOsoby === 'pesel' ? (
+                      <PoleTekstowe etykieta="PESEL" wartosc={pesel} onZmiana={setPesel} podpowiedz="11 cyfr" klawiatura="number-pad" blad={bledy.nip} cyfry />
+                    ) : idOsoby !== 'no_id' ? (
+                      <PoleTekstowe etykieta="Numer dokumentu" wartosc={dokumentOsoby} onZmiana={setDokumentOsoby} podpowiedz="np. ABC123456" blad={bledy.nip} cyfry />
+                    ) : null}
+                  </>
+                ) : rodzajNabywcy !== 'osoba' || rodzaj !== 'vat' ? (
                   <PoleTekstowe
                     etykieta={rodzajNabywcy === 'ue' && rodzaj === 'vat' ? 'Numer VAT-UE' : 'NIP nabywcy'}
                     wartosc={nip}
@@ -552,6 +849,10 @@ function FormularzFaktury() {
                 {!zBazy && /^\d{10}$/.test(nip.replace(/\D/g, '')) && !nazwa ? (
                   <Wiersz tytul="Uzupełnij danymi z GUS" akcja onPress={() => wypelnijZ(KONTRAHENCI[0]?.nazwa ?? '')} />
                 ) : null}
+                {zBazy && (rodzajNabywcy === 'firma' || rodzaj !== 'vat') && /^\d{10}$/.test(nip.replace(/\D/g, '')) ? (
+                  // „Pobierz z GUS” jak na stronie (M8b): najpierw kontrahenci firmy, potem GUS.
+                  <Wiersz tytul={gusTrwa ? 'Szukamy w GUS…' : 'Uzupełnij danymi z GUS'} akcja onPress={() => void pobierzZGus()} />
+                ) : null}
                 <PoleTekstowe etykieta="Nazwa" wartosc={nazwa} onZmiana={setNazwa} podpowiedz="Nazwa firmy" blad={bledy.nazwa} />
                 <PoleTekstowe etykieta="Adres" wartosc={adres1} onZmiana={setAdres1} podpowiedz="Ulica i numer" />
                 <PoleTekstowe etykieta="Miejscowość" wartosc={adres2} onZmiana={setAdres2} podpowiedz="00-001 Warszawa" blad={bledy.adres} />
@@ -561,35 +862,101 @@ function FormularzFaktury() {
 
             {rodzaj === 'zaliczkowa' ? (
               <Sekcja naglowek="Zaliczka" stopka={bledy.zaliczka}>
-                <PoleTekstowe etykieta="Wartość umowy (brutto)" wartosc={wartoscUmowy} onZmiana={setWartoscUmowy} podpowiedz="zł" klawiatura="decimal-pad" />
+                <PoleTekstowe etykieta={zBazy ? 'Wartość zamówienia (brutto)' : 'Wartość umowy (brutto)'} wartosc={wartoscUmowy} onZmiana={setWartoscUmowy} podpowiedz="zł" klawiatura="decimal-pad" />
                 <PoleTekstowe etykieta="Kwota zaliczki (brutto)" wartosc={kwotaZaliczki} onZmiana={setKwotaZaliczki} podpowiedz="zł" klawiatura="decimal-pad" />
                 <PoleWyboru etykieta="Stawka VAT zaliczki" wartosc={stawkaZaliczki} opcje={STAWKI_ZALICZKI} onZmiana={setStawkaZaliczki} />
                 <PoleDaty etykieta="Planowana realizacja" wartosc={realizacja} onZmiana={setRealizacja} najwczesniej={dataWyst} />
+                {zBazy ? <PoleDaty etykieta="Zaliczka otrzymana" wartosc={otrzymana} onZmiana={setOtrzymana} /> : null}
                 <PoleTekstowe etykieta="Opis" wartosc={opisZaliczki} onZmiana={setOpisZaliczki} podpowiedz="Za co jest zaliczka" wielowierszowe />
               </Sekcja>
             ) : null}
 
             {rodzaj === 'rozliczajaca' ? (
-              <Sekcja naglowek="Faktury zaliczkowe do rozliczenia" stopka={bledy.zaliczki}>
-                {zaliczki.length === 0
-                  ? [<Wiersz key="brak" tytul="Brak zaliczek do wyboru" podtytul="Najpierw wystaw fakturę zaliczkową." />]
-                  : zaliczki.map((f) => (
-                      <PolePrzelacznik
-                        key={f.id}
-                        etykieta={f.numer}
-                        opis={`${f.kontrahent} · ${kwota(f.brutto)}`}
-                        wartosc={Boolean(wybraneZaliczki[f.id])}
-                        onZmiana={(v) => setWybraneZaliczki((w) => ({ ...w, [f.id]: v }))}
-                      />
-                    ))}
+              <Sekcja
+                naglowek="Faktury zaliczkowe do rozliczenia"
+                stopka={bledy.zaliczki ?? (zBazy ? 'Rozliczysz zaliczki przyjęte w KSeF i jeszcze nierozliczone, tego samego nabywcy.' : undefined)}>
+                {zBazy && zaliczkiSerwera.stan === 'ladowanie'
+                  ? [<Wiersz key="laduje" tytul="Wczytujemy zaliczki…" />]
+                  : zBazy && zaliczkiSerwera.stan === 'blad'
+                    ? [
+                        <Wiersz key="blad" tytul={zaliczkiSerwera.komunikat} ikona="alert-fill" ikonaKolor="ostrzezenie" />,
+                        <Wiersz key="ponow" tytul="Spróbuj ponownie" akcja onPress={zaliczkiSerwera.ponow} />,
+                      ]
+                    : zaliczki.length === 0
+                      ? [<Wiersz key="brak" tytul="Brak zaliczek do wyboru" podtytul={nipNabywcy.length === 10 && zBazy ? 'Ten nabywca nie ma zaliczek do rozliczenia.' : 'Najpierw wystaw fakturę zaliczkową.'} />]
+                      : zaliczki.map((f) => (
+                          <PolePrzelacznik
+                            key={f.id}
+                            etykieta={f.numer}
+                            opis={`${f.kontrahent} · ${kwota(f.brutto)}`}
+                            wartosc={Boolean(wybraneZaliczki[f.id])}
+                            onZmiana={(v) => {
+                              setWybraneZaliczki((w) => ({ ...w, [f.id]: v }));
+                              // Pierwsza wybrana zaliczka wpisuje swojego nabywcę (rozliczenie jest dla tego samego nabywcy).
+                              if (v && f.nabywca && !nazwa.trim()) {
+                                setNip(f.nip);
+                                setNazwa(f.nabywca.nazwa);
+                                setAdres1(f.nabywca.adres1);
+                                setAdres2(f.nabywca.adres2);
+                                setEmail(f.nabywca.email);
+                              }
+                            }}
+                          />
+                        ))}
               </Sekcja>
             ) : null}
 
-            {rodzaj === 'korygujaca' && zrodlo ? (
+            {rodzaj === 'korygujaca' && zBazy && kontekstKorekty ? (
+              // „Było” z serwera (M8b): stan po przyjętych korektach, tak jak liczy go strona.
+              <Sekcja naglowek="Było" stopka={kontekstKorekty.poprzedniaKorekta ? `Stan po korekcie ${kontekstKorekty.poprzedniaKorekta.numer ?? ''}.` : 'Pozycje z faktury pierwotnej.'}>
+                {kontekstKorekty.pozycje.map((p, i) => (
+                  <Wiersz key={i} tytul={p.name} podtytul={`${String(p.quantity).replace('.', ',')} ${p.unit} × ${String(p.unitPriceNet).replace('.', ',')} zł netto, VAT ${STAWKI_ZWYKLE.find((x) => x.wartosc === p.vatRate)?.etykieta ?? p.vatRate}`} />
+                ))}
+              </Sekcja>
+            ) : rodzaj === 'korygujaca' && zrodlo && !zBazy ? (
               <Sekcja naglowek="Było" stopka="Pozycje z faktury pierwotnej.">
                 {zrodlo.pozycje.map((p, i) => (
                   <Wiersz key={i} tytul={p.nazwa} podtytul={`${p.ilosc} ${p.jednostka} × ${cenaPozycji(p)} netto, VAT ${stawkaTekst(p)}`} wartosc={kwota(bruttoPozycji(p))} />
                 ))}
+              </Sekcja>
+            ) : null}
+
+            {rodzaj === 'korygujaca' && zBazy && kontekstKorekty && typKorekty === 'kwotowa' ? (
+              // Korekta kwotowa jak na stronie (M8b): różnicę wpisuje klient, spójność kwot i stawkę sprawdza serwer.
+              <Sekcja
+                naglowek="Zmiana kwoty"
+                stopka={
+                  bledy.zmiana ??
+                  (stawkaBezVat
+                    ? `Stawka z faktury pierwotnej: ${stawkaBezVat === 'np_ii' ? 'np II' : stawkaBezVat}, bez VAT. Zmiana VAT wynosi 0, a brutto jest równe netto.`
+                    : 'Zwrot albo rabat wpisz ze znakiem minus.')
+                }>
+                <PoleTekstowe
+                  etykieta="Zmiana netto (±)"
+                  wartosc={zmianaNetto}
+                  onZmiana={(t) => {
+                    setZmianaNetto(t);
+                    // Stawka bez VAT: VAT 0, a brutto przepisane z netto (jak pola tylko do odczytu na stronie).
+                    if (stawkaBezVat) {
+                      setZmianaVat('0');
+                      setZmianaBrutto(t);
+                    }
+                  }}
+                  podpowiedz="zł, np. -100,00"
+                  klawiatura="numbers-and-punctuation"
+                  cyfry
+                />
+                {stawkaBezVat ? (
+                  <Wiersz tytul="Zmiana VAT" wartosc="0,00 zł" />
+                ) : (
+                  <PoleTekstowe etykieta="Zmiana VAT (±)" wartosc={zmianaVat} onZmiana={setZmianaVat} podpowiedz="zł" klawiatura="numbers-and-punctuation" cyfry />
+                )}
+                {stawkaBezVat ? (
+                  <Wiersz tytul="Zmiana brutto" wartosc={zmianaBrutto || '0'} />
+                ) : (
+                  <PoleTekstowe etykieta="Zmiana brutto (±)" wartosc={zmianaBrutto} onZmiana={setZmianaBrutto} podpowiedz="zł" klawiatura="numbers-and-punctuation" cyfry />
+                )}
+                <PoleTekstowe etykieta="Opis pozycji korekty" wartosc={opisZmiany} onZmiana={setOpisZmiany} podpowiedz="np. Rabat za opóźnienie" />
               </Sekcja>
             ) : null}
 
@@ -613,7 +980,7 @@ function FormularzFaktury() {
                           klawiatura={rodzaj === 'korygujaca' ? 'numbers-and-punctuation' : 'decimal-pad'}
                         />,
                         <PoleWyboru key={`e${i}`} etykieta="VAT" wartosc={p.stawka} opcje={stawki} onZmiana={(v) => ustawPozycje(i, { stawka: v })} />,
-                        <Wiersz key={`f${i}`} tytul="Brutto" wartosc={kwota(bruttoPozycji(doPozycji(p)))} wartoscKolor="etykieta" />,
+                        <Wiersz key={`f${i}`} tytul="Brutto" wartosc={bruttoWiersza(i, p)} wartoscKolor="etykieta" />,
                         ...(p.nazwa.trim() ? [<Wiersz key={`g${i}`} tytul="Gotowe" akcja onPress={() => setRozwinieta(null)} />] : []),
                         ...(pozycje.length > 1
                           ? [
@@ -633,11 +1000,11 @@ function FormularzFaktury() {
                         <Wiersz
                           key={`z${i}`}
                           tytul={p.nazwa}
-                          podtytul={`${p.ilosc} ${p.jednostka} × ${cenaPozycji(doPozycji(p))} · VAT ${STAWKI_ZWYKLE.find((x) => x.wartosc === p.stawka)?.etykieta ?? p.stawka}`}
-                          wartosc={kwota(bruttoPozycji(doPozycji(p)))}
+                          podtytul={`${p.ilosc} ${p.jednostka} × ${cenaPozycji(doPozycji(p))} · VAT ${[...STAWKI_ZWYKLE, STAWKA_NP_II].find((x) => x.wartosc === p.stawka)?.etykieta ?? p.stawka}`}
+                          wartosc={bruttoWiersza(i, p)}
                           wartoscKolor="etykieta"
                           onPress={() => setRozwinieta(i)}
-                          etykietaDostepnosci={`${p.nazwa}, ${kwota(bruttoPozycji(doPozycji(p)))}. Dotknij, żeby zmienić.`}
+                          etykietaDostepnosci={`${p.nazwa}, ${bruttoWiersza(i, p)}. Dotknij, żeby zmienić.`}
                         />,
                       ],
                 )}
@@ -682,9 +1049,14 @@ function FormularzFaktury() {
                       etykieta="Typ korekty"
                       wartosc={typKorekty}
                       opcje={[
-                        { wartosc: 'kwotowa', etykieta: 'Kwotowa (zwrot, rabat)' },
-                        { wartosc: 'dane', etykieta: 'Danych (było, jest)' },
-                        { wartosc: 'anulowanie', etykieta: 'Anulowanie faktury' },
+                        { wartosc: 'kwotowa' as const, etykieta: 'Kwotowa (zwrot, rabat)' },
+                        // Po korekcie kwotowej stan pozycji nie jest jednoznaczny: tylko kolejna kwotowa (jak na stronie, K4).
+                        ...(kontekstKorekty?.dozwolone === 'amount_change_only'
+                          ? []
+                          : [
+                              { wartosc: 'dane' as const, etykieta: 'Danych (było, jest)' },
+                              { wartosc: 'anulowanie' as const, etykieta: 'Anulowanie faktury' },
+                            ]),
                       ]}
                       onZmiana={setTypKorekty}
                     />
@@ -696,7 +1068,7 @@ function FormularzFaktury() {
                         { wartosc: '2', etykieta: '2: data korekty' },
                         { wartosc: '3', etykieta: '3: inna data' },
                       ]}
-                      onZmiana={setTypKsef}
+                      onZmiana={(v) => setTypKsef(v as '1' | '2' | '3')}
                     />
                     <PoleTekstowe etykieta="Przyczyna korekty" wartosc={przyczyna} onZmiana={setPrzyczyna} podpowiedz="np. rabat za opóźnienie" blad={bledy.przyczyna} wielowierszowe />
                   </>
@@ -717,7 +1089,9 @@ function FormularzFaktury() {
               <PolePrzelacznik etykieta="Podzielona płatność (MPP)" wartosc={mpp} onZmiana={setMpp} />
             </Sekcja>
 
-            <Sekcja naglowek="Podsumowanie">{podsumowanie}</Sekcja>
+            <Sekcja naglowek="Podsumowanie" stopka={[stopkaKwot, wysylkaWstrzymana].filter(Boolean).join(' ') || undefined}>
+              {podsumowanie}
+            </Sekcja>
 
             <Sekcja naglowek="Uwagi">
               <PoleTekstowe etykieta="Uwagi" wartosc={uwagi} onZmiana={setUwagi} podpowiedz="Widoczne na fakturze (do 3500 znaków)" wielowierszowe />
@@ -751,7 +1125,17 @@ function FormularzFaktury() {
           <Ikona nazwa={podglad ? 'pencil-line' : 'eye-line'} rozmiar={22} kolor={kolory.etykieta} />
         </Dotyk>
         <View style={styles.rozciagniety}>
-          <PrzyciskGlowny tytul={`${przyciskWyslij} · ${kwota(doZaplatyFormularza)}`} ikona="send-plane-line" trwa={trwa === 'wyslij'} onPress={() => void zapisz(true)} />
+          {wysylkaWstrzymana ? (
+            // Wysyłka tego rodzaju wstrzymana także na stronie (zdanie w podsumowaniu): główna akcja to szkic.
+            <PrzyciskGlowny tytul="Zapisz szkic" ikona="file-text-line" trwa={trwa === 'szkic'} onPress={() => void zapisz(false)} />
+          ) : (
+            <PrzyciskGlowny
+              tytul={doZaplatyFormularza === undefined ? przyciskWyslij : `${przyciskWyslij} · ${kwota(doZaplatyFormularza)}`}
+              ikona="send-plane-line"
+              trwa={trwa === 'wyslij'}
+              onPress={() => void zapisz(true)}
+            />
+          )}
         </View>
       </View>
     </>

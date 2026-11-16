@@ -84,16 +84,20 @@ naprawiamy i w jakiej kolejności.
 - **Pomiar przed i po w opisie PR.** Przy wydajności czerwony test to
   zwykle licznik: wywołań GoTrue na żądanie, zapytań na render, zadań
   w kolejce, rozmiaru pamięci. Liczba przed i po naprawie trafia do opisu.
-- **Migracje (sesje 20, 21, 28):** sesja przygotowuje plik z numerem z rejestru
-  w `CLAUDE-DO-CODEXA.md` i opisuje, czy wgrać go przed, czy po wdrożeniu.
-  Wgrywa Bartosz: przed wdrożeniem, poza godzinami pracy.
-- **Scalanie paczkami (Bartosz, 03.11):** każda sesja to osobny PR. Gdy
-  uzbierają się 3–4 gotowe, powstaje jeden zbiorczy PR „Scalenie …” według
-  `AGENTS.md`, z lokalnym `pnpm run ci && pnpm build`, a Bartosz scala ten
-  jeden. Dziennik (sekcja 6) uzupełnia sesja główna w tym zbiorczym PR, a nie
-  każda sesja osobno, żeby PR-y sesji nie kolidowały w jednej tabeli.
-- **Wdrożenie, zmienne środowiskowe, konfiguracja serwerów:** tylko
-  Bartosz. Sesja 25 to jego lista decyzji.
+- **Migracje (sesje 20, 21, 28):** sesja przygotowuje plik z numerem
+  z `node scripts/dev/nastepna-migracja.mjs` i opisuje, czy wgrać go przed, czy po wdrożeniu.
+  Od 15.11 wgrywa je nocne wdrożenie po scaleniu, według linii
+  `-- KIEDY WGRAĆ: …` w nagłówku pliku (`AGENTS.md`, „Niezmienniki”, punkty 3
+  i 4). Migracje, których kontrola nie przepuści, wgrywa Bartosz ręcznie.
+- **Scalanie (od 15.11):** każda sesja to osobny PR i wchodzi do `main`
+  przez kolejkę scalania (`./scripts/ops/scal-pr.sh N`,
+  `docs/runbooks/scalanie-pr.md`), bez PR zbiorczych. Dziennik (sekcja 6)
+  uzupełnia sesja główna osobnym PR, a nie każda sesja, żeby PR-y sesji nie
+  kolidowały w jednej tabeli. Sesja wpisuje gotowy wiersz dziennika do opisu
+  swojego PR. Do 14.11 dziennik szedł w zbiorczym PR (Bartosz, 03.11).
+- **Wdrożenie:** co noc samo z `main` (`docs/runbooks/nocne-wdrozenie.md`),
+  w dzień tylko na polecenie Bartosza. **Zmienne środowiskowe, konfiguracja
+  serwerów:** tylko Bartosz. Sesja 25 to jego lista decyzji.
 - **Szczegóły słabych punktów** (limity, konfiguracja logowania) opisuj
   w PR ogólnikowo. Pełne wpisy są w prywatnym raporcie.
 - **Twierdzenia o stanie produkcji** z repo (komentarze, dokumenty) to
@@ -129,12 +133,15 @@ inna niż w „Rejestrze braków” z 17.10).
 **Zrobione i wdrożone (03.11, zbiorczy #363):** 23, 22, 20, 26, 27, 4, 1, 9, 19.
 **Zrobione poza tym planem:** 13 i 17 (Bartosz, #360 w #363); z 14 zostaje
 tylko próba na KSeF TEST (kod też w #360). 2 i 8 (#405, #410, wdrożone 08.11).
-Częściowo: 7 (#350, #351), 28 (alarm skrzynki liczony w bazie, 00160), 29
-(lista korekt, #283). Przegląd 08.11 w dzienniku (sekcja 6).
+Częściowo: 28 (alarm skrzynki liczony w bazie, 00160), 29 (lista korekt,
+#283). Przegląd 08.11 w dzienniku (sekcja 6).
 **Scalone od 11.11:** 31, 6 i 32 (zbiorczy #563), 21 (#579, migracja 00186),
 3 (#597), 12 (#598), 10 (#654, #657, #678) i 29 część 2 (#660, #676; obie
-w zbiorczym #713). Czekają na scalenie w zbiorczym #730: 29 część 1 (#652),
-30 (#655) i poprawka sesji 10 (#718). Czekają na Bartosza: 5 (#732), 11 (#729), 18 (#731) i 34 (#728, decyzje w opisie).
+w zbiorczym #713). 14.11: 29 część 1 (#652), 30 (#655) i poprawka sesji 10
+(#718), wszystkie w zbiorczym #730, oraz 5 (#732). 15.11: 11 (#729) i 33
+(#758) w zbiorczym #770, 18 (#731), 34 (#728) i 7 (#783). Wszystkie
+wdrożone 15.11. Z 7 zostaje część R1 (w toku), z 5 reszta LIM-05 (#776,
+#781, #782 i dalsze w „Następnym kroku”).
 
 **Kolejność wykonania (Bartosz, 03.11):** 2 → 8 → 31 → 21 → 13 → 28 → 14 →
 17 → 5 → 6 → 7 → 3 → 12 → 18 → 10 → 11 → 24 → 29 → 30 → 32 → 34 → 33, a po
@@ -273,38 +280,57 @@ nadążać; to argument za `max_slot_wal_keep_size` 2–4 GB (sesja 25).
 | 11.11.2026 | Sesja 3: sprzątanie pulsu Flo jednym UPDATE (FLO-01) | #597 | scalony 11.11 |
 | 11.11.2026 | Sesja 12: kopia JSON z bezpiecznikiem rozmiaru i stronicowaniem po kluczu | #598 | scalony 11.11 |
 | 12.11.2026 | Sesja 10: prefetch panelu z góry tylko dla celów dolnego paska, reszta po najechaniu; menu profilu bez prefetchu Analiz | #654, #657 | scalone 13.11 w zbiorczym #713 |
-| 12.11.2026 | Sesja 29 część 1: eksport RODO, historia sprzedawcy i reguły nazw czytane stronami | #652 | w zbiorczym #730 |
+| 12.11.2026 | Sesja 29 część 1: eksport RODO, historia sprzedawcy i reguły nazw czytane stronami | #652 | scalony 14.11 w zbiorczym #730 |
 | 12.11.2026 | Sesja 29 część 2: Flo i walidacja kontrahentów czytają stronami do końca | #660 | scalony 13.11 w zbiorczym #713 |
-| 12.11.2026 | Sesja 30: oznaczenie faktury w archiwum zaraz po wgraniu do Glacier | #655 | w zbiorczym #730, po #662 |
-| 12.11.2026 | Z przeglądu #652: `.gitattributes` z LF (ustalenie 4), `pnpm filtr:lokalnie` na Windowsie (ustalenie 7) | #658, #659 | w zbiorczym #730; #659 to maszyneria filtra (`zgoda:zmiana-filtra`) |
-| 13.11.2026 | Niestabilny test planisty z #579 (`tests/rls-indeksy-cronow-produkty.test.ts`) | #662 | w zbiorczym #730, przed #655; dubel #677 zamknięty |
-| 13.11.2026 | Z #660: hak przed pushem uruchamia strażnika tekstów dla klienta | #675 | w zbiorczym #730; maszyneria filtra (`zgoda:zmiana-filtra`) |
-| 13.11.2026 | Sesja 29 część 2, ustalenie 1 z #660: tytuły wyciszonych spraw Flo paczkami i stronami | #676 | scalony 13.11 w zbiorczym #713; ustalenie 1 z #676 (testy z przypiętym zegarem) w #720, otwarty |
+| 12.11.2026 | Sesja 30: oznaczenie faktury w archiwum zaraz po wgraniu do Glacier | #655 | scalony 14.11 w zbiorczym #730 |
+| 12.11.2026 | Z przeglądu #652: `.gitattributes` z LF (ustalenie 4), `pnpm filtr:lokalnie` na Windowsie (ustalenie 7) | #658, #659 | scalone 14.11 w zbiorczym #730; #659 to maszyneria filtra (`zgoda:zmiana-filtra`) |
+| 13.11.2026 | Niestabilny test planisty z #579 (`tests/rls-indeksy-cronow-produkty.test.ts`) | #662 | scalony 14.11 w zbiorczym #730; dubel #677 zamknięty |
+| 13.11.2026 | Z #660: hak przed pushem uruchamia strażnika tekstów dla klienta | #675 | scalony 14.11 w zbiorczym #730; maszyneria filtra (`zgoda:zmiana-filtra`) |
+| 13.11.2026 | Sesja 29 część 2, ustalenie 1 z #660: tytuły wyciszonych spraw Flo paczkami i stronami | #676 | scalony 13.11 w zbiorczym #713; ustalenie 1 z #676 (testy z przypiętym zegarem) w #720, scalony 15.11 w zbiorczym #770 |
 | 13.11.2026 | Build obrazu na `main` padał od #504 (`vitest.filtr.config.ts` importował plik spoza obrazu) | #661 | scalony 13.11, obraz `main` znowu się buduje |
-| 13.11.2026 | Sesja 10 (ciąg dalszy): zakładki sekcji z pełnym prefetchem dopiero z zamiarem | #678 | scalony 13.11 w zbiorczym #713; poprawka przewijania przy drugim dotknięciu w #718 (w zbiorczym #730) |
-| 13.11.2026 | Dziennik po 11–13.11 | #719 | w zbiorczym #730 |
-| 13.11.2026 | Zbiorczy: #662, #655 (sesja 30), #652 (sesja 29 część 1), #658, #659, #675, #718 (sesja 10), #719 | #730 | 14.11 wciągnięty `main` po #725 i #740, z poprawką z sekcji „Styk z #725” w opisie (runner archiwum: termin usunięcia z #717 w jednym zapisie z #655); czeka na etykietę `zgoda:zmiana-filtra` i scalenie; bez migracji; wdrożenie: worker, potem aplikacja |
-| 13.11.2026 | Sesja 5: limity czasu wywołań Supabase (bramka proxy 5 s daje 503 zamiast wylogowania; żądania 10/30 s, worker 60/120 s; w renderze RSC odczyt bez sygnału, żeby Next dalej sklejał) | #732 | otwarty 14.11, automatyczne scalenie włączone 14.11; R3, bez migracji, bez wspólnych plików z #725 i #728–#731; czas ponownego użycia tokenu odświeżania w GoTrue na produkcji domyślny (10 s), sprawdzone 14.11; sesja 7 po scaleniu (lista w opisie PR, sekcja „Co zostaje dla sesji 7”) |
-| 13.11.2026 | Sesja 18: ponaglenia tylko dla firm z włączonymi ponagleniami, kandydaci strona po stronie | #731 | otwarty 14.11; bez migracji; straż czerwona jak w #656 (`windykacja` to R1 bez reguły w rejestrze), decyzja Bartosza |
-| 13.11.2026 | Sesja 11: lekkie odpytywanie statusu eksportów, importów i OCR | #729 | otwarty 14.11; R3, bez migracji, scala się bez konfliktu z #725 i #730 |
-| 13.11.2026 | Sesja 34: OCR obrazów ponad 8000 px (obraz zmniejszany w workerze przed wysłaniem do API) | #728 | otwarty 14.11; 5 decyzji dla Bartosza w opisie; straż czerwona jak w #656 (`lib/ocr/**` to R1 bez reguły w rejestrze) |
-| 14.11.2026 | Ustalenie z #732 (dla sesji 30, ale #655 tego nie zmienia): runner archiwum gubi `error` odczytu `xml_documents` i wtedy wgrywa XML do Glacier bez kontroli skrótu (`lib/jobs/runners/archive-old-invoices.ts`, R1 `retencja`; tak samo na `main`, w #730 i w #725). Kopia w R2 i skrót w `xml_documents` zostają | brak | osobna naprawa z czerwonym testem po scaleniu #725 i #730, bo oba zmieniają ten plik |
-| 14.11.2026 | Ustalenia z #732 poza sesją 7: fabryki klientów Supabase bez limitu czasu (`lib/api/v1/db.ts`, `lib/api/mobile/db.ts`, `lib/auth/reauth.ts`, skrypty), reszta LIM-05 (`S3Client`, klient Anthropic, ciało odpowiedzi `ksefFetch`, JOB-07) | brak | osobne PR po scaleniu #732; pełna lista w jego opisie, sekcja „Osobne ustalenia” |
-| 14.11.2026 | Z pushu #730: test `/expenses` (`tests/unit/wydatki-miesiac.test.ts`) padał w haku na Windowsie na limicie 5 s przy zimnym imporcie strony | #733 | otwarty 14.11; R0, sam test, bez migracji; hak przeszedł bez obejść; inne testy blisko limitu 5 s na Windowsie (m.in. `rotacja-kluczy-skrypt`, w pełnym biegu 12 z 13 czerwonych) w opisie PR, sekcja „Osobne ustalenia” |
+| 13.11.2026 | Sesja 10 (ciąg dalszy): zakładki sekcji z pełnym prefetchem dopiero z zamiarem | #678 | scalony 13.11 w zbiorczym #713; poprawka przewijania przy drugim dotknięciu w #718 (scalona 14.11 w zbiorczym #730) |
+| 13.11.2026 | Dziennik po 11–13.11 | #719 | scalony 14.11 w zbiorczym #730 |
+| 13.11.2026 | Zbiorczy: #662, #655 (sesja 30), #652 (sesja 29 część 1), #658, #659, #675, #718 (sesja 10), #719 | #730 | 14.11 wciągnięty `main` po #725 i #740, z poprawką z sekcji „Styk z #725” w opisie (runner archiwum: termin usunięcia z #717 w jednym zapisie z #655); scalony 14.11 (22:02 UTC), wdrożony 15.11; bez migracji |
+| 13.11.2026 | Sesja 5: limity czasu wywołań Supabase (bramka proxy 5 s daje 503 zamiast wylogowania; żądania 10/30 s, worker 60/120 s; w renderze RSC odczyt bez sygnału, żeby Next dalej sklejał) | #732 | scalony 14.11, wdrożony 15.11; R3, bez migracji, bez wspólnych plików z #725 i #728–#731; czas ponownego użycia tokenu odświeżania w GoTrue na produkcji domyślny (10 s), sprawdzone 14.11; sesja 7 po scaleniu (lista w opisie PR, sekcja „Co zostaje dla sesji 7”) |
+| 13.11.2026 | Sesja 18: ponaglenia tylko dla firm z włączonymi ponagleniami, kandydaci strona po stronie | #731 | scalony 15.11 po poprawce straży #772, wdrożony 15.11; bez migracji |
+| 13.11.2026 | Sesja 11: lekkie odpytywanie statusu eksportów, importów i OCR | #729 | scalony 15.11 w zbiorczym #770, wdrożony 15.11; R3, bez migracji |
+| 13.11.2026 | Sesja 34: OCR obrazów ponad 8000 px (obraz zmniejszany w workerze przed wysłaniem do API) | #728 | scalony 15.11 po poprawce straży #772, wdrożony 15.11; bez migracji |
+| 14.11.2026 | Ustalenie z #732 (dla sesji 30, ale #655 tego nie zmienia): runner archiwum gubi `error` odczytu `xml_documents` i wtedy wgrywa XML do Glacier bez kontroli skrótu (`lib/jobs/runners/archive-old-invoices.ts`, R1 `retencja`; tak samo na `main`, w #730 i w #725). Kopia w R2 i skrót w `xml_documents` zostają | brak | osobna naprawa z czerwonym testem; od 15.11 odblokowana: #725 i #730 scalone, #763 i #764 (FZ-009, FZ-011) zamknięte bez scalenia, plik bez otwartych PR |
+| 14.11.2026 | Ustalenia z #732 poza sesją 7: fabryki klientów Supabase bez limitu czasu (`lib/api/v1/db.ts`, `lib/api/mobile/db.ts`, `lib/auth/reauth.ts`, skrypty), reszta LIM-05 (`S3Client`, klient Anthropic, ciało odpowiedzi `ksefFetch`, JOB-07) | #776, #781, #782 | pełna lista w opisie #732, sekcja „Osobne ustalenia”. 15.11: fabryki = #776 (R0), ciało `ksefFetch` = #781 (R3), klient Anthropic = #782 (R2), otwarte; UPO (R1), sufit wywołania klasyfikatora kosztów i odczyty OCR w raporcie w toku; `S3Client` i JOB-07 otwarte |
+| 14.11.2026 | Z pushu #730: test `/expenses` (`tests/unit/wydatki-miesiac.test.ts`) padał w haku na Windowsie na limicie 5 s przy zimnym imporcie strony | #733 | scalony 15.11 w zbiorczym #770; R0, sam test, bez migracji; hak przeszedł bez obejść; inne testy blisko limitu 5 s na Windowsie (m.in. `rotacja-kluczy-skrypt`, w pełnym biegu 12 z 13 czerwonych) w opisie PR, sekcja „Osobne ustalenia” |
 | 14.11.2026 | Scalony zbiorczy #725 Bartosza (w nim #715 i #717) | #725 | sesja 33 odblokowana: #715 zmieniał `lib/exports/data-fetcher.ts`; styk z #730 rozwiązany w #730 |
-| 13.11.2026 | Ustalenie 1 z #676: testy wyciszeń Flo (`flo-silenced-list`, `flo-silence`, `flo-shadow-wiring`) z zegarem przypiętym do `NOW` (bomby 22.12 i 23.12.2026) | #720 | scalony 14.11 w zbiorczym „Scalenie #733 … #721, #736” |
-| 14.11.2026 | Sesja 33: KPiR, ewidencja, raport KPiR i eksporty czytają stronami po kluczu zamiast OFFSET-em (RP-ODCZYT-01, `readCompletePagesByKey`) | #758 | scalony 14.11 w zbiorczym „Scalenie #733 … #721, #736”; bez migracji; R1 z kartą w opisie zbiorczego. Osobny PR: dopisać `jpk.vat-fa` i `raporty.kpir` do obszarów RP-ODCZYT-01 (`zgoda:wiedza-prawna`) |
+| 13.11.2026 | Ustalenie 1 z #676: testy wyciszeń Flo (`flo-silenced-list`, `flo-silence`, `flo-shadow-wiring`) z zegarem przypiętym do `NOW` (bomby 22.12 i 23.12.2026) | #720 | scalony 15.11 w zbiorczym #770 („Scalenie #733 … #736, #772”) |
+| 14.11.2026 | Sesja 33: KPiR, ewidencja, raport KPiR i eksporty czytają stronami po kluczu zamiast OFFSET-em (RP-ODCZYT-01, `readCompletePagesByKey`) | #758 | scalony 15.11 w zbiorczym #770, wdrożony 15.11; bez migracji; R1 z kartą w opisie zbiorczego. `jpk.vat-fa` i `raporty.kpir` w obszarach RP-ODCZYT-01: #784. Osobne ustalenie z #758: własne pętle OFFSET w `lib/exports/jpk-fa-readiness.ts` |
+| 15.11.2026 | Zbiorczy Bartosza: #733, #735, #737, #756, #720, #727, #722, #729 (sesja 11), #758 (sesja 33), #721, #736 i poprawka straży #772 | #770 | scalony 15.11, wdrożony 15.11 |
+| 15.11.2026 | Straż filtra: R1 w obszarze bez reguły w rejestrze przyjmuje uzasadniony brak reguły (wariant 1, decyzja Bartosza; opis w `docs/runbooks/filtr.md`) | #772 | scalony 15.11 w #770; odblokował #656, #728, #731 i #734 |
+| 15.11.2026 | Sesja 7: awaria i limit GoTrue oraz błąd zapytania o członkostwo dają „spróbuj ponownie” zamiast odmowy | #783 | scalony 15.11 przez kolejkę, wdrożony 15.11; R2, bez migracji. Część R1 (wgrywanie, `organizations`, UPO) w toku; `load-tenant-seller` i fail-open `assertSensitiveMfa` czekają na decyzję Bartosza (ustalenia 1 i 13 w opisie PR) |
+| 15.11.2026 | RP-ODCZYT-01 obejmuje obszary `jpk.vat-fa` i `raporty.kpir` (z sesji 33) | #784 | scalony 15.11 |
+| 15.11.2026 | LIM-05: limit czasu w fabrykach klientów Supabase poza `lib/supabase` | #776 | otwarty 15.11; R0, CI zielone; dubel #775 zamknięty |
+| 15.11.2026 | LIM-05: limit czasu `ksefFetch` obejmuje treść odpowiedzi | #781 | otwarty 15.11; R3, CI zielone; ten sam błąd w UPO (R1) osobno, w toku |
+| 15.11.2026 | LIM-05: limity czasu klienta Anthropic | #782 | otwarty 15.11; R2, CI zielone |
+| 15.11.2026 | Wdrożenie (Bartosz): worker, potem aplikacja, z obrazów GHCR na `631fe072` (do #777 i #783 włącznie) | — | oba kontenery zdrowe, worker 33/33 cronów, `/api/health` 200; migracji nie było (00206 już na bazie). W logach GoTrue 0 wpisów „already used” i „reuse” tuż po starcie; powtórny odczyt po dobie |
+| 15.11.2026 | Ustalenie Bartosza: `tests/rls-mobile-naleznosci.test.ts` pada między 23:00 a 24:00 UTC, bo daty liczy w strefie Europe/Warsaw, a widok `invoices_overdue` i `days_overdue()` według `CURRENT_DATE` bazy (UTC) | brak | naprawa testu osobnym PR; dzień „po terminie” w produkcie według UTC, nie Europe/Warsaw, to osobne ustalenie R1 (`windykacja`) do decyzji Bartosza |
+| 15.11.2026 | Decyzje Bartosza: straż wariant 1 (#772); #193 i #197 zostają szkicami; 28 z migracją jak 21; `zloz-scalenie.sh` bez poprawki, bo kolejka scalania zastąpiła PR zbiorcze; RP-ODCZYT-01 rozszerzona (#784); termin próby 14 na KSeF TEST ustala sesja główna | — | termin w „Następnym kroku” |
 
-**Następny krok:** #725 scalony 14.11, a #730 ma już `main` z poprawką
-z sekcji „Styk z #725”. Teraz etykieta `zgoda:zmiana-filtra` na #730
-i scalenie po zielonym CI. #732 (5) ma włączone automatyczne scalenie, które
-ruszy, gdy gałąź będzie aktualna względem `main`, a CI zielone. Na scalenie
-czekają 11 (#729) i poprawka testu z haka (#733), a 18 (#731) i 34 (#728) na
-decyzję Bartosza o straży (jak w #656; w #728 jeszcze 5 decyzji w opisie).
-Po scaleniu #732 przychodzi 7 (lista w opisie #732), bo obie zmieniają
-`lib/supabase/` i proxy. Po scaleniu #730 osobna naprawa runnera archiwum
-(ustalenie z 14.11). 33 można robić od razu: #715 jest w `main`, a pliki
-z `readCompletePages` nie pokrywają się z żadnym otwartym PR (sprawdzone 14.11).
-Na Bartosza czekają 28 (migracja z RPC: kto ją pisze, numer z rejestru)
-i próba 14 na KSeF TEST. Dalej 24 (w `Dockerfile` są tylko szkice #193 i #197,
-czekające na decyzję Bartosza). Po pomiarze 15 i 16.
+**Następny krok:** do kolejki scalania gotowe są #776, #781 i #782 (CI
+zielone). W toku, jeszcze bez PR: część R1 sesji 7 (wgrywanie,
+`organizations`, UPO), UPO z #781 (R1) oraz sufit wywołania klasyfikatora
+kosztów i odczyty OCR w raporcie (oba z #782). Od razu, bez kolizji
+z otwartymi PR i gałęziami w toku (sprawdzone 15.11): naprawa runnera
+archiwum (ustalenie z 14.11), test `rls-mobile-naleznosci` (ustalenie
+z 15.11) i limity czasu `S3Client` (`lib/storage/r2-client.ts`,
+`lib/storage/glacier.ts`, R1 `retencja`). 28 (z migracją z RPC, jak 21)
+po scaleniu B2a z planu zero zgubionych faktur (zmienia
+`ksef-lifecycle-reconcile.ts`) i odczytów OCR (zmieniają
+`business-metrics.ts`). JOB-07 (limit czasu joba) po G1 z planu zero
+zgubionych faktur, bo oba zmieniają uruchamianie jobów. Osobne ustalenie
+z #758: pętle OFFSET w `lib/exports/jpk-fa-readiness.ts`. Próba 14 na KSeF
+TEST: środa 18.11.2026, gdy #781 i poprawka UPO będą w `main`, rano (poza
+oknem serwisowym TEST 16:00–18:00). Bez sekretów: fikcyjny NIP i certyfikat
+samopodpisany tworzy skrypt, jak w `pnpm ksef:test-wysylka`
+(`docs/runbooks/ksef-test-wysylka.md`). Logi tego nie zastąpią, bo
+`lib/ksef/session-cache.ts` nie zapisuje, czy było odświeżenie, czy pełne
+logowanie. Na decyzję
+Bartosza czekają `load-tenant-seller` i fail-open `assertSensitiveMfa`
+(#783, ustalenia 1 i 13). Dalej 24 (`Dockerfile`; #193 i #197 zostają
+szkicami), po pomiarze 15 i 16.

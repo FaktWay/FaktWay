@@ -643,6 +643,15 @@ describe('przeniesienie repo do organizacji FaktWay (14.11.2026)', { timeout: SC
     expect(curlLog()).toContain('/v2/ezior8888-cpu/faktway-worker/');
   });
 
+  itGhcr('stan nieznany po przeniesieniu: podpowiedź cofnięcia z poprzednim SHA i starą nazwą', () => {
+    oldImageMode();
+    publish(SHA);
+    write(fake('status-2'), '');
+    const r = run('wdroz-produkcje.sh', ['--obraz', SHA]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(`GHCR_PREFIX=ghcr.io/ezior8888-cpu/faktway ./scripts/ops/wdroz-produkcje.sh --obraz ${OLD}`);
+  });
+
   it('GHCR_PREFIX spoza dwóch naszych nazw: odmowa, nic nie zmienia', () => {
     imageMode();
     publish(SHA);
