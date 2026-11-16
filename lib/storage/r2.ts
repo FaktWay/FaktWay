@@ -226,9 +226,9 @@ export async function uploadInvoiceUpo(
  *
  * R2/S3 zwracają `PreconditionFailed` (HTTP 412) gdy `IfNoneMatch: '*'` trafia
  * na istniejący klucz. Sam 412 nie dowodzi, że leży tam ten sam plik: dowodem
- * jest dopiero porównanie bajtów w `uploadXmlDocument` (C-12).
+ * jest dopiero porównanie bajtów w `uploadXmlDocument` (C-12) i `putTenantLogo`.
  */
-function isPreconditionFailed(e: unknown): boolean {
+export function isPreconditionFailed(e: unknown): boolean {
   if (!(e instanceof S3ServiceException)) return false;
   if (e.name === 'PreconditionFailed') return true;
   return e.$metadata?.httpStatusCode === 412;

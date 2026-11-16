@@ -19,6 +19,11 @@ import type { S3Client, S3ClientConfig } from '@aws-sdk/client-s3';
  *    i stanął: czytanie treści kończy się wtedy błędem `TimeoutError`
  *    biblioteki, bez ponowienia (treść czyta wywołujący).
  *
+ * Limity połączenia i odpowiedzi biegną od startu żądania w bibliotece, razem
+ * z czekaniem na wolne gniazdo w puli klienta (50 gniazd). Przy ponad 50
+ * równoległych żądaniach do wolnego magazynu część z nich dostaje więc błąd
+ * limitu połączenia, zanim w ogóle dostanie gniazdo.
+ *
  * Profile jak w `lib/supabase/fetch-timeout.ts`: żądanie strony krótko, worker
  * pg-boss dłużej (`enableWorkerStorageTimeouts` przy starcie workera). Wgranie
  * ma limit odpowiedzi dłuższy o czas pliku przy 1 MiB/s (`uploadRequestOptions`),
@@ -27,9 +32,9 @@ import type { S3Client, S3ClientConfig } from '@aws-sdk/client-s3';
  *
  * Ponowienia są jawne (`maxAttempts`, razem z pierwszą próbą). Biblioteka
  * ponawia błędy przejściowe (limit, zerwane połączenie, 5xx) po krótkiej
- * przerwie. Pula ponowień klienta (500 żetonów, 10 za ponowienie po limicie)
- * wyłącza ponowienia po ok. 50 limitach bez udanego wywołania, więc długa
- * awaria nie mnoży czekania.
+ * przerwie. Pula ponowień klienta (500 żetonów, 14 za ponowienie po błędzie
+ * przejściowym, udane wywołanie oddaje 1) wyłącza ponowienia po ok. 35
+ * ponowieniach w długiej awarii, więc awaria nie mnoży czekania.
  *
  * Przekroczenie limitu przy `send` to `StorageTimeoutError` (`name`
  * 'TimeoutError', nazwa operacji i liczba prób w treści, błąd biblioteki

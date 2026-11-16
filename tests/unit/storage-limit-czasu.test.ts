@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createServer, type AddressInfo, type Server, type Socket } from 'node:net';
 import { join } from 'node:path';
 
-import { S3Client } from '@aws-sdk/client-s3';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { uploadSnapshot } from '@/lib/backup/r2-backup-client';
@@ -17,7 +17,7 @@ import {
   uploadToR2,
   uploadToR2IfAbsent,
 } from '@/lib/storage/r2';
-import { getR2Client } from '@/lib/storage/r2-client';
+import { getR2Client, getR2Config } from '@/lib/storage/r2-client';
 import {
   REQUEST_STORAGE_TIMEOUTS,
   StorageTimeoutError,
@@ -42,7 +42,10 @@ import {
  * gniazda do atrapy na pętli zwrotnej (`node:net`). Atrapa rozpoznaje zachowanie
  * po kluczu: `cisza` (przyjmuje i milczy), `stoi-w-tresci` (nagłówki i początek
  * treści, potem cisza), `zerwane` (zamyka połączenie), `brak` (404), `duzy`
- * (jak MinIO: „100 Continue”, cała treść, potem 200), reszta 200.
+ * (jak MinIO: „100 Continue”, cała treść, potem 200), `pomalu` (jak `duzy`,
+ * ale 200 dopiero po `POMALU_MS`), `/logo/` (zapis warunkowy jak MinIO:
+ * pierwszy zapis pod kluczem przyjmuje i milczy, kolejny dostaje 412, odczyt
+ * zwraca zapisany plik), reszta 200.
  * Limity procesu są tu w setnych sekundy (`setStorageTimeoutsForTests`), żeby
  * test nie czekał 20 s; wartości produkcyjne sprawdza osobny test. Limit ciszy
  * od 6 s biblioteka rejestruje dopiero po 3 s, więc tę ścieżkę (produkcyjną)
@@ -54,6 +57,8 @@ const INVOICE = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const MIB = 1024 * 1024;
 /** Atrapa: limity w setnych sekundy; `idleMs` > `responseMs`, żeby było wiadomo, który limit zadziałał. */
 const MALE: StorageTimeouts = { connectMs: 200, responseMs: 300, idleMs: 1_000, maxAttempts: 2 };
+/** Atrapa `pomalu`: przerwa między przyjęciem całej treści a odpowiedzią, dłuższa niż `MALE.responseMs`. */
+const POMALU_MS = 800;
 /** Po tym czasie test uznaje, że wywołanie wisi. */
 const STRAZNIK_MS = 4_000;
 const TEST_TIMEOUT_MS = 15_000;
@@ -63,7 +68,7 @@ type Zadanie = {
   sciezka: string;
   /** Nagłówki żądania, nazwy małymi literami. */
   naglowki: Record<string, string>;
-  /** Bajty treści żądania, które atrapa przeczytała (tylko `duzy`). */
+  /** Bajty treści żądania, które atrapa przeczytała (`duzy`, `pomalu`, `/logo/`). */
   odebraneBajty: number;
 };
 
@@ -72,14 +77,66 @@ const atrapa = {
   port: 0,
   zadania: [] as Zadanie[],
   gniazda: new Set<Socket>(),
+  /** Pliki logo zapisane w atrapie, po ścieżce bez zapytania. */
+  loga: new Map<string, Buffer>(),
 };
 
 function zadaniaZ(znacznik: string): Zadanie[] {
   return atrapa.zadania.filter((zadanie) => zadanie.sciezka.includes(znacznik));
 }
 
+/** Czeka na całą treść żądania (`Content-Length`) i oddaje ją. */
+function przyjmijTresc(socket: Socket, zadanie: Zadanie, poczatekTresci: Buffer, gotowe: (tresc: Buffer) => void): void {
+  const dlugosc = Number(zadanie.naglowki['content-length'] ?? 0);
+  const kawalki: Buffer[] = [];
+  const przyjmij = (kawalek: Buffer) => {
+    kawalki.push(kawalek);
+    zadanie.odebraneBajty += kawalek.length;
+    if (zadanie.odebraneBajty < dlugosc) return;
+    socket.off('data', przyjmij);
+    gotowe(Buffer.concat(kawalki));
+  };
+  socket.on('data', przyjmij);
+  przyjmij(poczatekTresci);
+}
+
+/**
+ * Logo, zapis warunkowy (`If-None-Match: *`) jak MinIO. Pierwszy zapis pod
+ * kluczem atrapa zapisuje i milczy (odpowiedź ginie po zapisie), kolejny
+ * pod tym samym kluczem dostaje 412, odczyt zwraca zapisany plik.
+ */
+function odpowiedzLogo(socket: Socket, zadanie: Zadanie, poczatekTresci: Buffer): void {
+  const klucz = zadanie.sciezka.split('?')[0] ?? '';
+  if (zadanie.metoda === 'GET') {
+    const plik = atrapa.loga.get(klucz);
+    if (!plik) {
+      socket.end('HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
+      return;
+    }
+    socket.write(`HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: ${plik.length}\r\nConnection: close\r\n\r\n`);
+    socket.end(plik);
+    return;
+  }
+  przyjmijTresc(socket, zadanie, poczatekTresci, (tresc) => {
+    if (!atrapa.loga.has(klucz)) {
+      atrapa.loga.set(klucz, tresc);
+      return;
+    }
+    const blad =
+      '<?xml version="1.0" encoding="UTF-8"?><Error><Code>PreconditionFailed</Code>' +
+      '<Message>At least one of the pre-conditions you specified did not hold</Message></Error>';
+    socket.end(
+      `HTTP/1.1 412 Precondition Failed\r\nContent-Type: application/xml\r\nContent-Length: ${Buffer.byteLength(blad)}\r\nConnection: close\r\n\r\n${blad}`,
+    );
+  });
+}
+
 function odpowiedz(socket: Socket, zadanie: Zadanie, poczatekTresci: Buffer): void {
   const { sciezka } = zadanie;
+  if (sciezka.includes('/logo/')) {
+    odpowiedzLogo(socket, zadanie, poczatekTresci);
+    return;
+  }
   if (sciezka.includes('cisza')) return;
   if (sciezka.includes('zerwane')) {
     socket.destroy();
@@ -93,18 +150,15 @@ function odpowiedz(socket: Socket, zadanie: Zadanie, poczatekTresci: Buffer): vo
     socket.end('HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
     return;
   }
-  if (sciezka.includes('duzy')) {
+  if (sciezka.includes('duzy') || sciezka.includes('pomalu')) {
+    const przerwaMs = sciezka.includes('pomalu') ? POMALU_MS : 0;
     // Jak MinIO i S3: „100 Continue” od razu, potem cała treść, potem odpowiedź.
     if (zadanie.naglowki.expect?.toLowerCase() === '100-continue') socket.write('HTTP/1.1 100 Continue\r\n\r\n');
-    const dlugosc = Number(zadanie.naglowki['content-length'] ?? 0);
-    const przyjmij = (kawalek: Buffer) => {
-      zadanie.odebraneBajty += kawalek.length;
-      if (zadanie.odebraneBajty < dlugosc) return;
-      socket.off('data', przyjmij);
-      socket.end('HTTP/1.1 200 OK\r\nETag: "etag"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
-    };
-    socket.on('data', przyjmij);
-    przyjmij(poczatekTresci);
+    przyjmijTresc(socket, zadanie, poczatekTresci, () => {
+      const ok = () => socket.end('HTTP/1.1 200 OK\r\nETag: "etag"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
+      if (przerwaMs === 0) ok();
+      else setTimeout(ok, przerwaMs);
+    });
     return;
   }
   socket.end('HTTP/1.1 200 OK\r\nContent-Type: application/xml\r\nContent-Length: 10\r\nConnection: close\r\n\r\n<Faktura/>');
@@ -150,6 +204,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   atrapa.zadania = [];
+  atrapa.loga.clear();
   vi.stubEnv('R2_ACCOUNT_ID', 'konto-testowe');
   vi.stubEnv('R2_ACCESS_KEY_ID', 'klucz-testowy');
   vi.stubEnv('R2_SECRET_ACCESS_KEY', 's'.repeat(40));
@@ -261,7 +316,8 @@ describe('LIM-05: zawieszony magazyn plików kończy wywołanie błędem po limi
     expect(wynik.blad).toMatchObject({ name: 'TimeoutError', message: expect.stringContaining('6000 ms of inactivity') });
     // Rejestracja po 3 s, potem 6 s ciszy.
     expect(wynik.ms).toBeGreaterThanOrEqual(6_000);
-    expect(wynik.ms).toBeLessThan(6_000 + 3_000 + 2_000);
+    // Górna granica z zapasem na obciążone CI: liczy się błąd przed strażnikiem (15 s).
+    expect(wynik.ms).toBeLessThan(14_000);
   });
 
   it('duże wgranie (od 2 MiB biblioteka wysyła „Expect: 100-continue”) przechodzi w limicie liczonym od rozmiaru', { timeout: TEST_TIMEOUT_MS }, async () => {
@@ -274,6 +330,52 @@ describe('LIM-05: zawieszony magazyn plików kończy wywołanie błędem po limi
     expect(zadaniaZ('duzy')).toEqual([
       expect.objectContaining({ metoda: 'PUT', naglowki: expect.objectContaining({ expect: '100-continue' }), odebraneBajty: paczka.length }),
     ]);
+  });
+
+  it('wgranie dłuższe niż sam limit odpowiedzi mieści się w limicie liczonym od rozmiaru; bez niego pada', { timeout: TEST_TIMEOUT_MS }, async () => {
+    // Limit ciszy dłuższy od przerwy atrapy: sprawdzamy tylko limit odpowiedzi.
+    setStorageTimeoutsForTests({ ...MALE, idleMs: 3_000 });
+    const paczka = Buffer.alloc(2 * MIB, 1);
+    expect(POMALU_MS).toBeGreaterThan(MALE.responseMs);
+    expect(POMALU_MS).toBeLessThan(uploadRequestOptions(paczka.length).requestTimeout);
+
+    const zLimitem = await zmierz(uploadToR2IfAbsent(`exports/${TENANT}/archiwum/pomalu-z-limitem/paczka.zip`, paczka, 'application/zip'));
+
+    expect(zLimitem.stan, opis(zLimitem)).toBe('wynik');
+    expect(zLimitem.wartosc).toBe(true);
+    expect(zadaniaZ('pomalu-z-limitem')).toHaveLength(1);
+
+    // To samo wgranie bez opcji `send` (sam limit odpowiedzi klienta) pada po limicie.
+    const { bucketName } = getR2Config();
+    const bezLimitu = await zmierz(
+      getR2Client().send(new PutObjectCommand({ Bucket: bucketName, Key: `exports/${TENANT}/archiwum/pomalu-bez-limitu/paczka.zip`, Body: paczka })),
+    );
+
+    oczekujLimitu(bezLimitu, 'PutObject', MALE.maxAttempts);
+    expect(zadaniaZ('pomalu-bez-limitu')).toHaveLength(MALE.maxAttempts);
+  });
+
+  it('logo: ponowienie po limicie trafia na plik zapisany przez pierwszą próbę (412) → sukces po porównaniu bajtów', { timeout: TEST_TIMEOUT_MS }, async () => {
+    const klucz = `tenants/${TENANT}/logo/cccccccc-cccc-4ccc-8ccc-cccccccccccc.png`;
+    const logo = Buffer.from('PNG-logo-firmy');
+
+    const wynik = await zmierz(putTenantLogo(klucz, TENANT, logo, 'png'));
+
+    expect(wynik.stan, opis(wynik)).toBe('wynik');
+    // Pierwsza próba zapisała plik i zgubiła odpowiedź, druga dostała 412, potem odczyt.
+    expect(zadaniaZ('/logo/').map((zadanie) => zadanie.metoda)).toEqual(['PUT', 'PUT', 'GET']);
+  });
+
+  it('logo: 412 przy innym pliku pod kluczem to dalej błąd zapisu, bez nadpisania', { timeout: TEST_TIMEOUT_MS }, async () => {
+    const klucz = `tenants/${TENANT}/logo/dddddddd-dddd-4ddd-8ddd-dddddddddddd.png`;
+    const cudze = Buffer.from('PNG-inne-logo');
+    atrapa.loga.set(`/faktury/${klucz}`, cudze);
+
+    const wynik = await zmierz(putTenantLogo(klucz, TENANT, Buffer.from('PNG-logo-firmy'), 'png'));
+
+    expect(wynik.stan, opis(wynik)).toBe('blad');
+    expect(wynik.blad).toMatchObject({ name: 'PreconditionFailed', $metadata: { httpStatusCode: 412 } });
+    expect(atrapa.loga.get(`/faktury/${klucz}`)).toEqual(cudze);
   });
 
   it('zerwane połączenie to nie limit czasu: zostaje swoim błędem, po 2 próbach', { timeout: TEST_TIMEOUT_MS }, async () => {
