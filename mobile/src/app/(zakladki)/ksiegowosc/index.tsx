@@ -189,8 +189,8 @@ function EkranKsiegowosciZBazy({ konto }: { konto: KontoFirmy }) {
         />
 
         {d.braki ? (
-          // Całe zdania (bez ucinania wiersza listy): każdy brak mówi, co zrobić.
-          <Sekcja naglowek={`Kwot za ${nazwaMiesiaca(d.miesiac)} nie liczymy`} stopka="Uzupełnij brakujące dane na faktway.pl, w zakładce Księgowość." swobodna>
+          // Całe zdania (bez ucinania wiersza listy): każdy brak mówi, co dalej.
+          <Sekcja naglowek={`Kwot za ${nazwaMiesiaca(d.miesiac)} nie liczymy`} stopka="Brakujące dane uzupełnia się na faktway.pl, w zakładce Księgowość." swobodna>
             {d.braki.map((b) => (
               <Tekst key={b} styl="body">
                 {b}
