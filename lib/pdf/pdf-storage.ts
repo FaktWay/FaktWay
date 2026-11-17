@@ -27,7 +27,9 @@ import {
 // v7 (08.11): tytuł przelewu z numerem KSeF w sekcji płatności (plan
 // kompletnej aplikacji, krok 1.4). Bez podbicia przyjęte faktury z cache
 // zostałyby bez tego wiersza.
-const PDF_RENDERER_VERSION = 7;
+// v8 (17.11): PKWiU i GTU pod nazwą pozycji (plan kompletnej aplikacji, krok 2.6,
+// część 2b-3c). Bez podbicia faktura z kodami dostałaby z pamięci PDF bez kodów (NZ-FA-11).
+const PDF_RENDERER_VERSION = 8;
 
 function parseYearMonth(issueDate: string): { year: string; month: string } {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(issueDate)) {
