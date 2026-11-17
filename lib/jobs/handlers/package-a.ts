@@ -13,6 +13,7 @@
 import { runArchiveOldInvoices } from '../runners/archive-old-invoices';
 import { runCertExpiryAlert } from '../runners/cert-expiry-alert';
 import { runCleanupAuditLogs } from '../runners/cleanup-audit-logs';
+import { runCleanupInvoiceFormDrafts } from '../runners/cleanup-invoice-form-drafts';
 import { runCleanupOldBackups } from '../runners/cleanup-old-backups';
 import { runDailyDbSnapshot } from '../runners/daily-db-snapshot';
 import { runDocumentArchiveCleanup } from '../runners/document-archive-cleanup';
@@ -47,6 +48,9 @@ cronJob('cron.cert-expiry-alert', runCertExpiryAlert);
 // Sprzątanie dzienników paczkami (00157): ponowienie od zera powtarza cały
 // 10-minutowy budżet, więc 1 retry (błąd przejściowy); resztę bierze następna noc.
 cronJob('cron.cleanup-audit-logs', runCleanupAuditLogs, 1);
+// Kopie robocze formularza faktury (00207): przebieg idempotentny (DELETE tylko wygasłych),
+// więc ponowienie od zera po błędzie bazy nie dubluje skutków.
+cronJob('cron.cleanup-invoice-form-drafts', runCleanupInvoiceFormDrafts);
 cronJob('cron.cleanup-old-backups', runCleanupOldBackups);
 cronJob('cron.daily-db-snapshot', runDailyDbSnapshot);
 // Pliki wygasłych paczek archiwum (krok 6.4, część 2, 00190): przebieg idempotentny
