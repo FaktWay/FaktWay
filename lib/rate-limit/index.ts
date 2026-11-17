@@ -14,6 +14,8 @@ export type RateLimitBucket =
   | 'ai_ocr'
   | 'ai_classify'
   | 'invoice_email'
+  // Autozapis formularza faktury (krok 2.8, `app/actions/invoice-autosave.ts`): klucz = osoba.
+  | 'invoice_autosave'
   // Noty obciążeniowe i uznaniowe mailem (00193, krok 2.9): limit na firmę jak przy fakturach.
   | 'accounting_note_email'
   // Proforma i oferta mailem (00198, krok 2.4): limit na firmę jak przy fakturach i notach.
