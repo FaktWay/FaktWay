@@ -34,13 +34,13 @@ Fakturę na podstawie paragonu wystawia się firmie tylko wtedy, gdy paragon ma 
 
 ## Numer KSeF w tytule przelewu
 
-Od 1.01.2027 w płatnościach między czynnymi podatnikami VAT w tytule przelewu podaje się numer KSeF faktury albo identyfikator zbiorczy, także przy podzielonej płatności. Identyfikator zbiorczy ma 35 znaków i tworzy go wystawca albo odbiorca w Aplikacji Podatnika lub przez API KSeF.
+Od 1.01.2027 w płatnościach między czynnymi podatnikami VAT w tytule przelewu podaje się numer KSeF faktury albo identyfikator zbiorczy, także przy podzielonej płatności. Identyfikator zbiorczy ma 35 znaków i tworzy go wystawca albo odbiorca przez API KSeF; w Aplikacji Podatnika ma to być możliwe docelowo.
 
 Źródło: [Ministerstwo Finansów, „Numer KSeF i zbiorczy identyfikator”](https://ksef.podatki.gov.pl/informacje-ogolne-ksef-20/numer-ksef-i-zbiorczy-identyfikator/).
 
 ## Co robi FaktWay
 
-- **Numer KSeF w tytule przelewu:** na PDF faktury i w mailu z fakturą FaktWay podaje tytuł przelewu z numerem KSeF faktury, a przy podzielonej płatności sam numer KSeF.
+- **Numer KSeF w tytule przelewu:** FaktWay podaje tytuł przelewu z numerem KSeF faktury na PDF faktury i w mailu z fakturą, ale tylko dla faktury, która ma już numer KSeF, jest płatna przelewem i ma kwotę do zapłaty. Przy podzielonej płatności w tytule jest sam numer KSeF. Dla faktury bez numeru KSeF (np. szkic albo wysyłka w toku), płatnej inaczej niż przelewem albo bez kwoty do zapłaty tytułu przelewu nie podajemy.
 
 Co te zmiany oznaczają dla rozliczeń Twojej firmy, nie rozstrzygamy: to pytanie do księgowej.
 

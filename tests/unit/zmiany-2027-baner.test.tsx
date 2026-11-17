@@ -66,7 +66,14 @@ describe('komunikat na pulpicie', () => {
     const tekst = baner()!.textContent ?? '';
     expect(tekst).toMatch(/1 stycznia 2027/);
     expect(tekst).toMatch(/10 000 zł/);
-    expect(tekst).toMatch(/faktur\w+ do paragonu/i);
+    expect(tekst).toMatch(/paragon\w* z NIP/i);
+    expect(tekst).toMatch(/450 zł/);
+    expect(tekst).toMatch(/faktur\S* uproszczon/i);
+    expect(tekst).toMatch(/31 grudnia 2026/);
+    // Numer KSeF w przelewie dotyczy czynnych podatników VAT, nie wszystkich „przelewów między firmami”.
+    expect(tekst).toMatch(/czynni podatnicy VAT/i);
+    expect(tekst).not.toMatch(/przelewach między firmami/i);
+    expect(tekst).not.toMatch(/zasady dla faktury do paragonu/i);
     expect(tekst).toMatch(/numer KSeF/i);
     const link = host.querySelector<HTMLAnchorElement>(`a[href="/pomoc/${ZMIANY_2027_ARTICLE_SLUG}"]`);
     expect(link).not.toBeNull();

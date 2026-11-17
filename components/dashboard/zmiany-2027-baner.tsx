@@ -75,10 +75,11 @@ export function Zmiany2027Baner({ userId, today }: { userId: string; today: stri
           Zmiany od 1 stycznia 2027 r.
         </h2>
         <p className="mt-1">
-          Od 1 stycznia 2027 r. według źródeł urzędowych kończy się wyjątek dla sprzedaży do 10 000 zł brutto miesięcznie
-          (KSeF dla wszystkich), zmieniają się zasady dla faktury do paragonu, a w przelewach między firmami w tytule
-          podaje się numer KSeF faktury. To informacja ogólna, nie porada podatkowa: jak to dotyczy Twojej firmy, ustal z
-          księgową.
+          Według źródeł urzędowych od 1 stycznia 2027 r. KSeF obowiązuje wszystkich (kończy się wyjątek dla sprzedaży do
+          10 000 zł brutto miesięcznie), a paragon z NIP do 450 zł przestaje być fakturą uproszczoną, bo przepis
+          przejściowy działa do 31 grudnia 2026. Czynni podatnicy VAT podają też numer KSeF faktury w tytule przelewu,
+          także przy podzielonej płatności. To informacja ogólna, nie porada podatkowa: jak to dotyczy Twojej firmy,
+          ustal z księgową.
         </p>
         <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
           <Link href={`/pomoc/${ZMIANY_2027_ARTICLE_SLUG}`} className="font-semibold text-[var(--ff-accent)] underline-offset-4 hover:underline">

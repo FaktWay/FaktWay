@@ -46,10 +46,20 @@ describe('artykuł „Zmiany od 1 stycznia 2027 r.”', () => {
     const s = sekcja('Co robi FaktWay');
     expect(s).toMatch(/tytu\w+ przelewu/i);
     expect(s).toMatch(/numer\w* KSeF/i);
+    // Warunki z `tytulPrzelewuNaDokumencie`: numer KSeF, płatność przelewem, kwota do zapłaty.
+    expect(s).toMatch(/tylko .*numer\w* KSeF/i);
+    expect(s).toMatch(/przelew/i);
+    expect(s).toMatch(/kwot\w+ do zapłaty/i);
     // Funkcji, których nie ma w aplikacji, nie obiecujemy.
     expect(s).not.toMatch(/identyfikator zbiorczy w pliku|import faktur spoza KSeF|automatycznie rozlicz/i);
     // Fakturę do paragonu opisujemy w pomocy tylko jako przepis (strażnik stron publicznych: produkt jej publicznie nie obiecuje).
     expect(s).not.toMatch(/faktur\w* do paragonu/i);
+  });
+
+  it('Aplikacja Podatnika: identyfikator zbiorczy dziś przez API KSeF, w aplikacji docelowo', () => {
+    const s = sekcja('Numer KSeF w tytule przelewu');
+    expect(s).toMatch(/docelowo/i);
+    expect(s).toMatch(/API KSeF/);
   });
 
   it('bez obietnic i zaleceń w trybie rozkazującym o podatkach', () => {
