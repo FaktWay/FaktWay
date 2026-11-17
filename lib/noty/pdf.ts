@@ -3,6 +3,7 @@ import PDFDocument from 'pdfkit';
 
 import { formatIsoDatePl } from '@/lib/format/iso-date';
 import { formatPlMoney } from '@/lib/format/pl';
+import { drawPdfLogo, type PdfLogo } from '@/lib/pdf/logo';
 import {
   formatIbanForPrint,
   NOTE_KIND_LABELS,
@@ -71,7 +72,16 @@ export function notePdfFilename(number: string): string {
   return `nota-${number.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '')}.pdf`;
 }
 
-export async function renderNotePdf(note: NotePdfInput): Promise<Buffer> {
+export interface NotePdfOptions {
+  /**
+   * Logo firmy z ustawień (krok 2.2), sprawdzone przy odczycie
+   * (`lib/pdf/logo-odczyt.ts`). Brak = nagłówek jak dotąd. To samo logo daje
+   * ten sam plik, więc ponowienie maila z kluczem idempotencji działa dalej.
+   */
+  logo?: PdfLogo | null;
+}
+
+export async function renderNotePdf(note: NotePdfInput, options: NotePdfOptions = {}): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
     const doc = new PDFDocument({
       size: 'A4',
@@ -93,7 +103,7 @@ export async function renderNotePdf(note: NotePdfInput): Promise<Buffer> {
       const left = MARGIN;
       const width = doc.page.width - MARGIN * 2;
 
-      drawHeader(doc, note, left, width);
+      drawHeader(doc, note, options.logo ?? null, left, width);
       drawParties(doc, note, left, width);
       drawSubject(doc, note, left, width);
       drawItems(doc, note, left, width);
@@ -115,15 +125,17 @@ function ensureSpace(doc: Doc, height: number): void {
   if (doc.y + height > contentBottom(doc)) doc.addPage();
 }
 
-function drawHeader(doc: Doc, note: NotePdfInput, left: number, width: number): void {
+function drawHeader(doc: Doc, note: NotePdfInput, logo: PdfLogo | null, left: number, width: number): void {
+  // Logo firmy (krok 2.2) w lewym górnym rogu, nagłówek pod nim; bez logo `top` = MARGIN jak dotąd.
+  const top = MARGIN + drawPdfLogo(doc, logo, left, MARGIN);
   doc.font('bold').fontSize(20).fillColor('#111111');
-  doc.text(NOTE_KIND_LABELS[note.kind], left, MARGIN, { width });
+  doc.text(NOTE_KIND_LABELS[note.kind], left, top, { width });
   doc.font('body').fontSize(11).fillColor('#444444');
-  doc.text(`Nr ${note.number}`, left, MARGIN + 26, { width });
+  doc.text(`Nr ${note.number}`, left, top + 26, { width });
   doc.fontSize(9).fillColor('#666666');
-  doc.text(`Data wystawienia: ${formatIsoDatePl(note.issueDate)}`, left, MARGIN + 44, { width });
+  doc.text(`Data wystawienia: ${formatIsoDatePl(note.issueDate)}`, left, top + 44, { width });
 
-  const ruleY = MARGIN + 64;
+  const ruleY = top + 64;
   doc.moveTo(left, ruleY).lineTo(left + width, ruleY).strokeColor('#dddddd').stroke();
   doc.y = ruleY + 14;
 }
