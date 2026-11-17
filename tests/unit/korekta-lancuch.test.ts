@@ -244,3 +244,46 @@ describe('łańcuch korekt (K4)', () => {
     expect(r).toMatchObject({ error: expect.stringContaining('Napisz do nas, a przygotujemy korektę z Tobą.') });
   });
 });
+
+// Noc 2026-11-17, KOR-01 (F12-D2 w każdej stawce). Różnica korekty kwotowej
+// idzie według stawek faktury korygowanej (art. 106j ust. 2 pkt 5 ustawy
+// o VAT, RP-FA-KOR-01), więc „nie poniżej zera” dotyczy stawki korekty, a nie
+// tylko sumy faktury. Faktura w dwóch stawkach: 10 × 100 zł w 23% (1 000 netto,
+// 1 230 brutto) i 10 × 100 zł w 8% (1 000 netto, 1 080 brutto), razem 2 000
+// netto i 2 310 brutto. Korekta −1 500 netto w 23% zostawia dodatnią sumę
+// (500 netto), ale w 23% schodzi do −500: takiej korekty nie wolno wysłać.
+// Niezmiennik: korekta przechodzi wtedy i tylko wtedy, gdy wartość w jej stawce
+// (netto i brutto) po korekcie jest nie mniejsza niż zero.
+describe('F12-D2 w każdej stawce: korekta kwotowa nie schodzi poniżej zera w swojej stawce', () => {
+  const stanStawek = { '23': { netto: 1000, brutto: 1230 }, '8': { netto: 1000, brutto: 1080 } } as const;
+  const przypadki: Array<{ stawka: keyof typeof stanStawek; netDelta: number; vatDelta: number; grossDelta: number }> = [
+    { stawka: '23', netDelta: -1500, vatDelta: -345, grossDelta: -1845 },
+    { stawka: '23', netDelta: -1000.01, vatDelta: -230, grossDelta: -1230.01 },
+    { stawka: '23', netDelta: -1000, vatDelta: -230, grossDelta: -1230 },
+    { stawka: '23', netDelta: -999.99, vatDelta: -230, grossDelta: -1229.99 },
+    { stawka: '23', netDelta: -200, vatDelta: -46, grossDelta: -246 },
+    { stawka: '8', netDelta: -1001, vatDelta: -80.08, grossDelta: -1081.08 },
+    { stawka: '8', netDelta: -1500, vatDelta: -120, grossDelta: -1620 },
+    { stawka: '8', netDelta: -1000, vatDelta: -80, grossDelta: -1080 },
+    { stawka: '8', netDelta: -500, vatDelta: -40, grossDelta: -540 },
+  ];
+
+  it.each(przypadki)('stawka $stawka: różnica $netDelta netto, $grossDelta brutto', async ({ stawka, netDelta, vatDelta, grossDelta }) => {
+    st.sumyRodzica = { net_total: 2000, vat_total: 310, gross_total: 2310 };
+    st.linesByInvoice = { [PARENT]: [dbLine(10), { ...dbLine(10), vat_rate: '8' }] };
+    const r = await saveCorrectionDraftAction(payload({
+      correctionType: 'amount_change',
+      amountChange: { netDelta, vatDelta, grossDelta, description: 'Rabat' },
+    }), TENANT);
+    const stan = stanStawek[stawka];
+    const wolno = Math.round((stan.netto + netDelta) * 100) >= 0 && Math.round((stan.brutto + grossDelta) * 100) >= 0;
+    if (wolno) {
+      expect(r).toMatchObject({ success: true });
+      expect(st.inserted).toHaveLength(1);
+    } else {
+      expect(r).toMatchObject({ success: false, error: expect.stringContaining(`stawce ${stawka}%`) });
+      expect(r).toMatchObject({ error: expect.stringContaining('poniżej zera') });
+      expect(st.inserted).toHaveLength(0);
+    }
+  });
+});
