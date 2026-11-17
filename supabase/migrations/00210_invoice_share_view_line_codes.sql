@@ -4,8 +4,8 @@
 --
 -- KIEDY WGRAĆ: PRZED wdrożeniem. Tylko CREATE OR REPLACE FUNCTION widoku
 -- `invoice_share_link_view` (00179) z dwoma nowymi polami pozycji; bez zmian
--- tabel i danych. Stara aplikacja nowe pola pomija (schemat pozycji je
--- odrzuca jako nieznane), nowa przyjmuje widok bez nich (pola opcjonalne).
+-- tabel i danych. Stara aplikacja nowe pola pomija (schemat pozycji, z.object,
+-- usuwa nieznane pola), nowa przyjmuje widok bez nich (pola opcjonalne).
 --
 -- Kody pozycji leżą w dokumencie faktury (`fa3_data.lines[].pkwiuCode`,
 -- `gtuCode`, po `ordinal`), a `invoice_line_items` nie ma ich kolumn. Widok
