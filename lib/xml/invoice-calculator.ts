@@ -358,7 +358,11 @@ export function allocateLargestRemainder(
  * wysyłki (`validateInvoice`) odmawia jej z numerem pozycji.
  */
 export function grossPricedLines(input: InvoiceLineItemInput[]): InvoiceLineItem[] {
-  const gross = input.map((raw) => toGrosze(roundToCents(raw.quantity * (raw.unitPriceGross ?? 0))));
+  // Ilość × cena brutto dokładnie (art. 106e ust. 11). Pozycja bez ceny brutto zostaje bez niej
+  // (brutto 0): brak ceny nie staje się ceną 0 zł, a bramka wysyłki odmawia z numerem pozycji.
+  const gross = input.map((raw) =>
+    raw.unitPriceGross !== undefined && Number.isFinite(raw.unitPriceGross) ? multiplyToGrosze(raw.quantity, raw.unitPriceGross) : 0,
+  );
   const vat = input.map(() => 0);
   for (const rate of new Set(input.map((l) => l.vatRate))) {
     const pct = getVatPercentage(rate) ?? 0;
@@ -385,7 +389,7 @@ export function grossPricedLines(input: InvoiceLineItemInput[]): InvoiceLineItem
     quantity: raw.quantity,
     unitPriceNet: 0,
     unitPriceNetMissing: true as const,
-    unitPriceGross: raw.unitPriceGross ?? 0,
+    ...(raw.unitPriceGross !== undefined ? { unitPriceGross: raw.unitPriceGross } : {}),
     vatRate: raw.vatRate,
     netAmount: groszeToZloty(gross[i]! - vat[i]!),
     vatAmount: groszeToZloty(vat[i]!),
@@ -682,9 +686,9 @@ export function validateInvoice(invoice: Invoice, now: Date = new Date()): strin
       const priceGross = line.unitPriceGross;
       if (priceGross === undefined || !Number.isFinite(priceGross) || priceGross < 0) {
         errors.push(`Pozycja ${line.ordinal}: faktura w cenach brutto wymaga ceny brutto pozycji (nieujemnej).`);
-      } else if (toGrosze(roundToCents(line.quantity * priceGross)) !== toGrosze(line.grossAmount)) {
+      } else if (multiplyToGrosze(line.quantity, priceGross) !== toGrosze(line.grossAmount)) {
         errors.push(
-          `Pozycja ${line.ordinal}: brutto (${line.grossAmount}) nie zgadza się z ilość × cena brutto (${roundToCents(line.quantity * priceGross)}).`,
+          `Pozycja ${line.ordinal}: brutto (${line.grossAmount}) nie zgadza się z ilość × cena brutto (${multiplyToCents(line.quantity, priceGross)}).`,
         );
       }
       if (toGrosze(line.grossAmount) !== toGrosze(line.netAmount) + toGrosze(line.vatAmount)) {
@@ -692,8 +696,24 @@ export function validateInvoice(invoice: Invoice, now: Date = new Date()): strin
           `Pozycja ${line.ordinal}: brutto (${line.grossAmount}) to nie netto + VAT (${groszeToZloty(toGrosze(line.netAmount) + toGrosze(line.vatAmount))}).`,
         );
       }
-      if ((getVatPercentage(line.vatRate) as number | undefined) === undefined) {
+      const linePct = getVatPercentage(line.vatRate) as number | undefined;
+      if (linePct === undefined) {
         errors.push(`Pozycja ${line.ordinal}: nieznana stawka VAT „${line.vatRate}”. Wybierz w pozycji stawkę z listy formularza.`);
+      } else {
+        // VAT pozycji to jej udział w VAT stawki (brutto × stawka / (100 + stawka)) w dół albo
+        // w górę (`grossPricedLines`): te kwoty idą do JPK i KPiR, więc podział 0,57 / −0,01 / 0
+        // przy poprawnej sumie stawki też jest błędem.
+        const share = toGrosze(line.grossAmount) * linePct;
+        const den = 100 + linePct;
+        const low = Math.floor(share / den);
+        const high = share % den === 0 ? low : low + 1;
+        const vatGr = toGrosze(line.vatAmount);
+        if (vatGr < low || vatGr > high) {
+          errors.push(
+            `Pozycja ${line.ordinal}: VAT (${line.vatAmount}) to nie udział pozycji w VAT stawki: od brutto ${line.grossAmount} ` +
+              `przy ${linePct}% wychodzi ${groszeToZloty(low)}${high === low ? '' : ` albo ${groszeToZloty(high)}`}.`,
+          );
+        }
       }
       continue;
     }

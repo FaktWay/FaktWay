@@ -580,7 +580,12 @@ function buildFaWiersz(
     // Art. 106e ust. 8: zamiast ceny i wartości netto cena jednostkowa brutto
     // i wartość sprzedaży brutto (XSD: P_9B i P_11A „w przypadku zastosowania
     // art. 106e ust. 7 i 8”). Sumy stawek (P_13_x, P_14_x) z podziału VAT stawki.
-    wiersz.ele('P_9B').txt(formatDecimal(line.unitPriceGross ?? 0, 4));
+    // Bez ceny brutto nie ma pliku (bramka `validateInvoice` odmawia wcześniej z numerem
+    // pozycji); tu ostatnia linia obrony przy `validate: false`, zamiast ceny 0 zł.
+    if (line.unitPriceGross === undefined || !Number.isFinite(line.unitPriceGross)) {
+      throw new Error(`FA(3): pozycja ${line.ordinal} faktury w cenach brutto nie ma ceny brutto.`);
+    }
+    wiersz.ele('P_9B').txt(formatDecimal(line.unitPriceGross, 4));
     wiersz.ele('P_11A').txt(formatDecimal(line.grossAmount));
   } else {
     wiersz.ele('P_9A').txt(formatDecimal(line.unitPriceNet, 4));
