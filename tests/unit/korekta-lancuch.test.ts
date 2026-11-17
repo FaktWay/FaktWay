@@ -255,7 +255,7 @@ describe('łańcuch korekt (K4)', () => {
 // Niezmiennik: korekta przechodzi wtedy i tylko wtedy, gdy wartość w jej stawce
 // (netto i brutto) po korekcie jest nie mniejsza niż zero.
 describe('F12-D2 w każdej stawce: korekta kwotowa nie schodzi poniżej zera w swojej stawce', () => {
-  const stanStawek = { '23': { netto: 1000, brutto: 1230 }, '8': { netto: 1000, brutto: 1080 } } as const;
+  const stanStawek = { '23': { netto: 1000, vat: 230, brutto: 1230 }, '8': { netto: 1000, vat: 80, brutto: 1080 } } as const;
   const przypadki: Array<{ stawka: keyof typeof stanStawek; netDelta: number; vatDelta: number; grossDelta: number }> = [
     { stawka: '23', netDelta: -1500, vatDelta: -345, grossDelta: -1845 },
     { stawka: '23', netDelta: -1000.01, vatDelta: -230, grossDelta: -1230.01 },
@@ -276,7 +276,8 @@ describe('F12-D2 w każdej stawce: korekta kwotowa nie schodzi poniżej zera w s
       amountChange: { netDelta, vatDelta, grossDelta, description: 'Rabat' },
     }), TENANT);
     const stan = stanStawek[stawka];
-    const wolno = Math.round((stan.netto + netDelta) * 100) >= 0 && Math.round((stan.brutto + grossDelta) * 100) >= 0;
+    const wolno = Math.round((stan.netto + netDelta) * 100) >= 0 && Math.round((stan.vat + vatDelta) * 100) >= 0 &&
+      Math.round((stan.brutto + grossDelta) * 100) >= 0;
     if (wolno) {
       expect(r).toMatchObject({ success: true });
       expect(st.inserted).toHaveLength(1);
@@ -285,5 +286,36 @@ describe('F12-D2 w każdej stawce: korekta kwotowa nie schodzi poniżej zera w s
       expect(r).toMatchObject({ error: expect.stringContaining('poniżej zera') });
       expect(st.inserted).toHaveLength(0);
     }
+  });
+
+  it('po przyjętej „przed/po” liczy się stan po niej: KOR1 w 23% 10 → 5, potem −600 zł w 23%: odmowa', async () => {
+    // Stan po KOR1: 500 zł w 23% i 1 000 zł w 8% (suma 1 500). Z pozycji
+    // pierwotnych (1 000 zł w 23%) ta korekta by przeszła.
+    st.sumyRodzica = { net_total: 2000, vat_total: 310, gross_total: 2310 };
+    st.corrections = [kor1({ net_total: -500, vat_total: -115, gross_total: -615 })];
+    st.linesByInvoice = {
+      [PARENT]: [dbLine(10), { ...dbLine(10), vat_rate: '8' }],
+      [KOR1]: [dbLine(5), { ...dbLine(10), vat_rate: '8' }],
+    };
+    const r = await saveCorrectionDraftAction(payload({
+      correctionType: 'amount_change',
+      amountChange: { netDelta: -600, vatDelta: -138, grossDelta: -738, description: 'Rabat' },
+    }), TENANT);
+    expect(r).toMatchObject({ success: false, error: expect.stringContaining('stawce 23%') });
+    expect(st.inserted).toHaveLength(0);
+  });
+
+  it('VAT w stawce też nie schodzi poniżej zera: 10 pozycji po 1,01 zł w 23% (VAT 2,30), korekta −10,05 / −2,31: odmowa', async () => {
+    // VAT liczony od każdej pozycji: 10 × 0,23 = 2,30 zł, a od różnicy
+    // −10,05 zł wychodzi −2,31 zł. Netto (0,05) i brutto (0,04) zostają dodatnie.
+    st.sumyRodzica = { net_total: 10.1, vat_total: 2.3, gross_total: 12.4 };
+    st.linesByInvoice = { [PARENT]: Array.from({ length: 10 }, () => ({ ...dbLine(1), unit_price_net: 1.01 })) };
+    const r = await saveCorrectionDraftAction(payload({
+      correctionType: 'amount_change',
+      amountChange: { netDelta: -10.05, vatDelta: -2.31, grossDelta: -12.36, description: 'Rabat' },
+    }), TENANT);
+    expect(r).toMatchObject({ success: false, error: expect.stringContaining('stawce 23%') });
+    expect(r).toMatchObject({ error: expect.stringContaining('2,30 zł VAT') });
+    expect(st.inserted).toHaveLength(0);
   });
 });
