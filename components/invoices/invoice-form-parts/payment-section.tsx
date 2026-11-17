@@ -13,6 +13,7 @@ import {
 import type { InvoiceFormValues } from '@/lib/schemas/invoice-form';
 
 import { labelClass, PAYMENT_METHOD_ITEMS } from './constants';
+import { FieldErrorText, fieldErrorProps } from './field-error-text';
 
 /** Sekcja „Płatność”: metoda, rachunek, MPP z podpowiedzią progu. */
 export function PaymentSection({
@@ -61,7 +62,15 @@ export function PaymentSection({
       </div>
       <div className="space-y-1.5">
         <label className="flex items-center gap-3 text-sm">
-          <input type="checkbox" className="accent-primary h-4 w-4" {...form.register('splitPayment')} />
+          <input
+            type="checkbox"
+            className="accent-primary h-4 w-4"
+            // Powiązanie z błędem tylko przy błędzie: znaczniki bez błędu zostają jak były.
+            {...(form.formState.errors.splitPayment
+              ? { id: 'split-payment', ...fieldErrorProps('split-payment', true) }
+              : {})}
+            {...form.register('splitPayment')}
+          />
           Mechanizm podzielonej płatności (MPP)
         </label>
         {podpowiedzMpp ? (
@@ -71,7 +80,9 @@ export function PaymentSection({
           </p>
         ) : null}
         {form.formState.errors.splitPayment ? (
-          <p className="text-destructive text-xs">{form.formState.errors.splitPayment.message}</p>
+          <FieldErrorText fieldId="split-payment" icon={false}>
+            {form.formState.errors.splitPayment.message}
+          </FieldErrorText>
         ) : null}
       </div>
     </DocumentSection>

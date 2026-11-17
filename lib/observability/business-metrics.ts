@@ -11,6 +11,15 @@ import { configuredKsefEnvironment } from '@/lib/ksef/claim-environment';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { roundToCents } from '@/lib/xml/invoice-calculator';
 
+import { logger } from './logger';
+
+/**
+ * Wzorzec `ilike` na limit czasu w `ocr_jobs.error_message` (opis przy
+ * `DailyMetrics.ocrJobsTimedOut`). Test z prawdziwym klientem SDK Anthropic
+ * sprawdza, że jego komunikat ten wzorzec łapie.
+ */
+export const OCR_TIMEOUT_ERROR_PATTERN = '%timed out%';
+
 export interface DailyMetrics {
   /** ISO date range. */
   period: { from: string; to: string };
@@ -28,7 +37,22 @@ export interface DailyMetrics {
   invoicesAccepted: number;
   invoicesFailed: number;
   invoicesOfflineQueued: number;
-  ocrJobsCompleted: number;
+  /**
+   * Odczyty OCR zakończone w oknie, udane i nieudane osobno. Obie liczby idą
+   * po `completed_at` (kiedy odczyt się skończył), więc da się je porównać.
+   * Nieudane obejmują też odmowy z limitu AI firmy. `null`: baza nie
+   * odpowiedziała, raport pisze „brak danych”, nie 0.
+   */
+  ocrJobsCompleted: number | null;
+  ocrJobsFailed: number | null;
+  /**
+   * W tym limity czasu: `error_message` z napisem „timed out”, bez wielkości
+   * liter. Dziś daje go tylko SDK Anthropic („Request timed out.”, także przy
+   * limicie połączenia). Klient S3 limitów czasu jeszcze nie ma; gdy je dostanie
+   * (reszta LIM-05), z jego komunikatów wzorzec złapie tylko bezczynność gniazda
+   * („socket timed out”). `null` jak wyżej.
+   */
+  ocrJobsTimedOut: number | null;
 
   // KSeF health
   ksefDowntimeMinutes: number;
@@ -44,13 +68,34 @@ export interface DailyMetrics {
   paymentsTotalGrossPln: number;
 }
 
+/**
+ * Liczba z zapytania `count` albo `null`, gdy baza nie odpowiedziała: licznik
+ * porażek pokazujący 0 przy błędzie zapytania udawałby, że wszystko działa.
+ * Raport pokaże tylko „brak danych”, więc przyczyna idzie do logu workera.
+ * Przy `head: true` odpowiedź z błędem nie ma treści, więc postgrest-js daje
+ * pusty komunikat bez kodu: przyczynę widać wtedy tylko po statusie HTTP.
+ */
+function countOrNull(
+  metric: string,
+  res: { count: number | null; error: { code?: string; message?: string } | null; status?: number },
+): number | null {
+  if (!res.error && res.count !== null) return res.count;
+  logger.warn('[business-metrics] licznik bez danych', {
+    metric,
+    status: res.status ?? null,
+    code: res.error?.code || null,
+    message: res.error ? res.error.message || null : 'odpowiedź bez liczby',
+  });
+  return null;
+}
+
 export async function getDailyMetrics(hours = 24): Promise<DailyMetrics> {
   const supabase = createAdminClient();
   const now = new Date();
   const fromIso = new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString();
   const toIso = now.toISOString();
 
-  // Wszystkie liczniki paralel — nie czekamy 10 zapytań sekwencyjnie.
+  // Wszystkie liczniki równolegle: nie czekamy 12 zapytań po kolei.
   const [
     tenantsRes,
     invoicesRes,
@@ -58,6 +103,8 @@ export async function getDailyMetrics(hours = 24): Promise<DailyMetrics> {
     failedRes,
     offlineRes,
     ocrRes,
+    ocrFailedRes,
+    ocrTimedOutRes,
     healthRes,
     inngestFailRes,
     paymentsRes,
@@ -92,11 +139,33 @@ export async function getDailyMetrics(hours = 24): Promise<DailyMetrics> {
       .from('invoices')
       .select('id', { count: 'exact', head: true })
       .eq('ksef_status', 'offline_queued'),
+    // Odczyty OCR liczymy w dobie, w której się skończyły (`completed_at`;
+    // ustawiają go wszystkie zapisy `completed` i `failed` w process-ocr), nie
+    // wgrania: przy awarii dostawcy kolejka się zatyka i paragon wgrany przed
+    // oknem kończy się już w nim, a po `created_at` nie trafiłby do żadnego
+    // raportu. Okno jest kroczące (`hours` wstecz od startu raportu), jak w
+    // każdym liczniku: opóźniony start crona przesuwa odczyty z granicy okna,
+    // a przy zmianie czasu godzina odczytów w październiku nie trafia do
+    // żadnego raportu, a w marcu trafia do dwóch. Same liczby: w
+    // `error_message` bywa treść paragonu, więc filtruje baza, nic nie
+    // pobieramy.
     supabase
       .from('ocr_jobs')
       .select('id', { count: 'exact', head: true })
       .eq('status', 'completed')
-      .gte('created_at', fromIso),
+      .gte('completed_at', fromIso),
+    supabase
+      .from('ocr_jobs')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'failed')
+      .gte('completed_at', fromIso),
+    // W tym limity czasu (co łapie wzorzec: opis przy `ocrJobsTimedOut`).
+    supabase
+      .from('ocr_jobs')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'failed')
+      .gte('completed_at', fromIso)
+      .ilike('error_message', OCR_TIMEOUT_ERROR_PATTERN),
     supabase
       .from('ksef_health_log')
       .select('level, response_time_ms, consecutive_failures, recorded_at')
@@ -164,7 +233,9 @@ export async function getDailyMetrics(hours = 24): Promise<DailyMetrics> {
     invoicesAccepted: acceptedRes.count ?? 0,
     invoicesFailed: failedRes.count ?? 0,
     invoicesOfflineQueued: offlineRes.count ?? 0,
-    ocrJobsCompleted: ocrRes.count ?? 0,
+    ocrJobsCompleted: countOrNull('ocr_jobs.completed', ocrRes),
+    ocrJobsFailed: countOrNull('ocr_jobs.failed', ocrFailedRes),
+    ocrJobsTimedOut: countOrNull('ocr_jobs.timed_out', ocrTimedOutRes),
     ksefDowntimeMinutes: Math.round(ksefDowntimeMs / 60000),
     ksefMaxConsecutiveFailures: maxConsecutiveFailures,
     totalAuditErrors: 0, // Reserved — będzie z Sentry API w Faza 27 follow-up

@@ -8,6 +8,18 @@ peerDependencyRules:
   allowedVersions:
     '@xmldom/xmldom': '0.9.12'
 
+# Wyjątki w `pnpm audit --prod --audit-level=high` (CI, krok „Typy, lint, testy tsx i node”).
+# Tylko luka bez wersji z poprawką i bez drogi od danych użytkownika; każdy wpis z powodem
+# i warunkiem usunięcia. Zgoda Bartosza z 17.11.2026.
+auditConfig:
+  ignoreGhsas:
+    # GHSA-fc5q-39xc-vjpf (CVE-2026-112366): picomatch <= 4.0.7, ReDoS przez powtarzane extglob.
+    # Poprawki nie ma (4.0.7 to najnowsza wersja). Jedyna droga w zależnościach produkcyjnych:
+    # @sentry/nextjs > @rollup/plugin-commonjs (opakowanie kodu przy budowaniu), a wzorce glob
+    # pochodzą z konfiguracji budowania, nie od użytkownika. Usuń wpis, gdy wyjdzie picomatch
+    # z poprawką (sprawdzenie: `gh api /advisories/GHSA-fc5q-39xc-vjpf --jq '.vulnerabilities'`).
+    - GHSA-fc5q-39xc-vjpf
+
 overrides:
   # Jedna kopia asn1-schema dla całego drzewa: parser i schematy muszą być z tej samej kopii, inaczej
   # WebAuthn pada na „Cannot get schema for ECDSASigValue” (tests/unit/passkey-login-route.test.ts),

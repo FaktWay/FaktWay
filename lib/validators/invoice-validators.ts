@@ -10,6 +10,7 @@ import { isForeignEuVat, isNpIiBuyerVat, parseVatUe } from '@/lib/invoices/vat-u
 import {
   NP_II_CORRECTION_BUYER_MESSAGE,
   NP_II_NOT_FOR_XI_MESSAGE,
+  pkwiuCodeSchema,
   SALES_QUOTE_LINK_MESSAGE,
 } from '@/lib/schemas/invoice-form';
 import {
@@ -106,7 +107,9 @@ export const invoiceLineSchema = z.object({
   unitPriceNet: z.number().min(0, 'Cena nieujemna'),
   /** Bez `zw` — brak pól P_19 (podstawa zwolnienia) w generatorze. */
   vatRate: z.enum(['23', '8', '5', '0', 'oo', 'np']),
-  pkwiuCode: z.string().max(FA3_TEXT_LIMITS.pkwiu.max, maxMessage(FA3_TEXT_LIMITS.pkwiu.max)).optional(),
+  // Krok 2.6, część 2b-3: PKWiU jak w pozycji zwykłej faktury (ten sam schemat),
+  // a nie dowolny tekst do 50 znaków; generatory ROZ i KOR piszą je jako PKWiU.
+  pkwiuCode: pkwiuCodeSchema,
   gtuCode: z.string().optional(),
 });
 

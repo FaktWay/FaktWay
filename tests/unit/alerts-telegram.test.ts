@@ -191,6 +191,8 @@ describe('buildTelegramReport — raport dzienny', () => {
     invoicesFailed: 1,
     invoicesOfflineQueued: 0,
     ocrJobsCompleted: 4,
+    ocrJobsFailed: 1,
+    ocrJobsTimedOut: 0,
     ksefDowntimeMinutes: 7,
     ksefMaxConsecutiveFailures: 3,
     totalAuditErrors: 0,

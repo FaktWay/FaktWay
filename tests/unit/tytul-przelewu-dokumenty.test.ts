@@ -99,7 +99,8 @@ describe('PDF faktury: tytuł przelewu w sekcji „Płatność”', () => {
   });
 
   it('nowy wiersz unieważnia PDF-y zapisane w pamięci podręcznej (nowa wersja w ścieżce)', () => {
-    expect(buildInvoicePdfKey('tenant', 'invoice', '2027-01-05', 'qr', KSEF)).toContain('.v7.');
+    // v8 (krok 2.6, część 2b-3c): PKWiU i GTU pod nazwą pozycji; zmiana wydruku podbija wersję (pdf-storage.ts).
+    expect(buildInvoicePdfKey('tenant', 'invoice', '2027-01-05', 'qr', KSEF)).toContain('.v8.');
   });
 });
 

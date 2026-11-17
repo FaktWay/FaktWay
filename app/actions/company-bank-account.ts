@@ -2,10 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 
-import { logAudit } from '@/lib/audit/log';
-import { normalizujRachunekFirmy } from '@/lib/expenses/rachunek-firmy';
-import { isMissingColumnError } from '@/lib/invoices/business-start';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { saveCompanyBankAccount } from '@/lib/settings/company-settings';
 import { ActionAuthError, requireOrgRole } from '@/lib/supabase/auth-context';
 
 export type CompanyBankAccountResult = { success: true; rachunek: string | null } | { success: false; error: string };
@@ -30,44 +27,10 @@ export async function updateCompanyBankAccountAction(input: string | null): Prom
     throw e;
   }
 
-  let rachunek: string | null;
-  try {
-    rachunek = normalizujRachunekFirmy(input);
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : 'Nieprawidłowy numer rachunku.' };
-  }
-
-  const admin = createAdminClient();
-  const { data: before, error: readError } = await admin
-    .from('tenants')
-    .select('bank_account')
-    .eq('id', ctx.tenantId)
-    .maybeSingle();
-  if (readError && !isMissingColumnError(readError.code)) {
-    return { success: false, error: 'Nie udało się zapisać rachunku firmy. Spróbuj ponownie.' };
-  }
-
-  const { error } = await admin.from('tenants').update({ bank_account: rachunek }).eq('id', ctx.tenantId);
-  if (error) {
-    return {
-      success: false,
-      error: isMissingColumnError(error.code)
-        ? 'Ta funkcja czeka jeszcze na aktualizację bazy danych. Spróbuj ponownie później.'
-        : 'Nie udało się zapisać rachunku firmy.',
-    };
-  }
-
-  const from = (before as { bank_account?: unknown } | null)?.bank_account;
-  await logAudit({
-    action: 'tenant.updated',
-    tenantId: ctx.tenantId,
-    userId: ctx.user.id,
-    entityType: 'tenant',
-    entityId: ctx.tenantId,
-    metadata: { field: 'bank_account', from: typeof from === 'string' ? from : null, to: rachunek },
-  });
+  const result = await saveCompanyBankAccount({ tenantId: ctx.tenantId, userId: ctx.user.id }, input);
+  if (!result.ok) return { success: false, error: result.error };
 
   revalidatePath('/settings');
   revalidatePath('/expenses');
-  return { success: true, rachunek };
+  return { success: true, rachunek: result.value };
 }

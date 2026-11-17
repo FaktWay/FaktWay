@@ -101,7 +101,10 @@ export const MOBILE_API_ERROR_CODES = [
   'deletion_blocked',
   /** 409: usuwanie konta już trwa i nie da się go anulować. */
   'deletion_in_progress',
-  /** 422: rozliczenia nie zatwierdzono albo zapłaty nie zapisano (miesiąc trwa, dane się zmieniły, zła data); `message` mówi dlaczego. */
+  /**
+   * 422: rozliczenia nie zatwierdzono albo zapłaty nie zapisano (miesiąc trwa, dane się zmieniły, zła data); `message` mówi dlaczego.
+   * M10d: także odmowa pliku JPK_V7M i zapłaty spoza wyliczenia, z `field` przy złym polu formularza.
+   */
   'settlement_refused',
   // Rodzaje faktur, ponowienie, szkic, GUS (M8b): zdanie z serwera mówi, co zrobić.
   /**
@@ -114,6 +117,9 @@ export const MOBILE_API_ERROR_CODES = [
   'contractor_invalid',
   /** 409: kontrahent z tym NIP jest już zapisany z innymi danymi; `message` nazywa go i mówi, co zrobić. */
   'contractor_exists',
+  // Zapisy ustawień (M10c, typy w `kontrakt-ustawienia.ts`): zdanie strony mówi, co poprawić.
+  /** 422: wartość ustawienia nie przeszła zasad strony (dane firmy, rachunek, data, zwolnienie, przypomnienia); `field` to pole formularza telefonu. */
+  'settings_invalid',
   /** 500, opis z identyfikatorem żądania. */
   'internal_error',
 ] as const;
@@ -122,7 +128,7 @@ export type MobileApiErrorCode = (typeof MOBILE_API_ERROR_CODES)[number];
 
 /** Każda odmowa: stały kod po angielsku, po którym telefon wybiera swój tekst, i opis po polsku. */
 export interface MobileApiError {
-  /** `field` tylko przy `invoice_invalid` (ścieżka pola formularza, np. `buyerName`, `lines.0.name`) i `contractor_invalid` (M10e). */
+  /** `field` tylko przy `invoice_invalid` (ścieżka pola formularza, np. `buyerName`, `lines.0.name`), `contractor_invalid` (M10e) i `settings_invalid` (M10c). */
   error: { code: MobileApiErrorCode; message: string; field?: string };
 }
 

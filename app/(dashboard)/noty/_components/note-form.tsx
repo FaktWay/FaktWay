@@ -168,7 +168,7 @@ export function NoteForm({ tenantId, contractors, today, noteId = null, initial 
                         value={field.value}
                         onValueChange={(value) => field.onChange((value ?? 'debit') as NoteKind)}
                       >
-                        <SelectTrigger id={`${formId}-kind`} className='w-full'>
+                        <SelectTrigger id={`${formId}-kind`} aria-describedby={errors.kind ? `${formId}-kind-error` : undefined} aria-invalid={!!(errors.kind)} className='w-full'>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent alignItemWithTrigger={false}>
@@ -188,15 +188,15 @@ export function NoteForm({ tenantId, contractors, today, noteId = null, initial 
                       ? 'Nota uznaniowa: uznajesz kontrahenta kwotą, którą jesteś mu winien.'
                       : 'Nota obciążeniowa: obciążasz kontrahenta kwotą, którą jest Ci winien, na przykład karą umowną.'}
                   </FieldDescription>
-                  <FieldError errors={[errors.kind]} />
+                  <FieldError id={`${formId}-kind-error`} errors={[errors.kind]} />
                 </FieldContent>
               </Field>
 
               <Field data-invalid={!!errors.issueDate}>
                 <FieldLabel htmlFor={`${formId}-issue-date`}>Data wystawienia</FieldLabel>
                 <FieldContent>
-                  <Input id={`${formId}-issue-date`} type='date' max={today} aria-invalid={!!errors.issueDate} {...register('issueDate')} />
-                  <FieldError errors={[errors.issueDate]} />
+                  <Input id={`${formId}-issue-date`} aria-describedby={errors.issueDate ? `${formId}-issue-date-error` : undefined} type='date' max={today} aria-invalid={!!errors.issueDate} {...register('issueDate')} />
+                  <FieldError id={`${formId}-issue-date-error`} errors={[errors.issueDate]} />
                 </FieldContent>
               </Field>
             </div>
@@ -210,7 +210,7 @@ export function NoteForm({ tenantId, contractors, today, noteId = null, initial 
                     value={contractorId || null}
                     onValueChange={(value) => setValue('contractorId', value ?? '', { shouldValidate: true })}
                   >
-                    <SelectTrigger id={`${formId}-contractor`} className='w-full' aria-invalid={!!errors.contractorId}>
+                    <SelectTrigger id={`${formId}-contractor`} aria-describedby={errors.contractorId ? `${formId}-contractor-error` : undefined} className='w-full' aria-invalid={!!errors.contractorId}>
                       <SelectValue placeholder='Wybierz kontrahenta z bazy' />
                     </SelectTrigger>
                     <SelectContent alignItemWithTrigger={false}>
@@ -229,10 +229,12 @@ export function NoteForm({ tenantId, contractors, today, noteId = null, initial 
                     i zapiszemy kontrahenta w bazie firmy.
                   </FieldDescription>
                 )}
-                <FieldError errors={[errors.contractorId]} />
+                <FieldError id={`${formId}-contractor-error`} errors={[errors.contractorId]} />
                 <div className='flex flex-col gap-2 sm:flex-row'>
                   <Input
                     aria-label='NIP kontrahenta spoza listy'
+                    aria-invalid={!!errors.contractorId}
+                    aria-describedby={errors.contractorId ? `${formId}-contractor-error` : undefined}
                     inputMode='numeric'
                     placeholder='NIP kontrahenta spoza listy'
                     value={nip}
@@ -252,7 +254,7 @@ export function NoteForm({ tenantId, contractors, today, noteId = null, initial 
               <FieldLabel htmlFor={`${formId}-title`}>Tytuł</FieldLabel>
               <FieldContent>
                 <Input
-                  id={`${formId}-title`}
+                  id={`${formId}-title`} aria-describedby={errors.title ? `${formId}-title-error` : undefined}
                   list={`${formId}-titles`}
                   maxLength={NOTE_LIMITS.title}
                   placeholder='Na przykład kara umowna'
@@ -264,14 +266,14 @@ export function NoteForm({ tenantId, contractors, today, noteId = null, initial 
                     <option key={title} value={title} />
                   ))}
                 </datalist>
-                <FieldError errors={[errors.title]} />
+                <FieldError id={`${formId}-title-error`} errors={[errors.title]} />
               </FieldContent>
             </Field>
 
             <Separator />
 
             <h3 className='font-medium'>Pozycje</h3>
-            <div className='flex flex-col gap-3'>
+            <div role='group' aria-label='Pozycje' aria-describedby={itemsError ? `${formId}-items-error` : undefined} className='flex flex-col gap-3'>
               {fields.map((field, index) => (
                 <div key={field.id} className='grid grid-cols-1 gap-2 sm:grid-cols-[1fr_10rem_auto] sm:items-start'>
                   <Field data-invalid={!!errors.items?.[index]?.description}>
@@ -280,13 +282,13 @@ export function NoteForm({ tenantId, contractors, today, noteId = null, initial 
                     </FieldLabel>
                     <FieldContent>
                       <Input
-                        id={`${formId}-item-${index}-description`}
+                        id={`${formId}-item-${index}-description`} aria-describedby={errors.items?.[index]?.description ? `${formId}-item-${index}-description-error` : undefined}
                         placeholder={`Opis pozycji ${index + 1}`}
                         maxLength={NOTE_LIMITS.description}
                         aria-invalid={!!errors.items?.[index]?.description}
                         {...register(`items.${index}.description`)}
                       />
-                      <FieldError errors={[errors.items?.[index]?.description]} />
+                      <FieldError id={`${formId}-item-${index}-description-error`} errors={[errors.items?.[index]?.description]} />
                     </FieldContent>
                   </Field>
                   <Field data-invalid={!!errors.items?.[index]?.amount}>
@@ -295,14 +297,14 @@ export function NoteForm({ tenantId, contractors, today, noteId = null, initial 
                     </FieldLabel>
                     <FieldContent>
                       <Input
-                        id={`${formId}-item-${index}-amount`}
+                        id={`${formId}-item-${index}-amount`} aria-describedby={errors.items?.[index]?.amount ? `${formId}-item-${index}-amount-error` : undefined}
                         inputMode='decimal'
                         placeholder='0,00'
                         className='text-right tabular-nums'
                         aria-invalid={!!errors.items?.[index]?.amount}
                         {...register(`items.${index}.amount`)}
                       />
-                      <FieldError errors={[errors.items?.[index]?.amount]} />
+                      <FieldError id={`${formId}-item-${index}-amount-error`} errors={[errors.items?.[index]?.amount]} />
                     </FieldContent>
                   </Field>
                   <Button
@@ -317,7 +319,7 @@ export function NoteForm({ tenantId, contractors, today, noteId = null, initial 
                   </Button>
                 </div>
               ))}
-              <FieldError errors={[itemsError ? { message: itemsError } : undefined]} />
+              <FieldError id={`${formId}-items-error`} errors={[itemsError ? { message: itemsError } : undefined]} />
               <div className='flex flex-wrap items-center justify-between gap-2'>
                 <Button
                   type='button'
@@ -350,13 +352,13 @@ export function NoteForm({ tenantId, contractors, today, noteId = null, initial 
                 <FieldLabel htmlFor={`${formId}-related`}>Odniesienie do faktury (opcjonalnie)</FieldLabel>
                 <FieldContent>
                   <Input
-                    id={`${formId}-related`}
+                    id={`${formId}-related`} aria-describedby={errors.relatedDocument ? `${formId}-related-error` : undefined}
                     maxLength={NOTE_LIMITS.related}
                     placeholder='Na przykład FV/2026/11/3 z 3.11.2026'
                     aria-invalid={!!errors.relatedDocument}
                     {...register('relatedDocument')}
                   />
-                  <FieldError errors={[errors.relatedDocument]} />
+                  <FieldError id={`${formId}-related-error`} errors={[errors.relatedDocument]} />
                 </FieldContent>
               </Field>
             </div>
@@ -366,21 +368,21 @@ export function NoteForm({ tenantId, contractors, today, noteId = null, initial 
                 <Field data-invalid={!!errors.dueDate}>
                   <FieldLabel htmlFor={`${formId}-due-date`}>Termin zapłaty (opcjonalnie)</FieldLabel>
                   <FieldContent>
-                    <Input id={`${formId}-due-date`} type='date' aria-invalid={!!errors.dueDate} {...register('dueDate')} />
-                    <FieldError errors={[errors.dueDate]} />
+                    <Input id={`${formId}-due-date`} aria-describedby={errors.dueDate ? `${formId}-due-date-error` : undefined} type='date' aria-invalid={!!errors.dueDate} {...register('dueDate')} />
+                    <FieldError id={`${formId}-due-date-error`} errors={[errors.dueDate]} />
                   </FieldContent>
                 </Field>
                 <Field data-invalid={!!errors.bankAccount}>
                   <FieldLabel htmlFor={`${formId}-bank`}>Numer rachunku (opcjonalnie)</FieldLabel>
                   <FieldContent>
                     <Input
-                      id={`${formId}-bank`}
+                      id={`${formId}-bank`} aria-describedby={errors.bankAccount ? `${formId}-bank-error` : undefined}
                       inputMode='numeric'
                       placeholder='26 cyfr rachunku'
                       aria-invalid={!!errors.bankAccount}
                       {...register('bankAccount')}
                     />
-                    <FieldError errors={[errors.bankAccount]} />
+                    <FieldError id={`${formId}-bank-error`} errors={[errors.bankAccount]} />
                   </FieldContent>
                 </Field>
               </div>

@@ -18,6 +18,7 @@ import { ACTIVE_ORG_COOKIE, isUuid } from '@/lib/supabase/active-org';
 import { hasConfiguredKsefProof } from '@/lib/ksef/claim-environment';
 import {
   ActionAuthError,
+  MEMBERSHIP_RETRY_MESSAGE,
   requireOrgRole,
   requireVerifiedUser,
   type UserRole,
@@ -45,6 +46,18 @@ async function setActiveOrgCookie(orgId: string) {
     maxAge: 60 * 60 * 24 * 30,
   });
 }
+
+/**
+ * Plan skalowania 3000, sesja 7: zapytanie o członkostwo zwróciło błąd (baza,
+ * pula połączeń). To nie „brak dostępu” ani „brak firmy”: akcja nic nie
+ * zapisuje i oddaje „spróbuj ponownie”. W logu sam kod błędu, bez danych klienta.
+ */
+function logMembershipQueryFailed(step: string, error: { code?: string }): void {
+  console.warn('[auth] Zapytanie o członkostwo nie powiodło się', { flow: 'akcja', step, code: error.code ?? null });
+}
+
+/** Zaproszenie bez pewności, kto już jest członkiem firmy: nic nie zapisujemy. */
+const MEMBERS_CHECK_RETRY_MESSAGE = 'Nie można sprawdzić członków firmy. Spróbuj ponownie.';
 
 // ═══════════════════════════════════════════════════════════════
 // Typy
@@ -113,7 +126,11 @@ function formatTenantInsertError(err: {
  * Konto z Google albo prosto z GoTrue powstaje poza naszym formularzem —
  * bez firmy nic w aplikacji nie zrobi, więc to tu zamykamy rejestrację.
  * Klient z aktywnym członkostwem dodaje kolejne firmy jak dotąd.
- * Błąd odczytu członkostw przy zamkniętej rejestracji = odmowa (fail-closed).
+ * Błąd odczytu członkostw przy zamkniętej rejestracji = odmowa (fail-closed),
+ * ale z prawdziwym powodem: „spróbuj ponownie”, a nie „wstrzymane” (plan
+ * skalowania 3000, sesja 7). Tak samo licznik, który nie jest liczbą: pustą
+ * odpowiedź 404 na HEAD postgrest-js oddaje bez błędu i bez licznika,
+ * a Content-Range bez sumy daje NaN. Nie wiemy wtedy, czy klient ma już firmę.
  */
 async function firstCompanyBlocked(
   admin: ReturnType<typeof createAdminClient>,
@@ -125,7 +142,11 @@ async function firstCompanyBlocked(
     .select('organization_id', { count: 'exact', head: true })
     .eq('user_id', userId)
     .eq('status', 'active');
-  if (error || !count) return FIRST_COMPANY_CLOSED_MESSAGE;
+  if (error || !Number.isInteger(count)) {
+    logMembershipQueryFailed('firstCompanyBlocked', error ?? {});
+    return MEMBERSHIP_RETRY_MESSAGE;
+  }
+  if (count === 0) return FIRST_COMPANY_CLOSED_MESSAGE;
   return null;
 }
 
@@ -221,7 +242,7 @@ export async function setActiveOrganizationAction(
   // Membership check przez admin (deterministyczne) — bezpieczne, bo
   // filtrujemy explicit po user.id zalogowanego.
   const admin = createAdminClient();
-  const { data: membership } = await admin
+  const { data: membership, error: membershipError } = await admin
     .from('memberships')
     .select('id')
     .eq('user_id', user.id)
@@ -229,6 +250,10 @@ export async function setActiveOrganizationAction(
     .eq('status', 'active')
     .maybeSingle();
 
+  if (membershipError) {
+    logMembershipQueryFailed('setActiveOrganization', membershipError);
+    return { success: false, error: MEMBERSHIP_RETRY_MESSAGE };
+  }
   if (!membership) {
     return { success: false, error: 'Brak dostępu do tej organizacji' };
   }
@@ -275,17 +300,26 @@ export async function createOrganizationAction(
   const admin = createAdminClient();
   const closed = await firstCompanyBlocked(admin, user.id);
   if (closed) return { success: false, error: closed };
-  const { data: nipMatches } = await admin
+  // Duplikat NIP-u idzie tylko do audytu (nie blokuje założenia). Błąd zapytania
+  // nie zatrzymuje rejestracji, ale w audycie zostaje „nie wiadomo” (`null`),
+  // a nie „nie ma duplikatu” (plan skalowania 3000, sesja 7).
+  const { data: nipMatches, error: nipError } = await admin
     .from('tenants')
     .select('id, ksef_verified_at, ksef_verified_environment')
     .eq('nip', company.nip)
     .limit(5);
 
-  const duplicates = nipMatches ?? [];
-  const nipDuplicate = duplicates.length > 0;
-  const ksefVerifiedDuplicate = duplicates.some(
-    (t) => hasConfiguredKsefProof(t.ksef_verified_at, t.ksef_verified_environment),
-  );
+  let nipDuplicate: boolean | null = null;
+  let ksefVerifiedDuplicate: boolean | null = null;
+  if (nipError) {
+    console.warn('[firmy] Sprawdzenie NIP-u nowej firmy nie powiodło się', { code: nipError.code ?? null });
+  } else {
+    const duplicates = nipMatches ?? [];
+    nipDuplicate = duplicates.length > 0;
+    ksefVerifiedDuplicate = duplicates.some(
+      (t) => hasConfiguredKsefProof(t.ksef_verified_at, t.ksef_verified_environment),
+    );
+  }
 
   const addressLine1 = `${company.street} ${company.buildingNumber}${
     company.localNumber ? '/' + company.localNumber : ''
@@ -387,12 +421,19 @@ export async function skipOnboardingWithoutNipAction(): Promise<ActionFail> {
   const admin = createAdminClient();
 
   // Czy user ma już organizację-szkic (nip = '')? → reuse zamiast duplikatu.
-  const { data: existing } = await admin
+  // Błąd zapytania to nie „brak szkicu”: bez tego każde „Pomiń” przy awarii
+  // bazy zakładałoby kolejną „Moją firmę”.
+  const { data: existing, error: existingError } = await admin
     .from('memberships')
     .select('organization_id, tenants:organization_id(nip)')
     .eq('user_id', user.id)
     .eq('status', 'active')
     .limit(50);
+
+  if (existingError) {
+    logMembershipQueryFailed('skipOnboardingWithoutNip', existingError);
+    return { success: false, error: MEMBERSHIP_RETRY_MESSAGE };
+  }
 
   const draft = (existing ?? []).find((m) => {
     const t = Array.isArray(m.tenants) ? m.tenants[0] : m.tenants;
@@ -468,7 +509,7 @@ export async function completeCompanyNipAction(
 
   const admin = createAdminClient();
 
-  const { data: membership } = await admin
+  const { data: membership, error: membershipError } = await admin
     .from('memberships')
     .select('role')
     .eq('user_id', user.id)
@@ -476,6 +517,10 @@ export async function completeCompanyNipAction(
     .eq('status', 'active')
     .maybeSingle();
 
+  if (membershipError) {
+    logMembershipQueryFailed('completeCompanyNip', membershipError);
+    return { success: false, error: MEMBERSHIP_RETRY_MESSAGE };
+  }
   if (!membership || membership.role !== 'owner') {
     return {
       success: false,
@@ -605,15 +650,29 @@ export async function inviteMemberAction(params: {
   // Membership wskazuje na user_id; email żyje w auth.users — zmatchujemy
   // poprzez auth.admin.listUsers() (jedyne źródło prawdy o emailu).
   const admin = createAdminClient();
-  const { data: existing } = await admin
+  const { data: existing, error: existingError } = await admin
     .from('memberships')
     .select('user_id')
     .eq('organization_id', tenantId)
     .eq('status', 'active');
 
+  // Błąd zapytania to nie „nikt jeszcze nie jest członkiem”: zaproszenie dla
+  // obecnego członka zmieniłoby mu rolę po akceptacji (plan skalowania 3000, sesja 7).
+  if (existingError) {
+    logMembershipQueryFailed('inviteMember', existingError);
+    return { success: false, error: MEMBERS_CHECK_RETRY_MESSAGE };
+  }
   if (existing && existing.length > 0) {
     // E-maile członków po identyfikatorach — nie z pierwszych 200 kont (AUD-125).
     const emails = await emailsForUserIds(admin, existing.map((m) => m.user_id));
+    // Członkostwo zawsze wskazuje istniejące konto (kaskada memberships → users
+    // → auth.users), więc brak e-maila to awaria albo limit GoTrue, a nie
+    // „nie jest członkiem” (plan skalowania 3000, sesja 7).
+    const missing = existing.filter((m) => !emails.has(m.user_id)).length;
+    if (missing > 0) {
+      console.warn('[auth] Nie udało się odczytać e-maili członków firmy', { flow: 'akcja', step: 'inviteMember', missing });
+      return { success: false, error: MEMBERS_CHECK_RETRY_MESSAGE };
+    }
     if ([...emails.values()].some((e) => e.toLowerCase() === email)) {
       return { success: false, error: 'Ten użytkownik jest już członkiem' };
     }
@@ -834,14 +893,19 @@ export async function requestJoinAction(params: {
   if (!context.ok) return { success: false, error: context.error };
   const { supabase, user } = context;
 
-  // Czy user już jest członkiem? Wtedy nie wysyłamy requestu.
-  const { data: existing } = await supabase
+  // Czy user już jest członkiem? Wtedy nie wysyłamy requestu. Błąd zapytania
+  // to nie „nie jest członkiem” (plan skalowania 3000, sesja 7).
+  const { data: existing, error: existingError } = await supabase
     .from('memberships')
     .select('status')
     .eq('user_id', user.id)
     .eq('organization_id', params.organizationId)
     .maybeSingle();
 
+  if (existingError) {
+    logMembershipQueryFailed('requestJoin', existingError);
+    return { success: false, error: MEMBERSHIP_RETRY_MESSAGE };
+  }
   if (existing?.status === 'active') {
     return { success: false, error: 'Jesteś już członkiem tej organizacji' };
   }

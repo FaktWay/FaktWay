@@ -1,13 +1,13 @@
 /**
  * Ustawienia firmy na prawdziwym koncie (M10b): karty Firma, KSeF i
- * Przypomnienia z `GET /api/mobile/v1/ustawienia`, do odczytu. Stan KSeF
- * („połączono” tylko z dowodem w środowisku aplikacji) i przypomnienia
- * (tylko właściciel) liczy serwer regułami strony; zmiany zapisuje się na
- * faktway.pl.
+ * Przypomnienia z `GET /api/mobile/v1/ustawienia`. Stan KSeF („połączono”
+ * tylko z dowodem w środowisku aplikacji) i przypomnienia (tylko właściciel)
+ * liczy serwer regułami strony.
  *
  * Jeden magazyn dla konta i firmy (wzór `stan/ksiegowosc.tsx`): Więcej i
  * ekrany ustawień widzą tę samą odpowiedź. Na danych przykładowych
- * `useUstawienia` zwraca `null`.
+ * `useUstawienia` zwraca `null`. Od M10c zapisy z telefonu
+ * (`stan/ustawienia-zapis.tsx`) wpisują tu karty z odpowiedzi.
  */
 import { useEffect, useEffectEvent, useSyncExternalStore } from 'react';
 
@@ -44,6 +44,11 @@ czyscPrzyKoncuSesji(() => {
   wpisy.clear();
   for (const s of sluchacze) s();
 });
+
+/** Karty po zapisie z telefonu (M10c, `stan/ustawienia-zapis.tsx`): odpowiedź zapisu ma kształt `GET /ustawienia`. */
+export function wpiszUstawienia(konto: string, firma: string, dane: UstawieniaOdpowiedz): void {
+  ustaw(`${konto}:${firma}`, { stan: 'gotowe', dane });
+}
 
 export function useUstawienia(): StanUstawien | null {
   const k = useKontoFirmy();

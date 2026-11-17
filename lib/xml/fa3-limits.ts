@@ -218,8 +218,8 @@ interface Fa3Line {
   readonly ordinal?: number;
   readonly name?: string | null;
   readonly unit?: string | null;
-  /** Kod, który generator wstawia jako GTIN, CN albo PKWiU. */
-  readonly classificationCode?: string | null;
+  /** PKWiU pozycji (jawny typ, krok 2.6, część 2b), w pliku jako `PKWiU`. */
+  readonly pkwiuCode?: string | null;
 }
 
 const LINE_NAME_PREVIEW = 30;
@@ -236,9 +236,8 @@ function lineLabel(line: Fa3Line, index: number): string {
 }
 
 /**
- * Nazwa (P_7), jednostka (P_8A) i kod klasyfikacji pozycji. Kod GTIN
- * (8–14 cyfr) i CN (4–10 cyfr) zawsze mieści się w swojej granicy, a każdy
- * inny generator wstawia jako PKWiU, więc kod sprawdzamy granicą PKWiU.
+ * Nazwa (P_7), jednostka (P_8A) i PKWiU pozycji (granica `TZnakowy50`).
+ * Generatory piszą kod pozycji tylko jako PKWiU (krok 2.6, część 2b-3).
  */
 export function fa3LineChecks(lines: readonly Fa3Line[]): Fa3TextCheck[] {
   return lines.flatMap((line, index) => {
@@ -246,7 +245,7 @@ export function fa3LineChecks(lines: readonly Fa3Line[]): Fa3TextCheck[] {
     return [
       { label: `${label}, nazwa`, value: line.name, limit: FA3_TEXT_LIMITS.p7 },
       { label: `${label}, jednostka miary`, value: line.unit, limit: FA3_TEXT_LIMITS.p8a },
-      { label: `${label}, kod PKWiU`, value: line.classificationCode, limit: FA3_TEXT_LIMITS.pkwiu },
+      { label: `${label}, kod PKWiU`, value: line.pkwiuCode, limit: FA3_TEXT_LIMITS.pkwiu },
     ];
   });
 }

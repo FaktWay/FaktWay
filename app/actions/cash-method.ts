@@ -2,9 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 
-import { logAudit } from '@/lib/audit/log';
-import { readTenantCashMethod } from '@/lib/invoices/cash-method';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { saveCashMethod } from '@/lib/settings/company-settings';
 import { ActionAuthError, requireOrgRole } from '@/lib/supabase/auth-context';
 
 export type CashMethodResult =
@@ -28,37 +26,9 @@ export async function updateCashMethodAction(enabled: boolean): Promise<CashMeth
     throw e;
   }
 
-  if (typeof enabled !== 'boolean') {
-    return { success: false, error: 'Nieprawidłowe ustawienie metody kasowej.' };
-  }
-
-  const admin = createAdminClient();
-  const before = await readTenantCashMethod(admin, ctx.tenantId);
-
-  const { error } = await admin
-    .from('tenants')
-    .update({ vat_cash_method: enabled })
-    .eq('id', ctx.tenantId);
-
-  if (error) {
-    return {
-      success: false,
-      error:
-        error.code === '42703'
-          ? 'Ta funkcja czeka jeszcze na aktualizację bazy danych. Spróbuj ponownie później.'
-          : 'Nie udało się zapisać metody rozliczania VAT.',
-    };
-  }
-
-  await logAudit({
-    action: 'tenant.updated',
-    tenantId: ctx.tenantId,
-    userId: ctx.user.id,
-    entityType: 'tenant',
-    entityId: ctx.tenantId,
-    metadata: { field: 'vat_cash_method', from: before, to: enabled },
-  });
+  const result = await saveCashMethod({ tenantId: ctx.tenantId, userId: ctx.user.id }, enabled);
+  if (!result.ok) return { success: false, error: result.error };
 
   revalidatePath('/settings');
-  return { success: true, enabled };
+  return { success: true, enabled: result.value };
 }

@@ -8,6 +8,8 @@
  * kod i opis MF w Sentry.
  */
 
+import type { StanZapisu } from './zapis';
+
 export type StanWysylki = 'w_toku' | 'przyjeta' | 'odrzucona';
 
 export interface OcenaStatusu {
@@ -69,4 +71,23 @@ export function ocenOdmoweInit(kod: number | null): OcenaStatusu {
 /** Numer referencyjny oryginału z opisu duplikatu (kod 170 przy `InitUploadSigned`, 407 w `Status`). */
 export function numerOryginalu(opis: string): string | null {
   return /oryginału(?:\s+to|:)?\s*([0-9a-z]{16,64})/i.exec(opis)?.[1] ?? null;
+}
+
+/**
+ * Nazwa stanu wysyłki na liście (strona `reports/vat` i telefon, M10d). Przeniesione
+ * ze strony bez zmian; stany zapisu z `zapis.ts` (`StanZapisu`).
+ */
+export const NAZWY_STANOW_WYSYLKI: Readonly<Record<StanZapisu, string>> = {
+  wysylanie: 'Wysyłanie',
+  w_toku: 'MF sprawdza plik',
+  przyjeta: 'Przyjęty, UPO gotowe',
+  odrzucona: 'Odrzucony',
+  przerwana: 'Przerwana',
+};
+
+/** Odmowa z kodem MF: kody poniżej 200 to odmowy InitUploadSigned, reszta to statusy po przyjęciu plików. */
+export function opisOdmowyWysylki(w: { statusKod: number | null; statusOpis: string | null }): string {
+  if (w.statusKod === null) return ocenOdmoweInit(null).tresc;
+  const ocena = w.statusKod < 200 ? ocenOdmoweInit(w.statusKod) : ocenStatus(w.statusKod);
+  return `${ocena.tresc} Kod MF ${w.statusKod}${w.statusOpis ? `: ${w.statusOpis}` : ''}.`;
 }
