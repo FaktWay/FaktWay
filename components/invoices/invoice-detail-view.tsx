@@ -49,6 +49,8 @@ export interface InvoiceDetailLine {
   /** Krok 2.6, część 2b-3c: poprawne PKWiU i GTU pozycji z dokumentu faktury (jak w pliku FA(3)). */
   pkwiu_code?: string;
   gtu_code?: string;
+  /** Ceny brutto: cena jednostkowa brutto (P_9B) z dokumentu, gdy ceny netto nie ma. */
+  unit_price_gross?: number;
 }
 
 interface AddressSnapshot {
@@ -647,7 +649,11 @@ export function InvoiceDetailView({ initial }: { initial: InvoiceDetailInitial }
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(line.quantity, 4)}</TableCell>
                     <TableCell className="text-muted-foreground">{line.unit ?? ''}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatNumber(line.unit_price_net, 4)}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {line.unit_price_net == null && line.unit_price_gross != null
+                        ? `${formatNumber(line.unit_price_gross, 4)} brutto`
+                        : formatNumber(line.unit_price_net, 4)}
+                    </TableCell>
                     <TableCell className="text-right">{vatRateLabel(line.vat_rate)}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(line.net_amount)}</TableCell>
                     <TableCell className="pr-4 text-right font-medium tabular-nums">

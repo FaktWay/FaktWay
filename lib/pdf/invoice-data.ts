@@ -1,4 +1,5 @@
 import { MARGIN_SCHEME_LABELS } from '@/lib/invoices/annotations';
+import { documentGrossPrices } from '@/lib/invoices/document-lines';
 import { documentLineCodes, type DocumentLineCodes } from '@/lib/invoices/line-codes';
 import { isReceiptInvoiceColumns, receiptFromJson } from '@/lib/invoices/receipt-invoice';
 import type { CorrectedInvoiceRef } from '@/lib/pdf/invoice-renderer';
@@ -92,8 +93,10 @@ interface InvoiceRow {
   receipt?: unknown;
   /** `fa3_data->ksefLineFields`: pola pozycji z pliku KSeF (import), m.in. cena brutto P_9B. */
   ksef_line_fields?: unknown;
-  /** `fa3_data->lines`: PKWiU i GTU pozycji (krok 2.6, część 2b-3c), jak w pliku FA(3). */
+  /** `fa3_data->lines`: PKWiU i GTU pozycji (krok 2.6, część 2b-3c), jak w pliku FA(3); cena brutto przy cenach brutto. */
   document_lines?: unknown;
+  /** `fa3_data->pricesGross`: faktura FaktWay w cenach brutto (plan cen brutto). */
+  prices_gross?: unknown;
   /** `fa3_data->ksefMarkers->>fp`: FP z pliku KSeF (import, C5b). */
   ksef_fp?: string | null;
   updated_at: string | null;
@@ -116,6 +119,7 @@ const SELECT = `
   ksef_fp:fa3_data->ksefMarkers->>fp,
   ksef_line_fields:fa3_data->ksefLineFields,
   document_lines:fa3_data->lines,
+  prices_gross:fa3_data->pricesGross,
   invoice_line_items(
     ordinal, name, unit, quantity, unit_price_net,
     net_amount, vat_rate, vat_amount, gross_amount
@@ -132,18 +136,12 @@ const KNOWN_TYPES: ReadonlySet<string> = new Set<InvoiceType>([
   'KOR_ROZ',
 ]);
 
-/** Cena brutto (P_9B) pozycji o numerze `ordinal` z `fa3_data.ksefLineFields`; brak = `undefined`. */
-function grossPriceFromFile(raw: unknown, ordinal: number | null): number | undefined {
-  if (!Array.isArray(raw)) return undefined;
-  const hit = raw.find((f) => f && typeof f === 'object' && (f as { ordinal?: unknown }).ordinal === ordinal);
-  const price = (hit as { P_9B?: unknown } | undefined)?.P_9B;
-  return typeof price === 'number' && Number.isFinite(price) ? price : undefined;
-}
 
-function mapLine(row: LineItemRow, fileFields?: unknown, codes?: DocumentLineCodes): InvoiceLineItem {
-  // Import z cenami brutto: baza ma NULL, a nie cenę 0 (F12-E4).
+function mapLine(row: LineItemRow, grossPrices: Map<number, number>, codes?: DocumentLineCodes): InvoiceLineItem {
+  // Ceny brutto (import F12-E4 i faktura FaktWay w cenach brutto): baza ma NULL, a nie cenę 0;
+  // cena brutto (P_9B) z dokumentu faktury (`documentGrossPrices`).
   const netMissing = row.unit_price_net === null;
-  const gross = netMissing ? grossPriceFromFile(fileFields, row.ordinal) : undefined;
+  const gross = netMissing && row.ordinal != null ? grossPrices.get(row.ordinal) : undefined;
   return {
     ...(netMissing ? { unitPriceNetMissing: true as const } : {}),
     ...(gross !== undefined ? { unitPriceGross: gross } : {}),
@@ -224,8 +222,13 @@ export async function loadInvoiceForPdf(
   const row = res.data;
 
   const lineCodes = documentLineCodes(row.document_lines);
+  const grossPrices = documentGrossPrices({
+    pricesGross: row.prices_gross,
+    lines: row.document_lines,
+    ksefLineFields: row.ksef_line_fields,
+  });
   const lines = (row.invoice_line_items ?? [])
-    .map((l) => mapLine(l, row.ksef_line_fields, l.ordinal == null ? undefined : lineCodes.get(l.ordinal)))
+    .map((l) => mapLine(l, grossPrices, l.ordinal == null ? undefined : lineCodes.get(l.ordinal)))
     .sort((a, b) => a.ordinal - b.ordinal);
 
   const rawType = (row.invoice_type ?? 'VAT').toUpperCase();

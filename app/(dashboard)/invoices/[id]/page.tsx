@@ -11,6 +11,7 @@ import {
 } from '@/lib/invoices/invoice-payments';
 import { canCorrectInvoice, canMarkInvoicePaid } from '@/lib/invoices/list-row-facts';
 import { canChangeInvoicePayment } from '@/lib/invoices/manual-payment';
+import { documentGrossPrices } from '@/lib/invoices/document-lines';
 import { documentLineCodes } from '@/lib/invoices/line-codes';
 import { receiptInvoiceView } from '@/lib/invoices/receipt-invoice';
 import { canDuplicateInvoice, canSetAsRecurring } from '@/lib/invoices/recurring/visibility';
@@ -182,15 +183,19 @@ export default async function InvoiceDetailPage({
   // Krok 2.6, część 2b-3c: PKWiU i GTU pozycji z dokumentu faktury (to samo co
   // w pliku FA(3)); do widoku idą same kody, reszta `fa3_data` zostaje na serwerze.
   const lineCodes = documentLineCodes((invoice.fa3_data as { lines?: unknown } | null)?.lines);
+  // Ceny brutto (import i faktura FaktWay w cenach brutto): cena brutto pozycji z dokumentu.
+  const grossPrices = documentGrossPrices(invoice.fa3_data as Parameters<typeof documentGrossPrices>[0]);
   const lines = ((invoice.invoice_line_items ?? []) as InvoiceDetailLine[])
     .slice()
     .sort((a, b) => a.ordinal - b.ordinal)
     .map((line) => {
       const codes = lineCodes.get(line.ordinal);
+      const gross = line.unit_price_net == null ? grossPrices.get(line.ordinal) : undefined;
       return {
         ...line,
         ...(codes?.pkwiuCode ? { pkwiu_code: codes.pkwiuCode } : {}),
         ...(codes?.gtuCode ? { gtu_code: codes.gtuCode } : {}),
+        ...(gross !== undefined ? { unit_price_gross: gross } : {}),
       };
     });
 
