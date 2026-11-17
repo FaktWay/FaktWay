@@ -736,6 +736,7 @@
       "poziom": "R2",
       "opis": "Treści o podatkach: FLO, czat pomocy, pomoc, blog, strona, maile (D8: bez porad podatkowych).",
       "sciezki": [
+        "lib/zmiany-2027/okno.ts",
         "lib/flo/{tax-topic,llm}.ts",
         "lib/support/chat.ts",
         "lib/help/articles.ts",
