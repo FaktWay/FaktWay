@@ -60,6 +60,7 @@ export const FA3_TEXT_LIMITS = {
   przyczynaKorekty: { elements: ['PrzyczynaKorekty'], xsdType: 'tns:TZnakowy', max: 256, kind: 'token' },
   nrFaKorygowanej: { elements: ['NrFaKorygowanej'], xsdType: 'tns:TZnakowy', max: 256, kind: 'token' },
   nrFaZaliczkowej: { elements: ['NrFaZaliczkowej'], xsdType: 'tns:TZnakowy', max: 256, kind: 'token' },
+  nrZamowienia: { elements: ['NrZamowienia'], xsdType: 'tns:TZnakowy', max: 256, kind: 'token' },
   p7: { elements: ['P_7'], xsdType: 'tns:TZnakowy512', max: 512, kind: 'token' },
   p7z: { elements: ['P_7Z'], xsdType: 'tns:TZnakowy512', max: 512, kind: 'token' },
   p8a: { elements: ['P_8A'], xsdType: 'tns:TZnakowy', max: 256, kind: 'token' },

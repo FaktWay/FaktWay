@@ -211,6 +211,7 @@ function regularTextChecks(invoice: Invoice): Fa3TextCheck[] {
       limit: FA3_TEXT_LIMITS.nazwaBanku,
     },
     { label: 'Uwagi', value: invoice.notes, limit: FA3_TEXT_LIMITS.stopkaFaktury },
+    { label: 'Numer zamówienia', value: invoice.order?.number, limit: FA3_TEXT_LIMITS.nrZamowienia },
   ];
 }
 
@@ -411,6 +412,8 @@ function buildFa(
   }
 
   buildPlatnosc(fa, invoice);
+
+  buildWarunkiTransakcji(fa, invoice);
 }
 
 function buildVatSummaries(fa: XMLBuilder, lines: InvoiceLineItem[]): void {
@@ -641,6 +644,24 @@ function buildPlatnosc(
       rachunek.ele('NazwaBanku').txt(invoice.payment.bankName);
     }
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// <WarunkiTransakcji> (krok 2.8: numer zamówienia)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * `Fa/WarunkiTransakcji/Zamowienia` w XSD: po `Platnosc`, przed `Zamowienie`
+ * (zamówienie faktury zaliczkowej, tu nieużywane). W `Zamowienia` najpierw
+ * `DataZamowienia` (TDataU), potem `NrZamowienia`. Tylko gdy faktura ma numer
+ * zamówienia; bez niego nie powstaje nic, więc plik jest taki jak dotąd.
+ */
+function buildWarunkiTransakcji(fa: XMLBuilder, invoice: Invoice): void {
+  const order = invoice.order;
+  if (!order || order.number.trim() === '') return;
+  const zamowienia = fa.ele('WarunkiTransakcji').ele('Zamowienia');
+  if (order.date) zamowienia.ele('DataZamowienia').txt(formatDate(order.date));
+  zamowienia.ele('NrZamowienia').txt(order.number);
 }
 
 // ═══════════════════════════════════════════════════════════════
