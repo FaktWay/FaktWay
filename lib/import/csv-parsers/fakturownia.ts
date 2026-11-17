@@ -7,7 +7,7 @@ import Papa from 'papaparse';
 import type { ParsedInvoice, ParsedLine } from '../fa3-parser';
 import { parseAmount, parseDate, cleanNip } from './csv-helpers';
 import type { CsvParseResult } from './types';
-import { roundToCents } from '@/lib/xml/invoice-calculator';
+import { multiplyToCents, roundToCents } from '@/lib/xml/invoice-calculator';
 
 interface FakturowniaRow extends Record<string, string | undefined> {
   Numer?: string;
@@ -210,7 +210,8 @@ function linesFromPositionsJson(
     );
 
     if (!netAmount) {
-      netAmount = roundToCents(quantity * unitPriceNet);
+      // Art. 106e ust. 11: ilość × cena dokładnie, do grosza z połówką w górę.
+      netAmount = multiplyToCents(quantity, unitPriceNet);
     }
 
     const vatRaw = pickStr(p.vat, p.vat_rate, p.stawka, p.tax_rate);
