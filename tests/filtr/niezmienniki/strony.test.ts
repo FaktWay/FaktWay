@@ -27,11 +27,13 @@ import { opcje, PRZYPADKI } from '../generatory/ustawienia';
  *    w trakcie odczytu, zignorowana kolejność. Para zmian, która zachowuje
  *    liczbę wierszy (usunięty wiersz już przeczytany i dopisany w części
  *    jeszcze nieprzeczytanej), przechodzi dziś bez wyjątku: FZ-017.
- * 3. Test strukturalny: każdy odczyt listy w księgowości, KPiR
- *    i eksportach (`lib/ksiegowosc`, `lib/reports`, `lib/exports`) idzie
- *    przez helper stronicowania po `id` albo jest ograniczony (jeden wiersz,
- *    sam licznik, `limit(1)`, zapis, lista `OGRANICZONE` z powodem). Własne
- *    stronicowanie bez licznika w `lib/exports/jpk-fa-readiness.ts`: FZ-018.
+ * 3. Test strukturalny: każde zapytanie `.from('tabela')` i `.rpc('funkcja')`
+ *    w `lib/ksiegowosc`, `lib/reports` i `lib/exports` (nazwa spoza napisu daje
+ *    czerwony test) idzie przez helper stronicowania, a funkcja podana helperowi
+ *    ma jedno zapytanie z `order('id')` i stronicowaniem tego helpera. Poza
+ *    helperem tylko zapis, jeden wiersz, sam licznik, `limit(1)` albo lista
+ *    `OGRANICZONE` z liczbą zapytań i powodem. Własne stronicowanie bez
+ *    licznika w `lib/exports/jpk-fa-readiness.ts`: FZ-018.
  */
 
 interface Wiersz {
@@ -226,20 +228,43 @@ describe('NZ-WSP-08: bezpieczniki zamiast cichej niepełnej sumy', () => {
 
 const KATALOG = process.cwd();
 const KATALOGI = ['lib/ksiegowosc', 'lib/reports', 'lib/exports'];
-/** Helpery, które sprawdzają komplet stron i kolejność po `id`. */
-const HELPERY = new Set(['readCompletePages', 'readCompletePagesByKey', 'readAllById', 'readAllByIdInList', 'forEachPageById']);
+type Stronicowanie = 'zakresy' | 'po kluczu';
+/** Helpery, które sprawdzają komplet stron i kolejność po `id`, i jak stronicują. */
+const HELPERY = new Map<string, Stronicowanie>([
+  ['readCompletePages', 'zakresy'],
+  ['readCompletePagesByKey', 'po kluczu'],
+  ['readAllById', 'po kluczu'],
+  ['readAllByIdInList', 'po kluczu'],
+  ['forEachPageById', 'po kluczu'],
+]);
+/** Czego poza `order('id')` musi użyć zapytanie podane helperowi. */
+const STRONICOWANIE: Readonly<Record<Stronicowanie, readonly RegExp[]>> = {
+  zakresy: [/\.range\(/],
+  'po kluczu': [/\.gt\(\s*'id'/, /\.limit\(/],
+};
+/** `.from` wbudowanych typów (`Array.from`, `Buffer.from`) to nie zapytanie do bazy. */
+const WBUDOWANE = new Set(['Array', 'Buffer', 'Object', 'String', 'Set', 'Map', 'Uint8Array', 'Int8Array', 'Uint16Array', 'Int16Array', 'Uint32Array', 'Int32Array', 'Float32Array', 'Float64Array', 'BigInt64Array', 'BigUint64Array']);
 const ZAPIS = new Set(['insert', 'update', 'upsert', 'delete']);
-/** Odczyty listy bez helpera, ograniczone z natury: `plik#funkcja:tabela` i dlaczego limit serwera ich nie psuje. */
-const OGRANICZONE: Readonly<Record<string, string>> = {
-  'lib/exports/data-fetcher.ts#attachKsefNumbers:invoices': 'numery KSeF po `id`, paczki po 200 (`KSEF_LOOKUP_CHUNK`)',
-  'lib/exports/data-fetcher.ts#fetchExpensesForExport:invoices': 'waluty faktur KSeF po `id`, paczki po 200 z `assertKsefExpensesReadyForPln`',
-  'lib/exports/data-fetcher.ts#fetchParentInvoices:invoices': 'faktury korygowane po `id`, paczki po 100, licznik równy paczce',
-  'lib/ksiegowosc/kpir-dane.ts#koszty:invoices': 'waluty faktur KSeF po `id`, paczki po 200 z `assertKsefExpensesReadyForPln`',
-  'lib/ksiegowosc/powiadomienia.ts#firmyWPilotazu:tenant_feature_flags': '`limit(1000)`, a 1000 i więcej firm to wyjątek (pora na fan-out)',
-  'lib/ksiegowosc/profil.ts#czytajWersjeProfilu:tax_profiles': 'wersje profilu firmy, jedna na dzień `valid_from` (UNIQUE w 00166)',
-  'lib/ksiegowosc/vat-dane.ts#nadwyzkiZatwierdzone:tax_settlements': 'dwa okresy, wersje od najnowszej; ucięcie zabiera wersje od najstarszej, a brak wersji okresu to brak nadwyżki (VAT bez niej nie liczy się)',
-  'lib/ksiegowosc/wysylka-jpk/zapis.ts#czytajWysylki:jpk_submissions': '`limit(100)` od najnowszej, poniżej limitu serwera',
-  'lib/reports/kpir-data.ts#getKpirData:invoices': 'waluty faktur KSeF po `id`, paczki po 200 z `assertKsefExpensesReadyForPln`',
+/**
+ * Odczyty listy bez helpera, ograniczone z natury: `plik#funkcja:tabela`, ile
+ * takich zapytań stoi w tej funkcji i dlaczego limit serwera ich nie psuje.
+ */
+const OGRANICZONE: Readonly<Record<string, { ile: number; powod: string }>> = {
+  'lib/exports/data-fetcher.ts#attachKsefNumbers:invoices': { ile: 1, powod: 'numery KSeF po `id`, paczki po 200 (`KSEF_LOOKUP_CHUNK`)' },
+  'lib/exports/data-fetcher.ts#fetchExpensesForExport:invoices': { ile: 1, powod: 'waluty faktur KSeF po `id`, paczki po 200 z `assertKsefExpensesReadyForPln`' },
+  'lib/exports/data-fetcher.ts#fetchParentInvoices:invoices': { ile: 1, powod: 'faktury korygowane po `id`, paczki po 100, licznik równy paczce' },
+  'lib/ksiegowosc/kpir-dane.ts#koszty:invoices': { ile: 1, powod: 'waluty faktur KSeF po `id`, paczki po 200 z `assertKsefExpensesReadyForPln`' },
+  'lib/ksiegowosc/powiadomienia.ts#firmyWPilotazu:tenant_feature_flags': { ile: 1, powod: '`limit(1000)`, a 1000 i więcej firm to wyjątek (pora na fan-out)' },
+  'lib/ksiegowosc/profil.ts#czytajWersjeProfilu:tax_profiles': {
+    ile: 1,
+    powod: 'wersje profilu firmy rosnąco, jedna na dzień `valid_from` (UNIQUE w 00166); ucięcie zabrałoby najnowsze wersje, ale dopiero przy ponad 1000 dniach ze zmianą ustawień podatkowych jednej firmy',
+  },
+  'lib/ksiegowosc/vat-dane.ts#nadwyzkiZatwierdzone:tax_settlements': {
+    ile: 1,
+    powod: 'dwa okresy, wersje malejąco: ucięcie zabiera najstarsze wersje, a cały okres zniknąłby dopiero przy ponad 1000 zatwierdzeniach drugiego okresu (wtedy nadwyżka z drugiego okresu)',
+  },
+  'lib/ksiegowosc/wysylka-jpk/zapis.ts#czytajWysylki:jpk_submissions': { ile: 1, powod: '`limit(100)` od najnowszej, poniżej limitu serwera' },
+  'lib/reports/kpir-data.ts#getKpirData:invoices': { ile: 1, powod: 'waluty faktur KSeF po `id`, paczki po 200 z `assertKsefExpensesReadyForPln`' },
 };
 /** Odczyty ze znaleziska FZ-018 (otwarte), pilnowane przez `.fails` niżej. */
 const FZ_018 = [
@@ -261,32 +286,42 @@ function pliki(katalog: string): string[] {
 }
 
 interface Zapytanie {
-  /** `plik#funkcja najwyższego poziomu:tabela`. */
+  /** `plik#funkcja najwyższego poziomu:tabela`, przy RPC `:rpc:funkcja`, przy nazwie spoza napisu `:?`. */
   klucz: string;
   linia: number;
-  /** Funkcja podana helperowi stronicowania, w której stoi zapytanie; null, gdy zapytanie jest poza helperem. */
-  wHelperze: ts.Node | null;
+  /** Nazwa tabeli albo funkcji spoza napisu: test nie wie, co to zapytanie czyta. */
+  nieznane: boolean;
+  /** Funkcja podana helperowi stronicowania, w której stoi zapytanie, i nazwa helpera; null poza helperem. */
+  wHelperze: { funkcja: ts.Node; helper: string } | null;
   /** Zapis, jeden wiersz, sam licznik albo `limit(1)`. */
   ograniczone: boolean;
 }
 
-/** Zapytania `.from('tabela')` w pliku, z łańcuchem metod aż do końca wyrażenia. */
+/** Zapytania `.from('tabela')` i `.rpc('funkcja')` w pliku, z łańcuchem metod aż do końca wyrażenia. */
 function zapytania(sciezka: string): Zapytanie[] {
   const tekst = readFileSync(join(KATALOG, sciezka), 'utf8');
-  if (!tekst.includes('.from(')) return [];
+  if (!tekst.includes('.from(') && !tekst.includes('.rpc(')) return [];
   const zrodlo = ts.createSourceFile(sciezka, tekst, ts.ScriptTarget.Latest, true, sciezka.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
-  const helper = (w: ts.Node): w is ts.CallExpression => ts.isCallExpression(w) && ts.isIdentifier(w.expression) && HELPERY.has(w.expression.text);
+  const helper = (w: ts.Node): string | null => (ts.isCallExpression(w) && ts.isIdentifier(w.expression) && HELPERY.has(w.expression.text) ? w.expression.text : null);
   // Funkcje podane helperowi z nazwy (`readCompletePages('x', strona)`).
-  const podane = new Set<string>();
+  const podane = new Map<string, string>();
   const zbierz = (w: ts.Node) => {
-    if (helper(w)) for (const a of w.arguments) if (ts.isIdentifier(a)) podane.add(a.text);
+    const h = helper(w);
+    if (h && ts.isCallExpression(w)) for (const a of w.arguments) if (ts.isIdentifier(a)) podane.set(a.text, h);
     ts.forEachChild(w, zbierz);
   };
   zbierz(zrodlo);
   const wynik: Zapytanie[] = [];
   const idz = (w: ts.Node) => {
-    const tabela = ts.isCallExpression(w) && ts.isPropertyAccessExpression(w.expression) && w.expression.name.text === 'from' && w.arguments.length === 1 ? w.arguments[0] : undefined;
-    if (tabela && ts.isStringLiteralLike(tabela)) {
+    const metoda = ts.isCallExpression(w) && ts.isPropertyAccessExpression(w.expression) ? w.expression : null;
+    const obiekt = metoda?.expression;
+    const zapytanie = metoda && obiekt && (metoda.name.text === 'from' || metoda.name.text === 'rpc') &&
+      !(ts.isIdentifier(obiekt) && WBUDOWANE.has(obiekt.text)) &&
+      // `supabase.storage.from('kubeł')` to pliki, nie tabela.
+      !(ts.isPropertyAccessExpression(obiekt) && obiekt.name.text === 'storage');
+    if (zapytanie && ts.isCallExpression(w)) {
+      const arg = w.arguments[0];
+      const nazwa = arg && ts.isStringLiteralLike(arg) ? arg.text : null;
       const metody: string[] = [];
       let szczyt: ts.Node = w;
       while (ts.isPropertyAccessExpression(szczyt.parent) && szczyt.parent.expression === szczyt && ts.isCallExpression(szczyt.parent.parent)) {
@@ -295,17 +330,20 @@ function zapytania(sciezka: string): Zapytanie[] {
       }
       const lancuch = szczyt.getText(zrodlo);
       let funkcja = '(moduł)';
-      let wHelperze: ts.Node | null = null;
+      let wHelperze: Zapytanie['wHelperze'] = null;
       for (let p: ts.Node | undefined = w.parent; p; p = p.parent) {
-        if (wHelperze === null && (ts.isArrowFunction(p) || ts.isFunctionExpression(p)) && (
-          (helper(p.parent) && p.parent.arguments.some((a) => a === p)) ||
-          (ts.isVariableDeclaration(p.parent) && ts.isIdentifier(p.parent.name) && podane.has(p.parent.name.text)))) wHelperze = p;
+        if (wHelperze === null && (ts.isArrowFunction(p) || ts.isFunctionExpression(p))) {
+          const h = ts.isCallExpression(p.parent) && p.parent.arguments.some((a) => a === p) ? helper(p.parent)
+            : ts.isVariableDeclaration(p.parent) && ts.isIdentifier(p.parent.name) ? podane.get(p.parent.name.text) ?? null : null;
+          if (h) wHelperze = { funkcja: p, helper: h };
+        }
         if (ts.isFunctionDeclaration(p) && p.name && p.parent === zrodlo) funkcja = p.name.text;
         if (ts.isVariableDeclaration(p) && ts.isIdentifier(p.name) && p.parent.parent.parent === zrodlo) funkcja = p.name.text;
       }
       wynik.push({
-        klucz: `${sciezka}#${funkcja}:${tabela.text}`,
+        klucz: `${sciezka}#${funkcja}:${metoda.name.text === 'rpc' ? 'rpc:' : ''}${nazwa ?? '?'}`,
         linia: zrodlo.getLineAndCharacterOfPosition(w.getStart(zrodlo)).line + 1,
+        nieznane: nazwa === null,
         wHelperze,
         ograniczone: metody.some((m) => ZAPIS.has(m) || m === 'single' || m === 'maybeSingle') || /head:\s*true/.test(lancuch) || /\.limit\(\s*1\s*\)/.test(lancuch),
       });
@@ -317,7 +355,13 @@ function zapytania(sciezka: string): Zapytanie[] {
 }
 
 const ZAPYTANIA = KATALOGI.flatMap(pliki).flatMap(zapytania);
-const listyBezHelpera = (z: readonly Zapytanie[]) => [...new Set(z.filter((q) => !q.wHelperze && !q.ograniczone).map((q) => q.klucz))].sort();
+/** Odczyty listy bez helpera: klucz i ile takich zapytań. */
+function listyBezHelpera(z: readonly Zapytanie[]): Record<string, number> {
+  const ile: Record<string, number> = {};
+  for (const q of z) if (!q.wHelperze && !q.ograniczone) ile[q.klucz] = (ile[q.klucz] ?? 0) + 1;
+  return ile;
+}
+const wybrane = (ile: Record<string, number>, czy: (klucz: string) => boolean) => Object.fromEntries(Object.entries(ile).filter(([k]) => czy(k)));
 
 describe('NZ-WSP-08: listy w księgowości, KPiR i eksportach czyta się stronami', () => {
   it('test widzi zapytania w każdym katalogu i w helperach (inaczej nie sprawdza niczego)', () => {
@@ -325,16 +369,36 @@ describe('NZ-WSP-08: listy w księgowości, KPiR i eksportach czyta się stronam
     expect(ZAPYTANIA.filter((q) => q.wHelperze).length).toBeGreaterThanOrEqual(10);
   });
 
-  it('każdy odczyt listy idzie przez helper stronicowania albo jest na liście ograniczonych z powodem', () => {
-    expect(listyBezHelpera(ZAPYTANIA).filter((k) => !FZ_018.includes(k))).toEqual(Object.keys(OGRANICZONE).sort());
+  it('każde zapytanie ma nazwę tabeli albo funkcji jako napis (inaczej test nie wie, co czyta)', () => {
+    expect(ZAPYTANIA.filter((q) => q.nieznane).map((q) => `${q.klucz} (linia ${q.linia})`)).toEqual([]);
   });
 
-  it('każde zapytanie podane helperowi sortuje po `id`, po którym helper sprawdza kolejność', () => {
-    const bez = ZAPYTANIA.filter((q) => q.wHelperze && !/\.order\(\s*'id'/.test(q.wHelperze.getText()));
-    expect(bez.map((q) => `${q.klucz} (linia ${q.linia})`)).toEqual([]);
+  it('każdy odczyt listy idzie przez helper stronicowania albo jest na liście ograniczonych, policzony co do sztuki', () => {
+    expect(wybrane(listyBezHelpera(ZAPYTANIA), (k) => !FZ_018.includes(k))).toEqual(
+      Object.fromEntries(Object.entries(OGRANICZONE).map(([k, v]) => [k, v.ile])),
+    );
+  });
+
+  it('każda funkcja podana helperowi ma jedno zapytanie, sortuje po `id` i stronicuje jak jej helper', () => {
+    const funkcje = new Map<ts.Node, { helper: string; zapytania: Zapytanie[] }>();
+    for (const q of ZAPYTANIA) {
+      if (!q.wHelperze) continue;
+      const f = funkcje.get(q.wHelperze.funkcja) ?? { helper: q.wHelperze.helper, zapytania: [] };
+      f.zapytania.push(q);
+      funkcje.set(q.wHelperze.funkcja, f);
+    }
+    const zle: string[] = [];
+    for (const [funkcja, { helper, zapytania: z }] of funkcje) {
+      const gdzie = `${z[0]!.klucz} (linia ${z[0]!.linia})`;
+      const kod = funkcja.getText();
+      if (z.length !== 1) zle.push(`${gdzie}: ${z.length} zapytania w jednej funkcji strony`);
+      if (!/\.order\(\s*'id'/.test(kod)) zle.push(`${gdzie}: bez order('id')`);
+      for (const wzor of STRONICOWANIE[HELPERY.get(helper)!]) if (!wzor.test(kod)) zle.push(`${gdzie}: bez ${wzor.source}`);
+    }
+    expect(zle).toEqual([]);
   });
 
   it.fails('FZ-018: jpk-fa-readiness czyta faktury i pozycje okresu własnymi stronami po 1000 bez licznika, więc limit serwera poniżej 1000 albo zapis w trakcie dają cichą niepełną listę', () => {
-    expect(listyBezHelpera(ZAPYTANIA).filter((k) => FZ_018.includes(k))).toEqual([]);
+    expect(wybrane(listyBezHelpera(ZAPYTANIA), (k) => FZ_018.includes(k))).toEqual({});
   });
 });
