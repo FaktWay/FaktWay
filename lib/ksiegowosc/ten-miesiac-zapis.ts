@@ -8,6 +8,7 @@ import { logAudit } from '@/lib/audit/log';
 import { monthLabel, monthRange } from '@/lib/expenses/month';
 import { formatIsoDatePl } from '@/lib/format/iso-date';
 import { todayInWarsaw } from '@/lib/format/warsaw-date';
+import { terminDla } from '@/lib/ksiegowosc/kalendarz';
 import { NAZWY_ROZLICZEN } from '@/lib/ksiegowosc/ten-miesiac';
 import {
   aktualne,
@@ -16,13 +17,16 @@ import {
   KOLUMNY_ROZLICZENIA,
   miesiacZakonczony,
   PO_KONCU_MIESIACA,
+  skrot,
+  stabilnyJson,
   zWierszaRozliczenia,
 } from '@/lib/ksiegowosc/ten-miesiac-dane';
+import { bladDatyZaplatyRecznej, wejsciaZaplatyRecznej, zaplataRecznaSchema, type ZaplataRecznaWejscie } from '@/lib/ksiegowosc/zaplata-reczna';
 import { czyKsiegowoscWlaczona } from '@/lib/ksiegowosc/wylacznik';
 
 /**
- * Zapis „Ten miesiąc” (plan księgowości JDG, K4, D6): zatwierdzenie miesiąca
- * i oznaczenie zapłaty, wspólne dla akcji strony (`app/actions/ksiegowosc-ten-miesiac.ts`,
+ * Zapis „Ten miesiąc” (plan księgowości JDG, K4, D6, K7.2): zatwierdzenie miesiąca,
+ * oznaczenie zapłaty i zapłata spoza wyliczenia, wspólne dla akcji strony (`app/actions/ksiegowosc-ten-miesiac.ts`,
  * sesja z ciasteczek) i telefonu (`/api/mobile/v1/ksiegowosc/*`, M10b, sesja z
  * tokenu). Logika przeniesiona z akcji bez zmian. Rolę (właściciel,
  * administrator) sprawdza wywołujący; wyłącznik (obszar `ten_miesiac`) i
@@ -195,3 +199,101 @@ export async function oznaczZaplacone(ctx: RozliczeniaKontekst, wejscie: z.input
   revalidatePath(STRONA);
   return { success: true };
 }
+
+/**
+ * Zapłata spoza wyliczenia (K7.2, D15): składki za okres, którego moduł nie
+ * liczy, z kwotą z PUE ZUS. Wersja rozliczenia z `migawka.reczna`, zaraz
+ * potem oznaczona jako zapłacona w podanym dniu. Przeniesione z akcji strony
+ * bez zmian (M10d: to samo dla telefonu); rola (właściciel, administrator)
+ * sprawdzona przez wywołującego.
+ *
+ * Ponowienie: bez klucza. Drugie wywołanie dopisuje kolejną wersję, a
+ * odliczenie liczy tylko przyrost ponad najwyższą zapłaconą wersję okresu
+ * (`przyrostyZaplat`), więc kwota się nie dubluje.
+ */
+export async function dodajZaplateReczna(ctx: RozliczeniaKontekst, wejscie: ZaplataRecznaWejscie): Promise<WynikZaplaty> {
+  const parsed = zaplataRecznaSchema.safeParse(wejscie);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return { success: false, error: issue?.message ?? BLAD, pole: issue?.path.join('.') };
+  }
+  const z = parsed.data;
+  const bladDaty = bladDatyZaplatyRecznej(z, todayInWarsaw());
+  if (bladDaty) return { success: false, ...bladDaty };
+
+  const client = ctx.client;
+  if (!(await wlaczony(client, ctx.tenantId))) return { success: false, error: NIEDOSTEPNE };
+
+  const okres = `${z.zaMiesiac}-01`;
+  const { data: ostatnia, error: bladOdczytu } = await client
+    .from('tax_settlements')
+    .select('wersja')
+    .eq('tenant_id', ctx.tenantId)
+    .eq('okres', okres)
+    .eq('rodzaj', z.rodzaj)
+    .order('wersja', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (bladOdczytu) return { success: false, error: BLAD };
+  const wersja = ((ostatnia as { wersja?: number } | null)?.wersja ?? 0) + 1;
+  const termin = terminDla({ rodzaj: 'zus', rok: Number(z.zaMiesiac.slice(0, 4)), miesiac: Number(z.zaMiesiac.slice(5, 7)) });
+  const wejscia = wejsciaZaplatyRecznej(z);
+
+  const { data: nowa, error: bladZapisu } = await client
+    .from('tax_settlements')
+    .insert({
+      tenant_id: ctx.tenantId,
+      okres,
+      rodzaj: z.rodzaj,
+      wersja,
+      kwota_gr: z.kwotaGr,
+      termin: termin?.faktyczny ?? monthRange(z.zaMiesiac).to,
+      migawka: {
+        reczna: true,
+        wejscia,
+        szczegoly: { zrodlo: 'PUE ZUS' },
+        spoleczneBezFpGr: z.bezFpGr,
+        wynik: { kwotaGr: z.kwotaGr, termin },
+      },
+      parametry_wersja: 'reczna',
+      wejscia_hash: skrot(stabilnyJson({ miesiac: z.zaMiesiac, rodzaj: z.rodzaj, kwotaGr: z.kwotaGr, wejscia })),
+    })
+    .select('id')
+    .single();
+  if (bladZapisu || !nowa) {
+    if (bladZapisu?.code === '23505') return { success: false, error: 'Ktoś właśnie zapisał rozliczenie tego okresu; po odświeżeniu można spróbować jeszcze raz.' };
+    return { success: false, error: BLAD };
+  }
+  const id = (nowa as { id: string }).id;
+  const { error: bladZaplaty } = await client
+    .from('tax_settlements')
+    .update({ status: 'zaplacone', zaplacone_o: z.dataZaplaty })
+    .eq('id', id)
+    .eq('tenant_id', ctx.tenantId);
+
+  await logAudit({
+    action: 'tax_settlement.manual_paid',
+    tenantId: ctx.tenantId,
+    userId: ctx.userId,
+    entityType: 'tax_settlement',
+    entityId: id,
+    metadata: {
+      zaMiesiac: z.zaMiesiac,
+      rodzaj: z.rodzaj,
+      nazwa: NAZWY_ROZLICZEN[z.rodzaj],
+      wersja,
+      kwotaGr: z.kwotaGr,
+      spoleczneBezFpGr: z.bezFpGr,
+      zaplaconeO: bladZaplaty ? null : z.dataZaplaty,
+    },
+  });
+  revalidatePath(STRONA);
+  if (bladZaplaty) {
+    return {
+      success: false,
+      error: `Kwota za ${monthLabel(z.zaMiesiac)} jest zapisana, ale bez daty zapłaty. Datę ustawia się przy tej zapłacie na liście zapłat spoza wyliczenia.`,
+    };
+  }
+  return { success: true };
+}
+

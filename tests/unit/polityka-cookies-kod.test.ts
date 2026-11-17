@@ -30,6 +30,8 @@ const KNOWN: Record<string, string> = {
   'components/dashboard/theme-toggle.tsx': 'motyw jasny lub ciemny',
   'hooks/use-install-prompt.ts': 'install-prompt-dismissed-at',
   'app/(dashboard)/_components/ksef-health-banner-client.tsx': 'klucze zamkniętych komunikatów',
+  // Zamknięcie komunikatu o zmianach z 1 stycznia 2027 r. na pulpicie (krok 1.6, część 2a).
+  'components/dashboard/zmiany-2027-baner.tsx': 'faktway:zmiany-2027:',
   'lib/analytics/consent.ts': 'decyzji w sprawie analityki',
   // Pierwszy dotyk (FAKTWAY-1-0, pkt 7): tylko po zgodzie, 90 dni.
   'lib/analytics/attribution.ts': 'skąd do nas trafiłeś',

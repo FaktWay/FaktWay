@@ -2,7 +2,8 @@
  * Daily summary email (Faza 27).
  *
  * Codziennie 06:00 PL wysyła operatorowi (ADMIN_EMAILS) raport dzienny:
- * signups, faktury (issued/accepted/failed), KSeF uptime, payments, errors.
+ * signups, faktury (issued/accepted/failed), KSeF uptime, payments, errors,
+ * udane i nieudane odczyty OCR z osobną liczbą limitów czasu (LIM-05).
  *
  * Dlaczego email zamiast Slack: szczegółowe metryki w mailu są bardziej
  * skanowalne niż wall of text w Slack. Slack #metrics dostaje tylko
@@ -38,6 +39,20 @@ function fmtPln(n: number): string {
   return n.toLocaleString('pl-PL', { style: 'currency', currency: 'PLN' });
 }
 
+/** Licznik, którego baza nie podała (`null`): napis zamiast fałszywego 0. */
+function fmtOrMissing(n: number | null): string {
+  return n === null ? 'brak danych' : fmtNum(n);
+}
+
+/**
+ * Nieudanych odczytów OCR więcej niż udanych (obie liczby z tej samej doby).
+ * Tak wygląda awaria bez limitu czasu, np. odwołany klucz API albo brak
+ * środków u dostawcy: udanych jest wtedy 0.
+ */
+function ocrMostlyFailed(m: DailyMetrics): boolean {
+  return m.ocrJobsFailed !== null && m.ocrJobsCompleted !== null && m.ocrJobsFailed > m.ocrJobsCompleted;
+}
+
 function buildHtml(metrics: DailyMetrics): string {
   const periodLabel = `${new Date(metrics.period.from).toLocaleDateString('pl-PL', {
     day: '2-digit',
@@ -58,6 +73,14 @@ function buildHtml(metrics: DailyMetrics): string {
     metrics.invoicesIssued > 0
       ? Math.round((metrics.invoicesAccepted / metrics.invoicesIssued) * 100)
       : 100;
+
+  // Limit czasu to zwykle kłopot z dostawcą OCR (czerwony), tak samo przewaga
+  // porażek nad udanymi. Pojedyncze porażki bywają zwykłe (nieczytelne
+  // zdjęcie), więc żółty; brak danych też żółty.
+  const ocrCompletedColor = metrics.ocrJobsCompleted === null ? '#f59e0b' : '#111';
+  const ocrFailedColor = ocrMostlyFailed(metrics) ? '#dc2626' : metrics.ocrJobsFailed !== 0 ? '#f59e0b' : '#111';
+  const ocrTimedOutColor =
+    metrics.ocrJobsTimedOut === null ? '#f59e0b' : metrics.ocrJobsTimedOut > 0 ? '#dc2626' : '#111';
 
   return `
 <!DOCTYPE html>
@@ -95,7 +118,7 @@ function buildHtml(metrics: DailyMetrics): string {
       <div class="stat"><p class="stat-label">Zaakceptowane przez KSeF</p><p class="stat-value">${fmtNum(metrics.invoicesAccepted)} (${acceptanceRate}%)</p></div>
       <div class="stat"><p class="stat-label">Faktury z błędem</p><p class="stat-value" style="color:${metrics.invoicesFailed > 0 ? '#dc2626' : '#111'}">${fmtNum(metrics.invoicesFailed)}</p></div>
       <div class="stat"><p class="stat-label">Offline24 queue</p><p class="stat-value" style="color:${metrics.invoicesOfflineQueued > 0 ? '#f59e0b' : '#111'}">${fmtNum(metrics.invoicesOfflineQueued)}</p></div>
-      <div class="stat"><p class="stat-label">OCR jobs</p><p class="stat-value">${fmtNum(metrics.ocrJobsCompleted)}</p></div>
+      <div class="stat"><p class="stat-label">OCR udane</p><p class="stat-value" style="color:${ocrCompletedColor}">${fmtOrMissing(metrics.ocrJobsCompleted)}</p></div>
       <div class="stat"><p class="stat-label">KSeF status</p><p class="stat-value" style="font-size:14px">${ksefStatus}</p></div>
     </div>
 
@@ -114,6 +137,8 @@ function buildHtml(metrics: DailyMetrics): string {
     <div class="grid">
       <div class="stat"><p class="stat-label">Inngest job failures</p><p class="stat-value" style="color:${metrics.totalInngestFailures > 10 ? '#dc2626' : '#111'}">${fmtNum(metrics.totalInngestFailures)}</p></div>
       <div class="stat"><p class="stat-label">Max consecutive KSeF fails</p><p class="stat-value" style="color:${metrics.ksefMaxConsecutiveFailures > 3 ? '#dc2626' : '#111'}">${fmtNum(metrics.ksefMaxConsecutiveFailures)}</p></div>
+      <div class="stat"><p class="stat-label">OCR nieudane</p><p class="stat-value" style="color:${ocrFailedColor}">${fmtOrMissing(metrics.ocrJobsFailed)}</p></div>
+      <div class="stat"><p class="stat-label">OCR nieudane: limit czasu</p><p class="stat-value" style="color:${ocrTimedOutColor}">${fmtOrMissing(metrics.ocrJobsTimedOut)}</p></div>
     </div>
 
     ${
@@ -229,10 +254,15 @@ export function buildTelegramReport(
     metrics.ksefDowntimeMinutes > 0
       ? `⚠️ ${fmtNum(metrics.ksefDowntimeMinutes)} min niedostępności (maks. ${fmtNum(metrics.ksefMaxConsecutiveFailures)} nieudanych prób z rzędu)`
       : '✅ dostępny przez całą dobę';
+  // Ostrzeżenie przy limicie czasu, przy przewadze porażek nad udanymi i przy braku danych.
+  const ocrCount = (n: number | null) => (n === null ? `⚠️ ${fmtOrMissing(n)}` : fmtNum(n));
+  const ocrWarn =
+    (metrics.ocrJobsTimedOut !== null && metrics.ocrJobsTimedOut > 0) || ocrMostlyFailed(metrics) ? ' ⚠️' : '';
   const header = `📊 <b>FaktWay — raport dzienny</b> (${day(metrics.period.from)} → ${day(metrics.period.to)})`;
   const body = [
     `Rejestracje: ${fmtNum(metrics.signups)} · nowe firmy: ${fmtNum(metrics.newTenants)} · pierwsza faktura: ${fmtNum(metrics.firstInvoiceCount)}`,
     `Faktury: wystawione ${fmtNum(metrics.invoicesIssued)}, przyjęte ${fmtNum(metrics.invoicesAccepted)}, nieudane ${fmtNum(metrics.invoicesFailed)}, offline ${fmtNum(metrics.invoicesOfflineQueued)}`,
+    `Odczyty OCR: udane ${ocrCount(metrics.ocrJobsCompleted)}, nieudane ${ocrCount(metrics.ocrJobsFailed)}, w tym limit czasu ${ocrCount(metrics.ocrJobsTimedOut)}${ocrWarn}`,
     `KSeF: ${ksef}`,
     `Płatności: udane ${fmtNum(metrics.paymentsSucceeded)} (${fmtPln(metrics.paymentsTotalGrossPln)}), nieudane ${fmtNum(metrics.paymentsFailed)}`,
     `Błędy: audyt ${fmtNum(metrics.totalAuditErrors)}, joby ${fmtNum(metrics.totalInngestFailures)}`,

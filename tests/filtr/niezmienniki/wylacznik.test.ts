@@ -19,6 +19,9 @@ const KATALOG = process.cwd();
 const STRAZE = new Set(['czyKsiegowoscWlaczona', 'statusObszaru']);
 /** Moduły współdzielone przez wejścia; ich funkcje liczy się jak lokalne. */
 const MODULY = ['lib/ksiegowosc/ten-miesiac-zapis.ts', 'lib/api/mobile/ksiegowosc.ts'];
+// M10d: plik JPK_V7M (`pobierzJpkV7m`) i API VAT telefonu same pytają o wyłącznik; akcja strony i trasy telefonu wołają je z importu.
+// Kolejność: `vat-plik` przed `ksiegowosc-vat`, które z niego korzysta.
+MODULY.push('lib/ksiegowosc/vat-plik.ts', 'lib/api/mobile/ksiegowosc-vat.ts');
 
 function pliki(katalog: string, wzorzec: RegExp): string[] {
   const wynik: string[] = [];

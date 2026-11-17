@@ -10,6 +10,7 @@ import { formatTimestampDatePl } from '@/lib/format/iso-date';
 import { formatWarsawDateTime } from '@/lib/format/warsaw-date';
 import type { BuyerInvoiceView, BuyerParty } from '@/lib/invoice-share/buyer-invoice';
 import { formatInvoiceDate } from '@/lib/invoices/display-date';
+import { lineCodesText } from '@/lib/invoices/line-codes';
 import { vatSummaryAgreesWithGross, vatSummaryByRate } from '@/lib/invoices/vat-summary';
 import { cn } from '@/lib/utils';
 
@@ -210,7 +211,14 @@ export function BuyerInvoiceDocument({
                 {view.lines.map((line) => (
                   <TableRow key={line.ordinal}>
                     <TableCell className="pl-4">{line.ordinal}</TableCell>
-                    <TableCell className="font-medium whitespace-normal">{line.name ?? ''}</TableCell>
+                    <TableCell className="font-medium whitespace-normal">
+                      {line.name ?? ''}
+                      {lineCodesText({ pkwiuCode: line.pkwiu_code, gtuCode: line.gtu_code }) ? (
+                        <span data-kody-pozycji="" className="block text-xs font-normal text-muted-foreground">
+                          {lineCodesText({ pkwiuCode: line.pkwiu_code, gtuCode: line.gtu_code })}
+                        </span>
+                      ) : null}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(line.quantity, 4)}</TableCell>
                     <TableCell className="text-muted-foreground">{line.unit ?? ''}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(line.unit_price_net, 4)}</TableCell>

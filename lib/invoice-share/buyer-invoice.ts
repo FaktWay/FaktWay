@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { hashToken } from '@/lib/accountant/tokens';
 import { getClientIp } from '@/lib/auth/get-client-ip';
 import { amountDueOf } from '@/lib/invoices/amount-due';
+import { documentLineCodes } from '@/lib/invoices/line-codes';
 import { isBuyerLinkToken } from '@/lib/invoice-share/policy';
 import { configuredKsefEnvironment } from '@/lib/ksef/claim-environment';
 import { invoiceVerificationUrl, ksefEnvForQr, qrLabel } from '@/lib/ksef/qr-verification';
@@ -46,6 +47,9 @@ export interface BuyerInvoiceLine {
   net_amount: number | null;
   vat_amount: number | null;
   gross_amount: number | null;
+  /** Krok 2.6, część 2b-3c: poprawne PKWiU i GTU pozycji z dokumentu faktury (jak w pliku FA(3)). */
+  pkwiu_code?: string;
+  gtu_code?: string;
 }
 
 export interface BuyerInvoiceView {
@@ -115,6 +119,9 @@ const lineSchema = z.object({
   net_amount: amount,
   vat_amount: amount,
   gross_amount: amount,
+  // 00210: kody pozycji z `fa3_data.lines`; widok sprzed migracji ich nie ma.
+  pkwiu_code: text.optional(),
+  gtu_code: text.optional(),
 });
 
 /** Kształt odpowiedzi `invoice_share_link_view`; inny kształt to błąd (strona niedostępna), nie pusta faktura. */
@@ -165,6 +172,17 @@ function party(raw: z.infer<typeof partySchema>): BuyerParty {
   };
 }
 
+/** Pozycja dla strony: kody tylko poprawne (jak w pliku FA(3)), bez pustych pól. */
+function buyerLine(raw: ViewRow['invoice']['lines'][number]): BuyerInvoiceLine {
+  const { pkwiu_code: pkwiu, gtu_code: gtu, ...line } = raw;
+  const codes = documentLineCodes([{ ordinal: line.ordinal, pkwiuCode: pkwiu, gtuCode: gtu }]).get(line.ordinal);
+  return {
+    ...line,
+    ...(codes?.pkwiuCode ? { pkwiu_code: codes.pkwiuCode } : {}),
+    ...(codes?.gtuCode ? { gtu_code: codes.gtuCode } : {}),
+  };
+}
+
 function toView(row: ViewRow): BuyerInvoiceView {
   const inv = row.invoice;
   const qrUrl = invoiceVerificationUrl({
@@ -198,7 +216,7 @@ function toView(row: ViewRow): BuyerInvoiceView {
       bankName: inv.payment.bank_name,
       swift: inv.payment.swift,
     },
-    lines: inv.lines,
+    lines: inv.lines.map(buyerLine),
     qr: qrUrl ? { url: qrUrl, label: qrLabel(inv.ksef_number) } : null,
     expiresAt: row.expires_at,
   };

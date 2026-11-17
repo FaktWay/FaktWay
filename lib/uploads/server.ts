@@ -2,9 +2,15 @@ import 'server-only';
 
 import { NextResponse } from 'next/server';
 
+import { AUTH_BUSY_MESSAGE, SESSION_RETRY_MESSAGE } from '@/lib/auth/gotrue-errors';
 import { isMaintenanceMode } from '@/lib/feature-flags/maintenance';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { ActionAuthError, requireUserAndActiveOrg, type AuthContext } from '@/lib/supabase/auth-context';
+import {
+  ActionAuthError,
+  MEMBERSHIP_RETRY_MESSAGE,
+  requireUserAndActiveOrg,
+  type AuthContext,
+} from '@/lib/supabase/auth-context';
 import { formatUploadSize, UPLOAD_BODY_LIMIT_BYTES, UPLOAD_FILE_LIMIT_LABEL } from '@/lib/upload-limit';
 
 /**
@@ -178,9 +184,27 @@ function waitMessage(seconds: number): string {
 }
 
 /**
+ * Odmowy `requireUserAndActiveOrg`, które znaczą „usługa nie odpowiedziała”,
+ * a nie „nie masz dostępu” (plan skalowania 3000, sesja 7): awaria albo limit
+ * GoTrue i błąd zapytania o członkostwo. Klient ponawia, sesja zostaje.
+ */
+const RETRY_LATER_MESSAGES: ReadonlySet<string> = new Set([
+  AUTH_BUSY_MESSAGE,
+  SESSION_RETRY_MESSAGE,
+  MEMBERSHIP_RETRY_MESSAGE,
+]);
+
+/**
  * Sesja, 2FA i aktywna firma (`requireUserAndActiveOrg`, ta sama granica co
  * dawne akcje) oraz przerwa techniczna (jak proxy dla `/api/*`; `/share-target`
  * proxy jej nie sprawdzało, więc i tu bez niej).
+ *
+ * | Odmowa granicy | Status |
+ * |---|---|
+ * | brak sesji | 401 `unauthenticated` |
+ * | awaria albo limit GoTrue, błąd zapytania o członkostwo | 503 `auth_unavailable` (klient ponawia) |
+ * | tokenu nie da się potwierdzić („Zaloguj się ponownie”) | 401 `unauthenticated`, jak `resolveApiUserAndActiveOrg`: ponowienie nic nie da |
+ * | brak 2FA, brak firmy albo członkostwa | 403 `forbidden` |
  */
 export async function authorizeUpload(options: { maintenanceGate: boolean }): Promise<UploadRefusal | { ok: true; ctx: AuthContext }> {
   let ctx: AuthContext;
@@ -191,8 +215,11 @@ export async function authorizeUpload(options: { maintenanceGate: boolean }): Pr
     if (error.message === 'Niezalogowany') {
       return refuse(401, 'unauthenticated', 'Sesja wygasła. Zaloguj się ponownie i wgraj plik jeszcze raz.');
     }
-    if (error.message.startsWith('Nie udało się zweryfikować sesji')) {
+    if (RETRY_LATER_MESSAGES.has(error.message)) {
       return refuse(503, 'auth_unavailable', error.message);
+    }
+    if (error.message.startsWith('Nie udało się zweryfikować sesji')) {
+      return refuse(401, 'unauthenticated', error.message);
     }
     return refuse(403, 'forbidden', error.message);
   }
