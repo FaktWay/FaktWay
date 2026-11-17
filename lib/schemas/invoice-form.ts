@@ -34,7 +34,9 @@ import {
 import {
   isOrderCalendarDay,
   ORDER_DATE_INVALID_MESSAGE,
+  ORDER_DATE_MAX,
   ORDER_DATE_MIN,
+  ORDER_DATE_TOO_LATE_MESSAGE,
   ORDER_DATE_WITHOUT_NUMBER_MESSAGE,
   ORDER_NUMBER_MAX,
 } from '@/lib/invoices/order-reference';
@@ -521,6 +523,8 @@ export const invoiceFormSchema = z
     }
     if (!isOrderCalendarDay(date) || date < ORDER_DATE_MIN) {
       ctx.addIssue({ code: 'custom', message: ORDER_DATE_INVALID_MESSAGE, path: ['orderDate'] });
+    } else if (date > ORDER_DATE_MAX) {
+      ctx.addIssue({ code: 'custom', message: ORDER_DATE_TOO_LATE_MESSAGE, path: ['orderDate'] });
     }
   });
 

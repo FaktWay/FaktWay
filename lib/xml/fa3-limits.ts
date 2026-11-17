@@ -72,6 +72,14 @@ export const FA3_TEXT_LIMITS = {
   stopkaFaktury: { elements: ['StopkaFaktury'], xsdType: 'etd:TTekstowy', max: 3500, kind: 'string' },
 } as const satisfies Record<string, Fa3TextLimit>;
 
+/**
+ * Zakres daty zdarzenia w FA(3): typ `TDataU` (np. `DataZamowienia`) przyjmuje
+ * dni od 1990-01-01 do 2050-01-01 włącznie. Formularz odrzuca datę spoza
+ * zakresu przy polu, zamiast zostawić to walidatorowi XSD przy wysyłce.
+ * Test `tests/xml/fa3-limits.test.ts` czyta zakres wprost z XSD.
+ */
+export const FA3_DATE_LIMITS = { min: '1990-01-01', max: '2050-01-01' } as const;
+
 /** Kolumny bazy węższe niż XSD. */
 export const DB_TEXT_LIMITS = {
   /** `invoice_line_items.unit VARCHAR(50)` (migracja 00001); XSD (P_8A) przyjmuje 256. */

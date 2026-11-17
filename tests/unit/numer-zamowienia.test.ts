@@ -102,6 +102,16 @@ describe('schemat formularza: numer i data zamówienia', () => {
     }
   });
 
+  it('górna granica daty z XSD (TDataU, 2050-01-01): ostatni dzień przyjęty i przechodzi XSD, następny odrzucony przy polu', async () => {
+    expect(bledy(form({ orderNumber: 'ZAM/1', orderDate: '2050-01-01' }))).toEqual([]);
+    expect((await validateInvoiceXml(xmlFaktury({ orderNumber: 'ZAM/1', orderDate: '2050-01-01' }))).errors).toEqual([]);
+    for (const orderDate of ['2050-01-02', '2060-01-01']) {
+      expect(bledy(form({ orderNumber: 'ZAM/1', orderDate })), orderDate).toEqual([
+        'orderDate: Data zamówienia musi być nie późniejsza niż 1 stycznia 2050 r.',
+      ]);
+    }
+  });
+
   it('numer dłuższy niż w XSD (256), z samych spacji i ze znakiem sterującym odrzucony', () => {
     expect(bledy(form({ orderNumber: 'Z'.repeat(257) })).join(' | ')).toMatch(/orderNumber: Maksymalnie 256/);
     expect(bledy(form({ orderNumber: 'Z'.repeat(256) }))).toEqual([]);

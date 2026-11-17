@@ -1,5 +1,5 @@
 import { formatIsoDatePl } from '@/lib/format/iso-date';
-import { FA3_TEXT_LIMITS, xsdLength } from '@/lib/xml/fa3-limits';
+import { FA3_DATE_LIMITS, FA3_TEXT_LIMITS, xsdLength } from '@/lib/xml/fa3-limits';
 import type { InvoiceOrder } from '@/types/invoice';
 
 /**
@@ -20,7 +20,11 @@ export const ORDER_NUMBER_MAX = FA3_TEXT_LIMITS.nrZamowienia.max;
 /** Najstarsza data zamówienia, jaką przyjmujemy (zabezpieczenie przed literówką w roku). */
 export const ORDER_DATE_MIN = '2000-01-01';
 
+/** Najpóźniejsza data zamówienia: górna granica `TDataU` w XSD (2050-01-01). */
+export const ORDER_DATE_MAX = FA3_DATE_LIMITS.max;
+
 export const ORDER_DATE_WITHOUT_NUMBER_MESSAGE = 'Podaj numer zamówienia albo usuń datę zamówienia.';
+export const ORDER_DATE_TOO_LATE_MESSAGE = 'Data zamówienia musi być nie późniejsza niż 1 stycznia 2050 r.';
 export const ORDER_DATE_INVALID_MESSAGE = 'Wpisz prawdziwą datę zamówienia w formacie RRRR-MM-DD, nie wcześniejszą niż 2000-01-01.';
 
 const ISO_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
