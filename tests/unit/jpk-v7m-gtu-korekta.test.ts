@@ -275,6 +275,18 @@ describe('JPK_V7M(3): GTU wiersza anulowania i korekty kwotowej', () => {
     expect(await wierszKorekty(kor8)).toEqual([]);
   });
 
+  it('kwotowa w stawce bez pozycji w stanie przed faktury z GTU (koperta sprzed F12-D2 albo nieświeży stan przed): odmowa z numerem i wyjściem', async () => {
+    faktura([DORADZTWO, DOJAZD, LEK]);
+    const kor = await korekta({ correctionType: 'amount_change', amountChange: { netDelta: -100, vatDelta: -8, grossDelta: -108, description: 'Rabat na lek' } });
+    // Stan przed bez pozycji w stawce 8 %: FaktWay nie wie, których pozycji korekta dotyczy.
+    const data = koperta(kor) as unknown as Row;
+    data.linesBefore = (data.linesBefore as Row[]).filter((l) => l.vatRate !== '8');
+    const komunikat = await odmowa();
+    expect(komunikat).toContain(`faktura ${numer(kor)}`);
+    expect(komunikat).toContain('FV/1/10/2026');
+    expect(komunikat).toMatch(/FaktWay nie zna oznaczeń GTU pozycji/);
+  });
+
   it('kwotowa w stawce z pozycją z GTU_12 i pozycją bez GTU: odmowa „kwotowa”, z drogą przez korektę pozycji', async () => {
     faktura([DORADZTWO, DOJAZD, LEK]);
     const kor = await korekta({ correctionType: 'amount_change', amountChange: { netDelta: -100, vatDelta: -23, grossDelta: -123, description: 'Rabat' } });

@@ -242,7 +242,7 @@ type CorrectionLineGtu = GtuCode | 'bez' | 'nieznane';
  * (`JpkV7mGtuCorrectionNotSupportedError`), gdy korekta dotyczy pozycji
  * o nieznanym oznaczeniu, dopisuje pozycję do faktury z GTU albo zmienia nazwę
  * jej pozycji (para po kolejności, `renamedAfter`) albo jest kwotowa w stawce
- * z różnymi oznaczeniami.
+ * z różnymi oznaczeniami albo w stawce bez pozycji stanu przed.
  */
 function gtuOfCorrection(inv: JpkInvoice): GtuCode[] {
   const corrected = inv.correctedInvoiceGtu ?? [];
@@ -283,6 +283,9 @@ function gtuOfCorrection(inv: JpkInvoice): GtuCode[] {
   if (rates.size !== 1) throw refuse(corrected);
   const [rate] = [...rates];
   const inRate = before.filter((l) => l.vatRate === rate);
+  // Stawka bez pozycji w stanie przed (koperta sprzed F12-D2, nieświeży stan przed):
+  // FaktWay nie wie, których pozycji korekta dotyczy, więc nie oznacza jej bez GTU.
+  if (inRate.length === 0) throw refuse(corrected);
   const codes = codesOf(inRate);
   if (codes.length === 0) return [];
   if (codes.length === 1 && inRate.every((l) => l.gtuCode === codes[0])) return codes;
