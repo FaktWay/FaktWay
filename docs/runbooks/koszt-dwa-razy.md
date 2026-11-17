@@ -36,30 +36,22 @@ dokumencie.
 
 ## Ścieżka operatora (zgłoszenie w Pomocy)
 
-Zapytanie kontrolne, tylko odczyt, sesja z dostępem do bazy (firma z
-`:tenant`; bez warunku na firmę: wszystkie firmy). Grupuje po kluczu
-RP-KOSZT-01 i pokazuje każdy koszt grupy:
+Jedną linią (sesja z `.agents/infra.env`, tylko odczyt: `BEGIN READ ONLY`
+i transakcja tylko do odczytu w PGOPTIONS; logika w
+`scripts/ops/koszt-dwa-razy.sql`, ta sama reguła co odczyty aplikacji):
 
-```sql
-WITH k AS (
-  SELECT id, tenant_id, issue_date, gross_amount, kpir_column,
-         CASE WHEN source = 'ksef_inbox' OR ksef_invoice_id IS NOT NULL THEN 'ksef' ELSE source::text END AS zrodlo,
-         coalesce(document_type, 'invoice') AS rodzaj,
-         regexp_replace(coalesce(seller_nip, ''), '\D', '', 'g') AS nip,
-         upper(regexp_replace(coalesce(document_number, ''), '\s', '', 'g')) AS numer
-    FROM public.expenses
-   WHERE is_deductible AND tenant_id = :tenant
-)
-SELECT tenant_id, nip, numer, extract(year FROM issue_date) AS rok, count(*) AS ile,
-       count(*) FILTER (WHERE zrodlo = 'ksef') AS z_ksef,
-       array_agg(format('%s %s %s brutto %s kol. %s', id, zrodlo, issue_date, gross_amount, coalesce(kpir_column, '-'))
-                 ORDER BY issue_date) AS koszty
-  FROM k
- WHERE length(nip) = 10 AND numer <> ''
- GROUP BY 1, 2, 3, 4
-HAVING count(*) > 1
- ORDER BY 1, 2, 3, 4;
+```bash
+./scripts/ops/koszt-dwa-razy.sh
 ```
+
+Domyślnie same liczby dla wszystkich firm: firmy i grupy z odmową, wzory grup
+(z KSeF i spoza KSeF, kopie spoza KSeF, same z KSeF, spoza KSeF z różnymi
+kwotami i kolumnami), pary źródeł, grupy z odmową i różną kwotą brutto (do
+sprawdzenia: mogą być fałszywą odmową) i firmy z odmową w okresie już
+złożonym. `--lista-firm` dopisuje id firm z odmową z liczbami (bez NIP-ów,
+numerów i kwot). Jedna firma: `--firma <uuid>`; jej grupy z NIP-em, numerem, kwotami
+i kosztami (id, źródło, data, brutto, kolumna, rodzaj): `--firma <uuid>
+--szczegoly` (szczegóły tylko dla jednej firmy).
 
 Jak czytać grupę:
 
@@ -83,25 +75,8 @@ Bartosz: cofnięcie PR i nocne wdrożenie (`docs/runbooks/nocne-wdrozenie.md`).
 ## Okresy już złożone z dublem
 
 Przed tą zmianą KPiR (raport, eksport), karty i VAT modułu liczyły dubel dwa
-razy. Firmy do kontaktu (korekta KPiR i JPK_V7M) to te, u których grupa
-FZ-022 z zapytania wyżej leży w okresie z udanym eksportem albo wysyłką JPK:
-
-```sql
--- Dla grup FZ-022 z zapytania wyżej (bez warunku na firmę):
-SELECT DISTINCT e.tenant_id, e.format, e.period_start, e.period_end
-  FROM public.export_jobs AS e
- WHERE e.status = 'completed' AND e.format IN ('kpir_excel', 'jpk_v7m')
-   AND EXISTS (SELECT 1 FROM public.expenses AS x
-                WHERE x.tenant_id = e.tenant_id AND x.is_deductible
-                  AND x.issue_date BETWEEN e.period_start AND e.period_end
-                  AND (x.source = 'ksef_inbox' OR x.ksef_invoice_id IS NOT NULL)
-                  AND EXISTS (SELECT 1 FROM public.expenses AS y
-                               WHERE y.tenant_id = x.tenant_id AND y.is_deductible
-                                 AND y.source <> 'ksef_inbox' AND y.ksef_invoice_id IS NULL
-                                 AND regexp_replace(coalesce(y.seller_nip, ''), '\D', '', 'g') = regexp_replace(coalesce(x.seller_nip, ''), '\D', '', 'g')
-                                 AND upper(regexp_replace(coalesce(y.document_number, ''), '\s', '', 'g')) = upper(regexp_replace(coalesce(x.document_number, ''), '\s', '', 'g'))
-                                 AND extract(year FROM y.issue_date) = extract(year FROM x.issue_date)));
-```
-
-To samo dla wysyłek JPK modułu (`jpk_submissions`, okres z miesiąca
-wysyłki). Kto i jak mówi o tym firmom, decyduje Bartosz.
+razy. Ile firm ma grupę z odmową w okresie z udanym eksportem KPiR albo
+JPK_V7M albo z przyjętą wysyłką JPK modułu, pokazuje ostatnia liczba skryptu
+(`firmy z odmową w okresie już złożonym`), a które to firmy: `--lista-firm`
+(kolumna `okres_zlozony`). To firmy do kontaktu (korekta KPiR i JPK_V7M); kto
+i jak mówi o tym firmom, decyduje Bartosz.
