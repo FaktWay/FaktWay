@@ -3,10 +3,14 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ param: null as string | null, status: vi.fn(), replace: vi.fn() }));
+const m = vi.hoisted(() => ({ param: null as string | null, extra: '', status: vi.fn(), replace: vi.fn() }));
 
 vi.mock('next/navigation', () => ({
-  useSearchParams: () => ({ get: (k: string) => (k === 'paragon' ? m.param : null) }),
+  useSearchParams: () => {
+    const q = new URLSearchParams(m.extra);
+    if (m.param !== null) q.set('paragon', m.param);
+    return q;
+  },
   useRouter: () => ({ replace: m.replace, refresh: vi.fn(), push: vi.fn() }),
   usePathname: () => '/dashboard',
 }));
@@ -36,6 +40,7 @@ let root: Root;
 beforeEach(() => {
   vi.useFakeTimers();
   m.param = JOB;
+  m.extra = '';
   m.status.mockReset();
   m.replace.mockReset();
   host = document.createElement('div');
@@ -74,14 +79,14 @@ describe('pasek odczytu zdjęcia po udostępnieniu z telefonu', () => {
     expect(status()?.getAttribute('role')).toBe('status');
     expect(m.status).toHaveBeenCalledWith(JOB);
     const razy = m.status.mock.calls.length;
-    await czekaj(4000);
+    await czekaj(2500);
     expect(m.status.mock.calls.length).toBeGreaterThan(razy);
   });
 
   it('gotowe: komunikat i link do kosztu, pytanie o stan się kończy', async () => {
     m.status.mockResolvedValueOnce(zadanie('processing')).mockResolvedValue(zadanie('completed', { expense_id: EXPENSE }));
     await pokaz();
-    await czekaj(5000);
+    await czekaj(8000);
     expect(tekst()).toMatch(/odczytan/i);
     const link = host.querySelector<HTMLAnchorElement>(`a[href="/expenses/${EXPENSE}"]`);
     expect(link).not.toBeNull();
@@ -90,10 +95,13 @@ describe('pasek odczytu zdjęcia po udostępnieniu z telefonu', () => {
     expect(m.status.mock.calls.length).toBe(razy);
   });
 
-  it('nie udało się: komunikat z drogą wyjścia (dodaj wydatek ręcznie), bez obietnicy archiwum', async () => {
+  it('nie udało się: droga wyjścia, która istnieje dziś (wyraźniejsze zdjęcie w Kosztach), bez obietnicy archiwum', async () => {
     m.status.mockResolvedValue(zadanie('failed', { error_message: 'x' }));
     await pokaz();
     expect(tekst()).toMatch(/Nie udało się odczytać/i);
+    // Na Kosztach nie ma ręcznego formularza (jest zdjęcie z aparatu i z galerii): droga wyjścia musi być prawdziwa.
+    expect(tekst()).toMatch(/Zrób wyraźniejsze zdjęcie/i);
+    expect(tekst()).not.toMatch(/ręcznie/i);
     expect(host.querySelector('a[href="/expenses"]')).not.toBeNull();
     expect(status()?.getAttribute('role')).toBe('alert');
     expect(tekst()).not.toContain('x');
@@ -105,7 +113,7 @@ describe('pasek odczytu zdjęcia po udostępnieniu z telefonu', () => {
       .mockResolvedValue(zadanie('completed', { expense_id: EXPENSE }));
     await pokaz();
     expect(tekst()).toMatch(/Czytamy/i);
-    await czekaj(5000);
+    await czekaj(8000);
     expect(host.querySelector(`a[href="/expenses/${EXPENSE}"]`)).not.toBeNull();
   });
 
@@ -119,15 +127,39 @@ describe('pasek odczytu zdjęcia po udostępnieniu z telefonu', () => {
     expect(m.status.mock.calls.length).toBe(razy);
   });
 
-  it('po 3 minutach bez wyniku: „trwa dłużej niż zwykle”, wynik pojawi się w Kosztach, koniec pytań', async () => {
+  it('po 3 minutach bez wyniku: „trwa dłużej”, bez obietnicy wyniku, koniec pytań; pytań najwyżej 25 (harmonogram z rosnącym odstępem)', async () => {
     m.status.mockResolvedValue(zadanie('processing'));
     await pokaz();
-    await czekaj(3 * 60 * 1000 + 5000);
+    await czekaj(3 * 60 * 1000 + 15_000);
     expect(tekst()).toMatch(/dłużej niż zwykle/i);
+    expect(tekst()).toMatch(/jeszcze raz/i);
+    expect(tekst()).not.toMatch(/wynik pojawi się w/i);
     expect(host.querySelector('a[href="/expenses"]')).not.toBeNull();
     const razy = m.status.mock.calls.length;
-    await czekaj(30_000);
+    expect(razy).toBeLessThanOrEqual(25);
+    expect(razy).toBeGreaterThan(5);
+    await czekaj(60_000);
     expect(m.status.mock.calls.length).toBe(razy);
+  });
+
+  it('jedno pytanie naraz: wolna odpowiedź nie nakłada kolejnych pytań', async () => {
+    let zwolnij: (v: unknown) => void = () => {};
+    m.status.mockImplementation(() => new Promise((r) => { zwolnij = r; }));
+    await pokaz();
+    await czekaj(30_000);
+    expect(m.status).toHaveBeenCalledTimes(1);
+    await act(async () => { zwolnij(zadanie('processing')); });
+  });
+
+  it('inne zadanie w adresie zaczyna od „Czytamy”, nie pokazuje wyniku poprzedniego', async () => {
+    const JOB_B = '33333333-3333-4333-8333-333333333333';
+    m.status.mockImplementation(async (id: string) => (id === JOB ? zadanie('completed', { expense_id: EXPENSE }) : zadanie('processing', { id: JOB_B })));
+    await pokaz();
+    expect(host.querySelector(`a[href="/expenses/${EXPENSE}"]`)).not.toBeNull();
+    m.param = JOB_B;
+    await pokaz();
+    expect(tekst()).toMatch(/Czytamy/i);
+    expect(host.querySelector(`a[href="/expenses/${EXPENSE}"]`)).toBeNull();
   });
 
   it.each([
@@ -140,12 +172,21 @@ describe('pasek odczytu zdjęcia po udostępnieniu z telefonu', () => {
     expect(m.status).not.toHaveBeenCalled();
   });
 
-  it('„Zamknij” chowa pasek i czyści parametr z adresu', async () => {
+  it('„Zamknij” chowa pasek i usuwa z adresu tylko parametr paragon', async () => {
     m.status.mockResolvedValue(zadanie('processing'));
+    m.extra = 'tab=kpir&okres=2026-11';
     await pokaz();
-    const przycisk = [...host.querySelectorAll('button')].find((b) => /Zamknij/.test(b.textContent ?? '') || /Zamknij/.test(b.getAttribute('aria-label') ?? ''))!;
+    const przycisk = [...host.querySelectorAll('button')].find((b) => /Zamknij/.test(b.getAttribute('aria-label') ?? ''))!;
     await act(async () => { przycisk.click(); });
     expect(host.querySelector('[data-testid="odczyt-zdjecia-baner"]')).toBeNull();
+    expect(m.replace).toHaveBeenCalledWith('/dashboard?tab=kpir&okres=2026-11');
+  });
+
+  it('„Zamknij” bez innych parametrów zostawia czysty adres', async () => {
+    m.status.mockResolvedValue(zadanie('processing'));
+    await pokaz();
+    const przycisk = [...host.querySelectorAll('button')].find((b) => /Zamknij/.test(b.getAttribute('aria-label') ?? ''))!;
+    await act(async () => { przycisk.click(); });
     expect(m.replace).toHaveBeenCalledWith('/dashboard');
   });
 
