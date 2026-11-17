@@ -1,6 +1,7 @@
 import { KsefPurchaseCurrencyError } from '@/lib/dashboard/costs';
 import { OutgoingInvoiceCurrencyNotSupportedError } from '@/lib/exports/currency-guard';
 import { KsefExpenseCurrencyNotSupportedError } from '@/lib/expenses/ksef-currency-review';
+import { ZdublowanyKosztError } from '@/lib/expenses/jeden-koszt-dokumentu';
 
 /**
  * Treść wyjątku dla klienta: Pulpit, lista faktur i kontrahenci na stronie
@@ -26,7 +27,9 @@ export function customerErrorDetail(error: unknown): string | null {
     error instanceof OutgoingInvoiceCurrencyNotSupportedError ||
     error instanceof KsefExpenseCurrencyNotSupportedError ||
     // E10: faktura zakupu z KSeF w walucie obcej bez wydatku — komunikat z numerem dokumentu.
-    error instanceof KsefPurchaseCurrencyError
+    error instanceof KsefPurchaseCurrencyError ||
+    // FZ-022: ten sam dokument kosztu dwa razy — komunikat z numerem dokumentu i wyjściem.
+    error instanceof ZdublowanyKosztError
   ) {
     return error.message;
   }

@@ -14,6 +14,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { requireConfiguredKsefEnvironment } from '@/lib/ksef/claim-environment';
 import { assertAcceptedInvoiceEnvironmentComplete } from '@/lib/ksef/accounting-provenance';
 import { filterExpensesForKsefEnvironment } from '@/lib/expenses/ksef-environment';
+import { assertJedenKosztNaDokument } from '@/lib/expenses/jeden-koszt-dokumentu';
 import { costDocumentType } from '@/lib/expenses/vat-deduction-document';
 import { readCompletePagesByKey } from '@/lib/accounting/read-complete-pages';
 import type { KsefEnvironment } from '@/types/ksef';
@@ -198,6 +199,15 @@ async function fetchExpensesForExport(
   );
   eligible.sort((a, b) =>
     a.issue_date.localeCompare(b.issue_date) || a.id.localeCompare(b.id));
+  // FZ-022: ta sama faktura ze zdjęcia (albo ręczna) i ze Skrzynki KSeF to dwa
+  // koszty; KPiR i JPK_V7M wpisałyby koszt i VAT do odliczenia podwójnie.
+  assertJedenKosztNaDokument(eligible.map((row) => ({
+    seller_nip: typeof row.seller_nip === 'string' ? row.seller_nip : null,
+    document_number: typeof row.document_number === 'string' ? row.document_number : null,
+    seller_name: typeof row.seller_name === 'string' ? row.seller_name : null,
+    source: typeof row.source === 'string' ? row.source : null,
+    ksef_invoice_id: typeof row.ksef_invoice_id === 'string' ? row.ksef_invoice_id : null,
+  })));
   const out = eligible.map((row) => ({
     id: String(row.id),
     issueDate: String(row.issue_date),

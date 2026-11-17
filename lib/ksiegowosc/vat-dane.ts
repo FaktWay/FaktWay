@@ -20,6 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetchInvoicesForExport, type FetchedInvoiceData } from '@/lib/exports/data-fetcher';
 import { exportScopeFor } from '@/lib/exports/export-scope';
 import { KsefExpenseCurrencyNotSupportedError } from '@/lib/expenses/ksef-currency-review';
+import { ZdublowanyKosztError } from '@/lib/expenses/jeden-koszt-dokumentu';
 import { monthLabel, monthRange, shiftMonth } from '@/lib/expenses/month';
 import { isSubjectiveVatExemption, readTenantVatExemption } from '@/lib/invoices/vat-exemption';
 import { AcceptedInvoiceEnvironmentIncompleteError } from '@/lib/ksef/accounting-provenance';
@@ -96,6 +97,8 @@ export async function czytajVat(
     ]);
   } catch (e) {
     if (e instanceof KsefExpenseCurrencyNotSupportedError) return { ok: false, komunikat: KOMUNIKAT_WALUTA_VAT };
+    // FZ-022: ten sam dokument kosztu dwa razy (numer i wyjście w treści).
+    if (e instanceof ZdublowanyKosztError) return { ok: false, komunikat: e.message };
     if (e instanceof AcceptedInvoiceEnvironmentIncompleteError) return { ok: false, komunikat: KOMUNIKAT_SRODOWISKO_VAT };
     Sentry.captureException(e, { tags: { area: 'ksiegowosc.vat' }, extra: { tenantId, miesiac } });
     return { ok: false, komunikat: BLAD_ODCZYTU_VAT };
