@@ -14,6 +14,10 @@ vi.mock('@/lib/xml/invoice-calculator', async (orig) => ({
   ...(await orig<typeof import('@/lib/xml/invoice-calculator')>()),
   validateNipChecksum: () => true,
 }));
+vi.mock('@/lib/supabase/admin', async () => {
+  const { memoryClient } = await import('./helpers/baza-w-pamieci');
+  return { createAdminClient: () => memoryClient(db.tables) };
+});
 vi.mock('@/lib/supabase/auth-context', async () => {
   const { memoryClient } = await import('./helpers/baza-w-pamieci');
   return {
@@ -23,9 +27,16 @@ vi.mock('@/lib/supabase/auth-context', async () => {
 });
 
 import { getCorrectionParentContextAction, saveCorrectionDraftAction } from '@/components/invoices/correction-actions';
+import { fetchInvoicesForExport } from '@/lib/exports/data-fetcher';
+import { generateJpkV7m } from '@/lib/exports/jpk-v7m-generator';
+import { validateJpkV7m } from '@/lib/exports/jpk-v7m-validator';
+import { resolveAmountChangeVatRate } from '@/lib/invoices/correction-amount-change';
 import { generateCorrectionInvoiceXml } from '@/lib/ksef/fa3-correction-generator';
+import { calculateLineItem, validateInvoice } from '@/lib/xml/invoice-calculator';
 import { validateInvoiceXml } from '@/lib/xml/validator';
+import type { Invoice } from '@/types/invoice';
 import type { CorrectionInvoiceData } from '@/types/invoice-types';
+import { opcje } from '../filtr/generatory/ustawienia';
 
 /**
  * Korekta faktury liczonej od brutto (plan kompletnej aplikacji, ustalenie
@@ -139,7 +150,7 @@ describe('korekta faktury od brutto: odmowy z wyjściem i cena brutto tylko od s
       TENANT,
     );
     expect(r).toMatchObject({ success: false });
-    expect(r.success ? '' : r.error).toMatch(/VAT liczony od ceny brutto.*Anuluj fakturę albo wystaw korektę kwotową/);
+    expect(r.success ? '' : r.error).toMatch(/kwoty nie wynikają z ilości i ceny netto.*Anuluj fakturę albo wystaw korektę kwotową/);
   });
 
   it('VAT korekty kwotowej od brutto do faktury liczonej od netto: odmowa z podpowiedzią (VAT od netto)', async () => {
@@ -203,7 +214,129 @@ describe('niezmiennik: anulowanie faktury od brutto odtwarza jej kwoty', () => {
         expect(pole(xml, 'P_14_1')).toBe((-k.vat).toFixed(2));
         expect((await validateInvoiceXml(xml)).errors).toEqual([]);
       }),
-      { numRuns: 40 },
+      opcje(40),
+    );
+  });
+});
+
+/** Pozycja zapisana tak, jak podaje ją wiersz (`invoice_line_items`) i dokument (`fa3_data.lines`). */
+function faktura(linie: Array<{ name: string; quantity: number; unitPriceNet: number; vatRate: '23' | '8' | '5' | '0'; net: number; vat: number; gross: number }>) {
+  const r = (v: number) => Math.round(v * 100) / 100;
+  const net = r(linie.reduce((a, l) => a + l.net, 0));
+  const vat = r(linie.reduce((a, l) => a + l.vat, 0));
+  db.tables.invoices!.push({
+    id: PARENT, tenant_id: TENANT, direction: 'outgoing', invoice_kind: 'regular', invoice_type: 'VAT', origin: 'app',
+    ksef_status: 'accepted', ksef_environment: 'test', ksef_number: KSEF_RODZICA, currency: 'PLN',
+    internal_number: 'FV 1/11/2026', issue_date: '2026-11-02', net_total: net, vat_total: vat, gross_total: r(net + vat),
+    seller_data: SPRZEDAWCA, buyer_data: NABYWCA,
+    fa3_data: { internalNumber: 'FV 1/11/2026', lines: linie.map((l, i) => ({ ordinal: i + 1, name: l.name, unit: 'usł.', quantity: l.quantity, unitPriceNet: l.unitPriceNet, vatRate: l.vatRate, netAmount: l.net, vatAmount: l.vat, grossAmount: l.gross })) },
+  });
+  db.tables.invoice_line_items!.push(...linie.map((l, i) => ({
+    id: `${PARENT}-${i + 1}`, invoice_id: PARENT, ordinal: i + 1, name: l.name, unit: 'usł.', quantity: l.quantity,
+    unit_price_net: l.unitPriceNet, net_amount: l.net, vat_rate: l.vatRate, vat_amount: l.vat, gross_amount: l.gross,
+  })));
+}
+
+describe('uwagi drugiego czytelnika (31a9e96c)', () => {
+  it('pozycja od netto z netto ≠ ilość × cena (import: cena 10,125, netto 10,12): „przed/po” odmawia neutralnie, z wyjściem; anulowanie odtwarza kwoty', async () => {
+    faktura([{ name: 'Usługa z importu', quantity: 1, unitPriceNet: 10.125, vatRate: '23', net: 10.12, vat: 2.33, gross: 12.45 }]);
+    const ctx = await getCorrectionParentContextAction(PARENT);
+    if (!ctx.success) throw new Error(ctx.error);
+    const r = await saveCorrectionDraftAction(
+      payload({ correctionType: 'before_after', linesBefore: ctx.linesBefore, linesAfter: [{ ...ctx.linesAfter[0]!, quantity: 2 }] }),
+      TENANT,
+    );
+    const blad = r.success ? '' : r.error;
+    expect(blad).toMatch(/kwoty nie wynikają z ilości i ceny netto/);
+    expect(blad).toMatch(/Anuluj fakturę albo wystaw korektę kwotową/);
+    expect(blad).not.toMatch(/faktura za abonament\)/);
+  });
+
+  it('drobne korekty kwotowe od netto mają jedną stawkę jak przed zmianą (np. 0,06/0,01/0,07 przy 23 %, 0,10/0/0,10 przy 0 %)', () => {
+    const przypadki: Array<[number, number, number, string]> = [
+      [0.06, 0.01, 0.07, '23'], [0.07, 0.01, 0.08, '8'], [0.1, 0, 0.1, '0'], [0.19, 0.01, 0.2, '5'],
+    ];
+    for (const [netDelta, vatDelta, grossDelta, stawka] of przypadki) {
+      expect(resolveAmountChangeVatRate({ netDelta, vatDelta, grossDelta })).toBe(stawka);
+    }
+  });
+
+  it('przegląd do 2000 zł: każda trójka z jedną stawką od netto ma tę samą stawkę także teraz', () => {
+    const stawki = [['23', 0.23], ['8', 0.08], ['5', 0.05], ['0', 0]] as const;
+    const r = (v: number) => Math.round(v * 100) / 100;
+    let sprawdzone = 0;
+    for (let netGr = 1; netGr <= 200_000; netGr += 1) {
+      const netDelta = netGr / 100;
+      for (const [, stopa] of stawki) {
+        const vatDelta = r(netDelta * stopa);
+        const odNetto = stawki.filter(([, s]) => r(netDelta * s) === vatDelta);
+        if (odNetto.length !== 1) continue;
+        sprawdzone += 1;
+        expect(resolveAmountChangeVatRate({ netDelta, vatDelta, grossDelta: r(netDelta + vatDelta) })).toBe(odNetto[0]![0]);
+      }
+    }
+    expect(sprawdzone).toBeGreaterThan(700_000);
+  });
+
+  it('pozycja z importu z ceną brutto z pliku (P_9B) waliduje się jak dotąd: kwoty od netto, bez zmiany wzoru', () => {
+    const line = { ordinal: 1, name: 'Usługa', unit: 'usł.', quantity: 1, unitPriceNet: 17.07, unitPriceGross: 20.99, vatRate: '23' as const, netAmount: 17.07, vatAmount: 3.93, grossAmount: 21 };
+    expect(calculateLineItem(line)).toEqual({ netAmount: 17.07, vatAmount: 3.93, grossAmount: 21 });
+    const invoice = {
+      internalNumber: 'FV/1', type: 'VAT', issueDate: '2026-11-02', saleDate: '2026-11-02',
+      seller: SPRZEDAWCA, buyer: NABYWCA, lines: [line], netTotal: 17.07, vatTotal: 3.93, grossTotal: 21,
+      currency: 'PLN', payment: { method: 'transfer', dueDate: '2026-11-16', amountDue: 21, currency: 'PLN' },
+    } as unknown as Invoice;
+    expect(validateInvoice(invoice, new Date('2026-11-02T10:00:00Z')).filter((e) => /Pozycja 1/.test(e))).toEqual([]);
+  });
+
+  it('JPK_V7M: anulowanie faktury od brutto ma w wierszu korekty kwoty faktury z minusem (K_19 −17,07, K_20 −3,92); XSD', async () => {
+    fakturaZaAbonament(BRUTTO_GR);
+    const ctx = await getCorrectionParentContextAction(PARENT);
+    if (!ctx.success) throw new Error(ctx.error);
+    const r = await saveCorrectionDraftAction(payload({ correctionType: 'cancellation', linesBefore: ctx.linesBefore, linesAfter: ctx.linesAfter }), TENANT);
+    if (!r.success) throw new Error(r.error);
+    Object.assign(zapisana(), { ksef_status: 'accepted', ksef_environment: 'test', ksef_number: '1234567890-20261116-0100001AF602-B2', currency: 'PLN', origin: 'app' });
+    const { issuedInvoices } = await fetchInvoicesForExport({ tenantId: TENANT, periodStart: '2026-11-01', periodEnd: '2026-11-30', direction: 'issued' });
+    const xml = generateJpkV7m({
+      issuer: { nip: '1234567890', name: 'FaktWay testowy', email: 'biuro@example.test', taxOfficeCode: '1433' },
+      periodStart: '2026-11-01', periodEnd: '2026-11-30', generatedAt: new Date('2026-12-05T10:00:00Z'),
+      issuedInvoices, expenses: [], previousSurplus: 0,
+    });
+    expect((await validateJpkV7m(xml)).errors).toEqual([]);
+    const wiersz = [...xml.matchAll(/<SprzedazWiersz>([\s\S]*?)<\/SprzedazWiersz>/g)].map((m) => m[1]!).find((w) => w.includes('FK/1/11/2026')) ?? '';
+    expect([pole(wiersz, 'K_19'), pole(wiersz, 'K_20')]).toEqual(['-17.07', '-3.92']);
+  });
+});
+
+describe('niezmiennik: faktura od netto bez zmian', () => {
+  it('pozycje liczone od netto (ilość × cena, VAT od netto): stan przed bez ceny brutto, anulowanie = kwoty faktury z minusem', async () => {
+    const stawki = ['23', '8', '5', '0'] as const;
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(fc.record({
+          quantity: fc.oneof(fc.integer({ min: 1, max: 50 }), fc.integer({ min: 1, max: 9_999 }).map((n) => n / 1000)),
+          cenaGr: fc.integer({ min: 1, max: 500_000 }),
+          vatRate: fc.constantFrom(...stawki),
+        }), { minLength: 1, maxLength: 4 }),
+        async (opisy) => {
+          db.tables = { tenants: [{ id: TENANT, nip: '1234567890', name: 'FaktWay testowy', address_json: null }], invoices: [], invoice_line_items: [] };
+          const linie = opisy.map((o, i) => {
+            const c = calculateLineItem({ quantity: o.quantity, unitPriceNet: o.cenaGr / 100, vatRate: o.vatRate });
+            return { name: `Pozycja ${i + 1}`, quantity: o.quantity, unitPriceNet: o.cenaGr / 100, vatRate: o.vatRate, net: c.netAmount, vat: c.vatAmount, gross: c.grossAmount };
+          });
+          faktura(linie);
+          const ctx = await getCorrectionParentContextAction(PARENT);
+          if (!ctx.success) throw new Error(ctx.error);
+          expect(ctx.linesBefore.every((l) => !('unitPriceGross' in l))).toBe(true);
+          const r = await saveCorrectionDraftAction(payload({ correctionType: 'cancellation', linesBefore: ctx.linesBefore, linesAfter: ctx.linesAfter }), TENANT);
+          if (!r.success) throw new Error(r.error);
+          const z: Row = zapisana();
+          const inv = db.tables.invoices!.find((w) => w.id === PARENT)!;
+          expect([z.net_total, z.vat_total, z.gross_total].map((v) => Number(v) + 0))
+            .toEqual([inv.net_total, inv.vat_total, inv.gross_total].map((v) => -Number(v) + 0));
+        },
+      ),
+      opcje(40),
     );
   });
 });

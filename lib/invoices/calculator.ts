@@ -21,9 +21,7 @@ function domainLineToPrepared(line: InvoiceLine, ordinal: number): InvoiceLineIt
     quantity: line.quantity,
     unitPriceNet: line.unitPriceNet,
     vatRate: line.vatRate as VatRate,
-    // Faktura liczona od brutto: kwoty pozycji od ceny brutto, jak na fakturze.
-    ...(line.unitPriceGross !== undefined ? { unitPriceGross: line.unitPriceGross } : {}),
-  });
+  }, { unitPriceGross: line.unitPriceGross });
   return {
     ordinal,
     name: line.name,

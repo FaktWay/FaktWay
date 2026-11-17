@@ -255,13 +255,12 @@ function beforeAfterRows(before: InvoiceLine[], after: InvoiceLine[]): Correctio
 
 function toPreparedLineItems(lines: InvoiceLine[]): InvoiceLineItem[] {
   return lines.map((line, idx) => {
+    // Faktura liczona od brutto: kwoty pozycji od ceny brutto, jak na fakturze.
     const { netAmount, vatAmount, grossAmount } = calculateLineItem({
-      // Faktura liczona od brutto: kwoty pozycji od ceny brutto, jak na fakturze.
-      ...(line.unitPriceGross !== undefined ? { unitPriceGross: line.unitPriceGross } : {}),
       quantity: line.quantity,
       unitPriceNet: line.unitPriceNet,
       vatRate: line.vatRate as VatRate,
-    });
+    }, { unitPriceGross: line.unitPriceGross });
     return {
       ordinal: idx + 1,
       name: line.name,

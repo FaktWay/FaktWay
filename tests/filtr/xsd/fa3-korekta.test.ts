@@ -177,3 +177,45 @@ describe('FA(3) KOR: losowe korekty', () => {
     );
   }, 600_000);
 });
+
+describe('FA(3) KOR: anulowanie faktury liczonej od brutto (RP-FA-KOR-02)', () => {
+  const PROCENT: Record<Stawka, number> = { '23': 23, '8': 8, '5': 5, '0': 0 };
+  const pozycjaBrutto = fc.record({
+    name: nazwa,
+    unit: fc.constantFrom('szt.', 'usł.'),
+    quantity: fc.integer({ min: 1, max: 20 }),
+    bruttoGr: fc.integer({ min: 1, max: 1_000_000 }),
+    vatRate: stawka,
+  });
+
+  it('pozycje z ceną brutto: XSD, strażnik, P_13 i P_14 każdej stawki = minus netto i VAT od brutto, P_15 = minus brutto (NZ-FA-10, NZ-FA-01)', async () => {
+    await fc.assert(
+      fc.asyncProperty(fc.array(pozycjaBrutto, { minLength: 1, maxLength: 6 }), async (opisy) => {
+        // Wzór od brutto w groszach całkowitych (art. 106e ust. 7, 9, 10 i 11), niezależnie od kalkulatora;
+        // `pola` podaje grosze.
+        const kwoty = opisy.map((o) => {
+          const brutto = o.quantity * o.bruttoGr;
+          const p = PROCENT[o.vatRate];
+          const vat = Math.floor((2 * brutto * p + (100 + p)) / (2 * (100 + p)));
+          return { ...o, brutto, vat, netto: brutto - vat };
+        });
+        const przed = kwoty.map((k) => ({
+          name: k.name, unit: k.unit, quantity: k.quantity, vatRate: k.vatRate,
+          unitPriceNet: roundToCents(k.netto / 100 / k.quantity), unitPriceGross: k.bruttoGr / 100,
+        }));
+        const xml = generateCorrectionInvoiceXml(korekta('cancellation', przed as unknown as Linia[], []), { generatedAt: new Date('2026-11-09T10:00:00Z') });
+        expect((await validateFA3(xml)).errors.map((b) => b.message)).toEqual([]);
+        expect(sprawdzFa3(xml)).toEqual([]);
+        for (const s of Object.keys(POLE_NETTO) as Stawka[]) {
+          const wStawce = kwoty.filter((k) => k.vatRate === s);
+          expect(pola(xml, pole(POLE_NETTO[s]))).toEqual(wStawce.length ? [-wStawce.reduce((a, k) => a + k.netto, 0)] : []);
+          const poleVat = POLE_VAT[s];
+          if (poleVat) expect(pola(xml, pole(poleVat))).toEqual(wStawce.length ? [-wStawce.reduce((a, k) => a + k.vat, 0)] : []);
+        }
+        const [p15] = pola(xml, /<P_15>(-?[\d.]+)<\/P_15>/g);
+        expect(p15).toBe(-kwoty.reduce((a, k) => a + k.brutto, 0));
+      }),
+      opcjeXsd,
+    );
+  }, 600_000);
+});

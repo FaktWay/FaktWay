@@ -633,9 +633,7 @@ function correctionStateLines(raw: unknown): JpkInvoiceLine[] | null {
     if (!Number.isFinite(quantity) || !Number.isFinite(unitPriceNet) || !vatRate) return null;
     // Faktura liczona od brutto: kwoty pozycji od ceny brutto z koperty, jak w pliku FA(3) KOR.
     const unitPriceGross = typeof o.unitPriceGross === 'number' && o.unitPriceGross > 0 ? o.unitPriceGross : undefined;
-    const { netAmount, vatAmount } = calculateLineItem({
-      quantity, unitPriceNet, vatRate: vatRate as VatRate, ...(unitPriceGross !== undefined ? { unitPriceGross } : {}),
-    });
+    const { netAmount, vatAmount } = calculateLineItem({ quantity, unitPriceNet, vatRate: vatRate as VatRate }, { unitPriceGross });
     lines.push({
       position: typeof o.ordinal === 'number' ? o.ordinal : i + 1,
       name: typeof o.name === 'string' ? o.name : '',

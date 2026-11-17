@@ -73,20 +73,19 @@ export function getVatPercentage(rate: VatRate): number {
  * Zwraca WSZYSTKIE pola numeryczne (netAmount, vatAmount, grossAmount).
  */
 export function calculateLineItem(
-  input: Pick<InvoiceLineItem, 'quantity' | 'unitPriceNet' | 'vatRate'> & {
-    /**
-     * Cena brutto pozycji faktury liczonej od brutto (faktura za abonament,
-     * `lib/billing/self-invoice.ts`): brutto = ilość × cena brutto, VAT od
-     * brutto, netto = brutto − VAT (art. 106e ust. 7, 9 i 11 ustawy o VAT).
-     * Nadaje ją tylko serwer korekty (`fetchParentInvoiceLines`); bez pola
-     * VAT liczy się od netto jak dotąd.
-     */
-    unitPriceGross?: number;
-  }
+  input: Pick<InvoiceLineItem, 'quantity' | 'unitPriceNet' | 'vatRate'>,
+  /**
+   * Cena brutto pozycji faktury liczonej od brutto (korekta faktury za
+   * abonament, `lib/billing/self-invoice.ts`): brutto = ilość × cena brutto,
+   * VAT od brutto, netto = brutto − VAT (art. 106e ust. 7, 9, 10 i 11 ustawy
+   * o VAT). Jawny argument, a nie pole pozycji: `unitPriceGross` pozycji
+   * z importu (P_9B) nie zmienia wzoru. Bez niego VAT od netto jak dotąd.
+   */
+  opcje: { unitPriceGross?: number } = {},
 ): Pick<InvoiceLineItem, 'netAmount' | 'vatAmount' | 'grossAmount'> {
   const vatPercentage = getVatPercentage(input.vatRate);
-  if (input.unitPriceGross !== undefined) {
-    const grossAmount = roundToCents(input.quantity * input.unitPriceGross);
+  if (opcje.unitPriceGross !== undefined) {
+    const grossAmount = roundToCents(input.quantity * opcje.unitPriceGross);
     // `+ 0`: bez zera ze znakiem przy groszowych kwotach ujemnych (anulowanie).
     const vatAmount = groszeToZloty(vatFromGrossGrosze(toGrosze(grossAmount), vatPercentage)) + 0;
     return { netAmount: roundToCents(grossAmount - vatAmount), vatAmount, grossAmount };
@@ -361,7 +360,7 @@ export function issueDateRangeErrors(issueDateIso: string, now: Date = new Date(
  * (`roundToCents`), potem ×100 domknięte do liczby całkowitej
  * (`roundToDecimals(…, 0)`), bez nowych zaokrągleń obok tych dwóch.
  */
-function toGrosze(value: number): number {
+export function toGrosze(value: number): number {
   return roundToDecimals(roundToCents(value) * 100, 0);
 }
 
@@ -394,7 +393,7 @@ function vatFromNetGrosze(netGrosze: number, ratePct: number): number {
 }
 
 /** VAT od brutto w groszach (art. 106e ust. 7 i ust. 11): brutto × stawka / (100 + stawka). */
-function vatFromGrossGrosze(grossGrosze: number, ratePct: number): number {
+export function vatFromGrossGrosze(grossGrosze: number, ratePct: number): number {
   return divRoundHalfAway(ratePct * grossGrosze, 100 + ratePct);
 }
 
