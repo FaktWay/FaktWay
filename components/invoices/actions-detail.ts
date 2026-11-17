@@ -1,6 +1,7 @@
 'use server';
 
 import * as Sentry from '@sentry/nextjs';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { revalidatePath } from 'next/cache';
 
 import { logAudit } from '@/lib/audit/log';
@@ -53,6 +54,7 @@ import { generateInvoicePdf, verifyInvoicePdfDeliveryState } from '@/lib/pdf/inv
 import { loadInvoiceForPdf } from '@/lib/pdf/invoice-data';
 import { transferTitleOnPdf } from '@/lib/pdf/invoice-renderer';
 import { invoiceEmailAmount } from '@/lib/email/invoice-email-amount';
+import { readInvoiceEmailTemplate } from '@/lib/email/invoice-email-template-store';
 import { sendInvoiceEmail } from '@/lib/email/send';
 import { checkRateLimit } from '@/lib/rate-limit';
 import {
@@ -767,6 +769,9 @@ export async function emailInvoiceAction(
     transferTitle: transferTitleOnPdf(inv, data.ksefNumber),
     pdf: pdfResult.pdf,
     pdfFilename: pdfResult.filename,
+    // Krok 2.8: własny szablon firmy (temat i powitanie); kwota, termin i tytuł
+    // przelewu w mailu zostają z faktury. Błąd odczytu: mail domyślny.
+    customTemplate: await readInvoiceEmailTemplate(context.supabase as unknown as SupabaseClient, tenantId),
   });
 
   if (!send.sent) {
