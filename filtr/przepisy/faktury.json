@@ -234,6 +234,65 @@
       "zrodlo_planu": "F10 (wiedza dla funkcji działających dziś)",
       "stan": "dziala",
       "uwagi": "NZ-FA-01 i NZ-FA-10 na losowych fakturach sprawdza tests/filtr/xsd/fa3.test.ts."
+    },
+    {
+      "id": "RP-FA-KOR-02",
+      "regula": "Korekta faktury liczonej od brutto (faktura za abonament FaktWay) liczy stan przed tak jak faktura: VAT pozycji od wartości brutto, wartość netto jako brutto minus podatek, każda kwota do grosza, więc anulowanie wykazuje kwoty faktury z minusem co do grosza. Korekta kwotowa takiej faktury przyjmuje VAT różnicy liczony od brutto. Korekty pozycji („przed/po”) faktury od brutto FaktWay nie wystawia (stan po liczyłby od netto): odmowa z wyjściem (anulowanie albo korekta kwotowa).",
+      "podstawa": [
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106e ust. 7 (podatek od wartości sprzedaży brutto), ust. 9 (wartość netto jako brutto minus podatek) i ust. 11 (zaokrąglenie do grosza)"
+        },
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106j ust. 2 pkt 5 (kwota korekty podstawy opodatkowania i podatku)"
+        },
+        {
+          "akt": "schemat FA(3) Ministerstwa Finansów (lib/xml/schemas/fa3/schemat.xsd)",
+          "przepis": "opis pól P_13_1 i P_14_1 faktury korygującej (kwota różnicy)"
+        }
+      ],
+      "obowiazuje": {
+        "od": "2026-02-01",
+        "do": null
+      },
+      "obszary": [
+        "faktury.korekty",
+        "faktury.kwoty",
+        "faktury.fa3"
+      ],
+      "kod": [
+        "lib/xml/invoice-calculator.ts#calculateLineItem",
+        "lib/invoices/correction-amount-change.ts#resolveAmountChangeVatRate",
+        "lib/invoices/correction-amount-change.ts#vatFromGross",
+        "lib/ksef/fa3-correction-generator.ts#generateCorrectionInvoiceXml"
+      ],
+      "testy": [
+        "tests/unit/korekta-od-brutto.test.ts > anulowanie: różnica to kwoty faktury z minusem co do grosza",
+        "tests/unit/korekta-od-brutto.test.ts > korekta kwotowa zwrotu liczonego od brutto",
+        "tests/unit/korekta-od-brutto.test.ts > korekta pozycji („przed / po”) faktury od brutto: odmowa z wyjściem",
+        "tests/unit/korekta-od-brutto.test.ts > VAT korekty kwotowej od brutto do faktury liczonej od netto: odmowa",
+        "tests/unit/korekta-od-brutto.test.ts > cena brutto z żądania w pozycji „po” faktury od netto się nie liczy",
+        "tests/unit/korekta-od-brutto.test.ts > dla każdej ceny brutto 0,01-10 000 zł"
+      ],
+      "parametry": [],
+      "niezmienniki": [],
+      "pewnosc": "wysoka",
+      "wzorzec": {
+        "poziom": 4,
+        "opis": "art. 106e ust. 7, 9 i 11 ustawy o VAT (podatek od brutto, netto jako różnica, grosze) i wzór faktury za abonament (lib/billing/self-invoice.ts: netto = brutto / 1,23 do grosza, VAT = brutto − netto, równoważny VAT od brutto); opis P_13_1 i P_14_1 w schemacie FA(3) dla faktury korygującej",
+        "sprawdzono": "2026-11-17"
+      },
+      "interpretacja": "Pozycja faktury jest od brutto, gdy jej zapisanych kwot (invoice_line_items: net_amount, vat_amount, gross_amount) nie odtwarza wzór od netto, a odtwarza je wzór od brutto z ceną brutto = brutto / ilość (fetchParentInvoiceLines). Taka pozycja niesie w kopercie korekty cenę brutto (unitPriceGross, nadaje ją tylko serwer, z żądania usuwana), a calculateLineItem liczy wtedy brutto = ilość × cena brutto, VAT od brutto, netto = brutto − VAT: w pliku FA(3) KOR, w sumach korekty, w dokumencie korekty i w stanach korekty w JPK. Pozycja, której kwoty odtwarzają oba wzory, zostaje od netto (te same kwoty). Korekta kwotowa: VAT różnicy od netto albo od brutto (resolveAmountChangeVatRate); VAT tylko od brutto serwer przyjmuje wyłącznie, gdy pozycje faktury w tej stawce są od brutto, inaczej komunikat „Podaj VAT od netto”. Korekta „przed/po” faktury z pozycją od brutto: odmowa z wyjściem (anuluj fakturę albo wystaw korektę kwotową), bo formularz edytuje cenę netto.",
+      "do_rozstrzygniecia": null,
+      "sprawdzil": {
+        "ksiegowa": null,
+        "prawnik": null
+      },
+      "odczyt": "2026-11-17",
+      "zrodlo_planu": "PLAN-KOMPLETNA-APLIKACJA, ustalenie z #760 (korekta faktury liczonej od brutto)",
+      "stan": "dziala",
+      "uwagi": "Kształt FA(3) faktury za abonament (P_9A i P_11 przy VAT od brutto) czeka na księgową (wiersz #760 dziennika planu); korekta zachowuje ten sam kształt (P_9A cena netto z faktury, P_11 netto z brutto)."
     }
   ]
 }

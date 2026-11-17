@@ -73,10 +73,25 @@ export function getVatPercentage(rate: VatRate): number {
  * Zwraca WSZYSTKIE pola numeryczne (netAmount, vatAmount, grossAmount).
  */
 export function calculateLineItem(
-  input: Pick<InvoiceLineItem, 'quantity' | 'unitPriceNet' | 'vatRate'>
+  input: Pick<InvoiceLineItem, 'quantity' | 'unitPriceNet' | 'vatRate'> & {
+    /**
+     * Cena brutto pozycji faktury liczonej od brutto (faktura za abonament,
+     * `lib/billing/self-invoice.ts`): brutto = ilość × cena brutto, VAT od
+     * brutto, netto = brutto − VAT (art. 106e ust. 7, 9 i 11 ustawy o VAT).
+     * Nadaje ją tylko serwer korekty (`fetchParentInvoiceLines`); bez pola
+     * VAT liczy się od netto jak dotąd.
+     */
+    unitPriceGross?: number;
+  }
 ): Pick<InvoiceLineItem, 'netAmount' | 'vatAmount' | 'grossAmount'> {
-  const netAmount = roundToCents(input.quantity * input.unitPriceNet);
   const vatPercentage = getVatPercentage(input.vatRate);
+  if (input.unitPriceGross !== undefined) {
+    const grossAmount = roundToCents(input.quantity * input.unitPriceGross);
+    // `+ 0`: bez zera ze znakiem przy groszowych kwotach ujemnych (anulowanie).
+    const vatAmount = groszeToZloty(vatFromGrossGrosze(toGrosze(grossAmount), vatPercentage)) + 0;
+    return { netAmount: roundToCents(grossAmount - vatAmount), vatAmount, grossAmount };
+  }
+  const netAmount = roundToCents(input.quantity * input.unitPriceNet);
   const vatAmount = roundToCents((netAmount * vatPercentage) / 100);
   const grossAmount = roundToCents(netAmount + vatAmount);
   return { netAmount, vatAmount, grossAmount };

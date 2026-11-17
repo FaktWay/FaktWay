@@ -267,6 +267,30 @@ async function fetchDocumentLineCodes(
   return codes;
 }
 
+/**
+ * Cena brutto pozycji zapisanej z VAT od brutto (faktura za abonament,
+ * `lib/billing/self-invoice.ts`; art. 106e ust. 7, 9 i 11 ustawy o VAT): gdy
+ * jej kwot nie odtwarza wzór od netto, a odtwarza je wzór od brutto z ceną
+ * brutto = brutto / ilość. Pozycja, której kwoty odtwarza wzór od netto,
+ * zostaje od netto (te same kwoty). Żaden wzór: `undefined`, a sumy faktury
+ * nie zgodzą się z pozycjami (`correctionBaseline` odmawia jak dotąd).
+ */
+function grossPriceOfStoredLine(
+  row: { quantity: unknown; unit_price_net: unknown; net_amount: unknown; vat_amount: unknown; gross_amount: unknown },
+  vatRate: CorrectionLineSchema['vatRate'],
+): number | undefined {
+  if (row.net_amount == null || row.vat_amount == null || row.gross_amount == null) return undefined;
+  const stored = [Number(row.net_amount), Number(row.vat_amount), Number(row.gross_amount)].map(roundToCents);
+  const quantity = Number(row.quantity);
+  if (stored.some((v) => !Number.isFinite(v)) || !(quantity > 0)) return undefined;
+  const same = (c: { netAmount: number; vatAmount: number; grossAmount: number }) =>
+    c.netAmount === stored[0] && c.vatAmount === stored[1] && c.grossAmount === stored[2];
+  const line = { quantity, unitPriceNet: Number(row.unit_price_net), vatRate };
+  if (same(calculateLineItem(line))) return undefined;
+  const unitPriceGross = roundToCents(stored[2]! / quantity);
+  return unitPriceGross > 0 && same(calculateLineItem({ ...line, unitPriceGross })) ? unitPriceGross : undefined;
+}
+
 async function fetchParentInvoiceLines(
   supabase: SupabaseClient,
   invoiceId: string,
@@ -275,7 +299,7 @@ async function fetchParentInvoiceLines(
   const [{ data, error }, codes] = await Promise.all([
     supabase
       .from('invoice_line_items')
-      .select('ordinal, name, unit, quantity, unit_price_net, vat_rate')
+      .select('ordinal, name, unit, quantity, unit_price_net, vat_rate, net_amount, vat_amount, gross_amount')
       .eq('invoice_id', invoiceId)
       .order('ordinal', { ascending: true }),
     fetchDocumentLineCodes(supabase, invoiceId, label),
@@ -291,13 +315,17 @@ async function fetchParentInvoiceLines(
         !Number.isFinite(Number(row.unit_price_net))) {
       throw new Error(`Faktura ${label} ma pozycję bez pełnej ilości lub ceny, więc korekty nie przygotujemy w aplikacji. ${CORRECTION_HELP_STEP}`);
     }
+    const vatRate = vatRateFromDbForCorrectionLine(row.vat_rate, label);
+    const unitPriceGross = grossPriceOfStoredLine(row, vatRate);
     // Schemat korekty — dopuszcza pozycje np. II faktury dla firmy z UE (AUD-70).
     const parsed = correctionLineSchema.safeParse({
       name: row.name,
       unit: row.unit,
       quantity: Number(row.quantity),
       unitPriceNet: Number(row.unit_price_net),
-      vatRate: vatRateFromDbForCorrectionLine(row.vat_rate, label),
+      vatRate,
+      // Faktura liczona od brutto: stan przed odtwarza kwoty pozycji co do grosza.
+      ...(unitPriceGross !== undefined ? { unitPriceGross } : {}),
       // Krok 2.6, część 2b-3: kody tej pozycji z dokumentu faktury.
       ...(typeof row.ordinal === 'number' ? codes.get(row.ordinal) : undefined),
     });
@@ -343,6 +371,8 @@ function linesToStoredItems(correctionData: CorrectionInvoiceData): InvoiceLineI
     return correctionData.linesBefore.map((line, idx) => {
       const neg = { ...line, quantity: -line.quantity };
       const calc = calculateLineItem({
+        // Faktura liczona od brutto: kwoty pozycji od ceny brutto, jak na fakturze.
+        ...(line.unitPriceGross !== undefined ? { unitPriceGross: line.unitPriceGross } : {}),
         quantity: neg.quantity,
         unitPriceNet: neg.unitPriceNet,
         vatRate: neg.vatRate,
@@ -387,6 +417,7 @@ function linesToStoredItems(correctionData: CorrectionInvoiceData): InvoiceLineI
   const after = correctionData.linesAfter ?? [];
   return after.map((line, idx) => {
     const calc = calculateLineItem({
+      ...(line.unitPriceGross !== undefined ? { unitPriceGross: line.unitPriceGross } : {}),
       quantity: line.quantity,
       unitPriceNet: line.unitPriceNet,
       vatRate: line.vatRate,
@@ -807,6 +838,13 @@ async function normalizePayload(
       };
     }
     linesBefore = current;
+    // Faktura liczona od brutto (faktura za abonament): korekta pozycji liczy stan po
+    // od ceny netto z formularza, więc wierny jest tylko zwrot całości albo kwoty.
+    if (parsed.data.correctionType === 'before_after' && current.some((line) => line.unitPriceGross !== undefined)) {
+      return {
+        error: `Faktura ${parentLabelOf(parent)} ma VAT liczony od ceny brutto (np. faktura za abonament), a korekta pozycji („przed / po”) liczy od ceny netto. Anuluj fakturę albo wystaw korektę kwotową.`,
+      };
+    }
   }
 
   let amountChange = parsed.data.amountChange;
@@ -828,6 +866,16 @@ async function normalizePayload(
       rate = resolveAmountChangeVatRate(amountChange);
     } catch (e) {
       return { error: e instanceof Error ? e.message : 'Korekta kwotowa: niespójne kwoty.' };
+    }
+    // VAT od brutto tylko dla faktury liczonej od brutto: pozycje w tej stawce mają cenę brutto.
+    const ratePct = /^\d+$/.test(rate) ? Number(rate) / 100 : 0;
+    if (roundToCents(amounts.netDelta * ratePct) !== amounts.vatDelta) {
+      const inRate = original.filter((line) => line.vatRate === rate);
+      if (inRate.length === 0 || inRate.some((line) => line.unitPriceGross === undefined)) {
+        return {
+          error: `Kwota VAT korekty jest liczona od brutto, a faktura ${parentLabelOf(parent)} liczy VAT od netto. Podaj VAT od netto (netto × stawka).`,
+        };
+      }
     }
     // VAT 0 przy fakturze z różnymi stawkami, w tym bez VAT: z kwot wyszłoby
     // „0 KR”, a korekta może dotyczyć pozycji np I / np II / oo — nie zgadujemy.
@@ -853,8 +901,9 @@ async function normalizePayload(
 
   // Krok 2.6, część 2b-3: kody pozycji „po” nadaje serwer z pary „przed” (z dokumentu
   // faktury), a pozycja dopisana ich nie ma; kody z żądania się nie liczą.
+  // Cenę brutto pozycji nadaje tylko serwer stanowi przed; z żądania się nie liczy.
   const linesAfter = parsed.data.linesAfter
-    ? withCodesFromBefore(linesBefore ?? [], parsed.data.linesAfter)
+    ? withCodesFromBefore(linesBefore ?? [], parsed.data.linesAfter).map(({ unitPriceGross: _cenaBrutto, ...line }) => line)
     : parsed.data.linesAfter;
 
   const normalized: CorrectionInvoiceSchemaIn = {

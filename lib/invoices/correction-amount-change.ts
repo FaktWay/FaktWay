@@ -10,6 +10,11 @@ type AmountChange = {
 };
 type Rate = '23' | '8' | '5' | '0' | ZeroVatAmountChangeRate;
 
+/** VAT od brutto do grosza: brutto × stawka / (1 + stawka) (art. 106e ust. 7 i 11). */
+export function vatFromGross(gross: number, rate: number): number {
+  return roundToCents((gross * rate) / (1 + rate));
+}
+
 /** Reject ambiguous or inconsistent deltas rather than guessing a legal VAT rate. */
 export function resolveAmountChangeVatRate(change: AmountChange): Rate {
   const { netDelta, vatDelta, grossDelta } = change;
@@ -32,7 +37,10 @@ export function resolveAmountChangeVatRate(change: AmountChange): Rate {
   const rates = [
     ['23', 0.23], ['8', 0.08], ['5', 0.05], ['0', 0],
   ] as const;
-  const matches = rates.filter(([, rate]) => roundToCents(netDelta * rate) === vatDelta);
+  // VAT od netto (art. 106e ust. 1 pkt 14) albo od brutto (ust. 7: faktura za abonament,
+  // `vatFromGross`); który wzór pasuje do faktury korygowanej, sprawdza serwer.
+  const matches = rates.filter(([, rate]) =>
+    roundToCents(netDelta * rate) === vatDelta || vatFromGross(grossDelta, rate) === vatDelta);
   if (matches.length !== 1) {
     throw new Error('Korekta kwotowa: stawka VAT jest niejednoznaczna lub nieobsługiwana.');
   }
