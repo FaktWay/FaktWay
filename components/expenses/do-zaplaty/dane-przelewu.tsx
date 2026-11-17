@@ -273,6 +273,7 @@ export function OznaczZaplacone({ expenseId, dzis }: { expenseId: string; dzis: 
           onChange={(e) => setDzien(e.target.value)}
           className={cn('w-40', DOTYK)}
           aria-invalid={zlaData || undefined}
+          aria-describedby={zlaData ? `zaplata-${expenseId}-blad` : undefined}
         />
       </div>
       <Button type="button" onClick={oznacz} disabled={pending || zlaData} className={DOTYK}>
@@ -280,7 +281,9 @@ export function OznaczZaplacone({ expenseId, dzis }: { expenseId: string; dzis: 
         Oznacz jako zapłacone
       </Button>
       {zlaData ? (
-        <p className="text-destructive w-full text-xs">Data zapłaty nie może być z przyszłości ani pusta.</p>
+        <p id={`zaplata-${expenseId}-blad`} role="alert" className="text-destructive w-full text-xs">
+          Data zapłaty nie może być z przyszłości ani pusta.
+        </p>
       ) : null}
     </div>
   );
