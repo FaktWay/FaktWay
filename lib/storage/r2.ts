@@ -12,6 +12,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createHash } from 'node:crypto';
 
 import { getR2Client, getR2Config } from './r2-client';
+import { uploadRequestOptions } from './s3-timeouts';
 import { assertTenantStoragePath, isDocumentArchiveFileKey } from './tenant-path';
 import { XmlArchiveConflictError } from './xml-archive-conflict';
 
@@ -225,9 +226,9 @@ export async function uploadInvoiceUpo(
  *
  * R2/S3 zwracają `PreconditionFailed` (HTTP 412) gdy `IfNoneMatch: '*'` trafia
  * na istniejący klucz. Sam 412 nie dowodzi, że leży tam ten sam plik: dowodem
- * jest dopiero porównanie bajtów w `uploadXmlDocument` (C-12).
+ * jest dopiero porównanie bajtów w `uploadXmlDocument` (C-12) i `putTenantLogo`.
  */
-function isPreconditionFailed(e: unknown): boolean {
+export function isPreconditionFailed(e: unknown): boolean {
   if (!(e instanceof S3ServiceException)) return false;
   if (e.name === 'PreconditionFailed') return true;
   return e.$metadata?.httpStatusCode === 412;
@@ -268,6 +269,7 @@ async function uploadXmlDocument(params: {
           ...metadata,
         },
       }),
+      uploadRequestOptions(bodyBuffer.length),
     );
 
     return {
@@ -310,6 +312,7 @@ export async function uploadToR2(
       Body: body,
       ContentType: contentType,
     }),
+    uploadRequestOptions(body.length),
   );
 }
 
@@ -339,6 +342,7 @@ export async function uploadToR2IfAbsent(
         IfNoneMatch: '*',
         ...(metadata ? { Metadata: metadata } : {}),
       }),
+      uploadRequestOptions(body.length),
     );
     return true;
   } catch (error) {
