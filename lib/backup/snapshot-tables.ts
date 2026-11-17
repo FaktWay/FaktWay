@@ -41,6 +41,8 @@ export const SNAPSHOT_KEYS: ReadonlyMap<string, readonly string[]> = new Map([
   ['flo_rollout', ['kind']],
   ['flo_usage', ['tenant_id', 'day']],
   ['global_feature_flags', ['flag']],
+  // Szablon maila z fakturą (00208, krok 2.8): jeden wiersz na firmę, kluczem jest firma.
+  ['invoice_email_templates', ['tenant_id']],
   ['ksef_error_codes', ['code']],
   ['ksef_inbox_cursor', ['tenant_id']],
   ['ksef_inbox_schedule', ['tenant_id']],

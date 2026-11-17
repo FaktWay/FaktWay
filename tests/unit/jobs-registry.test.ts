@@ -246,7 +246,10 @@ describe('rejestr jobów', () => {
     // 61: od 11.11.2026 (krok 8.1, część 3, 00197) +1 kolejka dzwonka
     // `invoice.payment.received.bell`: drugi odbiorca zdarzenia „wpłata zapisana” (obok
     // pusha), po jednym jobie na zapisaną wpłatę, bez cronów. Worker: 64 kolejki, „33/33 cronów”.
-    expect(registered.length).toBe(61);
+    // 62: od 16.11.2026 (krok 2.8, 00207) +1 job `cleanup-invoice-form-drafts` (cron
+    // `cron.cleanup-invoice-form-drafts` raz na dobę o 03:30: retencja 30 dni kopii roboczych
+    // formularza faktury z danymi nabywcy). Worker: 65 kolejek, „34/34 cronów”.
+    expect(registered.length).toBe(62);
   });
 
   it('paczka W: 3 joby webhooków publicznego API (krok 7.1, część 3)', () => {

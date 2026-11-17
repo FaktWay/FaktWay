@@ -44,6 +44,10 @@ import { collectValidationIssues } from './invoice-form-parts/validation-issues'
 import { numberingDefaults, SeriesSelectRow, useSeriesNumber } from './numeracja/series-select-row';
 import type { InvoiceNumbering } from '@/lib/numeracja/model';
 import { firstValidationMessage } from './invoice-form-parts/validation-message';
+import { AutosaveRestoreBanner, AutosaveStatusLine } from './invoice-form-parts/autosave-banner';
+import { useFormAutosave } from './invoice-form-parts/use-form-autosave';
+import { discardInvoiceAutosaveAction } from '@/app/actions/invoice-autosave';
+import { restorableValues, type LoadedAutosave } from '@/lib/invoices/form-autosave';
 
 /**
  * Formularz zwykłej faktury. Ten plik trzyma stan (React Hook Form, watche,
@@ -63,6 +67,7 @@ export function InvoiceForm({
   recurringPeriod = null,
   salesQuoteId = null,
   salesQuoteSeq = null,
+  restoredDraft = null,
 }: {
   /**
    * Firma, dla której strona wyrenderowała formularz (UX-01). Zapis odsyła ją
@@ -115,6 +120,11 @@ export function InvoiceForm({
    */
   salesQuoteId?: string | null;
   salesQuoteSeq?: string | null;
+  /**
+   * Krok 2.8: niezakończona praca z autozapisu (kopia robocza tej osoby),
+   * którą strona proponuje przywrócić. Tylko przy pustym formularzu.
+   */
+  restoredDraft?: LoadedAutosave | null;
 }) {
   const newLine: InvoiceFormValues['lines'][number] = vatExempt
     ? { ...defaultLine, vatRate: 'zw' }
@@ -207,6 +217,28 @@ export function InvoiceForm({
     control: form.control,
     name: 'lines',
   });
+
+  // Krok 2.8: autozapis kopii roboczej. Faktura cykliczna i proforma mają
+  // własną drogę zapisu (bez szkicu), więc tam autozapisu nie ma.
+  const autosave = useFormAutosave({ form, tenantId, enabled: !recurringMode && !salesQuoteId });
+  const [restoreOffer, setRestoreOffer] = useState<LoadedAutosave | null>(restoredDraft);
+  const restoreAutosave = () => {
+    if (!restoreOffer) return;
+    const { lines, ...rest } = restorableValues(restoreOffer.values as Record<string, unknown>);
+    for (const [name, value] of Object.entries(rest)) {
+      form.setValue(name as keyof InvoiceFormValues, value as never);
+    }
+    if (Array.isArray(lines) && lines.length > 0 && lines.every((l) => typeof l === 'object' && l !== null)) replace(lines);
+    // Kolejne autozapisy nadpisują tę samą kopię, a zapis faktury niesie jej klucz.
+    form.setValue('numberRequestKey', restoreOffer.requestKey);
+    setRestoreOffer(null);
+    toast.success('Przywróciłem niezapisaną fakturę');
+  };
+  const discardAutosave = () => {
+    if (!restoreOffer) return;
+    discardInvoiceAutosaveAction(restoreOffer.requestKey, tenantId).catch(() => {});
+    setRestoreOffer(null);
+  };
 
   const watchedLines = useWatch({ control: form.control, name: 'lines' });
   const buyerNipWatch = useWatch({ control: form.control, name: 'buyerNip' });
@@ -303,6 +335,7 @@ export function InvoiceForm({
         try {
           const result = await saveDraftAction(values, tenantId);
           if (result.success) {
+            autosave.finish();
             toast.success('Szkic zapisany');
             router.push(`/invoices/${result.invoiceId}`);
           } else {
@@ -371,12 +404,16 @@ export function InvoiceForm({
         try {
           const result = await saveAndSendInvoiceAction(values, tenantId);
           if (result.success) {
+            autosave.finish();
             toast.success('Wysyłanie faktury do KSeF rozpoczęte');
             router.push(`/invoices/${result.invoiceId}`);
           } else {
             toast.error(result.error, { duration: ERROR_TOAST_MS });
             pokazBlad({ saveError: result.error });
-            if (result.invoiceId) router.push(`/invoices/${result.invoiceId}`);
+            if (result.invoiceId) {
+              autosave.finish();
+              router.push(`/invoices/${result.invoiceId}`);
+            }
           }
         } catch (e) {
           const komunikat = e instanceof Error ? e.message : 'Błąd wysyłki';
@@ -434,7 +471,13 @@ export function InvoiceForm({
         <PrefillBanner contractorName={prefill.contractorName} onFill={wypelnijZOstatniej} />
       ) : null}
 
+      {restoreOffer ? (
+        <AutosaveRestoreBanner savedAt={restoreOffer.savedAt} onRestore={restoreAutosave} onDiscard={discardAutosave} />
+      ) : null}
+
       <FormErrorSummary state={blad} />
+
+      {recurringMode || salesQuoteId ? null : <AutosaveStatusLine status={autosave.status} />}
 
       <InvoiceCreateGrid>
         <InvoiceDocumentCard
