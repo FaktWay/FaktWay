@@ -29,14 +29,11 @@ const DOCUMENT_TYPES = [
 ] as const;
 
 const KPIR_COLUMNS = [
-  { value: 'col_7', label: 'Kol. 7' },
-  { value: 'col_8', label: 'Kol. 8' },
-  { value: 'col_10', label: 'Kol. 10 (towary handlowe i materiały)' },
-  { value: 'col_11', label: 'Kol. 11 (koszty uboczne zakupu)' },
-  { value: 'col_12', label: 'Kol. 12 (wynagrodzenia)' },
-  { value: 'col_13', label: 'Kol. 13 (pozostałe wydatki)' },
-  { value: 'col_15', label: 'Kol. 15 (koszty B+R)' },
-  { value: 'col_16', label: 'Kol. 16 (uwagi i inne)' },
+  { value: 'col_10', label: 'Kol. 10: towary handlowe i materiały' },
+  { value: 'col_11', label: 'Kol. 11: koszty uboczne zakupu' },
+  { value: 'col_12', label: 'Kol. 12: wynagrodzenia' },
+  { value: 'col_13', label: 'Kol. 13: pozostałe wydatki' },
+  { value: 'col_15', label: 'Kol. 15: koszty B+R' },
 ] as const;
 
 const selectClass =
@@ -72,6 +69,7 @@ export function ManualExpenseForm({ tenantId, today, vatExempt }: { tenantId: st
       sellerName: '',
       sellerNip: '',
       documentType: 'other',
+      kpirColumn: 'col_13',
       documentNumber: '',
       issueDate: today,
       vatAmount: 0,
@@ -250,10 +248,14 @@ export function ManualExpenseForm({ tenantId, today, vatExempt }: { tenantId: st
               </FieldDescription>
             ) : null}
 
+            {documentType === 'other' ? (
+              <FieldDescription>O ujęciu w KPiR wydatku bez faktury albo rachunku rozstrzyga księgowa.</FieldDescription>
+            ) : null}
+
             <Field data-invalid={!!errors.kpirColumn}>
               <FieldLabel htmlFor="manual-expense-kpir">Kolumna KPiR</FieldLabel>
               <FieldContent>
-                <select id="manual-expense-kpir" className={selectClass} defaultValue="" {...describe('manual-expense-kpir', !!errors.kpirColumn)} {...register('kpirColumn')}>
+                <select id="manual-expense-kpir" className={selectClass} {...describe('manual-expense-kpir', !!errors.kpirColumn)} {...register('kpirColumn')}>
                   <option value="">Wybierz kolumnę</option>
                   {KPIR_COLUMNS.map((c) => (
                     <option key={c.value} value={c.value}>

@@ -35,7 +35,7 @@ import type { createClient } from '@/lib/supabase/server';
 import type { Database } from '@/types/database';
 
 export const MANUAL_EXPENSE_DOCUMENT_TYPES = ['invoice', 'receipt', 'other'] as const;
-export const MANUAL_EXPENSE_KPIR_COLUMNS = ['col_7', 'col_8', 'col_10', 'col_11', 'col_12', 'col_13', 'col_15', 'col_16'] as const;
+export const MANUAL_EXPENSE_KPIR_COLUMNS = ['col_10', 'col_11', 'col_12', 'col_13', 'col_15'] as const;
 
 /** Najstarsza data kosztu, jaką przyjmujemy ręcznie (zapas na zaległe dokumenty). */
 export const MANUAL_EXPENSE_MIN_DATE = '2010-01-01';
