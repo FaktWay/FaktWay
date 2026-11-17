@@ -194,6 +194,25 @@ export function receiptBuyerKindOfForm(d: { buyerIsEu?: boolean; buyerIsConsumer
   return 'company';
 }
 
+/**
+ * PKWiU pozycji z jawnym typem (krok 2.6, część 2b): bez spacji na brzegach
+ * najwyżej 20 znaków, cyfry i kropki od cyfry; puste pole = brak kodu. Jeden
+ * schemat dla zwykłej faktury i dla pozycji faktury rozliczającej i korekty
+ * (`lib/validators/invoice-validators.ts`, część 2b-3).
+ */
+export const pkwiuCodeSchema = z
+  .string()
+  .optional()
+  .refine((v) => v === undefined || v.trim().length <= PKWIU_MAX_LENGTH, PKWIU_LENGTH_MESSAGE)
+  .refine((v) => v === undefined || v.trim() === '' || v.trim().length > PKWIU_MAX_LENGTH || PKWIU_PATTERN.test(v.trim()), PKWIU_PATTERN_MESSAGE);
+
+/**
+ * Oznaczenie GTU pozycji (krok 2.6, część 2b): tylko kod z listy; puste pole
+ * = brak oznaczenia. Jeden schemat dla zwykłej faktury i pozycji korekty
+ * (`correctionLineSchema`, część 2b-3).
+ */
+export const gtuCodeSchema = z.union([z.literal(''), z.enum(GTU_CODES)], { message: GTU_CODE_MESSAGE }).optional();
+
 export const lineItemSchema = z.object({
   name: z
     .string()
@@ -219,14 +238,10 @@ export const lineItemSchema = z.object({
     .refine((v) => hasAtMostDecimals(v, 4), 'Cena — najwyżej 4 miejsca po przecinku'),
   vatRate: vatRateEnum,
   // Krok 2.6, część 2b-1: PKWiU pozycji z jawnym typem; puste pole = brak kodu.
-  pkwiuCode: z
-    .string()
-    .optional()
-    .refine((v) => v === undefined || v.trim().length <= PKWIU_MAX_LENGTH, PKWIU_LENGTH_MESSAGE)
-    .refine((v) => v === undefined || v.trim() === '' || v.trim().length > PKWIU_MAX_LENGTH || PKWIU_PATTERN.test(v.trim()), PKWIU_PATTERN_MESSAGE),
+  pkwiuCode: pkwiuCodeSchema,
   // Krok 2.6, część 2b-2: oznaczenie GTU pozycji (FA(3) `GTU`, wiersz faktury
   // w JPK_V7M), tylko kod z listy; puste pole = brak oznaczenia.
-  gtuCode: z.union([z.literal(''), z.enum(GTU_CODES)], { message: GTU_CODE_MESSAGE }).optional(),
+  gtuCode: gtuCodeSchema,
 });
 
 export const invoiceFormSchema = z

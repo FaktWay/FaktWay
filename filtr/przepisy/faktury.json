@@ -25,11 +25,18 @@
         "faktury.fa3"
       ],
       "kod": [
-        "lib/ksef/fa3-correction-generator.ts#generateCorrectionInvoiceXml"
+        "lib/ksef/fa3-correction-generator.ts#generateCorrectionInvoiceXml",
+        "lib/invoices/calculator.ts#correctionStateAmounts",
+        "lib/invoices/issue-correction.ts#saveCorrectionDraft",
+        "lib/exports/data-fetcher.ts#fetchInvoicesForExport"
       ],
       "testy": [
         "tests/unit/korekta-sumy-roznica.test.ts > przed/po: różnica, nie wartość po korekcie",
-        "tests/filtr/xsd/fa3-korekta.test.ts > „przed/po”: XSD"
+        "tests/filtr/xsd/fa3-korekta.test.ts > „przed/po”: XSD",
+        "tests/unit/korekta-stara-faktura.test.ts > korekta „przed/po” 1 → 2",
+        "tests/unit/korekta-stara-faktura.test.ts > anulowanie: różnica to kwoty faktury z minusem",
+        "tests/unit/korekta-stara-faktura.test.ts > „przed/po” z pozycją bez zmian",
+        "tests/unit/korekta-stara-faktura.test.ts > 6,75 × 4216,86 z netto 28 463,80"
       ],
       "parametry": [],
       "niezmienniki": [],
@@ -39,7 +46,7 @@
         "opis": "opis P_13_1 i P_14_1 w schemacie FA(3): dla faktur korygujących „kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy”",
         "sprawdzono": "2026-11-09"
       },
-      "interpretacja": null,
+      "interpretacja": "Stan przed to faktura korygowana, jak ją wystawiono: kwoty pozycji z jej zapisu (invoice_line_items: net_amount, vat_amount, gross_amount; w kopercie korekty recordedAmounts, nadaje je tylko serwer, z żądania usuwane), nie liczone od nowa z ilości × ceny. Faktury sprzed naprawy ilość × cena mają czasem grosz mniej niż dzisiejsze liczenie (VAT 8,16 od 35,50 zł zamiast 8,17, art. 106e ust. 11), a faktura za abonament liczy od brutto. Stan po: pozycja bez zmian (ta sama nazwa, j.m., ilość, cena netto i stawka, parowanie jak w correctionLinePairs) ma kwoty swojej pozycji „przed”, więc nie robi różnicy; pozycja zmieniona albo dopisana liczy się od ilości × ceny netto (calculateLineItem). Jedno liczenie (correctionStateAmounts) dla pliku FA(3) KOR, sum korekty, pozycji korekty w bazie (stan przed kolejnej korekty), stanów korekty w JPK i podglądu w formularzu. Koperta korekty sprzed zapisu kwot (bez recordedAmounts) liczy stan przed od ilości × ceny.",
       "do_rozstrzygniecia": null,
       "sprawdzil": {
         "ksiegowa": null,
@@ -234,6 +241,78 @@
       "zrodlo_planu": "F10 (wiedza dla funkcji działających dziś)",
       "stan": "dziala",
       "uwagi": "NZ-FA-01 i NZ-FA-10 na losowych fakturach sprawdza tests/filtr/xsd/fa3.test.ts."
+    },
+    {
+      "id": "RP-FA-KOR-02",
+      "regula": "Korekta faktury liczonej od brutto (faktura za abonament FaktWay) liczy stan przed tak jak faktura: VAT pozycji od wartości brutto, wartość netto jako brutto minus podatek, każda kwota do grosza, więc anulowanie wykazuje kwoty faktury z minusem co do grosza. Korekta kwotowa takiej faktury przyjmuje VAT różnicy liczony od brutto, gdy żadna stawka nie pasuje od netto. Korekty pozycji („przed/po”) faktury od brutto FaktWay nie wystawia (stan po liczyłby od netto): odmowa z wyjściem (anulowanie albo korekta kwotowa).",
+      "podstawa": [
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106e ust. 7, 9, 10 i 11 (faktura w cenach brutto: kwota podatku od wartości sprzedaży brutto, wartość netto jako różnica, zaokrąglenie do grosza)"
+        },
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106j ust. 2 pkt 5 (kwota korekty podstawy opodatkowania i podatku)"
+        },
+        {
+          "akt": "schemat FA(3) Ministerstwa Finansów (lib/xml/schemas/fa3/schemat.xsd)",
+          "przepis": "opis pól P_13_1 i P_14_1 faktury korygującej (kwota różnicy)"
+        }
+      ],
+      "obowiazuje": {
+        "od": "2026-01-01",
+        "do": null
+      },
+      "obszary": [
+        "faktury.korekty",
+        "faktury.kwoty",
+        "faktury.fa3"
+      ],
+      "kod": [
+        "lib/xml/invoice-calculator.ts#calculateLineItem",
+        "lib/xml/invoice-calculator.ts#vatFromGrossGrosze",
+        "lib/invoices/correction-amount-change.ts#resolveAmountChangeVatRate",
+        "lib/invoices/issue-correction.ts#saveCorrectionDraft",
+        "lib/invoices/issue-correction.ts#getCorrectionParentContext",
+        "lib/ksef/fa3-correction-generator.ts#generateCorrectionInvoiceXml",
+        "lib/xml/invoice-calculator.ts#amountsFollowNetPrice",
+        "lib/invoices/calculator.ts#correctionStateAmounts"
+      ],
+      "testy": [
+        "tests/unit/korekta-od-brutto.test.ts > anulowanie: różnica to kwoty faktury z minusem co do grosza",
+        "tests/unit/korekta-od-brutto.test.ts > korekta kwotowa zwrotu liczonego od brutto",
+        "tests/unit/korekta-od-brutto.test.ts > korekta pozycji („przed / po”) faktury od brutto: odmowa z wyjściem",
+        "tests/unit/korekta-od-brutto.test.ts > VAT korekty kwotowej od brutto do faktury liczonej od netto: odmowa",
+        "tests/unit/korekta-od-brutto.test.ts > cena brutto z żądania w pozycji „po” faktury od netto się nie liczy",
+        "tests/unit/korekta-od-brutto.test.ts > dla każdej ceny brutto 0,01-10 000 zł",
+        "tests/unit/korekta-od-brutto.test.ts > pozycja od netto z netto ≠ ilość × cena",
+        "tests/unit/korekta-od-brutto.test.ts > drobne korekty kwotowe od netto mają jedną stawkę",
+        "tests/unit/korekta-od-brutto.test.ts > przegląd do 2000 zł",
+        "tests/unit/korekta-od-brutto.test.ts > pozycja z importu z ceną brutto z pliku (P_9B)",
+        "tests/unit/korekta-od-brutto.test.ts > JPK_V7M: anulowanie faktury od brutto",
+        "tests/unit/korekta-od-brutto.test.ts > pozycje liczone od netto (ilość × cena, VAT od netto)",
+        "tests/filtr/xsd/fa3-korekta.test.ts > pozycje z ceną brutto: XSD",
+        "tests/unit/korekta-stara-faktura.test.ts > kontekst formularza: bez odmowy",
+        "tests/unit/korekta-stara-faktura.test.ts > połówka grosza w dół z innego programu"
+      ],
+      "parametry": [],
+      "niezmienniki": [],
+      "pewnosc": "wysoka",
+      "wzorzec": {
+        "poziom": 4,
+        "opis": "art. 106e ust. 7, 9, 10 i 11 ustawy o VAT (faktura w cenach brutto: podatek od wartości brutto, netto jako różnica, grosze) i opis P_13_1 i P_14_1 w schemacie FA(3) dla faktury korygującej (kwota różnicy, art. 106j ust. 2 pkt 5)",
+        "sprawdzono": "2026-11-17"
+      },
+      "interpretacja": "Pozycja faktury jest od brutto, gdy jej zapisanych kwot (invoice_line_items: net_amount, vat_amount, gross_amount) nie odtwarza wzór od netto, także z połówką grosza zaokrągloną w dowolną stronę (amountsFollowNetPrice: dawne liczenie na liczbach zmiennoprzecinkowych i zaokrąglenia innych programów na połówce), a odtwarza je wzór od brutto z ceną brutto = brutto / ilość (fetchParentInvoiceLines). Taka pozycja niesie w kopercie korekty znak metody: cenę brutto (unitPriceGross, nadaje ją tylko serwer, z żądania usuwana). Kwoty stanu przed każdej pozycji (od netto i od brutto) są z zapisu (recordedAmounts, RP-FA-KOR-01): w pliku FA(3) KOR, w sumach korekty, w dokumencie korekty i w stanach korekty w JPK, więc anulowanie wykazuje kwoty faktury z minusem co do grosza. Pozycja, której kwoty odtwarzają oba wzory, zostaje od netto. Przy ilości 1 wzór od brutto odtwarza każdą spójną pozycję z VAT od brutto, więc cenę brutto dostaje też pozycja od netto, której netto nie wynika z ilości × ceny poza połówką grosza (np. import z ceną 10,13 i netto 10,12, zaokrąglenia z innego programu): anulowanie i korekta kwotowa odtwarzają jej kwoty, a korekta pozycji odmawia neutralnym komunikatem („kwoty nie wynikają z ilości i ceny netto”, wyjście: anulowanie albo korekta kwotowa); formularz nie proponuje wtedy korekty pozycji (beforeAfterRefusal). Korekta kwotowa: najpierw VAT różnicy od netto, od brutto (vatFromGrossGrosze) tylko, gdy żadna stawka nie pasuje od netto, żeby drobne kwoty nie stały się niejednoznaczne (resolveAmountChangeVatRate); VAT tylko od brutto serwer przyjmuje wyłącznie, gdy pozycje faktury w tej stawce są od brutto, inaczej komunikat „Podaj VAT od netto” (po odmowie stawki spoza faktury). Korekta „przed/po” faktury z pozycją od brutto: odmowa z wyjściem (anuluj fakturę albo wystaw korektę kwotową), bo formularz edytuje cenę netto. Cena brutto pozycji idzie do calculateLineItem jawnym argumentem, więc unitPriceGross pozycji z importu (P_9B) nie zmienia wzoru.",
+      "do_rozstrzygniecia": null,
+      "sprawdzil": {
+        "ksiegowa": null,
+        "prawnik": null
+      },
+      "odczyt": "2026-11-17",
+      "zrodlo_planu": "PLAN-KOMPLETNA-APLIKACJA, ustalenie z #760 (korekta faktury liczonej od brutto)",
+      "stan": "dziala",
+      "uwagi": "Kształt FA(3) faktury za abonament (P_9A i P_11 przy VAT od brutto) czeka na księgową (wiersz #760 dziennika planu); korekta zachowuje ten sam kształt (P_9A cena netto z faktury, P_11 netto z brutto)."
     }
   ]
 }

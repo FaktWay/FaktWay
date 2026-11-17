@@ -141,10 +141,29 @@ export interface JpkInvoice {
   /**
    * Krok 2.6, część 2b-2: oznaczenia GTU z pozycji faktury korygowanej
    * (`fa3_data.lines[].gtuCode` faktury FaktWay, `fa3_data.ksefMarkers.gtu`
-   * faktury z importu), tak jak są zapisane. Korekta w FaktWay nie zapisuje GTU
-   * pozycji, więc JPK_V7M odmawia (`JpkV7mGtuCorrectionNotSupportedError`).
+   * faktury z importu), tak jak są zapisane. Brak = faktura korygowana bez GTU,
+   * więc korekta też bez oznaczeń (`gtuOfCorrection` w JPK_V7M).
    */
   correctedInvoiceGtu?: string[];
+  /**
+   * Krok 2.6, część 2b-3: pozycje dokumentu faktury korygowanej (nazwa i GTU,
+   * tak jak są zapisane). Po nich JPK_V7M rozpoznaje pozycję stanu przed bez
+   * kodu: pozycja faktury bez GTU albo pozycja, której oznaczeń FaktWay nie zna
+   * (dopisana wcześniejszą korektą, korekta sprzed zapisu kodów).
+   */
+  correctedInvoiceLines?: Array<{ name: string; gtuCode?: string }>;
+  /**
+   * Krok 2.6, część 2b-3: korekta FaktWay: rodzaj i stany z koperty
+   * (`special_data.correctionData`) z GTU pozycji faktury korygowanej, do
+   * oznaczeń GTU jej wiersza w JPK_V7M (`gtuOfCorrection`). Stan `null`: brak
+   * albo nieczytelna koperta.
+   */
+  correctionGtuSource?: {
+    correctionType: 'cancellation' | 'before_after' | 'amount_change';
+    linesBefore: JpkInvoiceLine[] | null;
+    /** Tylko korekta „przed/po”. */
+    linesAfter: JpkInvoiceLine[] | null;
+  };
   /**
    * KOR „przed/po”: oba stany pozycji (z `special_data.correctionData`).
    * Pozycje zapisane na wierszu korekty to stan PO, więc kwoty JPK liczy się
@@ -224,8 +243,9 @@ export interface JpkInvoiceLine {
   vatAmount?: number;
   /**
    * Krok 2.6, część 2b-2: oznaczenie GTU pozycji faktury FaktWay
-   * (`fa3_data.lines[].gtuCode`). JPK_V7M wpisuje je do wiersza faktury
-   * (`gtuOfRow`); JPK_FA(4) nie ma takiego pola.
+   * (`fa3_data.lines[].gtuCode`; w stanach korekty z koperty, część 2b-3).
+   * JPK_V7M wpisuje je do wiersza faktury (`gtuOfRow`); JPK_FA(4) nie ma
+   * takiego pola.
    */
   gtuCode?: GtuCode;
   /**
