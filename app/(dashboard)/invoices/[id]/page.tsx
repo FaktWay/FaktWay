@@ -11,6 +11,7 @@ import {
 } from '@/lib/invoices/invoice-payments';
 import { canCorrectInvoice, canMarkInvoicePaid } from '@/lib/invoices/list-row-facts';
 import { canChangeInvoicePayment } from '@/lib/invoices/manual-payment';
+import { documentLineCodes } from '@/lib/invoices/line-codes';
 import { receiptInvoiceView } from '@/lib/invoices/receipt-invoice';
 import { canDuplicateInvoice, canSetAsRecurring } from '@/lib/invoices/recurring/visibility';
 import { buyerLinkRefusal, canManageBuyerLinks } from '@/lib/invoice-share/policy';
@@ -178,9 +179,20 @@ export default async function InvoiceDetailPage({
       })
     : null;
 
+  // Krok 2.6, część 2b-3c: PKWiU i GTU pozycji z dokumentu faktury (to samo co
+  // w pliku FA(3)); do widoku idą same kody, reszta `fa3_data` zostaje na serwerze.
+  const lineCodes = documentLineCodes((invoice.fa3_data as { lines?: unknown } | null)?.lines);
   const lines = ((invoice.invoice_line_items ?? []) as InvoiceDetailLine[])
     .slice()
-    .sort((a, b) => a.ordinal - b.ordinal);
+    .sort((a, b) => a.ordinal - b.ordinal)
+    .map((line) => {
+      const codes = lineCodes.get(line.ordinal);
+      return {
+        ...line,
+        ...(codes?.pkwiuCode ? { pkwiu_code: codes.pkwiuCode } : {}),
+        ...(codes?.gtuCode ? { gtu_code: codes.gtuCode } : {}),
+      };
+    });
 
   // E3 / P4: pola pochodne dla układu Finory. Tylko liczby i flagi — treść
   // dokumentu (`fa3_data`) zostaje na serwerze.

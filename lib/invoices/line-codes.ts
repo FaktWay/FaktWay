@@ -24,6 +24,48 @@ export function isGtuCode(value: unknown): value is GtuCode {
   return typeof value === 'string' && (GTU_CODES as readonly string[]).includes(value);
 }
 
+/** Poprawne kody jednej pozycji: PKWiU bez spacji na brzegach, GTU z listy. */
+export interface DocumentLineCodes {
+  pkwiuCode?: string;
+  gtuCode?: GtuCode;
+}
+
+/**
+ * Kody pozycji dokumentu faktury (`fa3_data.lines`) po numerze pozycji, tylko
+ * poprawne (krok 2.6, część 2b-3c): szczegóły faktury, PDF i strona dla
+ * nabywcy pokazują to, co plik FA(3) (`FaWiersz/PKWiU`, `FaWiersz/GTU`), bo
+ * `invoice_line_items` nie ma kolumn kodów. Dokument bez `lines` (import):
+ * pusta mapa.
+ */
+export function documentLineCodes(lines: unknown): Map<number, DocumentLineCodes> {
+  const codes = new Map<number, DocumentLineCodes>();
+  if (!Array.isArray(lines)) return codes;
+  for (const line of lines) {
+    if (!line || typeof line !== 'object' || Array.isArray(line)) continue;
+    const { ordinal, pkwiuCode, gtuCode } = line as { ordinal?: unknown; pkwiuCode?: unknown; gtuCode?: unknown };
+    if (typeof ordinal !== 'number' || codes.has(ordinal)) continue;
+    const pkwiu = typeof pkwiuCode === 'string' ? pkwiuCode.trim() : '';
+    codes.set(ordinal, {
+      ...(isPkwiuCode(pkwiu) ? { pkwiuCode: pkwiu } : {}),
+      ...(isGtuCode(gtuCode) ? { gtuCode } : {}),
+    });
+  }
+  return codes;
+}
+
+/**
+ * Kody pod nazwą pozycji („PKWiU 69.20.2, GTU_12”), tylko poprawne; pozycja
+ * bez kodów: `null`, więc wygląda jak dotąd (krok 2.6, część 2b-3c).
+ */
+export function lineCodesText(codes: { pkwiuCode?: unknown; gtuCode?: unknown } | null | undefined): string | null {
+  const pkwiu = typeof codes?.pkwiuCode === 'string' ? codes.pkwiuCode.trim() : '';
+  const parts = [
+    ...(isPkwiuCode(pkwiu) ? [`PKWiU ${pkwiu}`] : []),
+    ...(isGtuCode(codes?.gtuCode) ? [codes.gtuCode] : []),
+  ];
+  return parts.length > 0 ? parts.join(', ') : null;
+}
+
 /** PKWiU: najwyżej 20 znaków (jak w katalogu); schemat FA(3) przyjmuje do 50 (`TZnakowy50`). */
 export const PKWIU_MAX_LENGTH = 20;
 

@@ -1044,7 +1044,8 @@
       "poziom": "R1",
       "opis": "SQL: dostęp do danych firmy spoza zwykłej sesji: klucze API, link do faktury dla nabywcy, adres kalendarza, sesje kont, podsumowanie firm księgowej i uprawnienia biura w KSeF (funkcje SECURITY DEFINER z tokenem albo rolą).",
       "sciezki": [
-        "supabase/migrations/{00174,00179,00181,00182,00185,00195}_*.sql"
+        "supabase/migrations/{00174,00179,00181,00182,00185,00195}_*.sql",
+        "supabase/migrations/00210_invoice_share_view_line_codes.sql"
       ]
     },
     {
