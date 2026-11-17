@@ -337,7 +337,7 @@ describe('W9 — ustalenia recenzji C5a', () => {
     const wdt = xmlOf(invoice('FZ/WDT/1', [{ rate: '0', net: 500 }]))
       .replace('<P_12>0 KR</P_12>', '<P_12>0 WDT</P_12>');
     const incoming = await importParsed([parseFa3Xml(wdt, { ksefNumber: ksefNumber() })], { direction: 'incoming' });
-    expect(incoming.warnings[0]).toMatch(/FZ\/WDT\/1.*0 WDT.*sprawdź ją z księgową/);
+    expect(incoming.warnings[0]).toMatch(/FZ\/WDT\/1.*0 WDT.*ujęcie ustala księgowa/);
     expect(incoming.warnings[0]).not.toContain('JPK_FA');
 
     const draft = await importParsed([{ ...parseFa3Xml(wdt.replace('FZ/WDT/1', 'SZK/1')), ksefNumber: undefined }], { status: 'draft', source: 'xml_file' });
