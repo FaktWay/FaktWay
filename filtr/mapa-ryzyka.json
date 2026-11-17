@@ -369,6 +369,17 @@
       ]
     },
     {
+      "id": "faktury.ustawienia-domyslne",
+      "poziom": "R2",
+      "opis": "Domyślne ustawienia firmy dla nowej faktury (krok 2.8): forma i termin płatności jako podpowiedź formularza oraz adres księgowej dla kopii maila z fakturą (osobna wiadomość z tym samym PDF). Nie zmieniają kwot ani zapisanych faktur; kwota, termin i tytuł przelewu w mailu pochodzą z tych samych funkcji co mail do nabywcy.",
+      "sciezki": [
+        "lib/invoices/invoice-defaults.ts",
+        "lib/invoices/invoice-copy-email.ts",
+        "app/actions/invoice-defaults.ts",
+        "supabase/migrations/00209_tenant_invoice_defaults.sql"
+      ]
+    },
+    {
       "id": "faktury.pdf",
       "poziom": "R1",
       "opis": "PDF faktury, kody QR weryfikacji, PDF UPO.",
