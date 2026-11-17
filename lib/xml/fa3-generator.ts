@@ -407,7 +407,7 @@ function buildFa(
   buildFakturaDoParagonu(fa, invoice);
 
   for (const line of invoice.lines) {
-    buildFaWiersz(fa, line);
+    buildFaWiersz(fa, line, invoice.pricesGross === true);
   }
 
   buildPlatnosc(fa, invoice);
@@ -553,6 +553,7 @@ function buildFakturaDoParagonu(fa: XMLBuilder, invoice: Invoice): void {
 function buildFaWiersz(
   fa: XMLBuilder,
   line: InvoiceLineItem,
+  pricesGross = false,
 ): void {
   const wiersz = fa.ele('FaWiersz');
 
@@ -586,8 +587,16 @@ function buildFaWiersz(
   wiersz.ele('P_8A').txt(requireText(line.unit, `line[${line.ordinal}].unit`));
   wiersz.ele('P_8B').txt(formatDecimal(line.quantity, 4));
 
-  wiersz.ele('P_9A').txt(formatDecimal(line.unitPriceNet, 4));
-  wiersz.ele('P_11').txt(formatDecimal(line.netAmount));
+  if (pricesGross) {
+    // Art. 106e ust. 8: zamiast ceny i wartości netto cena jednostkowa brutto
+    // i wartość sprzedaży brutto (XSD: P_9B i P_11A „w przypadku zastosowania
+    // art. 106e ust. 7 i 8”). Sumy stawek (P_13_x, P_14_x) z podziału VAT stawki.
+    wiersz.ele('P_9B').txt(formatDecimal(line.unitPriceGross ?? 0, 4));
+    wiersz.ele('P_11A').txt(formatDecimal(line.grossAmount));
+  } else {
+    wiersz.ele('P_9A').txt(formatDecimal(line.unitPriceNet, 4));
+    wiersz.ele('P_11').txt(formatDecimal(line.netAmount));
+  }
 
   const mapping = VAT_RATE_MAP[line.vatRate];
   if (!mapping) {

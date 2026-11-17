@@ -163,7 +163,7 @@ export type InvoiceLineItemInput = Pick<
   InvoiceLineItem,
   'ordinal' | 'name' | 'unit' | 'quantity' | 'unitPriceNet' | 'vatRate'
 > &
-  Partial<Pick<InvoiceLineItem, 'classificationCode'>>;
+  Partial<Pick<InvoiceLineItem, 'classificationCode' | 'unitPriceGross'>>;
 
 /** Faktura jaką user podaje z formularza (bez wyliczeń i totali). */
 export interface InvoiceInput {
@@ -178,6 +178,8 @@ export interface InvoiceInput {
   notes?: string;
   /** Faktura do paragonu (FP): tylko zwykła faktura VAT. */
   receipt?: Invoice['receipt'];
+  /** Faktura w cenach brutto: pozycje z `unitPriceGross`, VAT od sumy brutto stawki (`grossPricedLines`). */
+  pricesGross?: true;
 }
 
 /**
@@ -186,7 +188,7 @@ export interface InvoiceInput {
  * Single source of truth = pozycje; pola kwotowe na Invoice to derived state.
  */
 export function finalizeInvoice(input: InvoiceInput): Invoice {
-  const lines: InvoiceLineItem[] = input.lines.map((raw) => {
+  const lines: InvoiceLineItem[] = input.pricesGross ? grossPricedLines(input.lines) : input.lines.map((raw) => {
     const { netAmount, vatAmount, grossAmount } = calculateLineItem(raw);
     return {
       ordinal: raw.ordinal,
@@ -222,7 +224,85 @@ export function finalizeInvoice(input: InvoiceInput): Invoice {
     notes: input.notes,
     // Klucz tylko przy FP: zwykła faktura ma kształt jak przed krokiem 1.2.
     ...(input.receipt ? { receipt: input.receipt } : {}),
+    // Klucz tylko przy cenach brutto: faktura w cenach netto ma kształt jak dotąd.
+    ...(input.pricesGross ? { pricesGross: true as const } : {}),
   };
+}
+
+/**
+ * Rozkład VAT nagłówka `total` na pozycje: udział = podstawa × stawka / mianownik
+ * (brutto: 100 + stawka, netto: 100), w dół; brakujące grosze do największych
+ * reszt (porównanie na krzyż — różne mianowniki przy 23% i 22%), remis — niższy
+ * numer pozycji, potem kolejność w pliku. `null`, gdy `total` poza [Σ w dół, Σ w górę].
+ * Jeden podział dla importu faktur od brutto i netto (C5c, `lib/import/fa3-line-amounts.ts`)
+ * i faktury FaktWay w cenach brutto (`grossPricedLines`).
+ */
+export function allocateLargestRemainder(
+  shares: ReadonlyArray<{ num: number; den: number; ordinal: number; index: number }>,
+  total: number,
+): { vats: number[]; floor: number; ceil: number } | { vats: null; floor: number; ceil: number } {
+  const parts = shares.map((s) => {
+    const fl = Math.floor(s.num / s.den);
+    return { ...s, fl, rem: s.num - fl * s.den };
+  });
+  const floor = parts.reduce((a, p) => a + p.fl, 0);
+  const ceil = parts.reduce((a, p) => a + p.fl + (p.rem > 0 ? 1 : 0), 0);
+  if (total < floor || total > ceil) return { vats: null, floor, ceil };
+  const order = parts
+    .map((p, i) => ({ ...p, i }))
+    .filter((p) => p.rem > 0)
+    .sort((a, b) => (b.rem * a.den - a.rem * b.den) || (a.ordinal - b.ordinal) || (a.index - b.index));
+  const vats = parts.map((p) => p.fl);
+  for (const p of order.slice(0, total - floor)) vats[p.i]! += 1;
+  return { vats, floor, ceil };
+}
+
+/**
+ * Pozycje faktury w cenach brutto (art. 106e ust. 7-9 i 11 ustawy o VAT):
+ * wartość brutto pozycji = ilość × cena brutto do grosza (`P_11A`); w każdej
+ * stawce VAT od sumy brutto stawki, KP = WB × SP / (100 + SP), do grosza
+ * (`vatFromGrossGrosze`); netto stawki = WB − KP. VAT stawki dzielony na
+ * pozycje tym samym podziałem co import faktur od brutto (C5c,
+ * `allocateLargestRemainder`): każda pozycja dostaje swój udział w dół albo
+ * w górę, a suma pozycji = KP. Netto pozycji = brutto − VAT. Cena netto pusta
+ * (`unitPriceNetMissing`). Stawka spoza listy liczy się tu jako 0 %, ale bramka
+ * wysyłki (`validateInvoice`) odmawia jej z numerem pozycji.
+ */
+export function grossPricedLines(input: InvoiceLineItemInput[]): InvoiceLineItem[] {
+  const gross = input.map((raw) => toGrosze(roundToCents(raw.quantity * (raw.unitPriceGross ?? 0))));
+  const vat = input.map(() => 0);
+  for (const rate of new Set(input.map((l) => l.vatRate))) {
+    const pct = getVatPercentage(rate) ?? 0;
+    const den = 100 + pct;
+    const idx = input.flatMap((l, i) => (l.vatRate === rate ? [i] : []));
+    const kp = vatFromGrossGrosze(idx.reduce((s, i) => s + gross[i]!, 0), pct);
+    // Udział pozycji g × SP / (100 + SP) w groszach; KP od sumy zawsze mieści się
+    // między sumą udziałów w dół i w górę (zaokrąglenie sumy), więc podział istnieje.
+    const podzial = allocateLargestRemainder(
+      idx.map((i) => ({ num: gross[i]! * pct, den, ordinal: input[i]!.ordinal, index: i })),
+      kp,
+    );
+    if (!podzial.vats) {
+      throw new Error(`Faktura w cenach brutto: VAT stawki ${rate} (${kp} gr) poza podziałem na pozycje.`);
+    }
+    idx.forEach((i, k) => {
+      vat[i] = podzial.vats[k]!;
+    });
+  }
+  return input.map((raw, i) => ({
+    ordinal: raw.ordinal,
+    name: raw.name,
+    classificationCode: raw.classificationCode,
+    unit: raw.unit,
+    quantity: raw.quantity,
+    unitPriceNet: 0,
+    unitPriceNetMissing: true as const,
+    unitPriceGross: raw.unitPriceGross ?? 0,
+    vatRate: raw.vatRate,
+    netAmount: groszeToZloty(gross[i]! - vat[i]!),
+    vatAmount: groszeToZloty(vat[i]!),
+    grossAmount: groszeToZloty(gross[i]!),
+  }));
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -348,7 +428,7 @@ export function issueDateRangeErrors(issueDateIso: string, now: Date = new Date(
  * (`roundToCents`), potem ×100 domknięte do liczby całkowitej
  * (`roundToDecimals(…, 0)`), bez nowych zaokrągleń obok tych dwóch.
  */
-function toGrosze(value: number): number {
+export function toGrosze(value: number): number {
   return roundToDecimals(roundToCents(value) * 100, 0);
 }
 
@@ -381,7 +461,7 @@ function vatFromNetGrosze(netGrosze: number, ratePct: number): number {
 }
 
 /** VAT od brutto w groszach (art. 106e ust. 7 i ust. 11): brutto × stawka / (100 + stawka). */
-function vatFromGrossGrosze(grossGrosze: number, ratePct: number): number {
+export function vatFromGrossGrosze(grossGrosze: number, ratePct: number): number {
   return divRoundHalfAway(ratePct * grossGrosze, 100 + ratePct);
 }
 
@@ -476,12 +556,35 @@ export function validateInvoice(invoice: Invoice, now: Date = new Date()): strin
     errors.push('Faktura musi mieć co najmniej jedną pozycję.');
   }
 
+  // Faktura w cenach brutto: pozycja liczy brutto z ceny brutto, a VAT jest
+  // podziałem VAT stawki (sprawdzany niżej sumą stawki), więc bez kontroli
+  // netto = ilość × cena netto i VAT pozycji od netto albo brutto.
+  const pricesGross = invoice.pricesGross === true;
   for (const line of invoice.lines) {
     if (line.name.length === 0 || line.name.length > 512) {
       errors.push(`Pozycja ${line.ordinal}: nazwa musi mieć 1-512 znaków (obecnie ${line.name.length}).`);
     }
     if (line.quantity <= 0) {
       errors.push(`Pozycja ${line.ordinal}: ilość musi być > 0.`);
+    }
+    if (pricesGross) {
+      const priceGross = line.unitPriceGross;
+      if (priceGross === undefined || !Number.isFinite(priceGross) || priceGross < 0) {
+        errors.push(`Pozycja ${line.ordinal}: faktura w cenach brutto wymaga ceny brutto pozycji (nieujemnej).`);
+      } else if (toGrosze(roundToCents(line.quantity * priceGross)) !== toGrosze(line.grossAmount)) {
+        errors.push(
+          `Pozycja ${line.ordinal}: brutto (${line.grossAmount}) nie zgadza się z ilość × cena brutto (${roundToCents(line.quantity * priceGross)}).`,
+        );
+      }
+      if (toGrosze(line.grossAmount) !== toGrosze(line.netAmount) + toGrosze(line.vatAmount)) {
+        errors.push(
+          `Pozycja ${line.ordinal}: brutto (${line.grossAmount}) to nie netto + VAT (${groszeToZloty(toGrosze(line.netAmount) + toGrosze(line.vatAmount))}).`,
+        );
+      }
+      if ((getVatPercentage(line.vatRate) as number | undefined) === undefined) {
+        errors.push(`Pozycja ${line.ordinal}: nieznana stawka VAT „${line.vatRate}”. Wybierz w pozycji stawkę z listy formularza.`);
+      }
+      continue;
     }
     if (line.unitPriceNet < 0) {
       errors.push(`Pozycja ${line.ordinal}: cena netto nie może być ujemna.`);
@@ -507,6 +610,23 @@ export function validateInvoice(invoice: Invoice, now: Date = new Date()): strin
       errors.push(
         `Pozycja ${line.ordinal}: brutto (${line.grossAmount}) to nie netto + VAT (${groszeToZloty(netGr + vatGr)}).`
       );
+    }
+  }
+
+  // Faktura w cenach brutto: VAT każdej stawki od sumy brutto stawki (art. 106e ust. 7, 11).
+  if (pricesGross) {
+    for (const rate of new Set(invoice.lines.map((l) => l.vatRate))) {
+      // Stawka spoza listy: odmowa z numerem pozycji wyżej, bez liczenia jej jako 0 %.
+      if ((getVatPercentage(rate) as number | undefined) === undefined) continue;
+      const inRate = invoice.lines.filter((l) => l.vatRate === rate);
+      const wb = inRate.reduce((s, l) => s + toGrosze(l.grossAmount), 0);
+      const vatGr = inRate.reduce((s, l) => s + toGrosze(l.vatAmount), 0);
+      const kp = vatFromGrossGrosze(wb, getVatPercentage(rate) ?? 0);
+      if (vatGr !== kp) {
+        errors.push(
+          `Stawka ${ZERO_VAT_RATE_LABELS[rate] ?? `${rate}%`}: VAT pozycji (${groszeToZloty(vatGr)}) nie wynika z sumy brutto stawki (${groszeToZloty(wb)}); powinien być ${groszeToZloty(kp)} (art. 106e ust. 7 ustawy o VAT).`,
+        );
+      }
     }
   }
 
