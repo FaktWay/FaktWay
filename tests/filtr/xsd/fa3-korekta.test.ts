@@ -208,14 +208,16 @@ describe('FA(3) KOR: anulowanie faktury liczonej od brutto (RP-FA-KOR-02)', () =
         expect(sprawdzFa3(xml)).toEqual([]);
         for (const s of Object.keys(POLE_NETTO) as Stawka[]) {
           const wStawce = kwoty.filter((k) => k.vatRate === s);
-          expect(pola(xml, pole(POLE_NETTO[s]))).toEqual(wStawce.length ? [-wStawce.reduce((a, k) => a + k.netto, 0)] : []);
+          // `0 - suma`, nie `-suma`: przy sumie 0 wyrocznia dawała −0, a plik słusznie ma 0.00 (+0).
+          expect(pola(xml, pole(POLE_NETTO[s]))).toEqual(wStawce.length ? [0 - wStawce.reduce((a, k) => a + k.netto, 0)] : []);
           const poleVat = POLE_VAT[s];
-          if (poleVat) expect(pola(xml, pole(poleVat))).toEqual(wStawce.length ? [-wStawce.reduce((a, k) => a + k.vat, 0)] : []);
+          if (poleVat) expect(pola(xml, pole(poleVat))).toEqual(wStawce.length ? [0 - wStawce.reduce((a, k) => a + k.vat, 0)] : []);
         }
         const [p15] = pola(xml, /<P_15>(-?[\d.]+)<\/P_15>/g);
         expect(p15).toBe(-kwoty.reduce((a, k) => a + k.brutto, 0));
       }),
-      opcjeXsd,
+      // Stały przypadek obok losowych: 0,01 zł brutto przy 23 % ma VAT 0, a plik 0.00 (+0), nie −0.
+      { ...opcjeXsd, examples: [[[{ name: 'Usługa', unit: 'szt.', quantity: 1, bruttoGr: 1, vatRate: '23' as Stawka }]]] },
     );
   }, 600_000);
 });
