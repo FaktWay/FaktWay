@@ -174,3 +174,16 @@ describe('bramka wysyłki (validateInvoice) dla faktury w cenach brutto', () => 
     ]));
   });
 });
+
+describe('bramka wysyłki: nieznana stawka w fakturze w cenach brutto', () => {
+  it('pozycja ze stawką spoza listy: ten sam komunikat z numerem pozycji co w cenach netto, stawka nie liczy się jako 0 %', () => {
+    const invoice = finalizeInvoice(faktura([
+      { name: 'Kawa', quantity: 1, unitPriceGross: 10, vatRate: '23' },
+      { name: 'Coś', quantity: 1, unitPriceGross: 10, vatRate: '7' as unknown as Stawka },
+    ]));
+    const bledy = validateInvoice(invoice, new Date('2026-11-17T10:00:00Z'));
+    expect(bledy).toEqual(expect.arrayContaining([
+      'Pozycja 2: nieznana stawka VAT „7”. Wybierz w pozycji stawkę z listy formularza.',
+    ]));
+  });
+});
