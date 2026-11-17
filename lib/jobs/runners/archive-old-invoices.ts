@@ -66,9 +66,11 @@ export async function runArchiveOldInvoices({ step, logger }: JobContext) {
         // przy zapisie dowodu, `XmlDocumentConflictError` połknięty w
         // `save-accepted.ts`) dawały `null` jak brak wiersza. Plik szedł wtedy
         // do Glacier bez kontroli skrótu, a faktura dostawała znaczniki i datę
-        // usunięcia. Teraz brak dowodu to tylko pusta lista od bazy. Każdy inny
-        // wynik rzuca przed pobraniem pliku: faktura zostaje bez znaczników,
-        // a ponowienie od zera albo następny przebieg weźmie ją jeszcze raz.
+        // usunięcia. Teraz brak dowodu to tylko pusta lista od bazy. Błąd
+        // odczytu, odpowiedź bez listy wierszy i duble rzucają przed pobraniem
+        // pliku, a wiersz dowodu zawsze idzie przez kontrolę skrótu. Po każdym
+        // takim błędzie faktura zostaje bez znaczników, a ponowienie od zera
+        // albo następny przebieg weźmie ją jeszcze raz.
         // Ścieżka operatora: docs/runbooks/joby-pg-boss.md, „Typowe sytuacje”.
         const supabase = createAdminClient();
         const { data: xmlDocs, error: xmlDocError } = await supabase
@@ -88,9 +90,14 @@ export async function runArchiveOldInvoices({ step, logger }: JobContext) {
           );
         }
         // Biblioteka oddaje `data: null` bez `error` przy odpowiedzi spoza
-        // umowy (pusta treść 2xx, 404 bez treści, treść `null`). To nie brak
-        // wiersza.
-        if (!Array.isArray(xmlDocs)) {
+        // umowy (pusta treść 2xx, 404 bez treści, treść `null`), a treść
+        // `[null]` daje listę z `null` zamiast wiersza. Żadna z nich nie
+        // oznacza braku wiersza. Po tej kontroli `xmlDocs[0]` jest wierszem
+        // albo `undefined` (pusta lista).
+        if (
+          !Array.isArray(xmlDocs) ||
+          xmlDocs.some((doc: unknown) => typeof doc !== 'object' || doc === null)
+        ) {
           throw new Error(
             `Archiwum: nie można odczytać skrótu XML faktury ${candidate.id} ` +
               '(odpowiedź bazy bez listy wierszy i bez błędu); ' +

@@ -112,6 +112,9 @@ const FAULTS = {
   // Odpowiedzi spoza umowy: biblioteka oddaje `data: null` bez `error`.
   'pusta odpowiedź 200 bramki': () => new Response('', { status: 200 }),
   '404 bez treści (biblioteka zgłasza 204)': () => new Response('', { status: 404 }),
+  // Lista bez błędu, ale z czymś innym niż wiersz: to też nie brak wiersza
+  // (drugi czytelnik #802, ponowny odczyt).
+  'lista z null zamiast wiersza': () => Response.json([null]),
 } satisfies Record<string, () => Response>;
 
 type Fault = keyof typeof FAULTS;
