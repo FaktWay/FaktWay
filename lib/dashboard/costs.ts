@@ -74,7 +74,7 @@ export interface CostEntry {
 const PROVENANCE_READ_FAILED = 'KSeF expense invoice provenance check is unavailable';
 
 const EXPENSE_COLUMNS =
-  'id, source, ksef_invoice_id, issue_date, seller_nip, seller_name, document_number, category_label, net_amount, vat_amount, gross_amount, vat_deductible_amount, document_type, is_reviewed, ocr_extracted_data';
+  'id, source, ksef_invoice_id, issue_date, seller_nip, seller_name, document_number, category_label, net_amount, vat_amount, gross_amount, vat_deductible_amount, document_type, is_reviewed, ocr_extracted_data, kpir_column';
 
 /**
  * Koszty z zakresu `[from, toExclusive)` (daty RRRR-MM-DD), posortowane po

@@ -6,26 +6,29 @@ import { costDocumentType } from '@/lib/expenses/vat-deduction-document';
  * (FZ-022, reguła RP-KOSZT-01; ta sama zasada co F11-C1 w KPiR modułu,
  * `lib/ksiegowosc/kpir-dane.ts`).
  *
- * Tożsamość dokumentu:
- * - faktura: NIP sprzedawcy, numer i rok wystawienia. Numer jest
- *   jednoznaczny u wystawcy (art. 106e ust. 1 pkt 2 ustawy o VAT), ale
- *   sprzedawca może co rok zaczynać numerację od nowa („15”, „1/01”), więc
- *   ten sam numer w innym roku to inna faktura;
- * - paragon (także z NIP-em): numer nadaje kasa, a sieć z jednym NIP-em ma
- *   wiele kas, więc ten sam dokument to ten sam numer, dzień i kwota brutto.
+ * Tożsamość dokumentu: NIP sprzedawcy, numer i rok wystawienia, bez względu
+ * na rodzaj. Numer jest jednoznaczny u wystawcy (art. 106e ust. 1 pkt 2 ustawy
+ * o VAT), ale sprzedawca może co rok zaczynać numerację od nowa („15”, „1/01”),
+ * więc ten sam numer w innym roku to inny dokument. Rodzaju w kluczu nie ma,
+ * bo OCR nazywa fakturę uproszczoną (UPR, jest w KSeF) „simplified_invoice”, a
+ * koszt z KSeF ma zawsze rodzaj „invoice”.
  *
  * Dubel, przy którym odczyt okresu odmawia (z numerem, datą, źródłami
  * i wyjściem, zamiast po cichu wybierać jeden koszt):
- * - ten sam dokument z KSeF i spoza KSeF (zdjęcie, wpis ręczny, import):
- *   koszt z KSeF jest oryginałem, drugi to kopia (wzór FZ-022);
- * - dwa koszty spoza KSeF z tą samą kwotą brutto (np. zdjęcie wgrane dwa
- *   razy).
+ * - ten sam dokument z KSeF i spoza KSeF (zdjęcie, wpis ręczny, import),
+ *   dowolnego rodzaju: koszt z KSeF jest oryginałem, drugi to kopia (wzór FZ-022);
+ * - dwa koszty spoza KSeF z tą samą kwotą brutto albo (przy fakturach) w tej
+ *   samej kolumnie KPiR, np. zdjęcie wgrane dwa razy albo kopia ze źle
+ *   odczytaną kwotą. Paragon numeruje kasa, a sieć z jednym NIP-em ma wiele
+ *   kas, więc dwa paragony to kopia tylko przy tym samym dniu i brutto.
  * Bez odmowy: dwa koszty z KSeF (dla KSeF to różne dokumenty, np. faktura
- * i korekta z tym samym numerem) i koszty spoza KSeF z różnymi kwotami (np.
- * jedna faktura rozpisana na dwie kolumny KPiR). Każdy odczyt sprawdza tylko
- * swoje wiersze, więc inne okresy liczą się jak dotąd; para rozdzielona na
- * dwa okresy (np. OCR wziął datę sprzedaży z poprzedniego miesiąca) nie
- * daje odmowy w odczycie miesiąca (FZ-022, zamknie to zapis przy drugim źródle).
+ * i korekta z tym samym numerem) i faktura spoza KSeF rozpisana na dwie
+ * kolumny KPiR z różnymi kwotami. Każdy odczyt sprawdza tylko swoje wiersze,
+ * więc inne okresy liczą się jak dotąd. Nie łapie: pary w dwóch okresach
+ * albo przez przełom roku (np. OCR wziął datę sprzedaży), numeru zapisanego
+ * inaczej niż odstępami i wielkością liter („FV-7” i „FV/7”, zero na początku),
+ * NIP-u z błędną cyfrą, dwóch kopii spoza KSeF z różną kwotą i kolumną
+ * (FZ-022; parę ze Skrzynką zamknie zapis przy drugim źródle).
  *
  * Wyjście dla klienta: przy kopii wyłącza się „Uwzględnij w KPiR” (koszt ze
  * zdjęcia w formularzu kosztu, koszt z KSeF w przeglądzie kosztu KSeF,
@@ -49,6 +52,7 @@ export interface DokumentKosztu {
   document_type?: string | null;
   ocr_extracted_data?: unknown;
   gross_amount?: number | string | null;
+  kpir_column?: string | null;
 }
 
 export interface ZdublowanyDokument {
@@ -93,28 +97,31 @@ const brutto = (value: unknown): string => {
   return Number.isFinite(n) ? String(n) : '';
 };
 
-/**
- * Klucz dokumentu kosztu albo `null`, gdy brakuje NIP-u z 10 cyfr albo numeru.
- * Faktura: NIP, numer i rok wystawienia; paragon: NIP, numer, dzień i brutto.
- */
+/** Klucz dokumentu kosztu (NIP, numer i rok wystawienia) albo `null`, gdy brakuje NIP-u z 10 cyfr albo numeru. */
 export function kluczDokumentuKosztu(w: DokumentKosztu): string | null {
   const nip = nipDoPorownan(w.seller_nip);
   const numer = numerDoPorownan(w.document_number);
   if (!nip || !numer) return null;
-  const data = dzien(w.issue_date);
-  if (PARAGONY.has(costDocumentType(w))) return `paragon|${nip}|${numer}|${data}|${brutto(w.gross_amount)}`;
-  return `faktura|${nip}|${numer}|${data.slice(0, 4)}`;
+  return `${nip}|${numer}|${dzien(w.issue_date).slice(0, 4)}`;
 }
 
 const zeSkrzynki = (w: DokumentKosztu) => w.source === 'ksef_inbox' || (w.ksef_invoice_id ?? null) !== null;
 
-/** Grupa kosztów jednego dokumentu jest dublem: KSeF i spoza KSeF albo dwie kopie spoza KSeF z tym samym brutto. */
+const paragon = (w: DokumentKosztu) => PARAGONY.has(costDocumentType(w));
+const kolumna = (w: DokumentKosztu) => (typeof w.kpir_column === 'string' && w.kpir_column ? w.kpir_column : null);
+
+/** Dwa koszty spoza KSeF tego samego klucza to kopia: to samo brutto (paragon także ten sam dzień) albo faktura w tej samej kolumnie KPiR. */
+function kopiaSpozaKsef(a: DokumentKosztu, b: DokumentKosztu): boolean {
+  if (paragon(a) || paragon(b)) return dzien(a.issue_date) === dzien(b.issue_date) && brutto(a.gross_amount) === brutto(b.gross_amount);
+  return brutto(a.gross_amount) === brutto(b.gross_amount) || (kolumna(a) !== null && kolumna(a) === kolumna(b));
+}
+
+/** Grupa kosztów jednego dokumentu jest dublem: KSeF i spoza KSeF albo kopia spoza KSeF. */
 function jestDublem(grupa: readonly DokumentKosztu[]): boolean {
   const spoza = grupa.filter((w) => !zeSkrzynki(w));
   if (spoza.length === 0) return false;
   if (spoza.length < grupa.length) return true;
-  const kwoty = spoza.map((w) => brutto(w.gross_amount));
-  return new Set(kwoty).size < kwoty.length;
+  return spoza.some((a, i) => spoza.slice(i + 1).some((b) => kopiaSpozaKsef(a, b)));
 }
 
 /** Źródło kosztu w odmowie. */

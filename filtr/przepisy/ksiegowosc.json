@@ -3062,7 +3062,7 @@
     },
     {
       "id": "RP-KOSZT-01",
-      "regula": "Jeden dokument kosztu to jeden koszt w KPiR i jedno odliczenie VAT: ta sama faktura z KSeF i spoza KSeF (zdjęcie, wpis ręczny, import) albo dwie kopie spoza KSeF z tą samą kwotą brutto nie wchodzą do kosztów okresu dwa razy; odczyt okresu odmawia z numerem, datą, źródłami i wyjściem.",
+      "regula": "Jeden dokument kosztu to jeden koszt w KPiR i jedno odliczenie VAT: ten sam dokument (NIP sprzedawcy, numer i rok wystawienia, bez względu na rodzaj) z KSeF i spoza KSeF (zdjęcie, wpis ręczny, import) albo jako kopia spoza KSeF nie wchodzi do kosztów okresu dwa razy; odczyt okresu odmawia z numerem, datą, źródłami i wyjściem.",
       "podstawa": [
         {
           "akt": "ustawa o podatku od towarów i usług",
@@ -3094,7 +3094,8 @@
         "raporty.kpir",
         "jpk.vat-fa",
         "ksiegowosc.kpir",
-        "ksiegowosc.vat"
+        "ksiegowosc.vat",
+        "szacunki"
       ],
       "kod": [
         "lib/expenses/jeden-koszt-dokumentu.ts#zdublowanyDokument",
@@ -3111,7 +3112,7 @@
       "niezmienniki": [],
       "pewnosc": "srednia",
       "wzorzec": null,
-      "interpretacja": "Faktura: NIP sprzedawcy (10 cyfr), numer bez odstępów i wielkości liter oraz rok wystawienia (sprzedawca może co rok zaczynać numerację od nowa). Paragon (także z NIP-em) numeruje kasa, więc ten sam dokument to ten sam numer, dzień i kwota brutto. Dwa koszty z KSeF z tym samym kluczem to dla KSeF dwa dokumenty (np. faktura i korekta), a koszty spoza KSeF z różnymi kwotami to rozpisanie jednego dokumentu na kolumny KPiR; oba bez odmowy. Odmowa dotyczy odczytu okresu, w którym są oba koszty; para w dwóch okresach (np. OCR wziął datę sprzedaży) nie daje odmowy odczytu miesiąca.",
+      "interpretacja": "Klucz: NIP sprzedawcy (10 cyfr), numer bez odstępów i wielkości liter oraz rok wystawienia (sprzedawca może co rok zaczynać numerację od nowa); rodzaju w kluczu nie ma, bo faktura uproszczona z KSeF ma rodzaj „invoice”, a jej zdjęcie z OCR „simplified_invoice”. Dubel: koszt z KSeF i koszt spoza KSeF dowolnego rodzaju; dwa koszty spoza KSeF z tą samą kwotą brutto albo, przy fakturach, w tej samej kolumnie KPiR; dwa paragony tylko przy tym samym dniu i kwocie brutto (wiele kas pod jednym NIP-em). Bez odmowy: dwa koszty z KSeF (dla KSeF to dwa dokumenty, np. faktura i korekta) i faktura spoza KSeF rozpisana na dwie kolumny KPiR z różnymi kwotami. Odmowa dotyczy odczytu okresu, w którym są oba koszty; para w dwóch okresach albo przez przełom roku, numer zapisany inaczej niż odstępami i wielkością liter oraz dwie kopie spoza KSeF z różną kwotą i kolumną przechodzą bez odmowy.",
       "do_rozstrzygniecia": {
         "kto": "księgowa",
         "pytanie": "Czy jedną fakturę kosztową można wpisać do KPiR jako dwa wiersze z tym samym numerem dowodu (np. towar w kolumnie 10, transport w kolumnie 11), i czy paragon z tym samym numerem, dniem i kwotą brutto wgrany dwa razy zawsze jest tym samym dokumentem?",

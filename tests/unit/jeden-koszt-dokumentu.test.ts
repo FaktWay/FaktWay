@@ -10,12 +10,13 @@ import {
 
 /**
  * FZ-022 (RP-KOSZT-01): klucz dokumentu kosztu, kiedy grupa jest dublem
- * i odmowa (`lib/expenses/jeden-koszt-dokumentu.ts`). Faktura to NIP
- * sprzedawcy, numer i rok wystawienia (numeracja od nowa co rok daje ten sam
- * numer innej faktury); paragon numeruje kasa, więc ten sam dokument to ten
- * sam numer, dzień i brutto. Dubel: KSeF i spoza KSeF albo dwie kopie spoza
- * KSeF z tym samym brutto. Pełna ścieżka (runnery i odczyty) jest
- * w `tests/unit/koszt-jeden-dokument.test.ts`.
+ * i odmowa (`lib/expenses/jeden-koszt-dokumentu.ts`). Klucz: NIP sprzedawcy,
+ * numer i rok wystawienia, bez rodzaju (numeracja od nowa co rok daje ten sam
+ * numer innej faktury; faktura uproszczona z KSeF ma rodzaj „invoice”, a jej
+ * zdjęcie „simplified_invoice”). Dubel: KSeF i spoza KSeF dowolnego rodzaju
+ * albo kopia spoza KSeF (to samo brutto albo, przy fakturach, ta sama kolumna
+ * KPiR; dwa paragony tylko przy tym samym dniu i brutto). Pełna ścieżka
+ * (runnery i odczyty) jest w `tests/unit/koszt-jeden-dokument.test.ts`.
  */
 
 const faktura = (o: Partial<DokumentKosztu> = {}): DokumentKosztu => ({
@@ -48,6 +49,16 @@ describe('FZ-022: klucz dokumentu kosztu', () => {
     expect(zdublowanyDokument([faktura({ document_number: '15', issue_date: '2026-12-15' }), zKsef({ document_number: '15' })])).toBeNull();
   });
 
+  it('rodzaj nie rozdziela kopii od faktury z KSeF: zdjęcie faktury uproszczonej albo paragonu z tym numerem to dubel', () => {
+    for (const kopia of [
+      faktura({ document_type: 'simplified_invoice', ocr_extracted_data: { document_type: 'simplified_invoice' } }),
+      faktura({ document_type: 'receipt', ocr_extracted_data: { document_type: 'receipt' } }),
+      faktura({ document_type: 'invoice', ocr_extracted_data: { document_type: 'simplified_invoice' } }),
+    ]) {
+      expect(zdublowanyDokument([kopia, zKsef()])).toMatchObject({ ile: 2, zKsef: true });
+    }
+  });
+
   it('paragon: ten sam numer z innego dnia albo z inną kwotą to inny paragon (sieć z jednym NIP-em ma wiele kas)', () => {
     expect(zdublowanyDokument([paragon(), paragon({ issue_date: '2027-02-06' })])).toBeNull();
     expect(zdublowanyDokument([paragon(), paragon({ gross_amount: 61.51 })])).toBeNull();
@@ -72,7 +83,9 @@ describe('FZ-022: kiedy grupa jest dublem', () => {
   });
 
   it('koszty spoza KSeF z różnymi kwotami (dokument rozpisany na dwie kolumny KPiR): bez odmowy, z tą samą kwotą: dubel', () => {
-    expect(zdublowanyDokument([faktura({ gross_amount: 73.8 }), faktura({ source: 'manual', gross_amount: 49.2 })])).toBeNull();
+    expect(zdublowanyDokument([faktura({ gross_amount: 73.8, kpir_column: 'col_10' }), faktura({ source: 'manual', gross_amount: 49.2, kpir_column: 'col_11' })])).toBeNull();
+    // Ta sama kolumna i inna kwota to raczej kopia ze źle odczytaną kwotą niż rozpisanie.
+    expect(zdublowanyDokument([faktura({ gross_amount: 123, kpir_column: 'col_13' }), faktura({ source: 'manual', gross_amount: 132, kpir_column: 'col_13' })])).toMatchObject({ ile: 2 });
     expect(zdublowanyDokument([faktura(), faktura({ source: 'manual' })])).toMatchObject({ ile: 2, zKsef: false });
     // Kwota jako tekst (`numeric` z bazy) to ta sama kwota.
     expect(zdublowanyDokument([faktura({ gross_amount: '123.00' }), faktura({ gross_amount: 123 })])).toMatchObject({ ile: 2 });

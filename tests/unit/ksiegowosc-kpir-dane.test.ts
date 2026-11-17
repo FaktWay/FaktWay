@@ -158,6 +158,26 @@ describe('odczyt KPiR', () => {
     expect(wynik.komunikat).toContain('Dostawca');
   });
 
+  it.each(['simplified_invoice', 'receipt'])('FZ-022: zdjęcie z rodzajem %s i ta sama faktura ze Skrzynki KSeF: brak z numerem, datą i źródłami', async (rodzaj) => {
+    mocks.waluty = { data: [{ id: 'f-ksef-1', currency: 'PLN' }], error: null };
+    mocks.koszty = [
+      KOSZT_KSEF,
+      { ...KOSZT_KSEF, id: 'k2', source: 'ocr_photo', ksef_invoice_id: null, document_type: rodzaj, ocr_extracted_data: { document_type: rodzaj } },
+    ];
+    const wynik = await czytajKpir(client, 'firma-1', 2026, { wersje: [SKALA] });
+    expect(wynik.ok).toBe(false);
+    if (wynik.ok) return;
+    expect(wynik.komunikat).toContain('FZ/1 z 12.03.2026');
+    expect(wynik.komunikat).toContain('ze Skrzynki KSeF i ze zdjęcia');
+  });
+
+  it('FZ-022: ten sam numer tego samego sprzedawcy w innym roku to inny dokument: KPiR liczy oba', async () => {
+    mocks.waluty = { data: [{ id: 'f-ksef-1', currency: 'PLN' }], error: null };
+    mocks.koszty = [KOSZT_KSEF, { ...KOSZT_KSEF, id: 'k2', source: 'ocr_photo', ksef_invoice_id: null, issue_date: '2025-03-12' }];
+    const wynik = await czytajKpir(client, 'firma-1', 2026, { wersje: [SKALA] });
+    expect(wynik.ok).toBe(true);
+  });
+
   it('F11-C1: dwa różne dokumenty tego samego sprzedawcy: KPiR liczy oba', async () => {
     mocks.waluty = { data: [{ id: 'f-ksef-1', currency: 'PLN' }], error: null };
     mocks.koszty = [KOSZT_KSEF, { ...KOSZT_KSEF, id: 'k2', source: 'ocr_photo', ksef_invoice_id: null, document_number: 'FZ/2' }];

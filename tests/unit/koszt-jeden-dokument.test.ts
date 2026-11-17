@@ -331,6 +331,21 @@ describe('FZ-022: ta sama faktura ze zdjęcia i ze Skrzynki KSeF', () => {
   });
 });
 
+describe('FZ-022: rodzaj z OCR nie rozdziela kopii od faktury z KSeF', () => {
+  it.each(['simplified_invoice', 'receipt'])('zdjęcie z rodzajem %s i ta sama faktura (np. uproszczona) ze Skrzynki: odmowa w obu kolejnościach', async (rodzaj) => {
+    for (const [, przebieg] of [
+      ['zdjęcie, potem Skrzynka', async () => { await zdjecie(zdjecieFaktury({ document_type: rodzaj })); await skrzynka(); }],
+      ['Skrzynka, potem zdjęcie', async () => { await skrzynka(); await zdjecie(zdjecieFaktury({ document_type: rodzaj })); }],
+    ] as const) {
+      baza();
+      await przebieg();
+      const { kpirOdmowa, jpk } = await odczyty();
+      expect(kpirOdmowa).toContain(NUMER);
+      expect(jpk.odmowa).toContain(NUMER);
+    }
+  });
+});
+
 describe('FZ-022: bez odmowy, gdy to nie ten sam dokument', () => {
   it.each([
     ['inny NIP sprzedawcy', { seller_nip: '1111111111' }],
@@ -374,10 +389,12 @@ describe('FZ-022: bez odmowy, gdy to nie ten sam dokument', () => {
     expect(jpk).toMatchObject({ odmowa: null, wJpk: 2 });
   });
 
-  it('jedna faktura rozpisana na dwa koszty spoza KSeF z różnymi kwotami (np. dwie kolumny KPiR): bez odmowy', async () => {
+  it('jedna faktura rozpisana na dwa koszty spoza KSeF z różnymi kwotami w dwóch kolumnach KPiR: bez odmowy', async () => {
     baza([]);
     await zdjecie(zdjecieFaktury({ net_amount: 60, vat_amount: 13.8, gross_amount: 73.8 }));
     await zdjecie(zdjecieFaktury({ net_amount: 40, vat_amount: 9.2, gross_amount: 49.2 }), OCR_JOB_2);
+    // Klient ustawia drugiej części inną kolumnę (np. transport w kolumnie 11).
+    koszty().find((e) => e.ocr_job_id === OCR_JOB_2)!.kpir_column = 'col_11';
     const { kpirOdmowa, wKpir, jpk } = await odczyty();
     expect(kpirOdmowa).toBeNull();
     expect(wKpir).toBe(2);

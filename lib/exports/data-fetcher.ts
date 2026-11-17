@@ -211,6 +211,7 @@ async function fetchExpensesForExport(
     document_type: typeof row.document_type === 'string' ? row.document_type : null,
     ocr_extracted_data: row.ocr_extracted_data,
     gross_amount: Number(row.gross_amount ?? 0),
+    kpir_column: typeof row.kpir_column === 'string' ? row.kpir_column : null,
   })));
   const out = eligible.map((row) => ({
     id: String(row.id),
