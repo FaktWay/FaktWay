@@ -106,6 +106,9 @@ export const CRON_JOBS: readonly CronJobDef[] = [
   // Retencja dzienników paczkami (00157): codziennie, z budżetem czasu — przy
   // kadencji miesięcznej przebieg miał do usunięcia cały miesiąc wierszy naraz.
   { queue: 'cron.cleanup-audit-logs', cron: '0 3 * * *', tz: TZ },
+  // Kopie robocze formularza faktury (00207, krok 2.8): wiersze starsze niż 30 dni z danymi
+  // nabywcy znikają także wtedy, gdy nikt nie wraca do formularza. 03:30, raz na dobę.
+  { queue: 'cron.cleanup-invoice-form-drafts', cron: '30 3 * * *', tz: TZ },
   { queue: 'cron.cleanup-old-backups', cron: '0 4 * * *', tz: TZ },
   { queue: 'cron.co-pilot-monthly', cron: '0 8 * * *', tz: TZ },
   { queue: 'cron.critical-alerts-monitor', cron: '*/5 * * * *', tz: TZ },

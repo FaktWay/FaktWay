@@ -1,13 +1,15 @@
+import { spawnSync } from 'node:child_process';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import { createMobileDbClient } from '@/lib/api/mobile/db';
+import { addDaysToIsoDate } from '@/lib/format/warsaw-date';
 import { markInvoicePaid, undoInvoicePaid } from '@/lib/invoices/mark-paid';
 import { loadOverdueOverview } from '@/lib/overdue/load-overdue';
 import { setInvoiceRemindersPaused } from '@/lib/reminders/pause';
 import type { Database } from '@/types/database';
 
-import { getRlsTestEnvironment } from './helpers/rls-environment';
+import { getRlsTestDatabaseUrl, getRlsTestEnvironment } from './helpers/rls-environment';
 
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('@/lib/cache/invalidation', () => ({ invalidateTenantDashboard: vi.fn() }));
@@ -26,6 +28,14 @@ vi.mock('@/lib/webhooks/emit', () => ({ emitWebhookEvent: vi.fn() }));
  *  2. wstrzymanie przypomnień (RPC z 00074) w aktywnej firmie tokenu;
  *  3. lista „Po terminie” (`loadOverdueOverview`, widok `invoices_overdue`
  *     z `security_invoker`) widzi tylko faktury firmy z nagłówka.
+ *
+ * Daty faktur liczy od dnia bazy (`current_date` przez `psql`), nie od zegara
+ * Warszawy. Widok i `days_overdue()` (00145, 00023) biorą `CURRENT_DATE` sesji
+ * bazy, a na lokalnym Supabase to dzień w UTC. Dzień w Europe/Warsaw wyprzedza
+ * go od 23:00 do 24:00 UTC (latem od 22:00) i wtedy test dostawał 11 dni po
+ * terminie zamiast 12 (CI na `main` 14.11.2026 o 23:20 i 23:31 UTC). Wymaga
+ * `RLS_TEST_DATABASE_URL` i programu `psql`: `RLS_TEST_PSQL` (domyślnie `psql`;
+ * lokalnie np. `wsl -e psql`).
  */
 
 const hasDatabase = Boolean(
@@ -34,6 +44,8 @@ const hasDatabase = Boolean(
     process.env.RLS_TEST_SUPABASE_SERVICE_ROLE_KEY?.trim(),
 );
 const environment = hasDatabase ? getRlsTestEnvironment() : null;
+const databaseUrl = hasDatabase ? getRlsTestDatabaseUrl() : '';
+const PSQL = (process.env.RLS_TEST_PSQL?.trim() || 'psql').split(/\s+/);
 const admin: SupabaseClient = environment
   ? createClient(environment.url, environment.serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } })
   : (null as unknown as SupabaseClient);
@@ -54,13 +66,20 @@ const INV_A = '000a1000-1000-4000-8000-000000000001';
 const INV_A2 = '000a1000-1000-4000-8000-000000000002';
 const INV_B = '000a1000-1000-4000-8000-000000000003';
 
-function warsawToday(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Warsaw' }).format(new Date());
-}
-function daysAgo(days: number): string {
-  const d = new Date(`${warsawToday()}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - days);
-  return d.toISOString().slice(0, 10);
+/** Dzisiejszy dzień bazy testowej (`current_date`) jako RRRR-MM-DD. */
+function databaseToday(): string {
+  const [cmd, ...prefix] = PSQL;
+  const result = spawnSync(
+    cmd!,
+    [...prefix, '-X', '-q', '-At', '-v', 'ON_ERROR_STOP=1', '-c', "SELECT to_char(current_date, 'YYYY-MM-DD')", databaseUrl],
+    // Strefa sesji jak w PostgREST (domyślna bazy), więc bez PGTZ i PGOPTIONS z otoczenia.
+    { encoding: 'utf8', timeout: 30_000, env: { ...process.env, PGTZ: undefined, PGOPTIONS: undefined, PGCONNECT_TIMEOUT: '10' } },
+  );
+  if (result.error) throw new Error(`psql niedostępny: ${result.error.message}`);
+  if (result.status !== 0) throw new Error(`psql: ${result.stderr}`);
+  const day = result.stdout.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error(`Nieoczekiwany dzień bazy: ${day}`);
+  return day;
 }
 
 async function createUser(email: string): Promise<string> {
@@ -78,12 +97,12 @@ async function tokenOf(email: string): Promise<string> {
   return data.session.access_token;
 }
 
-/** Faktura sprzedaży przyjęta w KSeF TEST, 12 dni po terminie, 1230 zł brutto. */
-function invoice(id: string, tenantId: string, n: number) {
+/** Faktura sprzedaży przyjęta w KSeF TEST, 12 dni po terminie według dnia bazy, 1230 zł brutto. */
+function invoice(id: string, tenantId: string, n: number, today: string) {
   const number = `FV/M10/${RUN}/${n}`;
   return {
     id, tenant_id: tenantId, direction: 'outgoing', origin: 'app', internal_number: number,
-    invoice_type: 'VAT', invoice_kind: 'regular', issue_date: daysAgo(30), payment_due_date: daysAgo(12),
+    invoice_type: 'VAT', invoice_kind: 'regular', issue_date: addDaysToIsoDate(today, -30)!, payment_due_date: addDaysToIsoDate(today, -12)!,
     seller_nip: NIP, buyer_nip: NIP, gross_total: 1230, net_total: 1000, vat_total: 230, currency: 'PLN',
     fa3_data: { internalNumber: number, type: 'VAT' }, seller_data: { nip: NIP },
     buyer_data: { nip: NIP, name: 'Nabywca M10', email: 'nabywca@example.test' },
@@ -128,7 +147,11 @@ describe.skipIf(!hasDatabase)('M10a: należności z telefonu na bazie (token i x
       { organization_id: ORG_B, user_id: ids.stranger, role: 'owner', status: 'active' },
     ]);
     if (membershipsError) throw membershipsError;
-    const { error: invoicesError } = await admin.from('invoices').insert([invoice(INV_A, ORG_A, 1), invoice(INV_A2, ORG_A, 2), invoice(INV_B, ORG_B, 3)]);
+    // Dzień bazy czytany tuż przed zapisem faktur: od niego widok liczy dni po terminie.
+    const today = databaseToday();
+    const { error: invoicesError } = await admin.from('invoices').insert([
+      invoice(INV_A, ORG_A, 1, today), invoice(INV_A2, ORG_A, 2, today), invoice(INV_B, ORG_B, 3, today),
+    ]);
     if (invoicesError) throw invoicesError;
 
     const [tMember, tAccountant, tStranger] = await Promise.all([tokenOf(EMAILS.member), tokenOf(EMAILS.accountant), tokenOf(EMAILS.stranger)]);

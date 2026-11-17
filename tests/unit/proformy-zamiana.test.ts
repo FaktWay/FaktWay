@@ -19,7 +19,7 @@ const DOKUMENT = '5d0e8a8c-7a3b-4f61-9d2e-1c4b5a6f7e80';
 const m = vi.hoisted(() => ({
   formProps: [] as Array<Record<string, unknown>>,
   advanceProps: [] as Array<Record<string, unknown>>,
-  ctx: { supabase: null as unknown, tenantId: 'ten-1' },
+  ctx: { supabase: null as unknown, user: { id: 'user-1' }, tenantId: 'ten-1' },
 }));
 
 vi.mock('@/lib/supabase/page-context', () => ({ getPageContext: vi.fn(async () => m.ctx) }));
@@ -142,7 +142,7 @@ beforeEach(() => {
   m.formProps.length = 0;
   m.advanceProps.length = 0;
   db = memoryDb({ sales_quotes: [wiersz()], invoices: [] });
-  m.ctx = { supabase: fakeSupabase(db), tenantId: TENANT };
+  m.ctx = { supabase: fakeSupabase(db), user: { id: 'user-1' }, tenantId: TENANT };
 });
 
 describe('dane z dokumentu do formularza faktury', () => {

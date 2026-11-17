@@ -9,6 +9,7 @@ import {
 import { getSignedInvoiceUrl } from '@/lib/storage/r2';
 import { assertTenantStoragePath } from '@/lib/storage/tenant-path';
 import { getR2Client, getR2Config } from '@/lib/storage/r2-client';
+import { uploadRequestOptions } from '@/lib/storage/s3-timeouts';
 
 /**
  * Sukcesywnie zbiera Body z GetObject jako bufor binarny (jak w `lib/storage/r2.ts`).
@@ -88,7 +89,8 @@ export async function uploadExpensePhoto(
       Body: buffer,
       ContentType: mimeType,
       CacheControl: 'private, no-store',
-    })
+    }),
+    uploadRequestOptions(buffer.length),
   );
 
   return key;

@@ -210,7 +210,7 @@ export function QuoteForm({
                         value={field.value}
                         onValueChange={(value) => field.onChange((value ?? 'proforma') as QuoteKind)}
                       >
-                        <SelectTrigger id={`${formId}-kind`} className='w-full'>
+                        <SelectTrigger id={`${formId}-kind`} aria-describedby={errors.kind ? `${formId}-kind-error` : undefined} aria-invalid={!!(errors.kind)} className='w-full'>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent alignItemWithTrigger={false}>
@@ -230,15 +230,15 @@ export function QuoteForm({
                       ? 'Oferta: wycena dla kontrahenta z terminem ważności, bez wezwania do zapłaty.'
                       : 'Proforma: dokument do zapłaty z góry. Po wpłacie zamienisz ją w fakturę albo fakturę zaliczkową.'}
                   </FieldDescription>
-                  <FieldError errors={[errors.kind]} />
+                  <FieldError id={`${formId}-kind-error`} errors={[errors.kind]} />
                 </FieldContent>
               </Field>
 
               <Field data-invalid={!!errors.issueDate}>
                 <FieldLabel htmlFor={`${formId}-issue-date`}>Data wystawienia</FieldLabel>
                 <FieldContent>
-                  <Input id={`${formId}-issue-date`} type='date' max={today} aria-invalid={!!errors.issueDate} {...register('issueDate')} />
-                  <FieldError errors={[errors.issueDate]} />
+                  <Input id={`${formId}-issue-date`} aria-describedby={errors.issueDate ? `${formId}-issue-date-error` : undefined} type='date' max={today} aria-invalid={!!errors.issueDate} {...register('issueDate')} />
+                  <FieldError id={`${formId}-issue-date-error`} errors={[errors.issueDate]} />
                 </FieldContent>
               </Field>
             </div>
@@ -247,8 +247,8 @@ export function QuoteForm({
               <Field data-invalid={!!errors.validUntil} className='sm:max-w-[calc(50%-0.5rem)]'>
                 <FieldLabel htmlFor={`${formId}-valid-until`}>Oferta ważna do</FieldLabel>
                 <FieldContent>
-                  <Input id={`${formId}-valid-until`} type='date' min={today} aria-invalid={!!errors.validUntil} {...register('validUntil')} />
-                  <FieldError errors={[errors.validUntil]} />
+                  <Input id={`${formId}-valid-until`} aria-describedby={errors.validUntil ? `${formId}-valid-until-error` : undefined} type='date' min={today} aria-invalid={!!errors.validUntil} {...register('validUntil')} />
+                  <FieldError id={`${formId}-valid-until-error`} errors={[errors.validUntil]} />
                 </FieldContent>
               </Field>
             ) : null}
@@ -262,7 +262,7 @@ export function QuoteForm({
                     value={contractorId || null}
                     onValueChange={(value) => setValue('contractorId', value ?? '', { shouldValidate: true })}
                   >
-                    <SelectTrigger id={`${formId}-contractor`} className='w-full' aria-invalid={!!errors.contractorId}>
+                    <SelectTrigger id={`${formId}-contractor`} aria-describedby={errors.contractorId ? `${formId}-contractor-error` : undefined} className='w-full' aria-invalid={!!errors.contractorId}>
                       <SelectValue placeholder='Wybierz kontrahenta z bazy' />
                     </SelectTrigger>
                     <SelectContent alignItemWithTrigger={false}>
@@ -281,10 +281,12 @@ export function QuoteForm({
                     i zapiszemy kontrahenta w bazie firmy.
                   </FieldDescription>
                 )}
-                <FieldError errors={[errors.contractorId]} />
+                <FieldError id={`${formId}-contractor-error`} errors={[errors.contractorId]} />
                 <div className='flex flex-col gap-2 sm:flex-row'>
                   <Input
                     aria-label='NIP kontrahenta spoza listy'
+                    aria-invalid={!!errors.contractorId}
+                    aria-describedby={errors.contractorId ? `${formId}-contractor-error` : undefined}
                     inputMode='numeric'
                     placeholder='NIP kontrahenta spoza listy'
                     value={nip}
@@ -303,7 +305,7 @@ export function QuoteForm({
             <Separator />
 
             <h3 className='font-medium'>Pozycje</h3>
-            <div className='flex flex-col gap-3'>
+            <div role='group' aria-label='Pozycje' aria-describedby={itemsError ? `${formId}-items-error` : undefined} className='flex flex-col gap-3'>
               <div className='text-muted-foreground hidden gap-2 text-xs font-medium lg:grid lg:grid-cols-[minmax(8rem,1fr)_4rem_5rem_6.5rem_5.5rem_6.5rem_2.25rem]'>
                 <span>Nazwa</span>
                 <span>J.m.</span>
@@ -327,12 +329,12 @@ export function QuoteForm({
                       </FieldLabel>
                       <FieldContent>
                         <Input
-                          id={`${formId}-item-${index}-name`}
+                          id={`${formId}-item-${index}-name`} aria-describedby={itemErrors?.name ? `${formId}-item-${index}-name-error` : undefined}
                           maxLength={512}
                           aria-invalid={!!itemErrors?.name}
                           {...register(`items.${index}.name`)}
                         />
-                        <FieldError errors={[itemErrors?.name]} />
+                        <FieldError id={`${formId}-item-${index}-name-error`} errors={[itemErrors?.name]} />
                       </FieldContent>
                     </Field>
                     <Field data-invalid={!!itemErrors?.unit}>
@@ -341,12 +343,12 @@ export function QuoteForm({
                       </FieldLabel>
                       <FieldContent>
                         <Input
-                          id={`${formId}-item-${index}-unit`}
+                          id={`${formId}-item-${index}-unit`} aria-describedby={itemErrors?.unit ? `${formId}-item-${index}-unit-error` : undefined}
                           maxLength={50}
                           aria-invalid={!!itemErrors?.unit}
                           {...register(`items.${index}.unit`)}
                         />
-                        <FieldError errors={[itemErrors?.unit]} />
+                        <FieldError id={`${formId}-item-${index}-unit-error`} errors={[itemErrors?.unit]} />
                       </FieldContent>
                     </Field>
                     <Field data-invalid={!!itemErrors?.quantity}>
@@ -355,7 +357,7 @@ export function QuoteForm({
                       </FieldLabel>
                       <FieldContent>
                         <Input
-                          id={`${formId}-item-${index}-quantity`}
+                          id={`${formId}-item-${index}-quantity`} aria-describedby={itemErrors?.quantity ? `${formId}-item-${index}-quantity-error` : undefined}
                           type='number'
                           step='0.0001'
                           inputMode='decimal'
@@ -363,7 +365,7 @@ export function QuoteForm({
                           aria-invalid={!!itemErrors?.quantity}
                           {...register(`items.${index}.quantity`, { valueAsNumber: true })}
                         />
-                        <FieldError errors={[itemErrors?.quantity]} />
+                        <FieldError id={`${formId}-item-${index}-quantity-error`} errors={[itemErrors?.quantity]} />
                       </FieldContent>
                     </Field>
                     <Field data-invalid={!!itemErrors?.unitPriceNet}>
@@ -372,7 +374,7 @@ export function QuoteForm({
                       </FieldLabel>
                       <FieldContent>
                         <Input
-                          id={`${formId}-item-${index}-price`}
+                          id={`${formId}-item-${index}-price`} aria-describedby={itemErrors?.unitPriceNet ? `${formId}-item-${index}-price-error` : undefined}
                           type='number'
                           step='0.01'
                           inputMode='decimal'
@@ -380,7 +382,7 @@ export function QuoteForm({
                           aria-invalid={!!itemErrors?.unitPriceNet}
                           {...register(`items.${index}.unitPriceNet`, { valueAsNumber: true })}
                         />
-                        <FieldError errors={[itemErrors?.unitPriceNet]} />
+                        <FieldError id={`${formId}-item-${index}-price-error`} errors={[itemErrors?.unitPriceNet]} />
                       </FieldContent>
                     </Field>
                     <Field data-invalid={!!itemErrors?.vatRate}>
@@ -389,7 +391,7 @@ export function QuoteForm({
                       </FieldLabel>
                       <FieldContent>
                         <select
-                          id={`${formId}-item-${index}-vat`}
+                          id={`${formId}-item-${index}-vat`} aria-describedby={itemErrors?.vatRate ? `${formId}-item-${index}-vat-error` : undefined}
                           className={vatSelectClass}
                           aria-invalid={itemErrors?.vatRate ? true : undefined}
                           {...register(`items.${index}.vatRate`)}
@@ -400,7 +402,7 @@ export function QuoteForm({
                             </option>
                           ))}
                         </select>
-                        <FieldError errors={[itemErrors?.vatRate]} />
+                        <FieldError id={`${formId}-item-${index}-vat-error`} errors={[itemErrors?.vatRate]} />
                       </FieldContent>
                     </Field>
                     <p className='self-center text-right text-sm font-medium tabular-nums lg:mt-1.5 lg:self-start'>
@@ -421,7 +423,7 @@ export function QuoteForm({
                   </div>
                 );
               })}
-              <FieldError errors={[itemsError ? { message: itemsError } : undefined]} />
+              <FieldError id={`${formId}-items-error`} errors={[itemsError ? { message: itemsError } : undefined]} />
               <div className='flex flex-wrap items-start justify-between gap-2'>
                 <Button
                   type='button'
@@ -471,7 +473,7 @@ export function QuoteForm({
                           value={field.value ?? 'transfer'}
                           onValueChange={(value) => field.onChange((value ?? 'transfer') as QuotePaymentMethod)}
                         >
-                          <SelectTrigger id={`${formId}-payment-method`} className='w-full'>
+                          <SelectTrigger id={`${formId}-payment-method`} aria-describedby={errors.paymentMethod ? `${formId}-payment-method-error` : undefined} aria-invalid={!!(errors.paymentMethod)} className='w-full'>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent alignItemWithTrigger={false}>
@@ -486,14 +488,14 @@ export function QuoteForm({
                         </Select>
                       )}
                     />
-                    <FieldError errors={[errors.paymentMethod]} />
+                    <FieldError id={`${formId}-payment-method-error`} errors={[errors.paymentMethod]} />
                   </FieldContent>
                 </Field>
                 <Field data-invalid={!!errors.paymentDueDate}>
                   <FieldLabel htmlFor={`${formId}-due-date`}>Termin zapłaty (opcjonalnie)</FieldLabel>
                   <FieldContent>
-                    <Input id={`${formId}-due-date`} type='date' aria-invalid={!!errors.paymentDueDate} {...register('paymentDueDate')} />
-                    <FieldError errors={[errors.paymentDueDate]} />
+                    <Input id={`${formId}-due-date`} aria-describedby={errors.paymentDueDate ? `${formId}-due-date-error` : undefined} type='date' aria-invalid={!!errors.paymentDueDate} {...register('paymentDueDate')} />
+                    <FieldError id={`${formId}-due-date-error`} errors={[errors.paymentDueDate]} />
                   </FieldContent>
                 </Field>
                 <Field data-invalid={!!errors.bankAccount}>
@@ -502,13 +504,13 @@ export function QuoteForm({
                   </FieldLabel>
                   <FieldContent>
                     <Input
-                      id={`${formId}-bank`}
+                      id={`${formId}-bank`} aria-describedby={errors.bankAccount ? `${formId}-bank-error` : undefined}
                       inputMode='numeric'
                       placeholder='26 cyfr rachunku'
                       aria-invalid={!!errors.bankAccount}
                       {...register('bankAccount')}
                     />
-                    <FieldError errors={[errors.bankAccount]} />
+                    <FieldError id={`${formId}-bank-error`} errors={[errors.bankAccount]} />
                   </FieldContent>
                 </Field>
               </div>
@@ -519,14 +521,14 @@ export function QuoteForm({
                 <FieldLabel htmlFor={`${formId}-notes`}>Uwagi (opcjonalnie)</FieldLabel>
                 <FieldContent>
                   <Textarea
-                    id={`${formId}-notes`}
+                    id={`${formId}-notes`} aria-describedby={errors.notes ? `${formId}-notes-error` : undefined}
                     rows={3}
                     maxLength={QUOTE_LIMITS.notes}
                     placeholder={offer ? 'Na przykład termin realizacji albo warunki dostawy' : 'Na przykład: realizacja po wpłacie'}
                     aria-invalid={!!errors.notes}
                     {...register('notes')}
                   />
-                  <FieldError errors={[errors.notes]} />
+                  <FieldError id={`${formId}-notes-error`} errors={[errors.notes]} />
                 </FieldContent>
               </Field>
               <Field>

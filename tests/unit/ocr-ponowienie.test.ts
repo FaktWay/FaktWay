@@ -662,7 +662,8 @@ describe('B4 — OCR zawodzi', () => {
     state.ocrFails = true;
 
     expect(await runProcessOcr(event, ctx)).toEqual({ success: false });
-    expect(state.jobUpdates).toContainEqual(expect.objectContaining({ status: 'failed' }));
+    // `completed_at`: raport dzienny liczy porażki w dobie, w której padły (LIM-05).
+    expect(state.jobUpdates).toContainEqual(expect.objectContaining({ status: 'failed', completed_at: expect.any(String) }));
     expect(state.failedCard).toHaveBeenCalledTimes(1);
     expect(state.push).toHaveBeenCalledWith(USER, 'invoice_rejected', expect.anything());
   });

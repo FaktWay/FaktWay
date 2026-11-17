@@ -28,6 +28,7 @@ import { getRegisteredJobs, registerJob } from './registry';
 import { wrapHandler } from './run-job';
 import { workOptionsFor } from './work-options';
 import { startProcessMetrics } from '@/lib/observability/process-metrics';
+import { enableWorkerStorageTimeouts } from '@/lib/storage/s3-timeouts';
 import { enableWorkerSupabaseTimeouts } from '@/lib/supabase/fetch-timeout';
 import {
   flushWorkerSentry,
@@ -84,6 +85,8 @@ async function main(): Promise<void> {
   enableWorkerRole();
   // Dłuższe limity czasu Supabase niż w żądaniach (plan skalowania, sesja 5).
   enableWorkerSupabaseTimeouts();
+  // To samo dla magazynu plików i archiwum (LIM-05): kopie i paczki archiwum.
+  enableWorkerStorageTimeouts();
   // Sygnał z czasu wczytywania modułów dociera tu, zanim worker połączy się z bazą.
   // Dalej start sprawdza zatrzymanie przed każdym work(), schedule(), zdjęciem
   // harmonogramu, usunięciem kolejki i healthcheckiem; krok w toku, np. zapytanie

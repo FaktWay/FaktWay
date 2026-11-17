@@ -17,7 +17,7 @@ const m = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/supabase/page-context', () => ({
-  getPageContext: vi.fn().mockResolvedValue({ supabase: {}, tenantId: 'tenant-a' }),
+  getPageContext: vi.fn().mockResolvedValue({ supabase: {}, user: { id: 'user-a' }, tenantId: 'tenant-a' }),
 }));
 vi.mock('@/components/invoices/actions', () => ({
   prefillFromLastInvoiceAction: vi.fn().mockResolvedValue({ contractorName: 'Ostatni', values: {} }),

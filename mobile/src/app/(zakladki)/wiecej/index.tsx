@@ -84,7 +84,7 @@ export default function EkranWiecej() {
     {
       naglowek: 'Powiadomienia i przypomnienia',
       pozycje: [
-        { tytul: 'Powiadomienia', trasa: '/wiecej/ustawienia/powiadomienia', slowa: 'push e-mail', strona: '/settings/notifications' },
+        { tytul: 'Powiadomienia', trasa: '/wiecej/ustawienia/powiadomienia', slowa: 'push e-mail' },
         { tytul: 'Przypomnienia o zapłacie', trasa: '/wiecej/ustawienia/przypomnienia', slowa: 'windykacja po terminie', role: ['owner'] },
       ],
     },

@@ -5,6 +5,8 @@ import type { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import type { MobileCaller } from '@/lib/api/mobile/auth';
+import type { TenMiesiacDodatki } from '@/lib/api/mobile/kontrakt-ksiegowosc';
+import { formularzZaplatyRecznej, miesiaceDoWyboru, okresZAdresu, poleNadwyzki, zaplataRecznaTelefonu } from '@/lib/api/mobile/ksiegowosc-vat';
 import type {
   PozycjaRozliczeniaTelefonu,
   TenMiesiacOdpowiedz,
@@ -13,10 +15,8 @@ import type {
 } from '@/lib/api/mobile/kontrakt';
 import { MobileUpstreamError, mobileError, mobileJson } from '@/lib/api/mobile/responses';
 import { readJsonBody } from '@/lib/api/mobile/tresc';
-import { shiftMonth } from '@/lib/expenses/month';
 import { todayInWarsaw } from '@/lib/format/warsaw-date';
 import { mikrorachunekZNip } from '@/lib/ksiegowosc/mikrorachunek';
-import { miesiacZParametrow } from '@/lib/ksiegowosc/miesiac-strony';
 import { rokSkladkowyZdrowotnej } from '@/lib/ksiegowosc/parametry';
 import { daneDoPrzelewu, podpisKwot } from '@/lib/ksiegowosc/przelew';
 import { NAZWY_ROZLICZEN } from '@/lib/ksiegowosc/ten-miesiac';
@@ -35,12 +35,11 @@ import { isUuid } from '@/lib/supabase/active-org';
  *
  * Ponowienie: zatwierdzenie tych samych skrótów po zapisie daje `nowe: 0`,
  * wyścig łapie UNIQUE wersji (23505, zdanie strony); zapłata ustawia ten sam stan.
- * KPiR, ewidencja, VAT, eksport i zapłaty spoza wyliczenia zostają na stronie.
+ * Od M10d nadwyżka VAT (`?nadwyzka=` jak na stronie, ta sama kwota idzie do
+ * zatwierdzenia) i zapłaty spoza wyliczenia (lista i formularz; zapis w
+ * `ksiegowosc-vat.ts`). KPiR, ewidencja i eksport zostają na stronie.
  */
 
-const MIESIAC = /^20\d{2}-(0[1-9]|1[0-2])$/;
-/** Moduł księgowości liczy od 2026 r. (parametry roku). */
-const PIERWSZY_MIESIAC = '2026-01';
 const ROLE_ZAPISU = new Set(['owner', 'admin']);
 const TYLKO_WLASCICIEL = 'Miesiąc zatwierdza i zapłaty oznacza właściciel albo administrator firmy.';
 const MAX_BODY_BYTES = 10_000;
@@ -52,24 +51,16 @@ function orgOf(caller: MobileCaller): NonNullable<MobileCaller['org']> {
   return caller.org;
 }
 
-/** Od bieżącego miesiąca wstecz do stycznia 2026, najwyżej 12. */
-function miesiaceDoWyboru(dzis: string): string[] {
-  const wynik: string[] = [];
-  for (let m = dzis.slice(0, 7); m >= PIERWSZY_MIESIAC && wynik.length < 12; m = shiftMonth(m, -1)) wynik.push(m);
-  return wynik;
-}
-
-/** `GET /api/mobile/v1/ksiegowosc?miesiac=RRRR-MM`. */
+/** `GET /api/mobile/v1/ksiegowosc?miesiac=RRRR-MM&nadwyzka=N`. */
 export async function monthForMobile(caller: MobileCaller, request: Request): Promise<NextResponse> {
   const headers = caller.headers;
   const org = orgOf(caller);
   const db = caller.db as Db;
   const dzis = todayInWarsaw();
-  const parametr = new URL(request.url).searchParams.get('miesiac');
-  if (parametr !== null && (!MIESIAC.test(parametr) || parametr > dzis.slice(0, 7))) {
-    return mobileError(400, 'invalid_request', 'Wybierz miesiąc z listy (RRRR-MM, najpóźniej bieżący).', headers);
-  }
-  const miesiac = parametr ?? miesiacZParametrow({}, dzis);
+  // M10d: nadwyżka VAT wpisana przy pozycji VAT, jak `?nadwyzka=` strony.
+  const okres = okresZAdresu(request, dzis);
+  if (!okres.ok) return mobileError(400, 'invalid_request', okres.komunikat, headers);
+  const { miesiac } = okres;
   const mozeEdytowac = ROLE_ZAPISU.has(org.role);
 
   let wlaczona: boolean;
@@ -79,14 +70,15 @@ export async function monthForMobile(caller: MobileCaller, request: Request): Pr
     // Jak strona: „nie wiem” to nie „tak”; telefon ponawia.
     throw new MobileUpstreamError('ksiegowosc.wylacznik');
   }
-  const pusta: TenMiesiacOdpowiedz = {
+  const pusta: TenMiesiacOdpowiedz & TenMiesiacDodatki = {
     wlaczona, miesiac, miesiace: miesiaceDoWyboru(dzis), dzis, podpis: '', forma: null, braki: null, przychodGr: null, kosztyGr: null,
     pozycje: [], mozeEdytowac, miesiacZakonczony: miesiacZakonczony(miesiac, dzis), doZatwierdzenia: 0, skroty: {}, historia: [],
+    nadwyzkaVat: null, zaplatyReczne: [], zaplataReczna: null,
   };
   if (!wlaczona) return mobileJson(pusta, 200, headers);
 
   const [dane, firma] = await Promise.all([
-    czytajTenMiesiac(db, org.tenantId, miesiac, { nadwyzkaVat: null }),
+    czytajTenMiesiac(db, org.tenantId, miesiac, { nadwyzkaVat: okres.nadwyzka }),
     db.from('tenants').select('nip').eq('id', org.tenantId).maybeSingle(),
   ]);
   // `null`: NIP-u nie udało się odczytać (inne zdanie niż „brak NIP w ustawieniach”), jak na stronie.
@@ -97,8 +89,10 @@ export async function monthForMobile(caller: MobileCaller, request: Request): Pr
     .map((r) => ({ rodzaj: r.rodzaj, nazwa: NAZWY_ROZLICZEN[r.rodzaj], wersja: r.wersja, kwotaGr: r.kwotaGr, zatwierdzoneO: r.zatwierdzoneO, zaplaconeO: r.zaplaconeO }));
   const podpis = podpisKwot(Number(miesiac.slice(0, 4)), rokSkladkowyZdrowotnej(miesiac));
 
+  // Zapłaty spoza wyliczenia jak na stronie: także przy miesiącu z brakami; formularz dla właściciela i administratora.
+  const zaplaty = { zaplatyReczne: dane.zaplatyReczne.map(zaplataRecznaTelefonu), zaplataReczna: mozeEdytowac ? formularzZaplatyRecznej(miesiac, dzis) : null };
   if (!dane.ok) {
-    return mobileJson({ ...pusta, podpis, braki: dane.braki, historia } satisfies TenMiesiacOdpowiedz, 200, headers);
+    return mobileJson({ ...pusta, ...zaplaty, podpis, braki: dane.braki, historia } satisfies TenMiesiacOdpowiedz & TenMiesiacDodatki, 200, headers);
   }
 
   const ostatnie = aktualne(dane.rozliczenia);
@@ -117,8 +111,12 @@ export async function monthForMobile(caller: MobileCaller, request: Request): Pr
       zmiana: Boolean(p.ok && ostatnia && ostatnia.wejsciaHash !== p.wejsciaHash),
     };
   });
-  const odpowiedz: TenMiesiacOdpowiedz = {
+  const vat = dane.wynik.vat;
+  const odpowiedz: TenMiesiacOdpowiedz & TenMiesiacDodatki = {
     ...pusta,
+    ...zaplaty,
+    // Pole przy pozycji VAT jak `NadwyzkaVat` strony: bez nadwyżki z innego powodu niż nieznana kwota pole nic nie zmieni.
+    nadwyzkaVat: vat && (vat.nadwyzka || vat.nadwyzkaNieznana) ? poleNadwyzki(vat.nadwyzka, miesiac, 'ten_miesiac') : null,
     podpis,
     forma: profil.forma,
     przychodGr: dane.wynik.przychodGr,
@@ -132,8 +130,8 @@ export async function monthForMobile(caller: MobileCaller, request: Request): Pr
   return mobileJson(odpowiedz, 200, headers);
 }
 
-// Schemat strony bez nadwyżki VAT (wpisuje się ją na stronie): treść spoza kontraktu to 400, nie odmowa rozliczenia.
-const zatwierdzenieTelefonuSchema = zatwierdzenieSchema.omit({ nadwyzkaVat: true }).strict();
+// Schemat strony (M10d: z nadwyżką VAT wpisaną przy pozycji): treść spoza kontraktu to 400, nie odmowa rozliczenia.
+const zatwierdzenieTelefonuSchema = zatwierdzenieSchema.strict();
 
 /** `POST /api/mobile/v1/ksiegowosc/zatwierdz`. */
 export async function approveMonthFromMobile(caller: MobileCaller, request: Request): Promise<NextResponse> {
@@ -146,8 +144,8 @@ export async function approveMonthFromMobile(caller: MobileCaller, request: Requ
   if (!parsed.success) return mobileError(400, 'invalid_request', 'Treść żądania nie pasuje do kontraktu. Zaktualizuj aplikację FaktWay.', headers);
   const wynik = await zatwierdzMiesiac(
     { client: caller.db as Db, tenantId: org.tenantId, userId: caller.user.id },
-    // Nadwyżkę VAT wpisuje się na stronie; telefon liczy jak strona bez wpisanej nadwyżki.
-    { miesiac: parsed.data.miesiac, skroty: parsed.data.skroty, nadwyzkaVat: null },
+    // Wpisana przy pozycji VAT nadwyżka (K7.1): zatwierdzenie liczy VAT z tą samą kwotą, którą klient widział.
+    { miesiac: parsed.data.miesiac, skroty: parsed.data.skroty, nadwyzkaVat: parsed.data.nadwyzkaVat ?? null },
   );
   if (!wynik.success) return mobileError(422, 'settlement_refused', wynik.error, headers);
   const odpowiedz: ZatwierdzenieMiesiacaOdpowiedz = { nowe: wynik.nowe };

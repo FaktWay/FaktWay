@@ -904,3 +904,33 @@ describe('E3 P4: pola podglądu faktury liczone na serwerze', () => {
     expect(st.notCalls).toEqual([]);
   });
 });
+
+describe('2.6 cz. 2b-3c: PKWiU i GTU pozycji w szczegółach faktury', () => {
+  const CODES_ID = '33333333-3333-4333-8333-333333333390';
+  const wiersz = (ordinal: number, name: string) => ({
+    ordinal, name, unit: 'usł.', quantity: 1, unit_price_net: 100, vat_rate: '23', net_amount: 100, vat_amount: 23, gross_amount: 123,
+  });
+
+  it('pozycje niosą poprawne kody z dokumentu faktury (fa3_data.lines, po numerze pozycji); zły kod i pozycja bez kodu bez kodów', async () => {
+    st.db!.tables.invoices!.push(invoiceRow(CODES_ID, {
+      fa3_data: {
+        internalNumber: 'FV/1/10/2026', type: 'VAT', issueDate: TODAY, seller, buyer,
+        lines: [
+          { ordinal: 2, name: 'Dojazd', unit: 'usł.', quantity: 1, unitPriceNet: 100, vatRate: '23' },
+          { ordinal: 1, name: 'Doradztwo', unit: 'usł.', quantity: 1, unitPriceNet: 100, vatRate: '23', pkwiuCode: ' 69.20.2 ', gtuCode: 'GTU_12' },
+          { ordinal: 3, name: 'Szkolenie', unit: 'usł.', quantity: 1, unitPriceNet: 100, vatRate: '23', pkwiuCode: 'ABC-1', gtuCode: 'GTU_99' },
+        ],
+      },
+      invoice_line_items: [wiersz(3, 'Szkolenie'), wiersz(1, 'Doradztwo'), wiersz(2, 'Dojazd')],
+    }));
+    const initial = await loadInitial(CODES_ID);
+    expect(initial.lines.map((l) => [l.ordinal, l.pkwiu_code ?? null, l.gtu_code ?? null])).toEqual([
+      [1, '69.20.2', 'GTU_12'],
+      [2, null, null],
+      [3, null, null],
+    ]);
+    // Pozycja bez kodów nie dostaje pustych pól (widok jak dotąd).
+    expect(initial.lines[1]).not.toHaveProperty('pkwiu_code');
+    expect(initial.lines[1]).not.toHaveProperty('gtu_code');
+  });
+});

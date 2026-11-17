@@ -22,7 +22,7 @@ const metrics: DailyMetrics = {
   period: { from: '2026-11-06T05:00:00.000Z', to: '2026-11-07T05:00:00.000Z' },
   signups: 1, newTenants: 1, onboardingCompletions: 0, firstInvoiceCount: 0,
   invoicesIssued: 3, invoicesAccepted: 3, invoicesFailed: 0, invoicesOfflineQueued: 0,
-  ocrJobsCompleted: 0, ksefDowntimeMinutes: 0, ksefMaxConsecutiveFailures: 0,
+  ocrJobsCompleted: 0, ocrJobsFailed: 0, ocrJobsTimedOut: 0, ksefDowntimeMinutes: 0, ksefMaxConsecutiveFailures: 0,
   totalAuditErrors: 0, totalInngestFailures: 0, paymentsSucceeded: 0, paymentsFailed: 0,
   paymentsTotalGrossPln: 0,
 };
