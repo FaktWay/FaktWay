@@ -70,17 +70,33 @@ function decimalParts(value: number): { digits: bigint; places: number } | null 
  * potrafi wypaść tuż pod połówką: 2,5 × 3,33 = 8,325 dawało 8,32.
  */
 export function multiplyToGrosze(a: number, b: number): number {
+  return productToGrosze(a, b).grosze;
+}
+
+/** Grosze zaokrąglone połówką od zera i to, czy dokładna wartość leżała na połówce grosza. */
+interface RoundedGrosze {
+  grosze: number;
+  half: boolean;
+}
+
+function productToGrosze(a: number, b: number): RoundedGrosze {
   const x = decimalParts(a);
   const y = decimalParts(b);
   // NaN i nieskończoność zostają jak w dawnym liczeniu (NaN, ±Infinity).
-  if (!x || !y) return a * b * 100;
+  if (!x || !y) return { grosze: a * b * 100, half: false };
   const product = x.digits * y.digits;
   const places = x.places + y.places;
-  if (places <= 2) return Number(product * BigInt(10) ** BigInt(2 - places));
+  if (places <= 2) return { grosze: Number(product * BigInt(10) ** BigInt(2 - places)), half: false };
   const divisor = BigInt(10) ** BigInt(places - 2);
-  const magnitude = product < BigInt(0) ? -product : product;
+  const negative = product < BigInt(0);
+  const magnitude = negative ? -product : product;
   const rounded = (magnitude * BigInt(2) + divisor) / (divisor * BigInt(2));
-  return Number(product < BigInt(0) ? -rounded : rounded);
+  return { grosze: Number(negative ? -rounded : rounded), half: (magnitude % divisor) * BigInt(2) === divisor };
+}
+
+/** Zapisane grosze to zaokrąglenie do grosza; na połówce także w stronę zera. */
+function roundsTo(value: RoundedGrosze, stored: number): boolean {
+  return stored === value.grosze || (value.half && stored === value.grosze - Math.sign(value.grosze));
 }
 
 /** Iloczyn dwóch kwot (ilość × cena) w złotych, do grosza jak `multiplyToGrosze`. */
@@ -122,7 +138,8 @@ export function getVatPercentage(rate: VatRate): number {
  * zmiennoprzecinkowych 2,5 × 3,33 dawało 8,32 zamiast 8,33, a 23 % od 35,50
  * dawało 8,16 zamiast 8,17. Faktury wystawione wcześniej mają w bazie kwoty
  * z dawnego liczenia: bramka wysyłki je przyjmuje (netto ±1 grosz, VAT także
- * od brutto), a plik zwykłej faktury buduje się z kwot zapisu.
+ * od brutto), plik zwykłej faktury buduje się z kwot zapisu, a korekta bierze
+ * stan przed z kwot zapisu pozycji (`recordedAmounts`), nie liczy go od nowa.
  */
 export function calculateLineItem(
   input: Pick<InvoiceLineItem, 'quantity' | 'unitPriceNet' | 'vatRate'>,
@@ -216,7 +233,7 @@ export interface InvoiceTotals {
   grossTotal: number;
 }
 
-export function calculateInvoiceTotals(lines: InvoiceLineItem[]): InvoiceTotals {
+export function calculateInvoiceTotals(lines: ReadonlyArray<Pick<InvoiceLineItem, 'netAmount' | 'vatAmount'>>): InvoiceTotals {
   const netTotal = roundToCents(
     lines.reduce((sum, line) => sum + line.netAmount, 0)
   );
@@ -449,6 +466,29 @@ function divRoundHalfAway(num: number, den: number): number {
 /** VAT od netto w groszach (art. 106e ust. 1 pkt 14 i ust. 11): netto × stawka / 100. */
 function vatFromNetGrosze(netGrosze: number, ratePct: number): number {
   return divRoundHalfAway(ratePct * netGrosze, 100);
+}
+
+/**
+ * Czy zapisane kwoty pozycji wynikają z ilości × ceny netto i VAT od netto,
+ * każda kwota do grosza (art. 106e ust. 11), z połówką grosza zaokrągloną
+ * w dowolną stronę. Dawne liczenie (do naprawy ilość × cena) zaokrąglało
+ * iloczyn na połówce czasem w dół: 2,5 × 3,33 = 8,32, a 23 % od 35,50 = 8,16.
+ * Pozycje takich faktur są liczone od netto, nie od brutto (korekta,
+ * `lib/invoices/issue-correction.ts`). VAT sprawdza się od zapisanego netto,
+ * bo tak liczyło też dawne liczenie.
+ */
+export function amountsFollowNetPrice(
+  line: Pick<InvoiceLineItem, 'quantity' | 'unitPriceNet' | 'vatRate'>,
+  amounts: Pick<InvoiceLineItem, 'netAmount' | 'vatAmount' | 'grossAmount'>,
+): boolean {
+  const ratePct: number | undefined = getVatPercentage(line.vatRate);
+  if (ratePct === undefined) return false;
+  const netGr = toGrosze(amounts.netAmount);
+  const vatGr = toGrosze(amounts.vatAmount);
+  if (toGrosze(amounts.grossAmount) !== netGr + vatGr) return false;
+  if (!roundsTo(productToGrosze(line.quantity, line.unitPriceNet), netGr)) return false;
+  const vatHalf = Math.abs(ratePct * netGr) % 100 === 50;
+  return roundsTo({ grosze: vatFromNetGrosze(netGr, ratePct), half: vatHalf }, vatGr);
 }
 
 /** VAT od brutto w groszach (art. 106e ust. 7 i ust. 11): brutto × stawka / (100 + stawka). */

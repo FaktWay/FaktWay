@@ -238,8 +238,10 @@ function faktura(linie: Array<{ name: string; quantity: number; unitPriceNet: nu
 }
 
 describe('uwagi drugiego czytelnika (31a9e96c)', () => {
-  it('pozycja od netto z netto ≠ ilość × cena (import: cena 10,125, netto 10,12): „przed/po” odmawia neutralnie, z wyjściem; anulowanie odtwarza kwoty', async () => {
-    faktura([{ name: 'Usługa z importu', quantity: 1, unitPriceNet: 10.125, vatRate: '23', net: 10.12, vat: 2.33, gross: 12.45 }]);
+  // Naprawa ilość × cena (stos na #828): 10,125 → 10,12 to połówka grosza w dół, więc pozycja od netto
+  // (`amountsFollowNetPrice`, tests/unit/korekta-stara-faktura.test.ts); odmowę sprawdza netto spoza połówki.
+  it('pozycja od netto z netto ≠ ilość × cena (import: cena 10,13, netto 10,12): „przed/po” odmawia neutralnie, z wyjściem; anulowanie odtwarza kwoty', async () => {
+    faktura([{ name: 'Usługa z importu', quantity: 1, unitPriceNet: 10.13, vatRate: '23', net: 10.12, vat: 2.33, gross: 12.45 }]);
     const ctx = await getCorrectionParentContextAction(PARENT);
     if (!ctx.success) throw new Error(ctx.error);
     const r = await saveCorrectionDraftAction(
