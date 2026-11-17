@@ -296,27 +296,17 @@ test('walidacja wyrzuca InvoiceValidationError gdy dane są niespójne', () => {
 
 // Kolejność z XSD (typ FaWiersz): P_7 stoi przed GTIN, PKWiU i CN. Do 11.2026
 // ten test utrwalał klasyfikację przed P_7, czego XSD nie przyjmuje (sprawdza
-// to `tests/unit/fa3-fawiersz-klasyfikacja-xsd.test.ts` na walidatorze).
-test('FaWiersz ma poprawną kolejność: NrWierszaFa → P_7 → (klasyfikacja) → P_8A → P_8B → P_9A → P_11 → P_12', () => {
-  const xml = generateFA3Xml(
-    buildInvoice({
-      lines: [
-        {
-          ordinal: 1,
-          name: 'Produkt',
-          classificationCode: '5901234123457', // GTIN
-          unit: 'szt.',
-          quantity: 1,
-          unitPriceNet: 50,
-          vatRate: '23',
-        },
-      ],
-    }),
-  );
+// to `tests/unit/fa3-fawiersz-klasyfikacja-xsd.test.ts` na walidatorze). Od
+// kroku 2.6, części 2b-3 jedynym kodem pozycji jest PKWiU z jawnym typem.
+test('FaWiersz ma poprawną kolejność: NrWierszaFa → P_7 → PKWiU → P_8A → P_8B → P_9A → P_11 → P_12', () => {
+  const invoice = buildInvoice({
+    lines: [{ ordinal: 1, name: 'Produkt', unit: 'szt.', quantity: 1, unitPriceNet: 50, vatRate: '23' }],
+  });
+  const xml = generateFA3Xml({ ...invoice, lines: invoice.lines.map((l) => ({ ...l, pkwiuCode: '62.01.11.0' })) });
   const order = [
     '<NrWierszaFa>',
     '<P_7>',
-    '<GTIN>',
+    '<PKWiU>',
     '<P_8A>',
     '<P_8B>',
     '<P_9A>',

@@ -95,12 +95,11 @@ export interface InvoiceLineItem {
   /** Nazwa towaru/usługi (max 512 znaków w FA(3) - zmiana z FA(2) 256) */
   name: string;
   /**
-   * Kod CN (towary), PKWiU (usługi) albo GTIN, typ zgadywany po długości.
-   * Dawna ścieżka faktury rozliczającej i korekty; zwykła faktura ma jawne
-   * `pkwiuCode` (krok 2.6, część 2b).
+   * PKWiU pozycji (FA(3) `PKWiU`), z jawnym typem: z formularza albo katalogu
+   * produktów (zwykła faktura), z pozycji faktury rozliczającej i korekty.
+   * Dawne `classificationCode` z typem zgadywanym po długości (GTIN, CN, PKWiU)
+   * usunięte w kroku 2.6, części 2b-3.
    */
-  classificationCode?: string;
-  /** PKWiU pozycji (FA(3) `PKWiU`), z formularza albo katalogu produktów. */
   pkwiuCode?: string;
   /**
    * Oznaczenie GTU pozycji (FA(3) `GTU`, JPK_V7M `GTU_xx`), z formularza albo
@@ -114,11 +113,12 @@ export interface InvoiceLineItem {
   /** Cena jednostkowa netto - do 4 miejsc po przecinku */
   unitPriceNet: number;
   /**
-   * Import KSeF z cenami brutto (art. 106e ust. 7 i 8; P_9B bez P_9A): pliku nie ma ceny netto,
-   * więc `unitPriceNet` (0) nie jest ceną z faktury. Tylko dla PDF; generatory XML tego nie czytają.
+   * Ceny brutto (art. 106e ust. 7 i 8; P_9B bez P_9A): import KSeF albo faktura FaktWay
+   * w cenach brutto (`Invoice.pricesGross`). Faktura nie ma ceny netto, więc
+   * `unitPriceNet` (0) nie jest ceną z faktury.
    */
   unitPriceNetMissing?: true;
-  /** Cena jednostkowa brutto z pliku (P_9B), gdy `unitPriceNetMissing`. */
+  /** Cena jednostkowa brutto (P_9B): z pliku importu albo pozycji faktury w cenach brutto. */
   unitPriceGross?: number;
   /** Wartość netto pozycji (= quantity * unitPriceNet, zaokrąglone do 2 miejsc) */
   netAmount: number;
@@ -256,6 +256,15 @@ export interface Invoice {
 
   /** Faktura do paragonu (FP). Brak = faktura bez paragonu. Tylko zwykła faktura VAT. */
   receipt?: ReceiptInvoiceData;
+
+  /**
+   * Faktura w cenach brutto (art. 106e ust. 7-9 ustawy o VAT): pozycje z ceną
+   * i wartością brutto (FA(3) `P_9B`, `P_11A` zamiast `P_9A`, `P_11`), VAT
+   * stawki od sumy brutto stawki (KP = WB × SP / (100 + SP)), netto stawki =
+   * WB − KP. Kwoty netto i VAT pozycji to podział VAT stawki (największa reszta),
+   * do JPK i KPiR; na fakturze ich nie ma. Brak = ceny netto, jak dotąd.
+   */
+  pricesGross?: true;
 
   /** Frozen source for ZAL XML; the worker must reject a different queued envelope. */
   advanceEnvelope?: AdvanceInvoiceData;
