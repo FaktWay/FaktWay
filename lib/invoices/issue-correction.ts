@@ -672,7 +672,7 @@ async function correctionBaseline(
   // Ostatnia przyjęta „przed/po” i sumy łańcucha tuż po niej: jej wiersze są
   // stanem pozycji także po późniejszych korektach kwotowych (KOR-02), które
   // zmieniają tylko sumy.
-  let lastBeforeAfter: { row: CorrectionRow; totals: { net: number; vat: number; gross: number } } | null = null;
+  let lastBeforeAfter: { row: CorrectionRow; totals: CorrectionBaseline['totals'] } | null = null;
   for (const c of accepted) {
     const deltas = [c.net_total, c.vat_total, c.gross_total].map(Number);
     if (deltas.some((d) => !Number.isFinite(d))) {
@@ -694,8 +694,8 @@ async function correctionBaseline(
   const baRow = lastBeforeAfter.row;
   const after = await fetchParentInvoiceLines(supabase, baRow.id, label);
   const afterTotals = linesTotals(after);
-  const atLast = lastBeforeAfter.totals;
-  if (afterTotals.netTotal !== atLast.net || afterTotals.vatTotal !== atLast.vat || afterTotals.grossTotal !== atLast.gross) {
+  const totalsAfterBa = lastBeforeAfter.totals;
+  if (afterTotals.netTotal !== totalsAfterBa.net || afterTotals.vatTotal !== totalsAfterBa.vat || afterTotals.grossTotal !== totalsAfterBa.gross) {
     throw new Error(`Stan po korekcie ${baRow.internal_number ?? baRow.id.slice(0, 8)} do faktury ${label} nie zgadza się z sumami faktury i jej korekt, więc kolejnej nie przygotujemy w aplikacji. ${CORRECTION_HELP_STEP}`);
   }
   return { lines: after, totals, latest, allowed };

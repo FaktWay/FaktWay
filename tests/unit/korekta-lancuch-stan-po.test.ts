@@ -173,4 +173,27 @@ describe('łańcuch korekt (K4): po korekcie kwotowej pozycje to stan po ostatni
     expect(ctx).toMatchObject({ success: true, allowedCorrectionTypes: 'amount_change_only', grossTotal: 1107 });
     if (ctx.success) expect(ctx.linesBefore).toEqual([line(10)]);
   });
+
+  it('kilka „przed/po” w łańcuchu: liczy się ostatnia (KOR1 23% → 8%, KOR2 8% 10 → 9 szt., KOR3 kwotowa)', async () => {
+    const KOR3 = '00000000-0000-4000-8000-000000000103';
+    st.corrections = [
+      kor1(),
+      kor2({ correction_type: 'before_after', net_total: -100, vat_total: -8, gross_total: -108 }),
+      kor2({ id: KOR3, internal_number: 'FK/3/10/2026', ksef_accepted_at: '2026-10-08T10:00:00Z', created_at: '2026-10-08T09:00:00Z', net_total: -50, vat_total: -4, gross_total: -54 }),
+    ];
+    st.linesByInvoice = { [PARENT]: [dbLine(10)], [KOR1]: [db8(10)], [KOR2]: [db8(9)] };
+    const ctx = await getCorrectionParentContextAction(PARENT);
+    expect(ctx).toMatchObject({ success: true, allowedCorrectionTypes: 'amount_change_only', grossTotal: 918 });
+    if (ctx.success) expect(ctx.linesBefore).toEqual([w8(9)]);
+
+    const r = await saveCorrectionDraftAction(payload({
+      internalNumber: 'FK/4/10/2026',
+      correctionType: 'amount_change',
+      amountChange: { netDelta: -50, vatDelta: -4, grossDelta: -54, description: 'Rabat' },
+    }), TENANT);
+    expect(r).toMatchObject({ success: true });
+    // Z tego pola generator liczy adnotację P_18 korekty kwotowej.
+    const zapis = st.inserted[0] as { special_data?: { correctionData?: { linesBefore?: unknown } } } | undefined;
+    expect(zapis?.special_data?.correctionData?.linesBefore).toEqual([w8(9)]);
+  });
 });
