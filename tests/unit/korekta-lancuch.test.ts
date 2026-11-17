@@ -253,7 +253,7 @@ describe('łańcuch korekt (K4)', () => {
 // netto i 2 310 brutto. Korekta −1 500 netto w 23% zostawia dodatnią sumę
 // (500 netto), ale w 23% schodzi do −500: takiej korekty nie wolno wysłać.
 // Niezmiennik: korekta przechodzi wtedy i tylko wtedy, gdy wartość w jej stawce
-// (netto i brutto) po korekcie jest nie mniejsza niż zero.
+// (netto, VAT i brutto) po korekcie jest nie mniejsza niż zero.
 describe('F12-D2 w każdej stawce: korekta kwotowa nie schodzi poniżej zera w swojej stawce', () => {
   const stanStawek = { '23': { netto: 1000, vat: 230, brutto: 1230 }, '8': { netto: 1000, vat: 80, brutto: 1080 } } as const;
   const przypadki: Array<{ stawka: keyof typeof stanStawek; netDelta: number; vatDelta: number; grossDelta: number }> = [
