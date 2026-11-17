@@ -628,6 +628,9 @@ async function listCorrectionsOf(
   return (Array.isArray(data) ? data : data ? [data] : []) as CorrectionRow[];
 }
 
+/** Różnica przyjętej korekty kwotowej w jej stawce (stawka z kwot, jak przy wystawieniu). */
+type AmountChangeInChain = { vatRate: string; net: number; vat: number; gross: number };
+
 /**
  * Stan faktury PO przyjętych korektach (łańcuch korekt, K4):
  *   - sumy = sumy pierwotne + różnice przyjętych korekt (wiersz korekty
@@ -638,7 +641,40 @@ async function listCorrectionsOf(
  *     kolejną korektę kwotową; po anulowaniu nie ma już czego korygować.
  * Każda niezgodność sum z pozycjami kończy się odmową — nie zgadujemy.
  */
-type CorrectionBaseline = CorrectionBaselineOf<CorrectionLineSchema>;
+type CorrectionBaseline = CorrectionBaselineOf<CorrectionLineSchema> & {
+  /**
+   * Przyjęte korekty kwotowe po ostatniej „przed/po” (bez niej: od faktury
+   * pierwotnej), w kolejności łańcucha. Pozycje plus te różnice to stan
+   * każdej stawki (KOR-03).
+   */
+  amountChanges: AmountChangeInChain[];
+};
+
+/**
+ * Stawka każdej przyjętej korekty kwotowej z jej zapisanych kwot, tą samą
+ * regułą co przy wystawieniu (`resolveAmountChangeVatRate`; stawka bez VAT
+ * z pozycji). Kwoty bez jednej stawki to odmowa: nie zgadujemy.
+ */
+function amountChangesInRates(
+  corrections: CorrectionRow[],
+  lines: CorrectionLineSchema[],
+  label: string,
+): AmountChangeInChain[] {
+  const parentRate = zeroVatRateFromParentLines(lines);
+  return corrections
+    .filter((c) => c.correction_type !== 'before_after' && c.correction_type !== 'cancellation')
+    .map((c) => {
+      const [net, vat, gross] = [c.net_total, c.vat_total, c.gross_total].map(Number) as [number, number, number];
+      try {
+        const vatRate = resolveAmountChangeVatRate(
+          parentRate ? { netDelta: net, vatDelta: vat, grossDelta: gross, vatRate: parentRate } : { netDelta: net, vatDelta: vat, grossDelta: gross },
+        );
+        return { vatRate, net, vat, gross };
+      } catch {
+        throw new Error(`Kwoty przyjętej korekty kwotowej ${c.internal_number ?? c.id.slice(0, 8)} do faktury ${label} nie wskazują jednej stawki VAT, więc kolejnej korekty nie przygotujemy w aplikacji. ${CORRECTION_HELP_STEP}`);
+      }
+    });
+}
 
 function linesTotals(lines: CorrectionLineSchema[]) {
   // Tylko sumy: oznaczenie GTU z linii korekty (tekst) nie jest tu potrzebne.
@@ -672,8 +708,8 @@ async function correctionBaseline(
   // Ostatnia przyjęta „przed/po” i sumy łańcucha tuż po niej: jej wiersze są
   // stanem pozycji także po późniejszych korektach kwotowych (KOR-02), które
   // zmieniają tylko sumy.
-  let lastBeforeAfter: { row: CorrectionRow; totals: CorrectionBaseline['totals'] } | null = null;
-  for (const c of accepted) {
+  let lastBeforeAfter: { row: CorrectionRow; totals: CorrectionBaseline['totals']; index: number } | null = null;
+  for (const [index, c] of accepted.entries()) {
     const deltas = [c.net_total, c.vat_total, c.gross_total].map(Number);
     if (deltas.some((d) => !Number.isFinite(d))) {
       throw new Error(`Przyjęta korekta ${c.internal_number ?? c.id.slice(0, 8)} do faktury ${label} nie ma zapisanych kwot różnicy, więc kolejnej nie przygotujemy w aplikacji. ${CORRECTION_HELP_STEP}`);
@@ -681,15 +717,15 @@ async function correctionBaseline(
     net = roundToCents(net + deltas[0]!);
     vat = roundToCents(vat + deltas[1]!);
     gross = roundToCents(gross + deltas[2]!);
-    if (c.correction_type === 'before_after') lastBeforeAfter = { row: c, totals: { net, vat, gross } };
+    if (c.correction_type === 'before_after') lastBeforeAfter = { row: c, totals: { net, vat, gross }, index };
   }
   const totals = { net, vat, gross };
   const last = accepted.at(-1);
-  if (!last) return { lines: original, totals, latest: null, allowed: 'all' };
+  if (!last) return { lines: original, totals, latest: null, allowed: 'all', amountChanges: [] };
   const latest = { id: last.id, internalNumber: last.internal_number, correctionType: last.correction_type };
-  if (last.correction_type === 'cancellation') return { lines: [], totals, latest, allowed: 'none' };
+  if (last.correction_type === 'cancellation') return { lines: [], totals, latest, allowed: 'none', amountChanges: [] };
   const allowed: CorrectionBaseline['allowed'] = last.correction_type === 'before_after' ? 'all' : 'amount_change_only';
-  if (!lastBeforeAfter) return { lines: original, totals, latest, allowed };
+  if (!lastBeforeAfter) return { lines: original, totals, latest, allowed, amountChanges: amountChangesInRates(accepted, original, label) };
 
   const baRow = lastBeforeAfter.row;
   const after = await fetchParentInvoiceLines(supabase, baRow.id, label);
@@ -698,7 +734,7 @@ async function correctionBaseline(
   if (afterTotals.netTotal !== totalsAfterBa.net || afterTotals.vatTotal !== totalsAfterBa.vat || afterTotals.grossTotal !== totalsAfterBa.gross) {
     throw new Error(`Stan po korekcie ${baRow.internal_number ?? baRow.id.slice(0, 8)} do faktury ${label} nie zgadza się z sumami faktury i jej korekt, więc kolejnej nie przygotujemy w aplikacji. ${CORRECTION_HELP_STEP}`);
   }
-  return { lines: after, totals, latest, allowed };
+  return { lines: after, totals, latest, allowed, amountChanges: amountChangesInRates(accepted.slice(lastBeforeAfter.index + 1), after, label) };
 }
 
 
@@ -814,23 +850,34 @@ async function normalizePayload(
         error: `Korekta obniżyłaby wartość faktury poniżej zera: dziś to ${formatPlMoney(baseline.totals.net)} zł netto i ${formatPlMoney(baseline.totals.gross)} zł brutto. Zwrot całej kwoty to anulowanie faktury.`,
       };
     }
-    // F12-D2 w każdej stawce (KOR-01): różnica idzie według stawek faktury
-    // korygowanej, więc nie tylko suma, ale i stawka korekty (netto, VAT, brutto)
-    // nie schodzi poniżej zera (faktura 1 000 zł w 23% i 1 000 zł w 8%: −1 500 zł
-    // w 23% to odmowa). Pozycje są stanem bieżącym tylko przy `allowed: 'all'`.
-    // Po przyjętej korekcie kwotowej stan stawki obejmuje też różnice tych korekt
-    // w ich stawkach (wiersz pozycji korekty); tego tu jeszcze nie liczymy
-    // (osobne ustalenie KOR-03) i zostaje sprawdzenie sumy wyżej.
-    if (baseline.allowed === 'all') {
-      const wStawce = linesTotals(original.filter((line) => line.vatRate === rate));
-      if (roundToCents(wStawce.netTotal + amounts.netDelta) < 0 ||
-          roundToCents(wStawce.vatTotal + amounts.vatDelta) < 0 ||
-          roundToCents(wStawce.grossTotal + amounts.grossDelta) < 0) {
-        const stawka = /^\d+$/.test(rate) ? `${rate}%` : `„${rate}”`;
-        return {
-          error: `Korekta obniżyłaby wartość faktury ${parentNumber} w stawce ${stawka} poniżej zera: dziś w tej stawce to ${formatPlMoney(wStawce.netTotal)} zł netto, ${formatPlMoney(wStawce.vatTotal)} zł VAT i ${formatPlMoney(wStawce.grossTotal)} zł brutto. Różnicę wykazuje się według stawek faktury korygowanej (art. 106j ust. 2 pkt 5 ustawy o VAT), więc w każdej stawce korekta schodzi najwyżej do zera. Obniżkę w kilku stawkach wykazuje korekta pozycji („przed / po”).`,
-        };
-      }
+    // F12-D2 w każdej stawce (KOR-01, KOR-03): różnica idzie według stawek
+    // faktury korygowanej, więc nie tylko suma, ale i stawka korekty (netto, VAT,
+    // brutto) nie schodzi poniżej zera (faktura 1 000 zł w 23% i 1 000 zł w 8%:
+    // −1 500 zł w 23% to odmowa). Stan stawki: pozycje (faktura pierwotna albo
+    // ostatnia „przed/po”) plus przyjęte korekty kwotowe w tej stawce.
+    const wPozycjach = linesTotals(original.filter((line) => line.vatRate === rate));
+    const wStawce = baseline.amountChanges
+      .filter((zmiana) => zmiana.vatRate === rate)
+      .reduce(
+        (stan, zmiana) => ({ net: roundToCents(stan.net + zmiana.net), vat: roundToCents(stan.vat + zmiana.vat), gross: roundToCents(stan.gross + zmiana.gross) }),
+        { net: wPozycjach.netTotal, vat: wPozycjach.vatTotal, gross: wPozycjach.grossTotal },
+      );
+    // Tylko obniżka może zepchnąć stawkę poniżej zera; podwyżka (różnice ≥ 0,
+    // ta sama stawka) nie pogarsza stanu, także w starym łańcuchu ze stawką już
+    // ujemną (sprzed tej reguły, KSeF TEST).
+    if (amounts.netDelta < 0 && (
+      roundToCents(wStawce.net + amounts.netDelta) < 0 ||
+      roundToCents(wStawce.vat + amounts.vatDelta) < 0 ||
+      roundToCents(wStawce.gross + amounts.grossDelta) < 0)) {
+      const stawka = /^\d+$/.test(rate) ? `${rate}%` : `„${rate}”`;
+      // Po korekcie kwotowej wolno tylko kwotową (K4), więc droga to osobna
+      // kwotowa w każdej stawce, a nie korekta pozycji.
+      const dalej = baseline.allowed === 'all'
+        ? 'Obniżkę w kilku stawkach wykazuje korekta pozycji („przed / po”).'
+        : 'Obniżkę w kilku stawkach wykazuje osobna korekta kwotowa w każdej z nich.';
+      return {
+        error: `Korekta obniżyłaby wartość faktury ${parentNumber} w stawce ${stawka} poniżej zera: dziś w tej stawce to ${formatPlMoney(wStawce.net)} zł netto, ${formatPlMoney(wStawce.vat)} zł VAT i ${formatPlMoney(wStawce.gross)} zł brutto. Różnicę wykazuje się według stawek faktury korygowanej (art. 106j ust. 2 pkt 5 ustawy o VAT), więc w każdej stawce korekta schodzi najwyżej do zera. ${dalej}`,
+      };
     }
   }
 
