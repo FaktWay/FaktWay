@@ -13,25 +13,39 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 type Row = Record<string, unknown>;
 const tables: Record<string, Row[]> = { expenses: [] };
 const insertFail = { on: false };
+const ilikeCalls: Array<[string, string]> = [];
 
 function from(name: string) {
   const filters: Array<(r: Row) => boolean> = [];
   let op: 'select' | 'insert' = 'select';
   let payload: Row | null = null;
+  let wantCount = false;
+  let rangeArr: [number, number] | null = null;
+  let lim: number | null = null;
   const q: Record<string, unknown> = {
-    select: () => q,
+    select: (_c?: string, opts?: { count?: string }) => ((wantCount = opts?.count === 'exact'), q),
     insert: (row: Row) => ((op = 'insert'), (payload = row), q),
     eq: (k: string, v: unknown) => (filters.push((r) => r[k] === v), q),
     is: (k: string, v: unknown) => (filters.push((r) => (r[k] ?? null) === v), q),
     not: (k: string, op: string, v: unknown) => (op === 'is' && filters.push((r) => (r[k] ?? null) !== v), q),
     ilike: (k: string, pat: string) => {
-      const re = new RegExp(`^${pat.replace(/%/g, '.*')}$`, 'i');
+      ilikeCalls.push([k, pat]);
+      let rx = '';
+      for (let i = 0; i < pat.length; i += 1) {
+        const c = pat[i]!;
+        if (c === '\\') rx += (pat[++i] ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        else if (c === '%') rx += '.*';
+        else if (c === '_') rx += '.';
+        else rx += c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      }
+      const re = new RegExp(`^${rx}$`, 'i');
       filters.push((r) => re.test(String(r[k] ?? '')));
       return q;
     },
     gte: (k: string, v: string) => (filters.push((r) => String(r[k]) >= v), q),
     order: () => q,
-    limit: () => q,
+    range: (a: number, b: number) => ((rangeArr = [a, b]), q),
+    limit: (n: number) => ((lim = n), q),
     single: async () => {
       if (op === 'insert') {
         if (insertFail.on) return { data: null, error: { message: 'boom' } };
@@ -42,7 +56,13 @@ function from(name: string) {
       return { data: null, error: null };
     },
     then: (ok: (v: unknown) => unknown, ko?: (e: unknown) => unknown) =>
-      Promise.resolve({ data: (tables[name] ?? []).filter((r) => filters.every((f) => f(r))), error: null }).then(ok, ko),
+      Promise.resolve(
+        (() => {
+          const all = (tables[name] ?? []).filter((r) => filters.every((f) => f(r)));
+          const data = rangeArr ? all.slice(rangeArr[0], rangeArr[1] + 1) : lim !== null ? all.slice(0, lim) : all;
+          return { data, count: wantCount ? all.length : null, error: null };
+        })(),
+      ).then(ok, ko),
   };
   return q;
 }
@@ -92,6 +112,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(`${dzis}T10:00:00Z`));
   tables.expenses = [];
+  ilikeCalls.length = 0;
   insertFail.on = false;
   m.exempt = null;
   m.audit.mockReset();
@@ -236,6 +257,35 @@ describe('koszt wpisany ręcznie: kategoria i faktura z KSeF', () => {
     if (!r.success) expect(r.error).toContain('FV1/2026');
     expect(wiersze()).toHaveLength(1);
     expect(m.audit).not.toHaveBeenCalled();
+  });
+
+  it('NIP zapisany z przedrostkiem i myślnikami („PL 526-000-12-46”) też wykrywa powtórzoną fakturę', async () => {
+    wiersze().push({ id: 'ocr-1', tenant_id: TENANT, source: 'ocr', seller_nip: 'PL 526-000-12-46', document_number: 'FV1/2026' });
+    const r = await createManualExpenseAction({ ...FAKTURA, sellerNip: '5260001246' }, TENANT);
+    expect(r.success).toBe(false);
+    expect(wiersze()).toHaveLength(1);
+  });
+
+  it('stały dostawca z ponad 200 kosztami: szukana faktura na końcu też jest znaleziona', async () => {
+    for (let i = 1; i <= 250; i += 1) {
+      wiersze().push({ id: `r-${String(i).padStart(3, '0')}`, tenant_id: TENANT, source: 'ocr', seller_nip: '5260250274', document_number: `FV1/2026/${i}` });
+    }
+    wiersze().push({ id: 'r-251', tenant_id: TENANT, source: 'ksef_inbox', seller_nip: '5260250274', document_number: 'FV1/2026' });
+    const r = await createManualExpenseAction(FAKTURA, TENANT);
+    expect(r.success).toBe(false);
+    expect(wiersze()).toHaveLength(251);
+  });
+
+  it('znaki „%” i „_” w numerze są szukane dosłownie i nie łapią innych numerów', async () => {
+    wiersze().push({ id: 'a-1', tenant_id: TENANT, source: 'ocr', seller_nip: '5260250274', document_number: 'FVX1Y' });
+    const r = await createManualExpenseAction({ ...FAKTURA, documentNumber: 'FV_1%' }, TENANT);
+    expect(r.success).toBe(true);
+    const wzorzec = ilikeCalls.find(([k]) => k === 'document_number')?.[1] ?? '';
+    expect(wzorzec).toContain('\\_');
+    expect(wzorzec).toContain('\\%');
+    wiersze().push({ id: 'a-2', tenant_id: TENANT, source: 'ocr', seller_nip: '5260250274', document_number: 'FV_1%' });
+    vi.setSystemTime(new Date(`${dzis}T10:10:00Z`));
+    expect((await createManualExpenseAction({ ...FAKTURA, documentNumber: 'FV_1%', sellerName: 'Drugi' }, TENANT)).success).toBe(false);
   });
 
   it('ta sama faktura w cudzej firmie, paragon z tym numerem albo inny numer nie blokują zapisu', async () => {

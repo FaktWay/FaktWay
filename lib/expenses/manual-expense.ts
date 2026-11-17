@@ -26,6 +26,7 @@
  */
 import { z } from 'zod';
 
+import { readCompletePages } from '@/lib/accounting/read-complete-pages';
 import { isCalendarDate } from '@/lib/api/v1/pagination';
 import { todayInWarsaw } from '@/lib/format/warsaw-date';
 import { isSubjectiveVatExemption, readTenantVatExemption } from '@/lib/invoices/vat-exemption';
@@ -43,6 +44,9 @@ export const MANUAL_EXPENSE_MIN_DATE = '2010-01-01';
 export const MANUAL_EXPENSE_MAX_AMOUNT = 9_999_999_999.99;
 /** Bliźniak z tego okna zwraca istniejący koszt. */
 export const MANUAL_EXPENSE_DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
+
+/** Znaki specjalne wzorca LIKE (`\\`, `%`, `_`) jako dosłowne. */
+const escapeLike = (c: string) => (c === '\\' || c === '%' || c === '_' ? `\\${c}` : c);
 
 const SAVE_FAILED = 'Nie udało się zapisać kosztu. Sprawdź połączenie i spróbuj ponownie za chwilę.';
 
@@ -147,14 +151,23 @@ export async function createManualExpense(ctx: ManualExpenseContext, input: unkn
   const nip = nip10(v.sellerNip);
   const key = documentKey(v.documentNumber);
   if (v.documentType === 'invoice' && nip && key) {
-    const { data: sameNip } = await supabase
-      .from('expenses')
-      .select('id, seller_nip, document_number')
-      .eq('tenant_id', tenantId)
-      .not('document_number', 'is', null)
-      .ilike('seller_nip', nip.split('').join('%'))
-      .limit(200);
-    const rows = (sameNip as Array<{ id: string; seller_nip: string | null; document_number: string | null }> | null) ?? [];
+    // Zawężenie w bazie po NIP i numerze (wzorce tolerują przedrostek, myślniki i odstępy), dokładne porównanie `nip10` i `documentKey` w JS.
+    const numberPattern = `%${[...key].map(escapeLike).join('%')}%`;
+    let rows: Array<{ id: string; seller_nip: string | null; document_number: string | null }>;
+    try {
+      rows = await readCompletePages('Nie można sprawdzić kosztów tego dostawcy', (from, to) =>
+        supabase
+          .from('expenses')
+          .select('id, seller_nip, document_number', { count: 'exact' })
+          .eq('tenant_id', tenantId)
+          .ilike('seller_nip', `%${nip.split('').join('%')}%`)
+          .ilike('document_number', numberPattern)
+          .order('id', { ascending: true })
+          .range(from, to),
+      );
+    } catch {
+      return { success: false, error: 'Nie udało się sprawdzić, czy ten dokument jest już w Kosztach. Spróbuj ponownie za chwilę.' };
+    }
     if (rows.some((r) => nip10(r.seller_nip) === nip && documentKey(r.document_number) === key)) {
       return { success: false, error: `Ten dokument jest już w Kosztach (${v.documentNumber}). Otwórz go z listy kosztów.` };
     }
