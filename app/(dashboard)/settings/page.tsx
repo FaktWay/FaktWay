@@ -9,6 +9,7 @@ import { CompanyBankAccountForm } from '@/components/settings/company-bank-accou
 import { CompanyLogoForm } from '@/components/settings/company-logo-form';
 import { CompanyProfileForm } from '@/components/settings/company-profile-form';
 import { DocumentArchiveForm } from '@/components/settings/document-archive-form';
+import { InvoiceEmailTemplateForm } from '@/components/settings/invoice-email-template-form';
 import { InvoiceNumberingForm } from '@/components/settings/invoice-numbering-form';
 import {
   Field,
@@ -25,9 +26,10 @@ import { readTenantBusinessStart } from '@/lib/invoices/business-start';
 import { readTenantCashMethod } from '@/lib/invoices/cash-method';
 import { readTenantVatExemption } from '@/lib/invoices/vat-exemption';
 import { readCompanyLogoForSettings } from '@/lib/invoices/logo-firmy';
+import { readInvoiceEmailTemplate } from '@/lib/email/invoice-email-template-store';
 import { readArchiveOrders } from '@/lib/archiwum/zlecenia';
 import { readInvoiceSeries } from '@/lib/numeracja/baza';
-import { todayInWarsaw } from '@/lib/format/warsaw-date';
+import { dueDateFrom, todayInWarsaw } from '@/lib/format/warsaw-date';
 import { getPageContext } from '@/lib/supabase/page-context';
 
 export const dynamic = 'force-dynamic';
@@ -46,7 +48,7 @@ export default async function SettingsPage() {
   const { supabase, tenantId, role } = await getPageContext();
 
   const today = todayInWarsaw();
-  const [{ data: tenant }, vatExemptionBasis, vatCashMethod, businessStartedOn, archiveOrders, calendarFeedActive, bankAccount, invoiceSeries, companyLogo] = await Promise.all([
+  const [{ data: tenant }, vatExemptionBasis, vatCashMethod, businessStartedOn, archiveOrders, calendarFeedActive, bankAccount, invoiceSeries, companyLogo, emailTemplate] = await Promise.all([
     supabase
       .from('tenants')
       .select('name, nip, address_json')
@@ -68,6 +70,8 @@ export default async function SettingsPage() {
     readInvoiceSeries(supabase as unknown as SupabaseClient, today),
     // Logo na fakturze (00203, krok 2.2); przed migracją albo przy błędzie stan „unavailable”.
     readCompanyLogoForSettings(supabase, tenantId),
+    // Własny szablon maila z fakturą (00208, krok 2.8); brak wiersza albo błąd: szablon domyślny.
+    readInvoiceEmailTemplate(supabase as unknown as SupabaseClient, tenantId),
   ]);
 
   // Edycja danych firmy (F-008): właściciel i administrator, jak ustawienia VAT.
@@ -182,6 +186,17 @@ export default async function SettingsPage() {
 
       <div id="logo" className="scroll-mt-24">
         <CompanyLogoForm initial={companyLogo} canEdit={canEditCompany} tenantId={tenantId} />
+      </div>
+
+      <Separator />
+
+      <div id="mail-z-faktura" className="scroll-mt-24">
+        <InvoiceEmailTemplateForm
+          initial={emailTemplate}
+          canEdit={canEditCompany}
+          sellerName={tenant?.name ?? ''}
+          sampleDueDate={dueDateFrom(today, 14)}
+        />
       </div>
     </FieldGroup>
   );

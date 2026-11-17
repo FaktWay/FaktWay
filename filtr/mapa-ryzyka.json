@@ -347,6 +347,17 @@
       ]
     },
     {
+      "id": "poczta.szablon-faktury",
+      "poziom": "R2",
+      "opis": "Własny szablon maila z fakturą (krok 2.8): temat i treść, które widzi nabywca, pola z numerem, kwotą i terminem. Kwota, termin i tytuł przelewu w tabeli maila oraz stopka zostają stałe (sendInvoiceEmail), a wartość pola kwota to kwota z PDF.",
+      "sciezki": [
+        "lib/email/invoice-email-template.ts",
+        "lib/email/invoice-email-template-store.ts",
+        "app/actions/invoice-email-template.ts",
+        "supabase/migrations/00208_invoice_email_templates.sql"
+      ]
+    },
+    {
       "id": "faktury.pdf",
       "poziom": "R1",
       "opis": "PDF faktury, kody QR weryfikacji, PDF UPO.",
