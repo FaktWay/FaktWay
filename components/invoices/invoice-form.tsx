@@ -17,7 +17,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { InvoiceTotals } from '@/components/invoices/invoice-totals';
 import { suggestsSplitPayment } from '@/lib/invoices/annotations';
-import { dueDateFrom, todayInWarsaw } from '@/lib/format/warsaw-date';
+import { todayInWarsaw } from '@/lib/format/warsaw-date';
+import { formDefaultsOf, type InvoiceDefaults } from '@/lib/invoices/invoice-defaults';
 import type { SellerData } from '@/types/invoice-types';
 import { Separator } from '@/components/ui/separator';
 import { InvoiceCreateActions } from '@/components/invoices/finora/invoice-create-actions';
@@ -61,6 +62,7 @@ export function InvoiceForm({
   numbering = null,
   seller = null,
   initialValues = null,
+  defaults = null,
   recurringInvoiceId = null,
   recurringPeriod = null,
   salesQuoteId = null,
@@ -98,6 +100,12 @@ export function InvoiceForm({
    * `?cykliczna=` — `prefillFromInvoiceAction`). Bez niego formularz pusty.
    */
   initialValues?: Partial<InvoiceFormValues> | null;
+  /**
+   * Krok 2.8: domyślne ustawienia firmy dla nowej faktury (forma płatności,
+   * termin w dniach). Startowe wartości formularza; podkład (`initialValues`)
+   * wpisuje własne wartości po nich, więc ma pierwszeństwo. Brak: przelew, 14 dni.
+   */
+  defaults?: Partial<InvoiceDefaults> | null;
   /**
    * Pozycja cykliczna (`?cykliczna=`) — ukryte pole; „Wystaw i wyślij” zajmuje
    * nim okres. W tym trybie nie ma „Zapisz szkic” (C2): szkic nie zamyka okresu.
@@ -150,7 +158,8 @@ export function InvoiceForm({
 
   // Daty w czasie polskim, nie UTC (F-013): po północy „dziś” to nowy dzień.
   const today = todayInWarsaw();
-  const in14days = dueDateFrom(today, 14);
+  // Krok 2.8: forma i termin płatności firmy (bez ustawień: przelew i 14 dni, jak dotąd).
+  const paymentDefaults = formDefaultsOf(defaults, today);
 
   // Krok 2.5: seria domyślna i jej podpowiedź; klucz zapisu jeden na otwarcie
   // formularza (drugi zapis po podwójnym kliknięciu nie tworzy drugiej faktury).
@@ -178,8 +187,8 @@ export function InvoiceForm({
       buyerVatUe: '',
       buyerCountryCode: '',
       lines: [newLine],
-      paymentMethod: 'transfer',
-      paymentDueDate: in14days,
+      paymentMethod: paymentDefaults.paymentMethod,
+      paymentDueDate: paymentDefaults.paymentDueDate,
       bankAccount: '',
       notes: '',
       splitPayment: false,
