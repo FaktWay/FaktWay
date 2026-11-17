@@ -15,12 +15,14 @@ import { memoryClient, type MemoryTables, type Row } from './helpers/baza-w-pami
  * (`getKpirData`) i JPK_V7M (`fetchInvoicesForExport`, `summarizeJpkV7m`)
  * liczyły koszt i VAT do odliczenia podwójnie.
  *
- * Niezmiennik: jeden dokument (NIP sprzedawcy i numer, art. 106e ust. 1
- * pkt 2 ustawy o VAT) to w KPiR i w JPK_V7M najwyżej jeden koszt,
- * niezależnie od źródła i kolejności. Dwa koszty tego samego dokumentu: odczyt
- * odmawia z numerem dokumentu i wyjściem (przy jednym z kosztów wyłącza się
- * „Uwzględnij w KPiR”), jak KPiR modułu (F11-C1, `lib/ksiegowosc/kpir-dane.ts`).
- * Zapis jednego kosztu przy drugim źródle czeka na decyzję (FZ-022, `.fails`).
+ * Niezmiennik (RP-KOSZT-01): ta sama faktura (NIP sprzedawcy, numer i rok
+ * wystawienia) z KSeF i spoza KSeF to w KPiR i w JPK_V7M okresu najwyżej
+ * jeden koszt, w obu kolejnościach. Odczyt okresu, w którym są oba, odmawia
+ * z numerem, datą, źródłami i wyjściem (przy kopii wyłącza się „Uwzględnij
+ * w KPiR”), jak KPiR modułu (F11-C1, `lib/ksiegowosc/kpir-dane.ts`). Inne
+ * okresy liczą się jak dotąd; para rozdzielona na dwa okresy nie jest
+ * odmową odczytu miesiąca (luka FZ-022, zamknie ją zapis). Zapis jednego
+ * kosztu przy drugim źródle czeka na decyzję (FZ-022, `.fails`).
  *
  * Prawdziwa ścieżka: runnery `runProcessOcr` i `runAutoCategorizeInbox`
  * zapisują koszty w tej samej bazie w pamięci, a odczyty KPiR i JPK_V7M
@@ -32,6 +34,9 @@ const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const USER = '33333333-3333-4333-8333-333333333333';
 const INVOICE = '11111111-1111-4111-8111-111111111111';
 const OCR_JOB = '22222222-2222-4222-8222-222222222222';
+const OCR_JOB_2 = '22222222-2222-4222-8222-222222222223';
+const INVOICE_2 = '11111111-1111-4111-8111-111111111112';
+const NR_KSEF = '5260001246-20270205-000000000007-01';
 const SELLER_NIP = '5260001246';
 const NUMER = 'FV/7/02/2027';
 const XML_PATH = `${TENANT}/ksef-import/5260001246-20270205-000000000007-01.xml`;
@@ -158,7 +163,7 @@ function fakturaZSkrzynki(o: Row = {}): Row {
     origin: 'ksef_inbox',
     ksef_status: 'accepted',
     ksef_environment: 'test',
-    ksef_number: '5260001246-20270205-000000000007-01',
+    ksef_number: NR_KSEF,
     internal_number: NUMER,
     issue_date: '2027-02-05',
     currency: 'PLN',
@@ -194,49 +199,60 @@ function zdjecieFaktury(o: Row = {}): Row {
   };
 }
 
-function baza(faktura: Row = fakturaZSkrzynki()) {
+function baza(faktury: Row[] = [fakturaZSkrzynki()]) {
+  const zadanie = (id: string) => ({
+    id, tenant_id: TENANT, created_by: USER, source_file_path: `${TENANT}/expenses/${id}.jpg`, source_file_mime: 'image/jpeg', status: 'pending', extracted_data: null,
+  });
   state.tables = {
     tenants: [{ id: TENANT, nip: '1234567890', name: 'Moja Firma', address_json: null, vat_exemption_basis: null }],
     memberships: [{ organization_id: TENANT, user_id: USER, role: 'owner', status: 'active' }],
-    invoices: [faktura],
+    invoices: faktury,
     invoice_line_items: [],
     expenses: [],
     expense_receipt_matches: [],
-    ocr_jobs: [
-      { id: OCR_JOB, tenant_id: TENANT, created_by: USER, source_file_path: `${TENANT}/expenses/zdjecie.jpg`, source_file_mime: 'image/jpeg', status: 'pending', extracted_data: null },
-    ],
+    ocr_jobs: [zadanie(OCR_JOB), zadanie(OCR_JOB_2)],
     categorization_rules: [],
     kpir_global_rules: [],
     flo_proposals: [],
     audit_logs: [],
   };
   state.xml.clear();
-  state.xml.set(XML_PATH, XML);
-  state.doc = zdjecieFaktury();
+  for (const f of faktury) if (typeof f.xml_storage_path === 'string') state.xml.set(f.xml_storage_path, XML);
 }
 
-const zdjecie = () => runProcessOcr({ ocrJobId: OCR_JOB, tenantId: TENANT }, ctx);
-const skrzynka = () => runAutoCategorizeInbox({ invoiceId: INVOICE, tenantId: TENANT, environment: 'test' }, ctx);
+const zdjecie = async (doc: Row = zdjecieFaktury(), zadanie = OCR_JOB) => {
+  state.doc = doc;
+  await runProcessOcr({ ocrJobId: zadanie, tenantId: TENANT }, ctx);
+};
+const skrzynka = (invoiceId = INVOICE) => runAutoCategorizeInbox({ invoiceId, tenantId: TENANT, environment: 'test' }, ctx);
 const koszty = () => (state.tables as MemoryTables).expenses!;
 const kluczNumeru = (numer: unknown) => String(numer ?? '').replace(/\s+/g, '').toUpperCase();
+const LUTY = { month: '2', year: '2027', od: '2027-02-01', do: '2027-02-28' };
+const STYCZEN = { month: '1', year: '2027', od: '2027-01-01', do: '2027-01-31' };
 
-/** KPiR za luty 2027 r. i zakupy JPK_V7M z tych samych wierszy; odmowa zamiast kwot, gdy odczyt odmawia. */
-async function odczyty() {
-  const kpir = await getKpirData(db() as never, TENANT, { month: '2', year: '2027' }, new Date('2027-02-20T12:00:00Z'));
-  const wKpir = kpir.expenses.filter((e) => kluczNumeru(e.document_number) === NUMER).length;
-  let jpk: { odmowa: null; wJpk: number; vatDoOdliczenia: number } | { odmowa: string };
+/** KPiR i zakupy JPK_V7M okresu z tych samych wierszy; odmowa zamiast kwot, gdy odczyt odmawia. */
+async function odczyty(okres = LUTY, numer = NUMER) {
+  const kpir = await getKpirData(db() as never, TENANT, { month: okres.month, year: okres.year }, new Date('2027-02-20T12:00:00Z'));
+  const wKpir = kpir.expenses.filter((e) => kluczNumeru(e.document_number) === numer).length;
+  let jpk: { odmowa: null; wJpk: number; vatDoOdliczenia: number; nrKsef: Array<string | null> } | { odmowa: string };
   try {
     const dane = await fetchInvoicesForExport(
-      { tenantId: TENANT, periodStart: '2027-02-01', periodEnd: '2027-02-28', direction: 'issued', includeCorrections: true, includeExpenses: true },
+      { tenantId: TENANT, periodStart: okres.od, periodEnd: okres.do, direction: 'issued', includeCorrections: true, includeExpenses: true },
       db() as never,
     );
     const suma = summarizeJpkV7m({ issuedInvoices: [], expenses: dane.expenses });
-    jpk = { odmowa: null, wJpk: dane.expenses.filter((e) => kluczNumeru(e.documentNumber) === NUMER).length, vatDoOdliczenia: suma.vatDeductible };
+    const tego = dane.expenses.filter((e) => kluczNumeru(e.documentNumber) === numer);
+    jpk = { odmowa: null, wJpk: tego.length, vatDoOdliczenia: suma.vatDeductible, nrKsef: tego.map((e) => e.ksefNumber ?? null) };
   } catch (e) {
     jpk = { odmowa: e instanceof Error ? e.message : String(e) };
   }
   return { kpirOdmowa: kpir.currencyBlocked, wKpir, jpk };
 }
+
+const KOLEJNOSCI = [
+  ['zdjęcie, potem Skrzynka', async () => { await zdjecie(); await skrzynka(); }],
+  ['Skrzynka, potem zdjęcie', async () => { await skrzynka(); await zdjecie(); }],
+] as const;
 
 beforeEach(() => {
   vi.stubEnv('KSEF_ENV', 'test');
@@ -244,10 +260,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('FZ-022: ta sama faktura ze zdjęcia i ze Skrzynki KSeF', () => {
-  it.each([
-    ['zdjęcie, potem Skrzynka', async () => { await zdjecie(); await skrzynka(); }],
-    ['Skrzynka, potem zdjęcie', async () => { await skrzynka(); await zdjecie(); }],
-  ])('%s: KPiR i JPK_V7M nigdy nie liczą dokumentu dwa razy (jeden koszt albo odmowa z numerem)', async (_kolejnosc, przebieg) => {
+  it.each(KOLEJNOSCI)('%s: KPiR i JPK_V7M okresu nie liczą faktury dwa razy (jeden koszt albo odmowa z numerem)', async (_kolejnosc, przebieg) => {
     baza();
     await przebieg();
     // Oba źródła doszły do bazy: dokument jest w kosztach (stan sprzed decyzji o zapisie).
@@ -260,7 +273,18 @@ describe('FZ-022: ta sama faktura ze zdjęcia i ze Skrzynki KSeF', () => {
     else expect(jpk.odmowa).toContain(NUMER);
   });
 
-  it('wyjście z odmowy: koszt ze zdjęcia poza KPiR, a KPiR i JPK_V7M liczą koszt z KSeF raz', async () => {
+  it('odmowa podaje numer, datę i oba źródła, bez nazwy sprzedawcy', async () => {
+    baza();
+    await zdjecie();
+    await skrzynka();
+    const { kpirOdmowa, jpk } = await odczyty();
+    for (const odmowa of [kpirOdmowa, jpk.odmowa]) {
+      expect(odmowa).toContain(`${NUMER} z 05.02.2027 (2 razy: ze Skrzynki KSeF i ze zdjęcia)`);
+      expect(odmowa).not.toContain('Sklep Przykład');
+    }
+  });
+
+  it('wyjście z odmowy: koszt ze zdjęcia poza KPiR, a KPiR i JPK_V7M liczą raz koszt z KSeF z numerem KSeF', async () => {
     baza();
     await zdjecie();
     await skrzynka();
@@ -269,7 +293,15 @@ describe('FZ-022: ta sama faktura ze zdjęcia i ze Skrzynki KSeF', () => {
     const { kpirOdmowa, wKpir, jpk } = await odczyty();
     expect(kpirOdmowa).toBeNull();
     expect(wKpir).toBe(1);
-    expect(jpk).toEqual({ odmowa: null, wJpk: 1, vatDoOdliczenia: 23 });
+    expect(jpk).toEqual({ odmowa: null, wJpk: 1, vatDoOdliczenia: 23, nrKsef: [NR_KSEF] });
+  });
+
+  it('dubel z lutego nie zatrzymuje stycznia: raport KPiR i eksport za styczeń liczą się jak dotąd', async () => {
+    baza();
+    await zdjecie();
+    await skrzynka();
+    const styczen = await odczyty(STYCZEN);
+    expect(styczen).toEqual({ kpirOdmowa: null, wKpir: 0, jpk: { odmowa: null, wJpk: 0, vatDoOdliczenia: 0, nrKsef: [] } });
   });
 
   it('karty kosztów Pulpitu, Przepływów i Analiz: ta sama odmowa z numerem, którą klient widzi na karcie', async () => {
@@ -290,27 +322,23 @@ describe('FZ-022: ta sama faktura ze zdjęcia i ze Skrzynki KSeF', () => {
     baza();
     await zdjecie();
     await skrzynka();
-    const odmowa = await fetchInvoicesForExport(
-      { tenantId: TENANT, periodStart: '2027-02-01', periodEnd: '2027-02-28', direction: 'issued', includeCorrections: true, includeExpenses: true },
-      db() as never,
-    ).then(
-      () => '',
-      (e: unknown) => (e instanceof Error ? e.message : String(e)),
-    );
+    const { jpk } = await odczyty();
+    const odmowa = jpk.odmowa ?? '';
     (state.tables as MemoryTables).export_jobs = [{ id: 'eksport-1', tenant_id: TENANT, status: 'generating', error_message: null }];
     await onExportsGenerateExhausted(new NonRetriableError(odmowa), { exportJobId: 'eksport-1' });
     expect((state.tables as MemoryTables).export_jobs![0]).toMatchObject({ status: 'failed', error_message: odmowa });
     expect(odmowa).toContain(NUMER);
   });
+});
 
+describe('FZ-022: bez odmowy, gdy to nie ten sam dokument', () => {
   it.each([
     ['inny NIP sprzedawcy', { seller_nip: '1111111111' }],
     ['inny numer', { document_number: 'FV/8/02/2027' }],
     ['bez NIP-u (np. sprzedawca zagraniczny)', { seller_nip: null }],
-  ])('dwa różne dokumenty (%s): bez odmowy, dwa koszty', async (_nazwa, zmiana) => {
+  ])('zdjęcie innego dokumentu (%s) i faktura z KSeF: dwa koszty', async (_nazwa, zmiana) => {
     baza();
-    state.doc = zdjecieFaktury(zmiana);
-    await zdjecie();
+    await zdjecie(zdjecieFaktury(zmiana));
     await skrzynka();
 
     const { kpirOdmowa, jpk } = await odczyty();
@@ -323,17 +351,61 @@ describe('FZ-022: ta sama faktura ze zdjęcia i ze Skrzynki KSeF', () => {
     expect(dane.expenses).toHaveLength(2);
   });
 
-  it.fails('zdjęcie i faktura z KSeF tego samego dokumentu to jeden koszt w KPiR i JPK_V7M, bez odmowy (FZ-022)', async () => {
-    for (const przebieg of [
-      async () => { await zdjecie(); await skrzynka(); },
-      async () => { await skrzynka(); await zdjecie(); },
-    ]) {
-      baza();
-      await przebieg();
-      const { kpirOdmowa, wKpir, jpk } = await odczyty();
-      expect(kpirOdmowa).toBeNull();
-      expect(wKpir).toBe(1);
-      expect(jpk).toEqual({ odmowa: null, wJpk: 1, vatDoOdliczenia: 23 });
-    }
+  it('ten sam NIP i numer w innym roku (numeracja od nowa co rok): dwie faktury, bez odmowy także w odczycie obu lat', async () => {
+    baza([fakturaZSkrzynki({ internal_number: '15', ksef_number: '5260001246-20270205-000000000015-01' })]);
+    await zdjecie(zdjecieFaktury({ document_number: '15', issue_date: '2026-12-15' }));
+    await skrzynka();
+    const dane = await fetchInvoicesForExport(
+      { tenantId: TENANT, periodStart: '2026-12-01', periodEnd: '2027-02-28', direction: 'issued', includeCorrections: true, includeExpenses: true },
+      db() as never,
+    );
+    expect(dane.expenses.map((e) => e.documentNumber).sort()).toEqual(['15', '15']);
+    const karty = await getCostsWithKsefPurchases(db() as never, TENANT, { from: '2026-12-01', toExclusive: '2027-03-01' });
+    expect(karty.filter((k) => k.documentNumber === '15')).toHaveLength(2);
+  });
+
+  it('dwie faktury z KSeF z tym samym numerem (np. faktura i korekta): dla KSeF to dwa dokumenty, bez odmowy', async () => {
+    baza([fakturaZSkrzynki(), fakturaZSkrzynki({ id: INVOICE_2, ksef_number: '5260001246-20270206-000000000008-01', xml_storage_path: null })]);
+    await skrzynka();
+    await skrzynka(INVOICE_2);
+    expect(koszty().filter((e) => e.source === 'ksef_inbox')).toHaveLength(2);
+    const { kpirOdmowa, jpk } = await odczyty();
+    expect(kpirOdmowa).toBeNull();
+    expect(jpk).toMatchObject({ odmowa: null, wJpk: 2 });
+  });
+
+  it('jedna faktura rozpisana na dwa koszty spoza KSeF z różnymi kwotami (np. dwie kolumny KPiR): bez odmowy', async () => {
+    baza([]);
+    await zdjecie(zdjecieFaktury({ net_amount: 60, vat_amount: 13.8, gross_amount: 73.8 }));
+    await zdjecie(zdjecieFaktury({ net_amount: 40, vat_amount: 9.2, gross_amount: 49.2 }), OCR_JOB_2);
+    const { kpirOdmowa, wKpir, jpk } = await odczyty();
+    expect(kpirOdmowa).toBeNull();
+    expect(wKpir).toBe(2);
+    expect(jpk).toMatchObject({ odmowa: null, wJpk: 2 });
+  });
+
+  it('to samo zdjęcie wgrane dwa razy (te same kwoty): odmowa z wyjściem przy jednym z nich', async () => {
+    baza([]);
+    await zdjecie();
+    await zdjecie(zdjecieFaktury(), OCR_JOB_2);
+    const { kpirOdmowa, jpk } = await odczyty();
+    // Bez kosztu z KSeF numer jest taki, jak go odczytało zdjęcie.
+    expect(kpirOdmowa).toContain('fv/7/02/2027 z 05.02.2027 (2 razy: ze zdjęcia)');
+    expect(kpirOdmowa).toContain('przy pozostałych wyłącza się w Kosztach');
+    expect(jpk.odmowa).toContain('fv/7/02/2027');
+  });
+});
+
+describe('FZ-022: zapis jednego kosztu przy drugim źródle (decyzja Bartosza)', () => {
+  // Cel zapisu niezależny od wariantu „połącz sam” i „czekaj na przegląd”: jeden
+  // koszt w KPiR i JPK, z numerem KSeF (JPK_V7M(3) wymaga NrKSeF), bez odmowy.
+  // Przy decyzji „zostać przy odmowie” ten test się usuwa, a FZ-022 zamyka.
+  it.fails.each(KOLEJNOSCI)('%s: jeden koszt z numerem KSeF w KPiR i JPK_V7M, bez odmowy (FZ-022)', async (_kolejnosc, przebieg) => {
+    baza();
+    await przebieg();
+    const { kpirOdmowa, wKpir, jpk } = await odczyty();
+    expect(kpirOdmowa).toBeNull();
+    expect(wKpir).toBe(1);
+    expect(jpk).toEqual({ odmowa: null, wJpk: 1, vatDoOdliczenia: 23, nrKsef: [NR_KSEF] });
   });
 });

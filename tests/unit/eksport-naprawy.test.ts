@@ -75,7 +75,7 @@ describe('exportFixFor — prawdziwe błędy z lib/', () => {
     [
       'ten sam dokument kosztu dwa razy (FZ-022)',
       failed(new ZdublowanyKosztError({ numer: 'FV/7/02/2027', sprzedawca: 'Sklep Przykład', ile: 2, zKsef: true }), 'kpir_excel'),
-      link('Koszty', '/expenses'),
+      link('Koszty', '/expenses?miesiac=2026-09'),
     ],
     ['sprzedaż bez PLN', failed(new OutgoingInvoiceCurrencyNotSupportedError(), 'kpir_excel'), link('Faktury', '/invoices')],
     ['JPK_FA walutowa', failed(new JpkFaForeignCurrencyNotSupportedError()), link('Faktury', '/invoices')],

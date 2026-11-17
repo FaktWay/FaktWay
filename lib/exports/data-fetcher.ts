@@ -204,9 +204,13 @@ async function fetchExpensesForExport(
   assertJedenKosztNaDokument(eligible.map((row) => ({
     seller_nip: typeof row.seller_nip === 'string' ? row.seller_nip : null,
     document_number: typeof row.document_number === 'string' ? row.document_number : null,
+    issue_date: String(row.issue_date),
     seller_name: typeof row.seller_name === 'string' ? row.seller_name : null,
     source: typeof row.source === 'string' ? row.source : null,
     ksef_invoice_id: typeof row.ksef_invoice_id === 'string' ? row.ksef_invoice_id : null,
+    document_type: typeof row.document_type === 'string' ? row.document_type : null,
+    ocr_extracted_data: row.ocr_extracted_data,
+    gross_amount: Number(row.gross_amount ?? 0),
   })));
   const out = eligible.map((row) => ({
     id: String(row.id),

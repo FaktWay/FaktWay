@@ -3059,6 +3059,72 @@
       "zrodlo_planu": "§7",
       "stan": "dziala",
       "uwagi": null
+    },
+    {
+      "id": "RP-KOSZT-01",
+      "regula": "Jeden dokument kosztu to jeden koszt w KPiR i jedno odliczenie VAT: ta sama faktura z KSeF i spoza KSeF (zdjęcie, wpis ręczny, import) albo dwie kopie spoza KSeF z tą samą kwotą brutto nie wchodzą do kosztów okresu dwa razy; odczyt okresu odmawia z numerem, datą, źródłami i wyjściem.",
+      "podstawa": [
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 86 ust. 1 i ust. 2 pkt 1 lit. a"
+        },
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106e ust. 1 pkt 2"
+        },
+        {
+          "akt": "ustawa o podatku dochodowym od osób fizycznych",
+          "przepis": "art. 22 ust. 1"
+        },
+        {
+          "akt": "rozporządzenie MF w sprawie prowadzenia podatkowej księgi przychodów i rozchodów",
+          "przepis": "Dz.U. 2025 poz. 1299, załącznik (wzór i objaśnienia)"
+        },
+        {
+          "akt": "zasada programu",
+          "przepis": "F11-C1 (KPiR modułu), FZ-022"
+        }
+      ],
+      "obowiazuje": {
+        "od": "2026-01-01",
+        "do": null
+      },
+      "obszary": [
+        "koszty",
+        "raporty.kpir",
+        "jpk.vat-fa",
+        "ksiegowosc.kpir",
+        "ksiegowosc.vat"
+      ],
+      "kod": [
+        "lib/expenses/jeden-koszt-dokumentu.ts#zdublowanyDokument",
+        "lib/expenses/jeden-koszt-dokumentu.ts#kluczDokumentuKosztu",
+        "lib/expenses/jeden-koszt-dokumentu.ts#assertJedenKosztNaDokument"
+      ],
+      "testy": [
+        "tests/unit/koszt-jeden-dokument.test.ts > KPiR i JPK_V7M okresu nie liczą faktury dwa razy",
+        "tests/unit/koszt-jeden-dokument.test.ts > dubel z lutego nie zatrzymuje stycznia",
+        "tests/unit/jeden-koszt-dokumentu.test.ts > faktura z tym samym NIP-em i numerem w innym roku to inna faktura",
+        "tests/unit/jeden-koszt-dokumentu.test.ts > dwa koszty z KSeF z tym samym kluczem"
+      ],
+      "parametry": [],
+      "niezmienniki": [],
+      "pewnosc": "srednia",
+      "wzorzec": null,
+      "interpretacja": "Faktura: NIP sprzedawcy (10 cyfr), numer bez odstępów i wielkości liter oraz rok wystawienia (sprzedawca może co rok zaczynać numerację od nowa). Paragon (także z NIP-em) numeruje kasa, więc ten sam dokument to ten sam numer, dzień i kwota brutto. Dwa koszty z KSeF z tym samym kluczem to dla KSeF dwa dokumenty (np. faktura i korekta), a koszty spoza KSeF z różnymi kwotami to rozpisanie jednego dokumentu na kolumny KPiR; oba bez odmowy. Odmowa dotyczy odczytu okresu, w którym są oba koszty; para w dwóch okresach (np. OCR wziął datę sprzedaży) nie daje odmowy odczytu miesiąca.",
+      "do_rozstrzygniecia": {
+        "kto": "księgowa",
+        "pytanie": "Czy jedną fakturę kosztową można wpisać do KPiR jako dwa wiersze z tym samym numerem dowodu (np. towar w kolumnie 10, transport w kolumnie 11), i czy paragon z tym samym numerem, dniem i kwotą brutto wgrany dwa razy zawsze jest tym samym dokumentem?",
+        "przypadki": []
+      },
+      "sprawdzil": {
+        "ksiegowa": null,
+        "prawnik": null
+      },
+      "odczyt": "2026-11-17",
+      "zrodlo_planu": "FZ-022 (docs/filtr/USTALENIA.md), F11-C1",
+      "stan": "dziala",
+      "uwagi": "Zapis jednego kosztu przy drugim źródle czeka na decyzję Bartosza (FZ-022); do tego czasu odmowa przy odczycie."
     }
   ]
 }

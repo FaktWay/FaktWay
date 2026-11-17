@@ -20,6 +20,7 @@ import { attachKsefNumbers, type ExportExpense } from '@/lib/exports/data-fetche
 import { assertKsefExpensesReadyForPln, KsefExpenseCurrencyNotSupportedError } from '@/lib/expenses/ksef-currency-review';
 import { zdublowanyDokument, type ZdublowanyDokument } from '@/lib/expenses/jeden-koszt-dokumentu';
 import { filterExpensesForKsefEnvironment } from '@/lib/expenses/ksef-environment';
+import { formatIsoDatePl } from '@/lib/format/iso-date';
 import { requireConfiguredKsefEnvironment } from '@/lib/ksef/claim-environment';
 import { czytajFakturyRoku, KOMUNIKAT_ODCZYT, KOMUNIKAT_SRODOWISKO, type OpcjeOdczytu } from '@/lib/ksiegowosc/ewidencja-dane';
 import { zaplatyFunduszuPracy, zbudujKpir, type KosztKpir, type Kpir, type WpisKpir, type ZaplaconeSkladki } from '@/lib/ksiegowosc/kpir';
@@ -65,10 +66,15 @@ function identyfikator(nip: string | null): { kraj: string | null; identyfikator
   return cyfry.length === 10 ? { kraj: 'PL', identyfikator: cyfry } : { kraj: null, identyfikator: null };
 }
 
-/** Brak KPiR przy zdublowanym dokumencie kosztu: numer, sprzedawca i co dalej (bez trybu rozkazującego, D8). */
-export function komunikatDublaKosztu(d: Pick<ZdublowanyDokument, 'numer' | 'sprzedawca' | 'ile'>): string {
+/**
+ * Brak KPiR przy zdublowanym dokumencie kosztu: numer, data i źródła (gdy są),
+ * sprzedawca i co dalej (bez trybu rozkazującego, D8).
+ */
+export function komunikatDublaKosztu(d: Pick<ZdublowanyDokument, 'numer' | 'sprzedawca' | 'ile' | 'data' | 'zrodla'>): string {
+  const data = d.data ? ` z ${formatIsoDatePl(d.data)}` : '';
+  const zrodla = d.zrodla && d.zrodla.length > 0 ? d.zrodla.join(' i ') : 'np. zdjęcie i ta sama faktura ze Skrzynki KSeF';
   return (
-    `Dokument ${d.numer} od ${d.sprzedawca} jest w kosztach ${d.ile} razy (np. zdjęcie i ta sama faktura ze Skrzynki KSeF), więc KPiR teraz nie liczymy, żeby nie wpisać kosztu podwójnie. ` +
+    `Dokument ${d.numer}${data} od ${d.sprzedawca} jest w kosztach ${d.ile} razy (${zrodla}), więc KPiR teraz nie liczymy, żeby nie wpisać kosztu podwójnie. ` +
     'Do KPiR wchodzi jeden koszt tego dokumentu, a przy pozostałych w Kosztach wyłącza się „Uwzględnij w KPiR”. Dokument celowo podzielony na kilka kosztów sprawdzimy po zgłoszeniu w Pomocy.'
   );
 }
