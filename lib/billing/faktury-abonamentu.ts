@@ -13,6 +13,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type SubscriptionInvoiceState = 'in_ksef' | 'issued' | 'preparing';
+/** Stan samej płatności: zwrot nie usuwa wiersza ani faktury (faktura zostaje w KSeF). */
+export type SubscriptionPaymentState = 'paid' | 'refunded' | 'partially_refunded';
 
 export interface SubscriptionInvoiceRow {
   paymentId: string;
@@ -23,6 +25,7 @@ export interface SubscriptionInvoiceRow {
   ksefNumber: string | null;
   /** `in_ksef`: przyjęta przez KSeF; `issued`: wystawiona, czeka na KSeF; `preparing`: faktury jeszcze nie ma. */
   state: SubscriptionInvoiceState;
+  paymentState: SubscriptionPaymentState;
 }
 
 interface PaymentRow {
@@ -41,6 +44,9 @@ interface InvoiceRow {
   ksef_status: string | null;
 }
 
+/** Płatności z fakturą: udane oraz zwrócone (w całości albo częściowo). Nieudane i oczekujące nie mają faktury. */
+const LISTED_STATUSES = ['succeeded', 'refunded', 'partially_refunded'];
+
 /** Najwyżej tyle ostatnich płatności na liście (dwa lata przy planie miesięcznym). */
 export const SUBSCRIPTION_INVOICES_LIMIT = 24;
 
@@ -57,6 +63,7 @@ export function subscriptionInvoiceRow(payment: PaymentRow, invoice: InvoiceRow 
     number: invoice?.internal_number ?? null,
     ksefNumber: accepted ? (invoice?.ksef_number ?? null) : null,
     state: !invoice ? 'preparing' : accepted ? 'in_ksef' : 'issued',
+    paymentState: payment.status === 'refunded' ? 'refunded' : payment.status === 'partially_refunded' ? 'partially_refunded' : 'paid',
   };
 }
 
@@ -70,11 +77,11 @@ export async function listSubscriptionInvoices(
       .from('stripe_payments')
       .select('id, status, amount_cents, currency, paid_at, vat_invoice_id')
       .eq('tenant_id', tenantId)
-      .eq('status', 'succeeded')
+      .in('status', LISTED_STATUSES)
       .order('paid_at', { ascending: false })
       .limit(SUBSCRIPTION_INVOICES_LIMIT);
     if (error || !Array.isArray(data)) return null;
-    const payments = (data as PaymentRow[]).filter((p) => p.status === 'succeeded');
+    const payments = (data as PaymentRow[]).filter((p) => LISTED_STATUSES.includes(p.status));
     if (payments.length === 0) return [];
 
     const ids = payments.map((p) => p.vat_invoice_id).filter((id): id is string => typeof id === 'string');

@@ -48,19 +48,23 @@ const platnosci = (): Row[] => [
   { id: 'p2', tenant_id: TENANT, status: 'succeeded', amount_cents: 4900, paid_at: '2026-10-02T10:00:00Z', vat_invoice_id: 'f2' },
   { id: 'p3', tenant_id: TENANT, status: 'succeeded', amount_cents: 4900, paid_at: '2026-12-02T10:00:00Z', vat_invoice_id: null },
   { id: 'p4', tenant_id: TENANT, status: 'failed', amount_cents: 4900, paid_at: null, vat_invoice_id: null },
+  { id: 'p5', tenant_id: TENANT, status: 'refunded', amount_cents: 4900, paid_at: '2026-09-02T10:00:00Z', vat_invoice_id: 'f5' },
+  { id: 'p6', tenant_id: TENANT, status: 'partially_refunded', amount_cents: 4900, paid_at: '2026-08-02T10:00:00Z', vat_invoice_id: null },
+  { id: 'p7', tenant_id: TENANT, status: 'pending', amount_cents: 4900, paid_at: null, vat_invoice_id: null },
   { id: 'px', tenant_id: OBCA, status: 'succeeded', amount_cents: 1, paid_at: '2026-11-03T10:00:00Z', vat_invoice_id: 'fx' },
 ];
 const faktury = (): Row[] => [
   { id: 'f1', internal_number: 'FF/2026/11/ABC12345', ksef_number: '5260001246-20261102-AAAAAAAAAAAA-01', ksef_status: 'accepted' },
   { id: 'f2', internal_number: 'FF/2026/10/ZZZ99999', ksef_number: null, ksef_status: 'sending', tajne: 'nie wychodzi' },
+  { id: 'f5', internal_number: 'FF/2026/09/REF00005', ksef_number: '5260001246-20260902-BBBBBBBBBBBB-02', ksef_status: 'accepted' },
   { id: 'fx', internal_number: 'FF/2026/11/OBCA0000', ksef_number: null, ksef_status: 'accepted' },
 ];
 
 describe('lista faktur za abonament', () => {
-  it('zwraca tylko udane płatności własnej firmy, od najnowszej, z numerami faktur operatora', async () => {
+  it('zwraca udane i zwrócone płatności własnej firmy (bez nieudanych i oczekujących), od najnowszej, z numerami faktur operatora', async () => {
     const lista = await listSubscriptionInvoices(baza({ stripe_payments: platnosci() }), baza({ invoices: faktury() }), TENANT);
     expect(lista).not.toBeNull();
-    expect(lista!.map((r) => r.paymentId)).toEqual(['p3', 'p1', 'p2']);
+    expect(lista!.map((r) => r.paymentId)).toEqual(['p3', 'p1', 'p2', 'p5', 'p6']);
     expect(lista!.find((r) => r.paymentId === 'p1')).toMatchObject({
       amountLabel: expect.stringContaining('49,00'),
       number: 'FF/2026/11/ABC12345',
@@ -73,6 +77,13 @@ describe('lista faktur za abonament', () => {
     const lista = (await listSubscriptionInvoices(baza({ stripe_payments: platnosci() }), baza({ invoices: faktury() }), TENANT))!;
     expect(lista.find((r) => r.paymentId === 'p2')).toMatchObject({ number: 'FF/2026/10/ZZZ99999', ksefNumber: null, state: 'issued' });
     expect(lista.find((r) => r.paymentId === 'p3')).toMatchObject({ number: null, state: 'preparing' });
+  });
+
+  it('płatność zwrócona albo częściowo zwrócona zostaje na liście ze stanem płatności, razem z fakturą z KSeF', async () => {
+    const lista = (await listSubscriptionInvoices(baza({ stripe_payments: platnosci() }), baza({ invoices: faktury() }), TENANT))!;
+    expect(lista.find((r) => r.paymentId === 'p5')).toMatchObject({ paymentState: 'refunded', number: 'FF/2026/09/REF00005', state: 'in_ksef' });
+    expect(lista.find((r) => r.paymentId === 'p6')).toMatchObject({ paymentState: 'partially_refunded' });
+    expect(lista.find((r) => r.paymentId === 'p1')).toMatchObject({ paymentState: 'paid' });
   });
 
   it('numery faktur czyta tylko dla faktur z własnych płatności i tylko potrzebne kolumny', async () => {
@@ -115,8 +126,10 @@ describe('lista faktur za abonament', () => {
 
 describe('sekcja „Faktury za abonament”', () => {
   const wiersze: SubscriptionInvoiceRow[] = [
-    { paymentId: 'p1', paidOn: '2026-11-02', amountLabel: '49,00 PLN', number: 'FF/2026/11/ABC12345', ksefNumber: '5260001246-20261102-AAAAAAAAAAAA-01', state: 'in_ksef' },
-    { paymentId: 'p3', paidOn: '2026-12-02', amountLabel: '49,00 PLN', number: null, ksefNumber: null, state: 'preparing' },
+    { paymentId: 'p1', paidOn: '2026-11-02', amountLabel: '49,00 PLN', number: 'FF/2026/11/ABC12345', ksefNumber: '5260001246-20261102-AAAAAAAAAAAA-01', state: 'in_ksef', paymentState: 'paid' },
+    { paymentId: 'p3', paidOn: '2026-12-02', amountLabel: '49,00 PLN', number: null, ksefNumber: null, state: 'preparing', paymentState: 'paid' },
+    { paymentId: 'p5', paidOn: '2026-09-02', amountLabel: '49,00 PLN', number: 'FF/2026/09/REF00005', ksefNumber: null, state: 'issued', paymentState: 'refunded' },
+    { paymentId: 'p6', paidOn: '2026-08-02', amountLabel: '49,00 PLN', number: null, ksefNumber: null, state: 'preparing', paymentState: 'partially_refunded' },
   ];
   const html = (rows: SubscriptionInvoiceRow[] | null) => renderToStaticMarkup(<SubscriptionInvoices rows={rows} />);
 
@@ -128,6 +141,18 @@ describe('sekcja „Faktury za abonament”', () => {
     expect(h).toMatch(/w KSeF/i);
     expect(h).toMatch(/w przygotowaniu/i);
     expect(h).toMatch(/Koszty|skrzynk/i);
+  });
+
+  it('płatność zwrócona i częściowo zwrócona ma w tabeli stan płatności, a faktura w KSeF zostaje', () => {
+    const h = html(wiersze);
+    expect(h).toMatch(/Zwrócona/);
+    expect(h).toMatch(/Częściowo zwrócona/);
+    expect(h).toMatch(/faktura .*KSeF|korekt/i);
+  });
+
+  it('w tekście dla klienta nie ma długich myślników (strażnik tekstów)', () => {
+    expect(html(wiersze)).not.toMatch(/\u2014|\u2013/);
+    expect(html([])).not.toMatch(/\u2014|\u2013/);
   });
 
   it('pusta lista: wyjaśnienie, że faktura pojawi się po pierwszej płatności', () => {
