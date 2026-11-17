@@ -9,6 +9,7 @@ import {
 import { InvoiceForm } from '@/components/invoices/invoice-form';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { todayInWarsaw } from '@/lib/format/warsaw-date';
+import { readInvoiceDefaults } from '@/lib/invoices/invoice-defaults';
 import { loadInvoiceAutosave } from '@/lib/invoices/form-autosave';
 import { loadTenantSellerForForms } from '@/lib/invoices/load-tenant-seller';
 import { getRecurringInvoice } from '@/lib/invoices/recurring/queries';
@@ -195,12 +196,14 @@ export default async function NewRegularInvoicePage({
   const ctx = await getPageContext();
   const { supabase, tenantId } = ctx;
   const params = (await searchParams) ?? {};
-  const [podpowiedz, vatExemptionBasis, numbering, loadedSeller, { source, notice }, restoredDraft] = await Promise.all([
+  const [podpowiedz, vatExemptionBasis, numbering, loadedSeller, { source, notice }, invoiceDefaults, restoredDraft] = await Promise.all([
     prefillFromLastInvoiceAction(),
     readTenantVatExemption(supabase, tenantId),
     loadInvoiceNumbering(supabase, tenantId, 'regular', todayInWarsaw()),
     loadTenantSellerForForms().catch(() => null),
     loadSource(ctx, params),
+    // Krok 2.8 (00209): forma i termin płatności firmy; brak ustawień albo błąd: przelew i 14 dni.
+    readInvoiceDefaults(supabase as unknown as SupabaseClient, tenantId),
     // Krok 2.8: niezakończona praca (autozapis) tylko przy pustym formularzu;
     // z podkładem (`?wzor=`, `?cykliczna=`, `?proforma=`) niczego nie proponujemy.
     Object.keys(params).length === 0
@@ -223,6 +226,7 @@ export default async function NewRegularInvoicePage({
       suggestedNumber={suggestedNumber}
       numbering={numbering}
       seller={seller}
+      defaults={invoiceDefaults}
       restoredDraft={source ? null : restoredDraft}
       {...(source
         ? {

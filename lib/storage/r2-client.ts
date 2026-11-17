@@ -1,5 +1,7 @@
 import { S3Client } from '@aws-sdk/client-s3';
 
+import { s3TimeoutConfig, storageTimeouts, withStorageTimeoutErrors, type StorageTimeouts } from './s3-timeouts';
+
 /**
  * Cloudflare R2 jest S3-kompatybilne ale ma kilka "gotchas":
  *
@@ -85,33 +87,44 @@ export function getR2Config(): R2Config {
 
 let cachedClient: S3Client | null = null;
 let cachedClientConfigHash: string | null = null;
+let cachedClientTimeouts: StorageTimeouts | null = null;
 
 /**
  * Zwraca singleton S3Client skonfigurowany pod R2.
- * Cache unieważnia się, gdy env się zmieni (przydatne w testach).
+ * Cache unieważnia się, gdy env się zmieni (przydatne w testach) albo profil
+ * limitów czasu (worker włącza dłuższe przy starcie).
+ *
+ * Limity połączenia, odpowiedzi i ciszy oraz liczba prób są z profilu procesu
+ * (`./s3-timeouts.ts`, LIM-05): zawieszony magazyn kończy wywołanie błędem
+ * `StorageTimeoutError`, a nie trzyma żądania strony albo zadania workera.
  */
 export function getR2Client(config: R2Config = getR2Config()): S3Client {
   const hash = `${config.accountId}:${config.accessKeyId}`;
-  if (cachedClient && cachedClientConfigHash === hash) {
+  const timeouts = storageTimeouts();
+  if (cachedClient && cachedClientConfigHash === hash && cachedClientTimeouts === timeouts) {
     return cachedClient;
   }
 
-  cachedClient = new S3Client({
-    region: 'auto',
-    endpoint: config.endpoint,
-    credentials: {
-      accessKeyId: config.accessKeyId,
-      secretAccessKey: config.secretAccessKey,
-    },
-    // Migracja Hetzner (M3): MinIO adresuje buckety w ścieżce
-    // (`http://host:9000/bucket/key`), a nie w subdomenie jak R2/AWS.
-    // Włączane env-em na self-hosted; dla R2 zostaje default (false).
-    forcePathStyle: process.env.R2_FORCE_PATH_STYLE === 'true',
-    // R2 wspiera checksum SHA256 ale nie CRC32/CRC32C, które AWS SDK v3
-    // od 3.729+ próbuje wysłać domyślnie. Wyłączamy, żeby uniknąć 400 NotImplemented.
-    requestChecksumCalculation: 'WHEN_REQUIRED',
-    responseChecksumValidation: 'WHEN_REQUIRED',
-  });
+  cachedClient = withStorageTimeoutErrors(
+    new S3Client({
+      region: 'auto',
+      endpoint: config.endpoint,
+      credentials: {
+        accessKeyId: config.accessKeyId,
+        secretAccessKey: config.secretAccessKey,
+      },
+      // Migracja Hetzner (M3): MinIO adresuje buckety w ścieżce
+      // (`http://host:9000/bucket/key`), a nie w subdomenie jak R2/AWS.
+      // Włączane env-em na self-hosted; dla R2 zostaje default (false).
+      forcePathStyle: process.env.R2_FORCE_PATH_STYLE === 'true',
+      // R2 wspiera checksum SHA256 ale nie CRC32/CRC32C, które AWS SDK v3
+      // od 3.729+ próbuje wysłać domyślnie. Wyłączamy, żeby uniknąć 400 NotImplemented.
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
+      ...s3TimeoutConfig(timeouts),
+    }),
+  );
   cachedClientConfigHash = hash;
+  cachedClientTimeouts = timeouts;
   return cachedClient;
 }

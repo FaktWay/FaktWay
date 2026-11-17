@@ -66,6 +66,9 @@ export function EmailInvoiceButton({
       const result = await emailInvoiceAction(invoiceId, values.to);
       if (result.success) {
         toast.success('Faktura wysłana.');
+        if (result.copyFailed) {
+          toast.error('Faktura poszła do nabywcy, ale kopia do księgowej się nie wysłała. Wyślij ją jej ręcznie.');
+        }
         setOpen(false);
       } else {
         toast.error(result.error);

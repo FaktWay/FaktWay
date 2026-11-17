@@ -1,3 +1,4 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   RiAlertLine,
   RiCheckboxCircleLine,
@@ -43,6 +44,9 @@ import { plural } from '@/lib/i18n/plural';
 import { getPageContext } from '@/lib/supabase/page-context';
 import { cn } from '@/lib/utils';
 
+import { SubscriptionInvoices } from '@/components/settings/subscription-invoices';
+import { listSubscriptionInvoices } from '@/lib/billing/faktury-abonamentu';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { BlikTerms } from './_components/blik-terms';
 import { PlanCards } from './_components/plan-cards';
 import { PortalButton } from './_components/portal-button';
@@ -117,6 +121,18 @@ export default async function BillingPage(props: {
     subscription?.status === 'past_due' || subscription?.status === 'unpaid'
       ? await getLatestPaymentFailureReason(ctx.tenantId).catch(() => null)
       : null;
+
+  // Krok 8.1: faktury za abonament (płatności z sesji, numery faktur operatora klientem
+  // serwisowym tylko dla tych płatności); błąd odczytu: komunikat zamiast listy.
+  const subscriptionInvoices = stripeConfigured
+    ? await (async () => {
+        try {
+          return await listSubscriptionInvoices(ctx.supabase as unknown as SupabaseClient, createAdminClient() as unknown as SupabaseClient, ctx.tenantId);
+        } catch {
+          return null;
+        }
+      })()
+    : undefined;
 
   const canManage = ctx.role === 'owner' || ctx.role === 'admin';
   const errorMsg = params.error ? ERROR_MESSAGES[params.error] : null;
@@ -201,6 +217,8 @@ export default async function BillingPage(props: {
           ) : null}
         </>
       ) : null}
+
+      {subscriptionInvoices !== undefined ? <SubscriptionInvoices rows={subscriptionInvoices} /> : null}
     </FieldGroup>
   );
 }

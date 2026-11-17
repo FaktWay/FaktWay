@@ -8,6 +8,8 @@ import {
   VatSlot,
   type PulpitSlotProps,
 } from '@/components/dashboard/finora/sloty';
+import { Zmiany2027Baner } from '@/components/dashboard/zmiany-2027-baner';
+import { todayInWarsaw } from '@/lib/format/warsaw-date';
 import { kontekstDanych } from '@/lib/demo/tryb-danych';
 import { recordTiming } from '@/lib/observability/timings';
 import { getPageContext } from '@/lib/supabase/page-context';
@@ -55,6 +57,8 @@ export default async function DashboardHomePage() {
 
   return (
     <div className="ff-route-content">
+      {/* Krok 1.6, część 2a: komunikat o zmianach z 1 stycznia 2027 r. (do zamknięcia, per użytkownik). */}
+      <Zmiany2027Baner userId={pageCtx.user.id} today={todayInWarsaw()} />
       <div className="grid grid-cols-6 gap-6">
         {/* Tytuł strony był w pasku górnym; pasek Finory go nie ma (21.10.2026). */}
         <h1 className="sr-only">Pulpit</h1>
