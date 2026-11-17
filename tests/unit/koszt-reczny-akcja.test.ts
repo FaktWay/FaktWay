@@ -23,6 +23,12 @@ function from(name: string) {
     insert: (row: Row) => ((op = 'insert'), (payload = row), q),
     eq: (k: string, v: unknown) => (filters.push((r) => r[k] === v), q),
     is: (k: string, v: unknown) => (filters.push((r) => (r[k] ?? null) === v), q),
+    not: (k: string, op: string, v: unknown) => (op === 'is' && filters.push((r) => (r[k] ?? null) !== v), q),
+    ilike: (k: string, pat: string) => {
+      const re = new RegExp(`^${pat.replace(/%/g, '.*')}$`, 'i');
+      filters.push((r) => re.test(String(r[k] ?? '')));
+      return q;
+    },
     gte: (k: string, v: string) => (filters.push((r) => String(r[k]) >= v), q),
     order: () => q,
     limit: () => q,
@@ -76,6 +82,7 @@ const OK = {
   vatAmount: 0,
   grossAmount: 100,
   kpirColumn: 'col_13',
+  categoryLabel: 'Pozostałe wydatki',
   notes: '',
   isDeductible: true,
 } as const;
@@ -105,6 +112,7 @@ describe('koszt wpisany ręcznie: zapis', () => {
       vat_amount: 0,
       gross_amount: 100,
       kpir_column: 'col_13',
+      category_label: 'Pozostałe wydatki',
       categorization_method: 'manual',
       is_deductible: true,
       is_reviewed: true,
@@ -179,6 +187,11 @@ describe('koszt wpisany ręcznie: odmowy bez zapisu', () => {
     ['kolumna 16 (łączona z B+R w eksporcie)', { kpirColumn: 'col_16' }],
     ['kolumna KPiR spoza listy', { kpirColumn: 'col_99' }],
     ['brak kolumny KPiR', { kpirColumn: '' }],
+    ['brak kategorii', { categoryLabel: '  ' }],
+    ['zbyt długa kategoria', { categoryLabel: 'k'.repeat(201) }],
+    ['kwota netto z trzema miejscami (10,004 + 2,004 = 12,008)', { netAmount: 10.004, vatAmount: 2.004, grossAmount: 12.008 }],
+    ['kwota VAT z trzema miejscami', { netAmount: 10, vatAmount: 2.004, grossAmount: 12.004 }],
+    ['kwota brutto z trzema miejscami', { netAmount: 10, vatAmount: 2, grossAmount: 12.001 }],
     ['zbyt długie uwagi', { notes: 'x'.repeat(10_001) }],
   ])('%s', async (_nazwa, zmiana) => {
     const r = await createManualExpenseAction({ ...OK, ...zmiana } as never, TENANT);
@@ -205,6 +218,31 @@ describe('koszt wpisany ręcznie: odmowy bez zapisu', () => {
     expect(r.success).toBe(false);
     if (!r.success) expect(r.error).toMatch(/Nie udało się zapisać kosztu/);
     expect(m.audit).not.toHaveBeenCalled();
+  });
+});
+
+describe('koszt wpisany ręcznie: kategoria i faktura z KSeF', () => {
+  it('kategoria z formularza trafia do category_label (opis zdarzenia w KPiR), także własny tekst', async () => {
+    await createManualExpenseAction({ ...OK, categoryLabel: '  Składka członkowska  ' }, TENANT);
+    expect(wiersze()[0]).toMatchObject({ category_label: 'Składka członkowska' });
+  });
+
+  const FAKTURA = { ...OK, documentType: 'invoice', sellerNip: '5260250274', documentNumber: 'FV1/2026', netAmount: 100, vatAmount: 23, grossAmount: 123 };
+
+  it('faktura, która już jest w Kosztach (np. ze Skrzynki KSeF), nie powstaje drugi raz: ten sam NIP i numer mimo innego zapisu', async () => {
+    wiersze().push({ id: 'ksef-1', tenant_id: TENANT, source: 'ksef_inbox', seller_nip: '526-025-02-74', document_number: 'fv 1/2026' });
+    const r = await createManualExpenseAction(FAKTURA, TENANT);
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error).toContain('FV1/2026');
+    expect(wiersze()).toHaveLength(1);
+    expect(m.audit).not.toHaveBeenCalled();
+  });
+
+  it('ta sama faktura w cudzej firmie, paragon z tym numerem albo inny numer nie blokują zapisu', async () => {
+    wiersze().push({ id: 'cudza', tenant_id: 'inna-firma', source: 'ksef_inbox', seller_nip: '5260250274', document_number: 'FV1/2026' });
+    expect((await createManualExpenseAction(FAKTURA, TENANT)).success).toBe(true);
+    expect((await createManualExpenseAction({ ...FAKTURA, documentType: 'receipt', documentNumber: 'FV1/2026', grossAmount: 124, netAmount: 101 }, TENANT)).success).toBe(true);
+    expect((await createManualExpenseAction({ ...FAKTURA, documentNumber: 'FV2/2026' }, TENANT)).success).toBe(true);
   });
 });
 

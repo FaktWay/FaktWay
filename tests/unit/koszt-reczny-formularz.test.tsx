@@ -62,12 +62,13 @@ async function wypelnijPoprawnie() {
   await wpisz('manual-expense-net', '100');
   await wpisz('manual-expense-vat', '0');
   await wpisz('manual-expense-kpir', 'col_13');
+  await wpisz('manual-expense-category', 'Opłaty urzędowe');
 }
 
 describe('formularz kosztu wpisanego ręcznie', () => {
   it('ma te same pola co odczyt zdjęcia: sprzedawca, NIP, rodzaj, numer, data, netto, VAT, brutto, kolumna KPiR, uwagi', async () => {
     await pokaz();
-    for (const id of ['seller', 'nip', 'type', 'number', 'date', 'net', 'vat', 'gross', 'kpir', 'notes']) {
+    for (const id of ['seller', 'nip', 'type', 'number', 'date', 'net', 'vat', 'gross', 'category', 'kpir', 'notes']) {
       expect(pole(`manual-expense-${id}`), id).not.toBeNull();
     }
     expect(pole('manual-expense-date').value).toBe('2026-11-16');
@@ -90,7 +91,7 @@ describe('formularz kosztu wpisanego ręcznie', () => {
     expect(m.create).toHaveBeenCalledTimes(1);
     const [values, tenant] = m.create.mock.calls[0]!;
     expect(tenant).toBe(TENANT);
-    expect(values).toMatchObject({ sellerName: 'Urząd Miasta', netAmount: 100, vatAmount: 0, grossAmount: 100, kpirColumn: 'col_13', documentType: 'other', isDeductible: true });
+    expect(values).toMatchObject({ sellerName: 'Urząd Miasta', netAmount: 100, vatAmount: 0, grossAmount: 100, kpirColumn: 'col_13', categoryLabel: 'Opłaty urzędowe', documentType: 'other', isDeductible: true });
     expect(m.toast.success).toHaveBeenCalled();
     expect(m.push).toHaveBeenCalledWith('/expenses/exp-9');
   });
@@ -143,6 +144,19 @@ describe('formularz kosztu wpisanego ręcznie', () => {
     expect(host.textContent).not.toMatch(/z tego dokumentu nie odlicza VAT/i);
     await pokaz({ vatExempt: true });
     expect(host.textContent).toMatch(/zwolnion\w+ z VAT/i);
+  });
+
+  it('pod rodzajem „Faktura” jest wskazówka, że faktura z KSeF trafia do Kosztów sama', async () => {
+    await pokaz();
+    expect(host.textContent).not.toContain('trafi do Kosztów sama');
+    await wpisz('manual-expense-type', 'invoice');
+    expect(host.textContent).toContain('Faktura wystawiona w KSeF trafi do Kosztów sama ze Skrzynki KSeF.');
+  });
+
+  it('tekst o kolumnie i innym dokumencie bez trybu rozkazującego', async () => {
+    await pokaz();
+    expect(host.textContent).toContain('w razie wątpliwości rozstrzyga księgowa');
+    expect(host.textContent).not.toMatch(/zapytaj księgową/);
   });
 
   it('teksty bez długich myślników i bez nazwy sprzed zmiany marki', async () => {

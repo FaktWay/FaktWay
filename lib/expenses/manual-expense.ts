@@ -11,8 +11,8 @@
  * odrzuca tylko `ksef_inbox`, więc `manual` przechodzi, a migracja nie jest
  * potrzebna.
  *
- * Kwoty: złote, zaokrąglenie do grosza przez `roundToCents`, netto + VAT = brutto, bez kwot
- * ujemnych. VAT do odliczenia liczy ta sama reguła co przy odczycie i w
+ * Kwoty: złote, każda z najwyżej dwoma miejscami po przecinku, netto + VAT = brutto w groszach
+ * (`roundToCents`), bez kwot ujemnych. VAT do odliczenia liczy ta sama reguła co przy odczycie i w
  * przeglądzie kosztu (`vatDeductionForDocument`: odlicza tylko faktura w dniu
  * jej wystawienia), a firma zwolniona podmiotowo z VAT nie odlicza nic
  * (`isSubjectiveVatExemption`, jak w `process-ocr.ts`). Koszt w KPiR liczy
@@ -29,6 +29,7 @@ import { z } from 'zod';
 import { isCalendarDate } from '@/lib/api/v1/pagination';
 import { todayInWarsaw } from '@/lib/format/warsaw-date';
 import { isSubjectiveVatExemption, readTenantVatExemption } from '@/lib/invoices/vat-exemption';
+import { documentKey, nip10 } from '@/lib/expenses/document-identity';
 import { vatDeductionForDocument } from '@/lib/expenses/vat-deduction-document';
 import { roundToCents, validateNipChecksum } from '@/lib/xml/invoice-calculator';
 import type { createClient } from '@/lib/supabase/server';
@@ -45,7 +46,28 @@ export const MANUAL_EXPENSE_DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
 
 const SAVE_FAILED = 'Nie udało się zapisać kosztu. Sprawdź połączenie i spróbuj ponownie za chwilę.';
 
-const money = z.number({ message: 'Podaj kwotę liczbą.' }).finite('Podaj kwotę liczbą.').min(0, 'Kwota nie może być ujemna.').max(MANUAL_EXPENSE_MAX_AMOUNT, 'Kwota jest zbyt duża.');
+/** Podpowiedzi kategorii jak w edycji kosztu; można wpisać własną. */
+export const MANUAL_EXPENSE_CATEGORIES = [
+  'Paliwo',
+  'Telekomunikacja',
+  'Oprogramowanie',
+  'Marketing',
+  'Materiały biurowe',
+  'Reprezentacja',
+  'Podróże służbowe',
+  'Usługi obce',
+  'Energia',
+  'Czynsz',
+  'Pozostałe wydatki',
+] as const;
+
+// Kolumny bazy to numeric(15,2): kwota z trzecim miejscem zostałaby zaokrąglona osobno i suma przestałaby się zgadzać.
+const money = z
+  .number({ message: 'Podaj kwotę liczbą.' })
+  .finite('Podaj kwotę liczbą.')
+  .min(0, 'Kwota nie może być ujemna.')
+  .max(MANUAL_EXPENSE_MAX_AMOUNT, 'Kwota jest zbyt duża.')
+  .refine((v) => roundToCents(v) === v, 'Kwota z najwyżej dwoma miejscami po przecinku.');
 
 export const manualExpenseSchema = z
   .object({
@@ -62,13 +84,14 @@ export const manualExpenseSchema = z
     netAmount: money,
     vatAmount: money,
     grossAmount: money.refine((v) => v > 0, 'Kwota brutto musi być większa od zera.'),
+    categoryLabel: z.string().trim().min(1, 'Wpisz kategorię kosztu.').max(200, 'Kategoria jest za długa.'),
     kpirColumn: z.enum(MANUAL_EXPENSE_KPIR_COLUMNS, { message: 'Wybierz kolumnę KPiR.' }),
     notes: z.string().max(10_000, 'Uwagi są za długie.'),
     isDeductible: z.boolean(),
   })
   .superRefine((v, ctx) => {
-    // Zaokrąglenie do grosza przez funkcję z rejestru (`roundToCents`), bez własnego zaokrąglania (reguła kwoty-bez-float).
-    if (roundToCents(v.netAmount + v.vatAmount) !== roundToCents(v.grossAmount)) {
+    // Każda kwota ma najwyżej grosze (pole `money`), suma liczona w groszach przez `roundToCents` (reguła kwoty-bez-float).
+    if (roundToCents(v.netAmount + v.vatAmount) !== v.grossAmount) {
       ctx.addIssue({ code: 'custom', path: ['grossAmount'], message: 'Netto i VAT muszą dawać kwotę brutto.' });
     }
     if (isCalendarDate(v.issueDate)) {
@@ -120,6 +143,23 @@ export async function createManualExpense(ctx: ManualExpenseContext, input: unkn
   const first = (existing as Array<{ id: string }> | null)?.[0];
   if (first) return { success: true, expenseId: first.id, duplicate: true, row: null };
 
+  // Faktura z NIP i numerem, która już jest w Kosztach (np. ze Skrzynki KSeF): drugi koszt dałby podwójny koszt w KPiR i podwójne odliczenie VAT.
+  const nip = nip10(v.sellerNip);
+  const key = documentKey(v.documentNumber);
+  if (v.documentType === 'invoice' && nip && key) {
+    const { data: sameNip } = await supabase
+      .from('expenses')
+      .select('id, seller_nip, document_number')
+      .eq('tenant_id', tenantId)
+      .not('document_number', 'is', null)
+      .ilike('seller_nip', nip.split('').join('%'))
+      .limit(200);
+    const rows = (sameNip as Array<{ id: string; seller_nip: string | null; document_number: string | null }> | null) ?? [];
+    if (rows.some((r) => nip10(r.seller_nip) === nip && documentKey(r.document_number) === key)) {
+      return { success: false, error: `Ten dokument jest już w Kosztach (${v.documentNumber}). Otwórz go z listy kosztów.` };
+    }
+  }
+
   // Zwolnienie podmiotowe odbiera odliczenie VAT (jak w `process-ocr.ts`); odczyt odporny przed 00091.
   const vatExempt = isSubjectiveVatExemption(await readTenantVatExemption(supabase, tenantId));
   const deduction = vatDeductionForDocument({ documentType: v.documentType, issueDate: v.issueDate, grossAmount: v.grossAmount });
@@ -137,6 +177,7 @@ export async function createManualExpense(ctx: ManualExpenseContext, input: unkn
     gross_amount: v.grossAmount,
     vat_deductible_amount: !vatExempt && deduction.deductible ? v.vatAmount : 0,
     kpir_column: v.kpirColumn,
+    category_label: v.categoryLabel,
     categorization_method: 'manual',
     is_deductible: v.isDeductible,
     notes: v.notes.trim() === '' ? null : v.notes.trim(),

@@ -18,7 +18,7 @@ import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLab
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { roundToCents } from '@/lib/xml/invoice-calculator';
-import { manualExpenseSchema, type ManualExpenseInput } from '@/lib/expenses/manual-expense';
+import { MANUAL_EXPENSE_CATEGORIES, manualExpenseSchema, type ManualExpenseInput } from '@/lib/expenses/manual-expense';
 
 const SAVE_FAILED = 'Nie udało się zapisać kosztu. Sprawdź połączenie i spróbuj ponownie za chwilę.';
 
@@ -70,6 +70,7 @@ export function ManualExpenseForm({ tenantId, today, vatExempt }: { tenantId: st
       sellerNip: '',
       documentType: 'other',
       kpirColumn: 'col_13',
+      categoryLabel: '',
       documentNumber: '',
       issueDate: today,
       vatAmount: 0,
@@ -161,6 +162,9 @@ export function ManualExpenseForm({ tenantId, today, vatExempt }: { tenantId: st
                       </option>
                     ))}
                   </select>
+                  {documentType === 'invoice' ? (
+                    <FieldDescription>Faktura wystawiona w KSeF trafi do Kosztów sama ze Skrzynki KSeF.</FieldDescription>
+                  ) : null}
                   <FieldError id={errId('manual-expense-type')} errors={[errors.documentType]} />
                 </FieldContent>
               </Field>
@@ -252,6 +256,26 @@ export function ManualExpenseForm({ tenantId, today, vatExempt }: { tenantId: st
               <FieldDescription>O ujęciu w KPiR wydatku bez faktury albo rachunku rozstrzyga księgowa.</FieldDescription>
             ) : null}
 
+            <Field data-invalid={!!errors.categoryLabel}>
+              <FieldLabel htmlFor="manual-expense-category">Kategoria</FieldLabel>
+              <FieldContent>
+                <Input
+                  id="manual-expense-category"
+                  list="manual-expense-categories"
+                  maxLength={200}
+                  {...describe('manual-expense-category', !!errors.categoryLabel)}
+                  {...register('categoryLabel')}
+                />
+                <datalist id="manual-expense-categories">
+                  {MANUAL_EXPENSE_CATEGORIES.map((c) => (
+                    <option key={c} value={c} />
+                  ))}
+                </datalist>
+                <FieldDescription>Nazwa kosztu w KPiR, np. Paliwo albo Składka członkowska. Można wpisać własną.</FieldDescription>
+                <FieldError id={errId('manual-expense-category')} errors={[errors.categoryLabel]} />
+              </FieldContent>
+            </Field>
+
             <Field data-invalid={!!errors.kpirColumn}>
               <FieldLabel htmlFor="manual-expense-kpir">Kolumna KPiR</FieldLabel>
               <FieldContent>
@@ -263,7 +287,7 @@ export function ManualExpenseForm({ tenantId, today, vatExempt }: { tenantId: st
                     </option>
                   ))}
                 </select>
-                <FieldDescription>Kolumnę wybierasz Ty. Jeśli nie wiesz którą, zapytaj księgową.</FieldDescription>
+                <FieldDescription>Kolumnę wybierasz Ty; w razie wątpliwości rozstrzyga księgowa.</FieldDescription>
                 <FieldError id={errId('manual-expense-kpir')} errors={[errors.kpirColumn]} />
               </FieldContent>
             </Field>
