@@ -124,15 +124,17 @@ export function contentHeldReasonItems(inv: ParsedInvoice, content: ImportConten
   const cannot = [...annotationsJpkCannotExpress(content.annotations), ...markersJpkCannotExpress(rest)];
   if (cannot.length) items.push({ text: `oznaczenie, którego FaktWay nie wykazuje w JPK: ${cannot.join(', ')}`, files: BOTH });
   if (plainFp) {
-    items.push(fpInIssueMonth
+    // Przy nieczytelnych datach sprzedaży daty paragonu nie znamy (powód dat wstrzymuje oba pliki osobno).
+    const dateKnown = !content.saleDates?.unclear;
+    items.push(fpInIssueMonth && dateKnown
       ? {
-          text: 'faktura do paragonu (FP) z paragonem z miesiąca wystawienia faktury: JPK_V7M wykazuje FP tylko dla paragonu z wcześniejszego miesiąca, a JPK_FA nie ma dla niej oznaczenia',
+          text: 'faktura do paragonu (FP) z paragonem z miesiąca wystawienia faktury albo bez daty sprzedaży: JPK_V7M wykazuje FP tylko dla paragonu z wcześniejszego miesiąca, a JPK_FA nie ma dla niej oznaczenia',
           files: BOTH,
         }
-      : { text: 'faktura do paragonu (FP): JPK_V7M wykazuje ją typem FP, a JPK_FA nie ma dla niej oznaczenia', files: FA_ONLY });
+      : { text: 'faktura do paragonu (FP): JPK_FA nie ma dla niej oznaczenia', files: FA_ONLY });
   }
   if (faOnlyGtu) {
-    items.push({ text: `oznaczenie GTU w pozycjach (${gtu.join(', ')}): JPK_V7M wpisuje je do wiersza sprzedaży, a JPK_FA nie wykazuje oznaczeń GTU`, files: FA_ONLY });
+    items.push({ text: `oznaczenie GTU w pozycjach (${gtu.join(', ')}): FaktWay nie wykazuje oznaczeń GTU w JPK_FA`, files: FA_ONLY });
   }
   if (content.annotationProblems.length) {
     items.push({ text: `adnotacji z KSeF nie udało się odczytać (${content.annotationProblems.join('; ')})`, files: BOTH });
@@ -148,6 +150,11 @@ export function contentHeldReasonItems(inv: ParsedInvoice, content: ImportConten
         : `pozycje mają różne daty sprzedaży (P_6A: ${lineDates.join(', ')}${content.saleDate ? `; P_6: ${content.saleDate}` : ''})`,
       files: BOTH,
     });
+  }
+  // Stawka „oo” (odwrotne obciążenie) to stawka FaktWay, ale JPK_V7M jej nie wykazuje (`JpkV7mReverseChargeNotSupportedError`).
+  // Dopisywana tylko tam, gdzie ostrzeżenie i tak jest (sama „oo” bez oznaczeń nie dostaje dziś ostrzeżenia: osobne ustalenie).
+  if (items.length > 0 && inv.lines.some((l) => l.vatRate.trim().toLowerCase() === 'oo')) {
+    items.push({ text: 'stawka „oo” (odwrotne obciążenie): FaktWay nie wykazuje jej w JPK_V7M', files: ['JPK_V7M'] });
   }
   return items;
 }

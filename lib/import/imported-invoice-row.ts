@@ -242,7 +242,7 @@ export function heldDocumentWarning(
   // C5c: bez sum stawek w pliku netto i VAT faktury są nieznane — KPiR i CSV też ich nie pokażą.
   const exit = sale && amounts.totalsUnknown
     ? 'Te pliki przygotuje księgowa poza FaktWay. KPiR i CSV też nie pokażą poprawnych kwot tej faktury, więc kwoty trzeba wprowadzić ręcznie.'
-    : 'Te pliki przygotuje księgowa poza FaktWay (KPiR i CSV działają).';
+    : 'Te pliki przygotuje księgowa poza FaktWay.';
   // Plik, który nie powstanie, wynika z powodów (te same rozstrzygnięcia co generatory): stawka, rodzaj, kwoty
   // i niezgodność sum wstrzymują oba pliki; oznaczenia GTU i FP z pliku KSeF bywają wstrzymaniem samego JPK_FA.
   const held = new Set<HeldJpkFile>(contentItems.flatMap((item) => item.files));
@@ -250,7 +250,7 @@ export function heldDocumentWarning(
   if (!bothHeld && held.has('JPK_FA')) {
     return (
       `${doc}: ${what}. Faktura jest zapisana, ale JPK_FA za ${inv.issueDate.slice(0, 7)} nie powstanie ` +
-      'w FaktWay, dopóki ta faktura jest w okresie. JPK_V7M, KPiR i CSV tej faktury działają, a JPK_FA przygotuje księgowa poza FaktWay.'
+      'w FaktWay, dopóki ta faktura jest w okresie. JPK_FA przygotuje księgowa poza FaktWay.'
     );
   }
   return (

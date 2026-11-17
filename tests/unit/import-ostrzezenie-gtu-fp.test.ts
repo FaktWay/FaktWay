@@ -19,6 +19,9 @@ import type { Fa3Markers } from '@/lib/xml/fa3-annotations';
 const ISSUE = '2026-11-05';
 const NUMBER = 'FV/GTU/1';
 
+const liniaOo = { position: 1, name: 'Usługa', unit: 'usł.', quantity: 1, unitPriceNet: 100, vatRate: 'oo', netAmount: 100 };
+const OO = { lines: [liniaOo], totals: { netTotal: 100, vatTotal: 0, grossTotal: 100 } } as Partial<ParsedInvoice>;
+
 function parsed(over: Partial<ParsedInvoice>, markers?: Fa3Markers): ParsedInvoice {
   return {
     invoiceNumber: NUMBER,
@@ -82,6 +85,12 @@ const SCENARIUSZE: Scenariusz[] = [
   { nazwa: 'procedura w pozycjach', inv: parsed({}, { procedures: ['TT_D'] }) },
   { nazwa: 'FP i TP', inv: parsed({ saleDate: '2026-10-20' }, { fp: true, tp: true }) },
   { nazwa: 'GTU i TP', inv: parsed({}, { gtu: ['GTU_12'], tp: true }) },
+  { nazwa: 'stawka oo z poprawnym GTU (JPK_V7M odmawia stawki oo)', inv: parsed(OO, { gtu: ['GTU_12'] }) },
+  { nazwa: 'stawka oo z FP, paragon z wcześniejszego miesiąca', inv: parsed({ ...OO, saleDate: '2026-10-20' }, { fp: true }) },
+  { nazwa: 'FP z poprawnym GTU i różnymi datami sprzedaży pozycji', inv: parsed({ lines: [
+    { position: 1, name: 'A', unit: 'szt.', quantity: 1, unitPriceNet: 50, vatRate: '23', netAmount: 50, saleDate: '2026-10-02' },
+    { position: 2, name: 'B', unit: 'szt.', quantity: 1, unitPriceNet: 50, vatRate: '23', netAmount: 50, saleDate: '2026-10-03' },
+  ] }, { fp: true, gtu: ['GTU_12'] }) },
   { nazwa: 'zaimportowana korekta z GTU', inv: parsed({ invoiceType: 'correction' }, { gtu: ['GTU_12'] }) },
 ];
 
@@ -100,6 +109,8 @@ describe('ostrzeżenie importu: GTU i FP mówią to, co robią generatory', () =
     expect(tekst, 'brak ostrzeżenia mimo odmowy generatora').not.toBeNull();
     expect(tekst).toContain(NUMBER);
     const okres = '2026-11';
+    // Tekst nie obiecuje plików, których nie sprawdza: bez „działają” (CSV odmawia FP, JPK_V7M odmawia stawki oo).
+    expect(tekst).not.toMatch(/działa/);
     if (faOdmawia && v7mOdmawia) {
       expect(tekst).toContain(`JPK_FA i JPK_V7M za ${okres} nie powstaną`);
     } else if (faOdmawia) {
@@ -110,6 +121,21 @@ describe('ostrzeżenie importu: GTU i FP mówią to, co robią generatory', () =
       expect(tekst).toContain(`JPK_V7M za ${okres} nie powstanie`);
       expect(tekst).not.toMatch(/JPK_FA[^.]*nie powst/);
     }
+  });
+
+  it('sama stawka oo bez oznaczeń: JPK_V7M odmawia, a import nie ostrzega (osobne ustalenie, zachowanie bez zmian)', () => {
+    const inv = parsed(OO);
+    const { content, amounts } = importedInvoiceContent(inv);
+    const jpk = jpkInvoice(inv, content.saleDate);
+    expect(throws(() => summarizeJpkV7m({ issuedInvoices: [jpk], expenses: [] }))).toBe(true);
+    expect(heldDocumentWarning(inv, inv.invoiceNumber, undefined, 'outgoing', 'accepted', content, amounts)).toBeNull();
+  });
+
+  it('FP z nieczytelnymi datami sprzedaży: tekst nie przypisuje paragonowi miesiąca wystawienia', () => {
+    const inv = SCENARIUSZE.find((s) => s.nazwa.startsWith('FP z poprawnym GTU i różnymi'))!.inv;
+    const { content, amounts } = importedInvoiceContent(inv);
+    const tekst = heldDocumentWarning(inv, inv.invoiceNumber, undefined, 'outgoing', 'accepted', content, amounts) ?? '';
+    expect(tekst).not.toContain('z paragonem z miesiąca wystawienia');
   });
 
   it('poprawne GTU: JPK_V7M powstaje (generator), JPK_FA nie (generator): zgodnie z tym tekst', () => {
