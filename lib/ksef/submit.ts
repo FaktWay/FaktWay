@@ -214,7 +214,7 @@ export async function submitInvoice(
         undefined,
         auditContext,
       ).catch((e: unknown) => {
-        throw statusReadAfterUploadAsRetryable(e);
+        throw statusReadUncertain(e);
       });
 
       if (!invoiceStatus.ksefNumber) {
@@ -657,30 +657,6 @@ export const KSEF_SESSION_TEMPORARILY_UNAVAILABLE = 21184;
  * kolejną próbą joba (każda próba otwiera własną sesję online), dlatego błąd
  * dostaje status ponawialny (F-050).
  */
-/**
- * WYS-01: KSeF przyjął już plik (POST faktury zwrócił numer referencyjny, wpis
- * `sent` zapisany), więc błąd klienta HTTP przy ODCZYCIE statusu (400, 404…)
- * nie jest decyzją o treści faktury. Tę KSeF podaje w samym statusie (kod
- * 400–499, `KsefInvoiceRejectedError`), a ten błąd przechodzi bez zmian.
- * Wcześniej runner robił z 4xx „KSeF odrzucił fakturę” i stan `rejected`,
- * choć KSeF mógł fakturę przyjąć; powrót do szkicu blokował dowód kontaktu,
- * a uzgodnienie robił dopiero cron po 48 h (I5). Ponowienie zaczyna od
- * uzgodnienia po numerze referencyjnym (AUD-01), nigdy od drugiej wysyłki.
- * 401 i 403 zostają: runner odnawia sesję po 401, a 403 to błąd sesji
- * (`KSEF_SESSION`), nie odrzucenie. Status HTTP odpowiedzi zostaje w treści.
- */
-function statusReadAfterUploadAsRetryable(e: unknown): unknown {
-  if (e instanceof KsefApiError && !e.isRetryable && !e.isAuthError) {
-    return new KsefApiError(
-      503,
-      e.body,
-      `KSeF: odczyt statusu przyjętego pliku nieudany (HTTP ${e.status}), ponowimy i uzgodnimy wynik po numerze referencyjnym`,
-      e.retryAfterMs,
-    );
-  }
-  return e;
-}
-
 function sessionTemporarilyUnavailableAsRetryable(e: unknown): unknown {
   if (
     e instanceof KsefApiError &&
@@ -694,4 +670,37 @@ function sessionTemporarilyUnavailableAsRetryable(e: unknown): unknown {
     );
   }
   return e;
+}
+
+/**
+ * WYS-01: błąd klienta HTTP (400, 404…) przy ODCZYCIE stanu wysyłki, którą
+ * KSeF przyjął albo mógł przyjąć: status pliku po POST (wpis `sent`), status
+ * po numerze referencyjnym przy uzgadnianiu, faktury sesji przy rozstrzyganiu
+ * zamiaru (`intent`). To nie jest decyzja o treści faktury: tę KSeF podaje
+ * w samym statusie (kod 400–499, `KsefInvoiceRejectedError`), który
+ * przechodzi bez zmian. Wcześniej z przyczyny HTTP 4xx klasyfikator robił
+ * `KSEF_REJECTED`: stan `rejected` i mail „odrzucona”, choć KSeF mógł
+ * fakturę przyjąć, powrót do szkicu blokował dowód kontaktu, a uzgodnienie
+ * robił dopiero cron po 48 h (I5). Teraz klasyfikator daje `RESULT_UNCERTAIN`
+ * (przed statusem HTTP z przyczyny), a runner ponawia: ponowienie zaczyna od
+ * uzgodnienia (AUD-01, A2), nigdy od drugiej wysyłki. Przyczyną jest
+ * oryginalny `KsefApiError`, więc dziennik prób zapisuje prawdziwy status.
+ */
+export class KsefStatusReadError extends Error {
+  constructor(readonly original: KsefApiError) {
+    super(
+      `KSeF: odczyt stanu wysyłki nieudany (HTTP ${original.status}), wynik uzgodnimy po numerze referencyjnym`,
+      { cause: original },
+    );
+    this.name = 'KsefStatusReadError';
+  }
+}
+
+/**
+ * Błąd klienta HTTP odczytu stanu wysyłki w obwolucie `KsefStatusReadError`;
+ * reszta bez zmian. 401 i 403 (sesja: runner odnawia ją po 401), 408 i 429
+ * (ponawialne, 429 to pauza firmy) zostają jak były.
+ */
+export function statusReadUncertain(e: unknown): unknown {
+  return e instanceof KsefApiError && !e.isRetryable && !e.isAuthError ? new KsefStatusReadError(e) : e;
 }

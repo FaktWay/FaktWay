@@ -11,12 +11,13 @@ import {
   checkInvoiceStatusByReference,
   KSEF_DUPLICATE_INVOICE,
   KsefInvoiceRejectedError,
+  statusReadUncertain,
 } from '@/lib/ksef/submit';
 import { hexHashToBase64 } from '@/lib/ksef/duplicate-verdict';
 import { ksefSessionCache } from '@/lib/ksef/session-cache';
 import { findOpenKsefSubmission, markKsefSubmission } from '@/lib/ksef/submission-log';
 import { invoiceXmlKey } from '@/lib/storage/r2';
-import { KsefSendVerdictError, SEND_ERROR_CODES } from '@/lib/ksef/send-error-codes';
+import { SEND_ERROR_CODES } from '@/lib/ksef/send-error-codes';
 import { KSEF_SEND_MESSAGES } from '@/lib/invoices/ksef-send-policy';
 import { getKsefRetryDelay, ksefRetryDelayMs, ksefRetryDelayMsFor } from '../../retry-schedule';
 import { resolveDuplicate } from './duplicate';
@@ -164,14 +165,14 @@ export async function reconcilePreviousSubmission(ctx: SubmitRunContext): Promis
     }
     // Awaria łącza albo KSeF: ponawiamy UZGADNIANIE, nigdy wysyłkę.
     // Retry-After odpowiedzi albo harmonogram z rozrzutem (L1a): faktury, które padły razem, nie wracają razem.
-    const message = `Uzgadnianie wcześniejszej wysyłki KSeF nieudane: ${error instanceof Error ? error.message : 'nieznany błąd'}`;
     // WYS-01: błąd klienta HTTP odczytu statusu wysyłki sprzed niecałych 48 h
-    // (400, 404…; 401 i 403 to sesja) to wynik niepewny, nie decyzja KSeF
-    // o treści. Bez werdyktu klasyfikator wziąłby z przyczyny HTTP 4xx
-    // `KSEF_REJECTED`, a po wyczerpaniu prób faktura byłaby „odrzucona”.
-    const cause = error instanceof KsefApiError && !error.isRetryable && !error.isAuthError
-      ? new KsefSendVerdictError(SEND_ERROR_CODES.RESULT_UNCERTAIN, message, message, { cause: error })
-      : error instanceof Error ? error : undefined;
-    throw new RetryAfterError(message, ksefRetryDelayMsFor(error, attempt, invoiceId), { cause });
+    // (400, 404…) to wynik niepewny (`RESULT_UNCERTAIN`), nie odrzucenie: bez
+    // obwoluty klasyfikator wziąłby z przyczyny HTTP 4xx `KSEF_REJECTED`.
+    const cause = statusReadUncertain(error);
+    throw new RetryAfterError(
+      `Uzgadnianie wcześniejszej wysyłki KSeF nieudane: ${error instanceof Error ? error.message : 'nieznany błąd'}`,
+      ksefRetryDelayMsFor(error, attempt, invoiceId),
+      { cause: cause instanceof Error ? cause : undefined },
+    );
   }
 }

@@ -16,9 +16,11 @@ import type { Invoice } from '@/types/invoice';
  * choć KSeF mógł ją przyjąć. Powrót do szkicu blokował dowód kontaktu,
  * a uzgodnienie robił dopiero cron po 48 h (I5).
  *
- * To samo przy uzgadnianiu wcześniejszej wysyłki po numerze referencyjnym:
- * 4xx z odczytu statusu po wyczerpaniu prób dawało `KSEF_REJECTED`, a ma być
- * wynik niepewny (`RESULT_UNCERTAIN`, „do uzgodnienia”).
+ * To samo w dwóch innych odczytach stanu wysyłki: status po numerze
+ * referencyjnym przy uzgadnianiu (wpis `sent`) i faktury sesji przy
+ * rozstrzyganiu zamiaru (`intent`). 4xx z odczytu po wyczerpaniu prób dawało
+ * `KSEF_REJECTED`, a ma być wynik niepewny (`RESULT_UNCERTAIN`, „do
+ * uzgodnienia”), z prawdziwym statusem HTTP w łańcuchu przyczyn (dziennik prób).
  *
  * Prawdziwe: runner, `submitInvoiceFullFlow`, `submitInvoice`, generator FA(3),
  * `submission-log`, klasyfikator, obsługa po wyczerpaniu prób. Atrapy: HTTP do
@@ -45,6 +47,10 @@ const m = vi.hoisted(() => ({
     statusUnavailable: false,
     /** Kod w treści statusu faktury (200 przyjęta, 450 odrzucona w statusie). */
     statusCode: 200,
+    /** KSeF przyjmuje plik, ale odpowiedź na POST nie dociera (nasz timeout 408): zostaje zamiar `intent`. */
+    loseInvoicePostResponse: false,
+    /** Odczyt faktur sesji (rozstrzyganie zamiaru) kończy się tym błędem HTTP. */
+    listError: null as null | { status: number; body: unknown },
   },
   invoiceUpdates: [] as Row[],
   updateStatus: vi.fn(),
@@ -80,6 +86,7 @@ vi.mock('@/lib/ksef/client', async (orig) => {
           ksefNumber: `K-${k.seq}`,
         };
         session.invoices.push(stored);
+        if (k.loseInvoicePostResponse) throw new KsefApiError(408, 'Request timeout', 'timeout');
         return { referenceNumber: stored.referenceNumber };
       }
       hit = /^\/sessions\/online\/([^/]+)\/close$/.exec(route);
@@ -87,6 +94,21 @@ vi.mock('@/lib/ksef/client', async (orig) => {
         const session = k.sessions.get(hit[1]!);
         if (session) session.open = false;
         return {};
+      }
+      hit = /^\/sessions\/([^/]+)\/invoices$/.exec(route);
+      if (hit && method === 'GET') {
+        if (k.listError) {
+          throw new KsefApiError(k.listError.status, k.listError.body as never, `KSeF API GET ${route} failed: ${k.listError.status}`);
+        }
+        const session = k.sessions.get(decodeURIComponent(hit[1]!));
+        return {
+          continuationToken: null,
+          invoices: (session?.invoices ?? []).map((inv, n) => ({
+            ordinalNumber: n + 1, invoicingDate: '2026-11-18T09:00:00Z', invoiceNumber: inv.invoiceNumber,
+            referenceNumber: inv.referenceNumber, invoiceHash: inv.invoiceHash, ksefNumber: inv.ksefNumber,
+            status: { code: 200, description: 'Sukces' },
+          })),
+        };
       }
       hit = /^\/sessions\/([^/]+)\/invoices\/([^/]+)$/.exec(route);
       if (hit && method === 'GET') {
@@ -226,6 +248,7 @@ vi.mock('@/lib/cache/invalidation', () => ({ invalidateTenantDashboard: vi.fn() 
 vi.mock('@/lib/analytics/server', () => ({ trackServer: vi.fn() }));
 vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn(), captureMessage: vi.fn(), addBreadcrumb: vi.fn() }));
 
+import { KsefApiError } from '@/lib/ksef/client';
 import { RetryAfterError } from '@/lib/jobs/errors';
 import { classifySendError, SEND_ERROR_CODES } from '@/lib/ksef/send-error-codes';
 import { onSubmitInvoiceExhausted } from '@/lib/jobs/runners/submit-invoice/exhausted';
@@ -256,6 +279,13 @@ const ctx = (attempt: number): JobContext => ({
 });
 
 const accepted = () => m.updateStatus.mock.calls.find(([, patch]) => (patch as Row).ksef_status === 'accepted')?.[1] as Row | undefined;
+/** Pierwszy `KsefApiError` w łańcuchu przyczyn: z niego dziennik prób bierze status HTTP. */
+const httpErrorIn = (error: unknown): KsefApiError | null => {
+  for (let e: unknown = error, depth = 0; e instanceof Error && depth < 8; e = (e as { cause?: unknown }).cause, depth += 1) {
+    if (e instanceof KsefApiError) return e;
+  }
+  return null;
+};
 const submissions = () => m.db.ksef_submissions;
 
 /** 400 z kodem 21184 „Sesja tymczasowo niedostępna” (KSeF API 2.8.0) i inne błędy klienta HTTP odczytu statusu. */
@@ -273,7 +303,10 @@ beforeEach(() => {
   vi.stubEnv('KSEF_ENV', 'test');
   m.db.ksef_submissions = [];
   m.invoiceUpdates = [];
-  Object.assign(m.ksef, { sessions: new Map(), invoicePosts: 0, seq: 0, statusError: null, statusUnavailable: false, statusCode: 200 });
+  Object.assign(m.ksef, {
+    sessions: new Map(), invoicePosts: 0, seq: 0, statusError: null, statusUnavailable: false, statusCode: 200,
+    loseInvoicePostResponse: false, listError: null,
+  });
   m.upload.mockImplementation(async (_t: string, _i: string, _d: string, _xml: string, o?: { attemptId?: string | null }) => ({
     storagePath: invoiceXmlKeyFor({ tenantId: T, invoiceId: ID, issueDate: '2026-11-18', attemptId: o?.attemptId }),
     sha256Hash: 'a'.repeat(64), sizeBytes: 10, etag: '"e"',
@@ -290,7 +323,9 @@ describe('WYS-01: błąd klienta HTTP przy odczycie statusu przyjętego pliku to
     expect(m.ksef.invoicePosts).toBe(1);
     expect(submissions()).toEqual([expect.objectContaining({ status: 'sent', session_reference_number: 'S-1', invoice_reference_number: 'I-2' })]);
     expect(first).toBeInstanceOf(RetryAfterError);
-    expect(classifySendError(first)).not.toMatchObject({ class: 'terminal' });
+    expect(classifySendError(first)).toEqual({ code: SEND_ERROR_CODES.RESULT_UNCERTAIN, class: 'reconcile' });
+    expect((first as Error).message).toContain(`HTTP ${statusError.status}`);
+    expect(httpErrorIn(first)?.status).toBe(statusError.status);
 
     // Druga próba: status czytelny, uzgodnienie po numerze referencyjnym — ten sam plik, bez drugiego POST.
     m.ksef.statusError = null;
@@ -312,12 +347,40 @@ describe('WYS-01: błąd klienta HTTP przy odczycie statusu przyjętego pliku to
     expect(m.ksef.invoicePosts).toBe(1);
     expect(last).toBeInstanceOf(RetryAfterError);
     expect(classifySendError(last)).toEqual({ code: SEND_ERROR_CODES.RESULT_UNCERTAIN, class: 'reconcile' });
+    expect(httpErrorIn(last)?.status).toBe(statusError.status);
 
     // Po wyczerpaniu prób z tym błędem faktura czeka na uzgodnienie, nie jest „odrzucona”.
     await onSubmitInvoiceExhausted(last as Error, event(), ctx(5));
     const outcome = m.invoiceUpdates.find((p) => 'last_error_code' in p);
     expect(outcome).toMatchObject({ ksef_status: 'failed', last_error_code: SEND_ERROR_CODES.RESULT_UNCERTAIN });
     expect(m.invoiceUpdates.some((p) => p.ksef_status === 'rejected')).toBe(false);
+  });
+
+  it.each(STATUS_ERRORS)('rozstrzyganie zamiaru wysyłki: %s przy odczycie faktur sesji → „do uzgodnienia”, nie `rejected`, bez drugiego POST', async (_label, statusError) => {
+    // Pierwsza próba: KSeF przyjął plik, ale odpowiedź na POST zginęła — zostaje zamiar `intent`.
+    m.ksef.loseInvoicePostResponse = true;
+    await expect(runSubmitInvoice(event(), ctx(0))).rejects.toBeInstanceOf(RetryAfterError);
+    expect(submissions()).toEqual([expect.objectContaining({ status: 'intent', session_reference_number: 'S-1' })]);
+
+    // Kolejna próba rozstrzyga zamiar, a odczyt faktur sesji daje błąd klienta HTTP.
+    m.ksef.loseInvoicePostResponse = false;
+    m.ksef.listError = statusError;
+    const last = await runSubmitInvoice(event(), ctx(5)).then(() => null, (e: unknown) => e);
+    expect(m.ksef.invoicePosts).toBe(1);
+    expect(last).toBeInstanceOf(RetryAfterError);
+    expect(classifySendError(last)).toEqual({ code: SEND_ERROR_CODES.RESULT_UNCERTAIN, class: 'reconcile' });
+    expect(httpErrorIn(last)?.status).toBe(statusError.status);
+
+    await onSubmitInvoiceExhausted(last as Error, event(), ctx(5));
+    const outcome = m.invoiceUpdates.find((p) => 'last_error_code' in p);
+    expect(outcome).toMatchObject({ ksef_status: 'failed', last_error_code: SEND_ERROR_CODES.RESULT_UNCERTAIN });
+    expect(m.invoiceUpdates.some((p) => p.ksef_status === 'rejected')).toBe(false);
+
+    // Gdy odczyt wróci, ponowienie znajduje plik w sesji i uzgadnia go: dalej jeden POST.
+    m.ksef.listError = null;
+    await runSubmitInvoice(event(), ctx(1));
+    expect(m.ksef.invoicePosts).toBe(1);
+    expect(accepted()).toMatchObject({ ksef_status: 'accepted', ksef_number: 'K-2' });
   });
 
   it('odrzucenie w STATUSIE (kod 450 w treści odpowiedzi) nadal kończy jako odrzucenie treści', async () => {
