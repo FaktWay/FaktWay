@@ -1,5 +1,7 @@
 
 
+import * as Sentry from '@sentry/nextjs';
+
 import type { JobContext } from '@/lib/jobs/registry';
 import { createAdminClient } from '@/lib/supabase/server';
 import { logAuditSystem } from '@/lib/audit/log-system';
@@ -10,6 +12,7 @@ import {
   type RetainedInvoice,
 } from '@/lib/retention/invoice-files';
 import { blokadaKsef, planUsuniecia, type KorektaTrzymajaca, type PowodOdroczenia } from '@/lib/retention/plan-usuniecia';
+import { StorageTimeoutError } from '@/lib/storage/s3-timeouts';
 
 /**
  * Cron codziennie o 4:00 PL: usuwa faktury, których `scheduled_deletion_at`
@@ -28,6 +31,18 @@ import { blokadaKsef, planUsuniecia, type KorektaTrzymajaca, type PowodOdroczeni
  * i dostaje nowy termin, reszta idzie po kolei (korekta przed oryginałem),
  * każda faktura osobnym DELETE, a wpis `retention.deletion_executed` dopiero
  * po usunięciu wiersza.
+ *
+ * LIM-05, wyłącznik: pierwszy limit czasu magazynu plików
+ * (`StorageTimeoutError`, `lib/storage/s3-timeouts.ts`) kończy usuwanie
+ * plików w tym przebiegu. Pozostałe faktury nie dotykają ani magazynu, ani
+ * bazy i czekają jak po błędzie pliku: wiersz zostaje, następny przebieg
+ * ponowi. Bez wyłącznika zawieszony magazyn trzymał workera na każdej
+ * fakturze osobno (do 3 prób po 60 s na wywołanie; przy 100 fakturach ponad
+ * dwie godziny). Przebieg kończy się sukcesem z `pending`
+ * i `storageTimeoutSkipped`, nie błędem: ponowienie handlera po 10 s
+ * trafiłoby w ten sam zawieszony magazyn, a cron i tak wraca następnego dnia
+ * o 4:00. Operator dostaje jeden wpis w logu workera i jedno zgłoszenie
+ * w Sentry (`docs/runbooks/joby-pg-boss.md`, „Typowe sytuacje”).
  */
 /**
  * Runner joba (worker pg-boss).
@@ -40,6 +55,25 @@ const POWODY: Readonly<Record<PowodOdroczenia, string>> = {
   platnosc: 'matched bank import',
   ksef: 'KSeF lifecycle guard (00132)',
 };
+
+/**
+ * Limit czasu magazynu plików albo `null`. Rozpoznany po typie albo po `name`
+ * i `code`, nigdy po treści: błąd z innej instancji modułu nie przejdzie
+ * `instanceof`. Zerwane połączenie (biblioteka też nazywa je 'TimeoutError',
+ * ale z `code` ECONNRESET albo EPIPE) i limit Supabase (`code` ABORT_ERR) to
+ * nie zawieszony magazyn, więc zostają błędem jednej faktury.
+ */
+function limitMagazynu(e: unknown): { operation: string; attempts: number } | null {
+  if (!(e instanceof StorageTimeoutError)) {
+    const { name, code } = (typeof e === 'object' && e !== null ? e : {}) as { name?: unknown; code?: unknown };
+    if (name !== 'TimeoutError' || code !== 'ETIMEDOUT') return null;
+  }
+  const { operation, attempts } = e as { operation?: unknown; attempts?: unknown };
+  return {
+    operation: typeof operation === 'string' ? operation : 'S3',
+    attempts: typeof attempts === 'number' ? attempts : 1,
+  };
+}
 
 export async function runRetentionDelete({ step, logger }: JobContext) {
     const teraz = new Date();
@@ -116,7 +150,15 @@ export async function runRetentionDelete({ step, logger }: JobContext) {
 
     let deleted = 0;
     let bledyWierszy = 0;
+    // Wyłącznik (LIM-05): faktura, przy której magazyn nie odpowiedział
+    // w limicie czasu. Po niej reszta przebiegu nie dotyka magazynu ani bazy.
+    let wylacznik: { invoiceId: string; operation: string; attempts: number } | null = null;
+    let skipped = 0;
     for (const id of plan.kolejnosc) {
+      if (wylacznik) {
+        skipped++;
+        continue;
+      }
       const invoice = poId.get(id)!;
       const result = await step.run(`purge-${id}`, async () => {
         let filesDeleted: number;
@@ -126,6 +168,9 @@ export async function runRetentionDelete({ step, logger }: JobContext) {
           filesDeleted = await deleteInvoiceStorage(keys);
           foreign = keys.foreign;
         } catch (e) {
+          // Limit czasu: jeden wpis wyłącznika po pętli zamiast wpisu tutaj.
+          const limit = limitMagazynu(e);
+          if (limit) return { limit };
           logger.error('Retencja: pliki faktury nieusunięte — wiersz zostaje do następnego przebiegu', {
             invoiceId: invoice.id,
             error: e instanceof Error ? e.message : String(e),
@@ -152,13 +197,32 @@ export async function runRetentionDelete({ step, logger }: JobContext) {
         }
         return 'usunieta' as const;
       });
+      if (typeof result === 'object') wylacznik = { invoiceId: id, ...result.limit };
       if (result === 'usunieta') deleted++;
       if (result === 'wiersz') bledyWierszy++;
+    }
+
+    const pending = plan.kolejnosc.length - deleted;
+    // Przed błędem wierszy niżej: operator ma zobaczyć wyłącznik także wtedy.
+    if (wylacznik) {
+      const { invoiceId, operation, attempts } = wylacznik;
+      logger.error(
+        `Retencja: magazyn plików nie odpowiedział w limicie czasu (${operation}, prób: ${attempts}). ` +
+          `Wyłącznik: pominięte faktury: ${skipped}, czeka razem: ${pending}; wiersze zostają, następny przebieg ponowi`,
+        { invoiceId, skipped, pending, deleted, operation, attempts },
+      );
+      // Same liczby, bez identyfikatorów faktur i kluczy plików; faktura, przy
+      // której stanął magazyn, jest w logu workera.
+      Sentry.captureMessage('Retencja: magazyn plików nie odpowiedział w limicie czasu, faktury czekają na następny przebieg', {
+        level: 'error',
+        tags: { job: 'retention-delete' },
+        extra: { skipped, pending, deleted, operation, attempts },
+      });
     }
 
     // Wiersz, którego baza nie dała usunąć po planie (nowa korekta albo koszt
     // w trakcie przebiegu): ponowienie zaplanuje go od nowa.
     if (bledyWierszy > 0) throw new Error(`Retencja: ${bledyWierszy} faktur bez usuniętego wiersza po usunięciu plików`);
 
-    return { deleted, pending: plan.kolejnosc.length - deleted, postponed: plan.odroczone.length };
+    return { deleted, pending, postponed: plan.odroczone.length, storageTimeoutSkipped: skipped };
 }
