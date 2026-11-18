@@ -203,7 +203,8 @@ export async function submitInvoice(
         }
       }
 
-      // 6. Polling statusu
+      // 6. Polling statusu. Plik jest już w KSeF, więc błąd klienta HTTP
+      //    odczytu statusu to niepewny wynik, nie odrzucenie (WYS-01).
       const invoiceStatus = await pollInvoiceStatus(
         session.referenceNumber,
         sendResult.referenceNumber,
@@ -212,7 +213,9 @@ export async function submitInvoice(
         undefined,
         undefined,
         auditContext,
-      );
+      ).catch((e: unknown) => {
+        throw statusReadAfterUploadAsRetryable(e);
+      });
 
       if (!invoiceStatus.ksefNumber) {
         // F-093-OPIS: sam kod statusu, bez opisu z KSeF (komunikat idzie do logów i telemetrii).
@@ -654,6 +657,30 @@ export const KSEF_SESSION_TEMPORARILY_UNAVAILABLE = 21184;
  * kolejną próbą joba (każda próba otwiera własną sesję online), dlatego błąd
  * dostaje status ponawialny (F-050).
  */
+/**
+ * WYS-01: KSeF przyjął już plik (POST faktury zwrócił numer referencyjny, wpis
+ * `sent` zapisany), więc błąd klienta HTTP przy ODCZYCIE statusu (400, 404…)
+ * nie jest decyzją o treści faktury. Tę KSeF podaje w samym statusie (kod
+ * 400–499, `KsefInvoiceRejectedError`), a ten błąd przechodzi bez zmian.
+ * Wcześniej runner robił z 4xx „KSeF odrzucił fakturę” i stan `rejected`,
+ * choć KSeF mógł fakturę przyjąć; powrót do szkicu blokował dowód kontaktu,
+ * a uzgodnienie robił dopiero cron po 48 h (I5). Ponowienie zaczyna od
+ * uzgodnienia po numerze referencyjnym (AUD-01), nigdy od drugiej wysyłki.
+ * 401 i 403 zostają: runner odnawia sesję po 401, a 403 to błąd sesji
+ * (`KSEF_SESSION`), nie odrzucenie. Status HTTP odpowiedzi zostaje w treści.
+ */
+function statusReadAfterUploadAsRetryable(e: unknown): unknown {
+  if (e instanceof KsefApiError && !e.isRetryable && !e.isAuthError) {
+    return new KsefApiError(
+      503,
+      e.body,
+      `KSeF: odczyt statusu przyjętego pliku nieudany (HTTP ${e.status}), ponowimy i uzgodnimy wynik po numerze referencyjnym`,
+      e.retryAfterMs,
+    );
+  }
+  return e;
+}
+
 function sessionTemporarilyUnavailableAsRetryable(e: unknown): unknown {
   if (
     e instanceof KsefApiError &&
