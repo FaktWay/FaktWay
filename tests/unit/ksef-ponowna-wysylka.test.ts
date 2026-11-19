@@ -54,19 +54,25 @@ import { resendInvoiceAction, resetInvoiceToDraftAction } from '@/components/inv
 import { KSEF_SEND_MESSAGES, KSEF_SPECIAL_SEND_MESSAGES } from '@/lib/invoices/ksef-send-policy';
 import { SUPPORT_EMAIL } from '@/lib/site';
 import { finalizeInvoice } from '@/lib/xml/invoice-calculator';
+import { addDaysToIsoDate, todayInWarsaw } from '@/lib/format/warsaw-date';
 
 const GENERIC_RESEND_ERROR = 'Nie można sprawdzić możliwości ponownej wysyłki. Spróbuj później.';
 
-function snapshot() {
+// B2a: zwykła faktura wychodzi do KSeF do końca następnego dnia roboczego po dacie
+// wystawienia, a fakty ponowienia liczą termin od prawdziwego zegara — faktura
+// w teście ma więc datę „dziś” w Polsce (stała data by się zestarzała).
+const TODAY_PL = todayInWarsaw();
+
+function snapshot(issueDate = TODAY_PL) {
   return finalizeInvoice({
     internalNumber: 'FV 7/10/2026',
     type: 'VAT',
-    issueDate: '2026-10-02',
-    saleDate: '2026-10-02',
+    issueDate,
+    saleDate: issueDate,
     seller: { nip: '5260001246', name: 'Moja Firma', address: { countryCode: 'PL', addressLine1: 'ul. A 1', addressLine2: '00-001 Warszawa' } },
     buyer: { nip: '5252241585', name: 'Klient', address: { countryCode: 'PL', addressLine1: 'ul. B 2', addressLine2: '00-002 Warszawa' } },
     lines: [{ ordinal: 1, name: 'Usługa', unit: 'szt', quantity: 1, unitPriceNet: 100, vatRate: '23' }],
-    payment: { currency: 'PLN', dueDate: '2026-10-16', method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
+    payment: { currency: 'PLN', dueDate: addDaysToIsoDate(issueDate, 14)!, method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
   });
 }
 
@@ -74,7 +80,7 @@ function snapshot() {
 function failedRow(extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     ksef_status: 'failed', direction: 'outgoing', invoice_kind: 'regular', invoice_type: 'VAT',
-    last_error_code: 'INFRA', issue_date: '2026-10-02', fa3_data: snapshot(), special_data: null, ...extra,
+    last_error_code: 'INFRA', issue_date: TODAY_PL, fa3_data: snapshot(), special_data: null, ...extra,
   };
 }
 
@@ -132,6 +138,15 @@ describe('resendInvoiceAction — ponowna wysyłka przez requeue_ksef_send', () 
     m.row = failedRow(patch);
 
     await expect(resendInvoiceAction(ID)).resolves.toEqual({ success: false, error: message });
+    expect(m.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('B2a: zwykła faktura po terminie przesłania (P_1 sprzed tygodnia) → odmowa z powodem i wyjściem, bez zlecenia', async () => {
+    // Do B2a akcja kolejkowała taką fakturę, a KSeF przyjąłby ją po terminie (scenariusz 13b).
+    const weekAgo = addDaysToIsoDate(TODAY_PL, -7)!;
+    m.row = failedRow({ issue_date: weekAgo, fa3_data: snapshot(weekAgo) });
+
+    await expect(resendInvoiceAction(ID)).resolves.toEqual({ success: false, error: KSEF_SEND_MESSAGES.sendDeadlinePassed });
     expect(m.enqueue).not.toHaveBeenCalled();
   });
 
