@@ -35,6 +35,8 @@ const TEST_TIMEOUT_MS = 30_000;
 const m = vi.hoisted(() => ({
   tabele: {} as Record<string, Array<Record<string, unknown>>>,
   usunieteWiersze: [] as unknown[],
+  /** Faktury, których wiersza baza nie da usunąć (DELETE zwraca błąd, wiersz zostaje). */
+  bledyUsuniecia: new Set<unknown>(),
   dziennik: [] as Array<{ action: string; entityId: string }>,
   sentry: [] as Array<{ message: string; context?: { level?: string; tags?: Record<string, unknown>; extra?: Record<string, unknown> } }>,
 }));
@@ -98,6 +100,9 @@ vi.mock('@/lib/supabase/server', () => ({
           const wiersze = m.tabele[table] ?? [];
           const trafione = wiersze.filter((r) => predicates.every((p) => p(r)));
           if (tryb === 'delete') {
+            if (table === 'invoices' && trafione.some((r) => m.bledyUsuniecia.has(r.id))) {
+              return Promise.resolve({ data: null, error: { message: 'baza nie dała usunąć wiersza' } }).then(ok);
+            }
             const usuwane = new Set(trafione.map((r) => r.id));
             if (table === 'invoices') m.usunieteWiersze.push(...usuwane);
             m.tabele[table] = wiersze.filter((r) => !usuwane.has(r.id));
@@ -231,6 +236,7 @@ beforeEach(() => {
   atrapa.zadania = [];
   atrapa.zachowanie = () => 'odpowiada';
   m.usunieteWiersze = [];
+  m.bledyUsuniecia = new Set();
   m.dziennik = [];
   m.sentry = [];
   m.tabele = {
@@ -295,7 +301,7 @@ describe('LIM-05: wyłącznik retencji po limicie czasu magazynu plików', () =>
         context: {
           level: 'error',
           tags: { job: 'retention-delete' },
-          extra: { skipped: 4, pending: 5, deleted: 0, operation: 'ListObjectsV2', attempts: MALE.maxAttempts },
+          extra: { skipped: 4, pending: 5, deleted: 0, operation: 'ListObjectsV2', attempts: MALE.maxAttempts, attempt: 0 },
         },
       },
     ]);
@@ -306,7 +312,7 @@ describe('LIM-05: wyłącznik retencji po limicie czasu magazynu plików', () =>
       `Retencja: magazyn plików nie odpowiedział w limicie czasu (ListObjectsV2, prób: ${MALE.maxAttempts}). ` +
         'Wyłącznik: pominięte faktury: 4, czeka razem: 5; wiersze zostają, następny przebieg ponowi',
     );
-    expect(dodatki).toEqual({ invoiceId: id(1), skipped: 4, pending: 5, deleted: 0, operation: 'ListObjectsV2', attempts: MALE.maxAttempts });
+    expect(dodatki).toEqual({ invoiceId: id(1), skipped: 4, pending: 5, deleted: 0, operation: 'ListObjectsV2', attempts: MALE.maxAttempts, attempt: 0 });
     // Klucz pliku zaczyna się od katalogu firmy; nie ma go ani w logu, ani w Sentry.
     expect(JSON.stringify([logger.error.mock.calls, logger.warn.mock.calls, logger.info.mock.calls, m.sentry])).not.toContain(`${T}/`);
   });
@@ -344,7 +350,7 @@ describe('LIM-05: wyłącznik retencji po limicie czasu magazynu plików', () =>
     expect(m.usunieteWiersze).toEqual([]);
     expect(wynik).toEqual({ deleted: 0, pending: 3, postponed: 0, storageTimeoutSkipped: 2 });
     expect(m.sentry.map((s) => s.context?.extra)).toEqual([
-      { skipped: 2, pending: 3, deleted: 0, operation: 'DeleteObject', attempts: MALE.maxAttempts },
+      { skipped: 2, pending: 3, deleted: 0, operation: 'DeleteObject', attempts: MALE.maxAttempts, attempt: 0 },
     ]);
   });
 
@@ -387,6 +393,47 @@ describe('LIM-05: wyłącznik retencji po limicie czasu magazynu plików', () =>
     await expect(runRetentionDelete(ctx)).resolves.toEqual({ deleted: 3, pending: 0, postponed: 0, storageTimeoutSkipped: 0 });
     expect(m.usunieteWiersze).toEqual([id(1), id(2), id(3)]);
     expect(wykonane()).toEqual([id(1), id(2), id(3)]);
+  });
+
+  it('wyłącznik i błąd wiersza w jednym przebiegu: job rzuca jak dotąd, a ponowienie zapala wyłącznik na pierwszej fakturze i kończy się sukcesem', { timeout: TEST_TIMEOUT_MS }, async () => {
+    m.tabele.invoices = faktury(1, 2, 3);
+    // Faktura 1: pliki usunięte, ale baza nie da usunąć wiersza; przy fakturze 2 magazyn milknie.
+    m.bledyUsuniecia = new Set<unknown>([id(1)]);
+    atrapa.zachowanie = (zadanie) => (zadanie.sciezka.includes(id(1)) ? 'odpowiada' : 'milczy');
+    const wpisyWylacznika = () => logger.error.mock.calls.filter(([tresc]) => String(tresc).includes('Wyłącznik'));
+
+    await expect(runRetentionDelete(ctx)).rejects.toThrow('Retencja: 1 faktur bez usuniętego wiersza po usunięciu plików');
+
+    expect(zadaniaFaktury(3), 'faktura 3 za wyłącznikiem').toEqual([]);
+    expect(zostaly()).toEqual([id(1), id(2), id(3)]);
+    expect(logger.error).toHaveBeenCalledWith('Retencja: pliki usunięte, wiersz faktury został', expect.objectContaining({ invoiceId: id(1) }));
+    // Wpis wyłącznika i zgłoszenie idą przed błędem wierszy, po jednym.
+    expect(wpisyWylacznika().map(([, dodatki]) => dodatki)).toEqual([
+      { invoiceId: id(2), skipped: 1, pending: 3, deleted: 0, operation: 'ListObjectsV2', attempts: MALE.maxAttempts, attempt: 0 },
+    ]);
+    expect(m.sentry.map((s) => s.context?.extra)).toEqual([
+      { skipped: 1, pending: 3, deleted: 0, operation: 'ListObjectsV2', attempts: MALE.maxAttempts, attempt: 0 },
+    ]);
+
+    // Ponowienie (pg-boss, wykonanie 1) przy wciąż zawieszonym magazynie: plan od nowa, pierwsza
+    // faktura listuje folder prób, więc wyłącznik zapala się, zanim baza usunie jakikolwiek wiersz.
+    atrapa.zadania = [];
+    atrapa.zachowanie = () => 'milczy';
+    await expect(runRetentionDelete({ ...ctx, attempt: 1 })).resolves.toEqual({ deleted: 0, pending: 3, postponed: 0, storageTimeoutSkipped: 2 });
+
+    expect(atrapa.zadania.map((z) => z.metoda)).toEqual(Array(MALE.maxAttempts).fill('GET'));
+    expect(zadaniaFaktury(1)).toHaveLength(MALE.maxAttempts);
+    expect(m.usunieteWiersze).toEqual([]);
+    expect(zostaly()).toEqual([id(1), id(2), id(3)]);
+    // Drugie zgłoszenie to to samo zadanie, poznać je po numerze wykonania.
+    expect(m.sentry.map((s) => s.context?.extra)).toEqual([
+      { skipped: 1, pending: 3, deleted: 0, operation: 'ListObjectsV2', attempts: MALE.maxAttempts, attempt: 0 },
+      { skipped: 2, pending: 3, deleted: 0, operation: 'ListObjectsV2', attempts: MALE.maxAttempts, attempt: 1 },
+    ]);
+    expect(wpisyWylacznika().map(([, dodatki]) => dodatki)).toEqual([
+      expect.objectContaining({ invoiceId: id(2), attempt: 0 }),
+      expect.objectContaining({ invoiceId: id(1), attempt: 1 }),
+    ]);
   });
 });
 

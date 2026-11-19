@@ -32,17 +32,23 @@ import { StorageTimeoutError } from '@/lib/storage/s3-timeouts';
  * każda faktura osobnym DELETE, a wpis `retention.deletion_executed` dopiero
  * po usunięciu wiersza.
  *
- * LIM-05, wyłącznik: pierwszy limit czasu magazynu plików
- * (`StorageTimeoutError`, `lib/storage/s3-timeouts.ts`) kończy usuwanie
- * plików w tym przebiegu. Pozostałe faktury nie dotykają ani magazynu, ani
- * bazy i czekają jak po błędzie pliku: wiersz zostaje, następny przebieg
- * ponowi. Bez wyłącznika zawieszony magazyn trzymał workera na każdej
- * fakturze osobno (do 3 prób po 60 s na wywołanie; przy 100 fakturach ponad
- * dwie godziny). Przebieg kończy się sukcesem z `pending`
- * i `storageTimeoutSkipped`, nie błędem: ponowienie handlera po 10 s
- * trafiłoby w ten sam zawieszony magazyn, a cron i tak wraca następnego dnia
- * o 4:00. Operator dostaje jeden wpis w logu workera i jedno zgłoszenie
- * w Sentry (`docs/runbooks/joby-pg-boss.md`, „Typowe sytuacje”).
+ * LIM-05, wyłącznik: pierwszy limit czasu magazynu plików albo archiwum
+ * (`StorageTimeoutError`, `lib/storage/s3-timeouts.ts`; oba klienty rzucają
+ * ten sam błąd) kończy usuwanie plików w tym przebiegu. Pozostałe faktury nie
+ * dotykają ani magazynu, ani bazy i czekają jak po błędzie pliku: wiersz
+ * zostaje, następny przebieg ponowi. Bez wyłącznika zawieszony magazyn
+ * trzymał workera na każdej fakturze osobno (do 3 prób po 60 s na wywołanie;
+ * przy 100 fakturach ponad dwie godziny). Przebieg kończy się sukcesem
+ * z `pending` i `storageTimeoutSkipped`, nie błędem: ponowienie handlera po
+ * 10 s trafiłoby w ten sam zawieszony magazyn, a cron i tak wraca następnego
+ * dnia o 4:00. Wyjątek: gdy w tym samym przebiegu baza nie dała usunąć
+ * wiersza (`bledyWierszy`), job rzuca jak dotąd i ponawia się. Ponowienie
+ * liczy plan od nowa, a faktura z datą wystawienia zaczyna od listowania
+ * folderu prób w magazynie, więc przy wciąż zawieszonym magazynie wyłącznik
+ * zapala się, zanim baza usunie jakikolwiek wiersz, i ponowienie kończy się
+ * sukcesem (zwykle jedno dodatkowe wykonanie). Na każde wykonanie operator
+ * dostaje jeden wpis w logu workera i jedno zgłoszenie w Sentry z numerem
+ * wykonania `attempt` (`docs/runbooks/joby-pg-boss.md`, „Typowe sytuacje”).
  */
 /**
  * Runner joba (worker pg-boss).
@@ -75,7 +81,7 @@ function limitMagazynu(e: unknown): { operation: string; attempts: number } | nu
   };
 }
 
-export async function runRetentionDelete({ step, logger }: JobContext) {
+export async function runRetentionDelete({ step, logger, attempt }: JobContext) {
     const teraz = new Date();
     const nowIso = teraz.toISOString();
 
@@ -209,14 +215,15 @@ export async function runRetentionDelete({ step, logger }: JobContext) {
       logger.error(
         `Retencja: magazyn plików nie odpowiedział w limicie czasu (${operation}, prób: ${attempts}). ` +
           `Wyłącznik: pominięte faktury: ${skipped}, czeka razem: ${pending}; wiersze zostają, następny przebieg ponowi`,
-        { invoiceId, skipped, pending, deleted, operation, attempts },
+        { invoiceId, skipped, pending, deleted, operation, attempts, attempt },
       );
       // Same liczby, bez identyfikatorów faktur i kluczy plików; faktura, przy
-      // której stanął magazyn, jest w logu workera.
+      // której stanął magazyn, jest w logu workera. `attempt` > 0 to ponowienie
+      // tego samego zadania (ścieżka z błędem wiersza niżej), nie nowa awaria.
       Sentry.captureMessage('Retencja: magazyn plików nie odpowiedział w limicie czasu, faktury czekają na następny przebieg', {
         level: 'error',
         tags: { job: 'retention-delete' },
-        extra: { skipped, pending, deleted, operation, attempts },
+        extra: { skipped, pending, deleted, operation, attempts, attempt },
       });
     }
 
