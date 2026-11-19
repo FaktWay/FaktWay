@@ -330,6 +330,7 @@ function RecurringInvoiceSheetBody({
                     className='w-full'
                     disabled={!sheetReady}
                     aria-invalid={!!errors.templateInvoiceId}
+                    aria-describedby={errors.templateInvoiceId ? `${formId}-template-error` : undefined}
                   >
                     <SelectValue placeholder={items.length === 0 ? 'Brak faktur do wyboru' : 'Wybierz fakturę'} />
                   </SelectTrigger>
@@ -343,7 +344,7 @@ function RecurringInvoiceSheetBody({
                     </SelectGroup>
                   </SelectContent>
                 </Select>
-                <FieldError errors={[errors.templateInvoiceId]} />
+                <FieldError id={`${formId}-template-error`} errors={[errors.templateInvoiceId]} />
                 {candidatesError ? (
                   <FieldDescription role='status'>{candidatesError}</FieldDescription>
                 ) : searchError ? (
@@ -367,12 +368,12 @@ function RecurringInvoiceSheetBody({
             <FieldLabel htmlFor={`${formId}-name`}>Nazwa</FieldLabel>
             <FieldContent>
               <Input
-                id={`${formId}-name`}
+                id={`${formId}-name`} aria-describedby={errors.name ? `${formId}-name-error` : undefined}
                 maxLength={RECURRING_NAME_MAX}
                 aria-invalid={!!errors.name}
                 {...register('name')}
               />
-              <FieldError errors={[errors.name]} />
+              <FieldError id={`${formId}-name-error`} errors={[errors.name]} />
             </FieldContent>
           </Field>
 
@@ -397,7 +398,7 @@ function RecurringInvoiceSheetBody({
                       value={field.value}
                       onValueChange={(value) => field.onChange((value ?? 'monthly') as RecurringFrequency)}
                     >
-                      <SelectTrigger id={`${formId}-frequency`} className='w-full' disabled={!sheetReady}>
+                      <SelectTrigger id={`${formId}-frequency`} aria-describedby={errors.frequency ? `${formId}-frequency-error` : undefined} aria-invalid={!!errors.frequency} className='w-full' disabled={!sheetReady}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent alignItemWithTrigger={false}>
@@ -412,7 +413,7 @@ function RecurringInvoiceSheetBody({
                     </Select>
                   )}
                 />
-                <FieldError errors={[errors.frequency]} />
+                <FieldError id={`${formId}-frequency-error`} errors={[errors.frequency]} />
               </FieldContent>
             </Field>
 
@@ -420,7 +421,7 @@ function RecurringInvoiceSheetBody({
               <FieldLabel htmlFor={`${formId}-day`}>Dzień miesiąca</FieldLabel>
               <FieldContent>
                 <Input
-                  id={`${formId}-day`}
+                  id={`${formId}-day`} aria-describedby={errors.dayOfMonth ? `${formId}-day-error` : undefined}
                   type='number'
                   inputMode='numeric'
                   min={RECURRING_DAY_MIN}
@@ -429,7 +430,7 @@ function RecurringInvoiceSheetBody({
                   aria-invalid={!!errors.dayOfMonth}
                   {...register('dayOfMonth', { valueAsNumber: true })}
                 />
-                <FieldError errors={[errors.dayOfMonth]} />
+                <FieldError id={`${formId}-day-error`} errors={[errors.dayOfMonth]} />
               </FieldContent>
             </Field>
           </div>

@@ -77,6 +77,7 @@ const ISSUING_LIB: Record<string, string> = {
 const EXEMPT_FILES: Record<string, string> = {
   'components/invoices/actions-detail.ts': 'akcje na istniejącym dokumencie wskazanym id (ponowienie, reset, duplikat, e-mail, XML) — patrz EXEMPT',
   'components/invoices/buyer-link-actions.ts': 'link dla nabywcy na istniejącej fakturze (odczyt, tworzenie, cofnięcie po id); firma z sesji, zapis klientem sesji (RLS)',
+  'lib/invoices/form-autosave.ts': 'kopia robocza formularza (invoice_form_drafts, 00207), nie dokument; z invoices tylko odczyt klucza zapisu; firmę podaje wołający z sesji (akcja z expectedTenantId albo strona)',
   'lib/invoices/ksef-submit-enqueue.ts': 'definicja zlecenia wysyłki; firmę podaje wołający (akcja albo job)',
   'lib/ksef/offline-queue.ts': 'kolejka offline wysyłki (ksef_offline_queue); firmę podaje wołający',
   'lib/ksef/submission-log.ts': 'dziennik prób wysyłki (ksef_submissions); firmę podaje wołający',

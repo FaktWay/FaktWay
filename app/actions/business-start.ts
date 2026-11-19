@@ -2,10 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 
-import { logAudit } from '@/lib/audit/log';
-import { todayInWarsaw } from '@/lib/format/warsaw-date';
-import { isMissingColumnError, normalizeBusinessStart, readTenantBusinessStart } from '@/lib/invoices/business-start';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { saveBusinessStart } from '@/lib/settings/company-settings';
 import { ActionAuthError, requireOrgRole } from '@/lib/supabase/auth-context';
 
 export type BusinessStartResult =
@@ -27,47 +24,12 @@ export async function updateBusinessStartAction(input: string | null): Promise<B
     throw e;
   }
 
-  let startedOn: string | null;
-  try {
-    startedOn = normalizeBusinessStart(input, todayInWarsaw());
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : 'Nieprawidłowa data rozpoczęcia działalności.' };
-  }
-
-  const admin = createAdminClient();
-  let before: string | null;
-  try {
-    before = await readTenantBusinessStart(admin, ctx.tenantId);
-  } catch {
-    // Wyjątek poza kontraktem { success:false } przewróciłby /settings w error.tsx.
-    return { success: false, error: 'Nie udało się zapisać daty rozpoczęcia działalności. Spróbuj ponownie.' };
-  }
-
-  const { error } = await admin
-    .from('tenants')
-    .update({ business_started_on: startedOn })
-    .eq('id', ctx.tenantId);
-
-  if (error) {
-    return {
-      success: false,
-      error:
-        isMissingColumnError(error.code)
-          ? 'Ta funkcja czeka jeszcze na aktualizację bazy danych. Spróbuj ponownie później.'
-          : 'Nie udało się zapisać daty rozpoczęcia działalności.',
-    };
-  }
-
-  await logAudit({
-    action: 'tenant.updated',
-    tenantId: ctx.tenantId,
-    userId: ctx.user.id,
-    entityType: 'tenant',
-    entityId: ctx.tenantId,
-    metadata: { field: 'business_started_on', from: before, to: startedOn },
-  });
+  // Wyjątek poza kontraktem { success:false } przewróciłby /settings w error.tsx: odczyt
+  // „przed” i zapis łapie `saveBusinessStart` (`lib/settings/company-settings.ts`).
+  const result = await saveBusinessStart({ tenantId: ctx.tenantId, userId: ctx.user.id }, input);
+  if (!result.ok) return { success: false, error: result.error };
 
   revalidatePath('/settings');
   revalidatePath('/dashboard');
-  return { success: true, startedOn };
+  return { success: true, startedOn: result.value };
 }

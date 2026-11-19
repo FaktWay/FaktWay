@@ -26,6 +26,22 @@ vi.mock('@/lib/support/knowledge-base', () => ({
   buildKnowledgeBaseContext: () => ({ count: 0, text: '' }),
 }));
 
+/*
+ * Przygotowanie obrazu do OCR (`fitImageForApi`) ładuje bibliotekę natywną
+ * sharp przy pierwszym obrazie i czyta nagłówek na wątkach libuv, czyli
+ * w prawdziwym czasie, a test przesuwa udawany zegar. Przy zimnym procesie
+ * (pierwszy import sharp) pętla `przesuwajZegar` nie widziała żadnego timera
+ * przez 20 kroków i kończyła test, zanim SDK wysłało zapytanie. Spóźnione
+ * zapytanie stawiało potem limit 120 s na zegarze następnego testu, a ten
+ * przesuwał go w czasie, gdy sam czekał na sharp: 230 000 ms zamiast 115 000.
+ * Limitów czasu SDK przygotowanie obrazu nie dotyczy, więc obraz przechodzi
+ * bez zmian, jak mały obraz w `fitImageForApi`, i cały test biegnie na
+ * udawanym zegarze.
+ */
+vi.mock('@/lib/ocr/image-for-api', () => ({
+  fitImageForApi: async (data: string, mediaType: string) => ({ data, mediaType }),
+}));
+
 /** Granica przesuwania zegara: za najgorszym przypadkiem domyślnych limitów SDK (3 × 600 s). */
 const GRANICA_MS = 40 * 60_000;
 

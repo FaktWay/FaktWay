@@ -28,7 +28,8 @@ export const PRIVACY_POLICY_VERSION = '2026-11-02';
 // 2026-11-02: cookie `ff_first_touch` i zapis daty wyboru (pomiar FaktWay 1.0).
 // 2026-11-02: logowanie biometrią i „Zapamiętaj mnie” (trzy cookies, klucz localStorage).
 // 2026-11-03: klucz localStorage z identyfikatorami kluczy biometrii telefonu (bez kodu QR).
-export const COOKIE_POLICY_VERSION = '2026-11-03';
+// 2026-11-17: klucz localStorage z zamknięciem komunikatu o zmianach od 1 stycznia 2027 r. (krok 1.6, część 2a).
+export const COOKIE_POLICY_VERSION = '2026-11-17';
 
 /**
  * Oświadczenie przy rejestracji / w bramce (obowiązkowe). Znaczniki linków

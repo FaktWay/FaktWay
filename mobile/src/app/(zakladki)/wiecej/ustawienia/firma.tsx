@@ -1,10 +1,10 @@
+import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useState } from 'react';
 
 import { FIRMA, PODSTAWY_ZWOLNIENIA } from '@/dane-przykladowe/ustawienia';
 import { PoleDaty, PolePrzelacznik, PoleTekstowe, PoleWyboru } from '@/komponenty/formularz';
 import { EkranListy, Sekcja, Wiersz } from '@/komponenty/lista';
-import { MA_ADRES_STRONY, otworzStrone } from '@/komponenty/na-stronie';
 import { SzkieletListy } from '@/komponenty/szkielet';
 import { StanPusty } from '@/komponenty/stan-pusty';
 import { dataPelna, rachunek } from '@/lib/format';
@@ -18,13 +18,14 @@ export default function EkranFirmyIDanych() {
 }
 
 /**
- * Firma na prawdziwym koncie (M10b): dane, VAT i start działalności z
- * `GET /ustawienia`, do odczytu. Zmiany na faktway.pl (decyzja M10b: zapis
- * danych firmy i VAT zmienia faktury i rozliczenia, więc zostaje przy
- * formularzu strony z jego sprawdzeniami).
+ * Firma na prawdziwym koncie (M10b, zapisy od M10c): dane, rachunek, VAT
+ * i start działalności z `GET /ustawienia`. Właściciel i administrator (jak na
+ * stronie) zmieniają je w arkuszu `firma-zmiana` tą samą logiką co strona;
+ * pozostali widzą dane bez strzałek.
  */
 function EkranFirmyZBazy({ ustawienia }: { ustawienia: StanUstawien }) {
   const rola = useKontoFirmy()?.firma?.rola;
+  const router = useRouter();
   const { dane } = ustawienia;
   if (!dane) {
     return (
@@ -40,30 +41,24 @@ function EkranFirmyZBazy({ ustawienia }: { ustawienia: StanUstawien }) {
   const f = dane.firma;
   const adres = [f.adres.linia1, f.adres.linia2].filter(Boolean).join(', ');
   const mozeZmienic = rola === 'owner' || rola === 'admin';
+  const zmien = (co: 'dane' | 'rachunek' | 'vat' | 'rozpoczecie') =>
+    mozeZmienic ? { strzalka: true, onPress: () => router.push({ pathname: '/wiecej/ustawienia/firma-zmiana', params: { co } }) } : {};
   return (
     <EkranListy onOdswiez={ustawienia.odswiez}>
       <Sekcja naglowek="Dane firmy" stopka="NIP zmienia się tylko przez pomoc FaktWay.">
         <Wiersz tytul="NIP" wartosc={f.nip || 'Brak'} zaznaczalna />
-        <Wiersz tytul="Nazwa" podtytul={f.nazwa || 'Brak'} zaznaczalna />
-        <Wiersz tytul="Adres" podtytul={adres || 'Brak'} zaznaczalna />
-        <Wiersz tytul="Rachunek do faktur" podtytul={f.rachunek ? rachunek(f.rachunek) : 'Nie podano'} zaznaczalna />
+        <Wiersz tytul="Nazwa i adres" podtytul={[f.nazwa || 'Brak nazwy', adres || 'Brak adresu'].join('\n')} {...zmien('dane')} />
+        <Wiersz tytul="Rachunek do faktur" podtytul={f.rachunek ? rachunek(f.rachunek) : 'Nie podano'} {...zmien('rachunek')} />
       </Sekcja>
 
       <Sekcja naglowek="Podatek VAT">
-        <Wiersz tytul={statusVat(f)} />
-      </Sekcja>
-
-      <Sekcja naglowek="Działalność" stopka="Potrzebna do ulgi na start i limitu zwolnienia z VAT.">
-        <Wiersz tytul="Data rozpoczęcia" wartosc={f.rozpoczecie ? dataPelna(f.rozpoczecie) : 'Nie podano'} />
+        <Wiersz tytul={statusVat(f)} {...zmien('vat')} />
       </Sekcja>
 
       <Sekcja
-        stopka={
-          mozeZmienic
-            ? 'Dane firmy, VAT i datę rozpoczęcia zmienisz na faktway.pl. Wpływają na faktury i rozliczenia, dlatego zapisujemy je tam, z pełnym sprawdzeniem.'
-            : 'Dane firmy zmienia właściciel albo administrator na faktway.pl.'
-        }>
-        {mozeZmienic && MA_ADRES_STRONY ? <Wiersz tytul="Zmień na faktway.pl" ikona="global-line" akcja onPress={() => otworzStrone('/settings', () => void ustawienia.odswiez())} /> : null}
+        naglowek="Działalność"
+        stopka={mozeZmienic ? 'Potrzebna do ulgi na start i limitu zwolnienia z VAT.' : 'Dane firmy, VAT i datę rozpoczęcia zmienia właściciel albo administrator firmy.'}>
+        <Wiersz tytul="Data rozpoczęcia" wartosc={f.rozpoczecie ? dataPelna(f.rozpoczecie) : 'Nie podano'} {...zmien('rozpoczecie')} />
       </Sekcja>
     </EkranListy>
   );

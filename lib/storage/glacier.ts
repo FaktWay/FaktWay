@@ -1,9 +1,23 @@
 import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
-let cachedClient: S3Client | null = null;
+import {
+  s3TimeoutConfig,
+  storageTimeouts,
+  uploadRequestOptions,
+  withStorageTimeoutErrors,
+  type StorageTimeouts,
+} from './s3-timeouts';
 
+let cachedClient: S3Client | null = null;
+let cachedClientTimeouts: StorageTimeouts | null = null;
+
+/**
+ * Klient archiwum z limitami czasu i liczbą prób z profilu procesu
+ * (`./s3-timeouts.ts`, LIM-05); nowy, gdy profil się zmieni (start workera).
+ */
 function getGlacierClient(): S3Client {
-  if (cachedClient) return cachedClient;
+  const timeouts = storageTimeouts();
+  if (cachedClient && cachedClientTimeouts === timeouts) return cachedClient;
 
   const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
@@ -13,10 +27,14 @@ function getGlacierClient(): S3Client {
     throw new Error('AWS credentials missing');
   }
 
-  cachedClient = new S3Client({
-    region,
-    credentials: { accessKeyId, secretAccessKey },
-  });
+  cachedClient = withStorageTimeoutErrors(
+    new S3Client({
+      region,
+      credentials: { accessKeyId, secretAccessKey },
+      ...s3TimeoutConfig(timeouts),
+    }),
+  );
+  cachedClientTimeouts = timeouts;
   return cachedClient;
 }
 
@@ -47,15 +65,17 @@ export async function uploadToGlacier(
     throw new Error(`Invalid issue_date for Glacier key: ${issueDate}`);
   }
   const key = `${tenantId}/${year}/${month}/${invoiceId}.xml`;
+  const body = Buffer.from(xmlContent, 'utf8');
 
   await getGlacierClient().send(
     new PutObjectCommand({
       Bucket: getArchiveBucket(),
       Key: key,
-      Body: Buffer.from(xmlContent, 'utf8'),
+      Body: body,
       ContentType: 'application/xml',
       StorageClass: 'DEEP_ARCHIVE',
-    })
+    }),
+    uploadRequestOptions(body.length),
   );
 
   return key;

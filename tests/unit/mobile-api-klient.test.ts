@@ -92,6 +92,8 @@ describe('kody błędów kontraktu', () => {
       // Kontrahenci (M10e): zdanie serwera, przy `contractor_invalid` pod polem.
       contractor_invalid: 'odmowa',
       contractor_exists: 'odmowa',
+      // Zapisy ustawień (M10c): zdanie serwera, przy `settings_invalid` pod polem.
+      settings_invalid: 'odmowa',
     };
     expect(Object.keys(oczekiwane).sort()).toEqual([...MOBILE_API_ERROR_CODES].sort());
     for (const kod of MOBILE_API_ERROR_CODES) expect(rodzajBledu(500, kod)).toBe(oczekiwane[kod]);

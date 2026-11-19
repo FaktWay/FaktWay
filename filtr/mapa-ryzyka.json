@@ -129,7 +129,9 @@
       "opis": "VAT do zapłaty za miesiąc w module księgowości.",
       "sciezki": [
         "lib/ksiegowosc/{vat,vat-dane}.ts",
-        "app/actions/ksiegowosc-vat.ts"
+        "app/actions/ksiegowosc-vat.ts",
+        "lib/ksiegowosc/vat-plik.ts",
+        "lib/api/mobile/{ksiegowosc-vat,kontrakt-ksiegowosc}.ts"
       ]
     },
     {
@@ -342,6 +344,39 @@
       "opis": "Lista faktur: zapytania i fakty wiersza (status, termin, zapłata) do wyświetlenia; kwoty pochodzą z obszaru faktury.kwoty.",
       "sciezki": [
         "lib/invoices/{list-query,list-row-facts}.ts"
+      ]
+    },
+    {
+      "id": "faktury.autozapis",
+      "poziom": "R2",
+      "opis": "Autozapis formularza zwykłej faktury (krok 2.8): kopia robocza surowych wartości, także danych nabywcy, w tabeli invoice_form_drafts (dane osobowe, retencja 30 dni, limity, eksport RODO). To nie jest faktura ani szkic faktury (bez numeru, poza listami, KSeF i JPK); kwoty i zapis faktury zostają w obszarach faktury.kwoty i faktury.wystawianie, a nocne sprzątanie jest w obszarze retencja.",
+      "sciezki": [
+        "lib/invoices/form-autosave.ts",
+        "app/actions/invoice-autosave.ts",
+        "components/invoices/invoice-form-parts/use-form-autosave.ts",
+        "supabase/migrations/00207_invoice_form_drafts.sql"
+      ]
+    },
+    {
+      "id": "poczta.szablon-faktury",
+      "poziom": "R2",
+      "opis": "Własny szablon maila z fakturą (krok 2.8): temat i treść, które widzi nabywca, pola z numerem, kwotą i terminem. Kwota, termin i tytuł przelewu w tabeli maila oraz stopka zostają stałe (sendInvoiceEmail), a wartość pola kwota to kwota z PDF.",
+      "sciezki": [
+        "lib/email/invoice-email-template.ts",
+        "lib/email/invoice-email-template-store.ts",
+        "app/actions/invoice-email-template.ts",
+        "supabase/migrations/00208_invoice_email_templates.sql"
+      ]
+    },
+    {
+      "id": "faktury.ustawienia-domyslne",
+      "poziom": "R2",
+      "opis": "Domyślne ustawienia firmy dla nowej faktury (krok 2.8): forma i termin płatności jako podpowiedź formularza oraz adres księgowej dla kopii maila z fakturą (osobna wiadomość z tym samym PDF). Nie zmieniają kwot ani zapisanych faktur; kwota, termin i tytuł przelewu w mailu pochodzą z tych samych funkcji co mail do nabywcy.",
+      "sciezki": [
+        "lib/invoices/invoice-defaults.ts",
+        "lib/invoices/invoice-copy-email.ts",
+        "app/actions/invoice-defaults.ts",
+        "supabase/migrations/00209_tenant_invoice_defaults.sql"
       ]
     },
     {
@@ -619,6 +654,7 @@
       "poziom": "R1",
       "opis": "Przechowywanie i usuwanie danych: faktury, UPO, kopie, RODO.",
       "sciezki": [
+        "lib/jobs/runners/cleanup-invoice-form-drafts.ts",
         "lib/retention/**",
         "lib/gdpr/**",
         "lib/backup/**",
@@ -653,7 +689,10 @@
         "lib/invoices/logo-firmy.ts",
         "components/settings/company-logo-form.tsx",
         "lib/api/mobile/ustawienia.ts",
-        "app/api/mobile/v1/ustawienia/**"
+        "app/api/mobile/v1/ustawienia/**",
+        "lib/settings/company-settings.ts",
+        "lib/api/mobile/ustawienia-zapis.ts",
+        "lib/api/mobile/kontrakt-ustawienia.ts"
       ]
     },
     {
@@ -720,6 +759,8 @@
       "poziom": "R2",
       "opis": "Treści o podatkach: FLO, czat pomocy, pomoc, blog, strona, maile (D8: bez porad podatkowych).",
       "sciezki": [
+        "lib/zmiany-2027/okno.ts",
+        "components/dashboard/zmiany-2027-baner.tsx",
         "lib/flo/{tax-topic,llm}.ts",
         "lib/support/chat.ts",
         "lib/help/articles.ts",
@@ -748,6 +789,8 @@
         "app/actions/{analytics-consent,newsletter}.ts",
         "lib/email/{preferences,unsubscribe-token}.ts",
         "app/(dashboard)/settings/notifications/email-actions.ts",
+        "lib/email/settings-toggle.ts",
+        "lib/api/mobile/ustawienia-powiadomienia.ts",
         "lib/analytics/privacy.ts",
         "app/api/email/unsubscribe/**",
         "app/(auth)/register/actions.ts",
@@ -831,11 +874,17 @@
         "mobile/src/app/(zakladki)/(pulpit)/**",
         "mobile/src/app/(zakladki)/ksiegowosc/**",
         "mobile/src/stan/ksiegowosc.tsx",
+        "mobile/src/komponenty/zaplaty-spoza-wyliczenia.tsx",
+        "mobile/src/lib/{plik-jpk,miesiace}.ts",
+        "mobile/src/lib/api/kontrakt-ksiegowosc.ts",
         "mobile/src/stan/ustawienia.tsx",
         "mobile/src/app/(zakladki)/wiecej/kontrahenci/**",
         "mobile/src/stan/kontrahenci.tsx",
         "mobile/src/app/(zakladki)/wiecej/import.tsx",
-        "mobile/src/app/(zakladki)/wiecej/ustawienia/{abonament,ksiegowa}.tsx"
+        "mobile/src/app/(zakladki)/wiecej/ustawienia/{abonament,ksiegowa}.tsx",
+        "mobile/src/app/(zakladki)/wiecej/ustawienia/{firma,firma-zmiana,przypomnienia,powiadomienia}.tsx",
+        "mobile/src/stan/ustawienia-zapis.tsx",
+        "mobile/src/lib/api/kontrakt-ustawienia.ts"
       ]
     },
     {
@@ -995,7 +1044,8 @@
       "poziom": "R1",
       "opis": "SQL: dostęp do danych firmy spoza zwykłej sesji: klucze API, link do faktury dla nabywcy, adres kalendarza, sesje kont, podsumowanie firm księgowej i uprawnienia biura w KSeF (funkcje SECURITY DEFINER z tokenem albo rolą).",
       "sciezki": [
-        "supabase/migrations/{00174,00179,00181,00182,00185,00195}_*.sql"
+        "supabase/migrations/{00174,00179,00181,00182,00185,00195}_*.sql",
+        "supabase/migrations/00210_invoice_share_view_line_codes.sql"
       ]
     },
     {

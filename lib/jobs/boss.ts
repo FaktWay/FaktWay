@@ -98,7 +98,14 @@ export function stopBoss(): Promise<void> {
 
 async function doStopBoss(): Promise<void> {
   const boss = cached;
-  if (!boss || !started) return;
+  if (!boss) {
+    // Zatrzymanie, zanim worker postawił pg-boss (G1-START): nie ma czego zamykać,
+    // ale getBoss() ma już odmawiać, żeby start nie postawił instancji po sygnale.
+    closed = true;
+    return;
+  }
+  // Start w toku też idzie przez stop(): pg-boss 12.38.2 sam czeka na trwający
+  // start (`dist/index.js:266-268`), a zawieszony start ucina hardStopMs niżej.
   const { drainMs, hardStopMs } = WORKER_SHUTDOWN_BUDGET;
 
   const active = listActiveJobs();

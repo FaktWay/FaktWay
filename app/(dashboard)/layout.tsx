@@ -12,6 +12,7 @@ import { BottomNav } from '@/components/dashboard/bottom-nav';
 import { Footer } from '@/components/dashboard/footer';
 import { PrefetchDashboardRoutes } from '@/components/dashboard/prefetch-dashboard-routes';
 import { ShellScrollMemory } from '@/components/dashboard/shell-scroll-memory';
+import { OdczytZdjeciaBaner } from '@/components/dashboard/odczyt-zdjecia-baner';
 import { WelcomeModal } from '@/components/dashboard/welcome-modal';
 import { IdleWatcher } from '@/components/auth/idle-watcher';
 import { PasskeyEnrollOfferGate } from '@/components/auth/passkey-enroll-offer-gate';
@@ -140,6 +141,10 @@ export default async function DashboardLayout({
               <div className="ff-shell-content mx-auto w-full max-w-360 grow px-4 py-6 sm:px-6">
                 <Suspense fallback={null}>
                   <KsefHealthBanner />
+                </Suspense>
+                {/* Krok 8.1: postęp odczytu zdjęcia udostępnionego z telefonu (`?paragon=`). */}
+                <Suspense fallback={null}>
+                  <OdczytZdjeciaBaner />
                 </Suspense>
                 {children}
               </div>

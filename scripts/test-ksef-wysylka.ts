@@ -23,6 +23,7 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 
+import { bodyWithinTimeout } from '../lib/http/body-within-timeout';
 import type { KsefAuth } from '../lib/ksef/auth';
 import {
   getKsefBaseUrl,
@@ -50,6 +51,11 @@ import type { InvoiceStatusResponse } from '../types/ksef';
 const ENV = 'test' as const;
 const UPO_WAIT_MS = 120_000;
 const UPO_POLL_MS = 10_000;
+/**
+ * Limit jednego pobrania pliku UPO, razem z treścią (LIM-05). Bez niego
+ * zawieszony serwer pliku trzymał bieg do limitu workflow (25 min).
+ */
+const UPO_FETCH_TIMEOUT_MS = 30_000;
 
 /**
  * Scenariusz 17: najdłużej tyle czekamy na koniec blokady MF. Dłuższy
@@ -279,9 +285,15 @@ async function waitForUpo(auth: KsefAuth, references: References): Promise<strin
   for (;;) {
     const raw = await readRawStatus(auth, references);
     if (raw.upoDownloadUrl) {
-      const response = await fetch(raw.upoDownloadUrl);
-      const body = response.ok ? await response.text() : '';
-      return `UPO: HTTP ${response.status}, zawiera numer KSeF: ${raw.ksefNumber && body.includes(raw.ksefNumber) ? 'tak' : 'nie'}`;
+      const signal = AbortSignal.timeout(UPO_FETCH_TIMEOUT_MS);
+      try {
+        const response = await fetch(raw.upoDownloadUrl, { signal });
+        const body = response.ok ? await bodyWithinTimeout(response, signal).text() : '';
+        return `UPO: HTTP ${response.status}, zawiera numer KSeF: ${raw.ksefNumber && body.includes(raw.ksefNumber) ? 'tak' : 'nie'}`;
+      } catch (error) {
+        if (signal.aborted) return `UPO: brak pełnej odpowiedzi po ${UPO_FETCH_TIMEOUT_MS / 1000} s`;
+        throw error;
+      }
     }
     if (Date.now() > deadline) return `UPO: brak adresu po ${UPO_WAIT_MS / 1000} s`;
     await new Promise((resolve) => setTimeout(resolve, UPO_POLL_MS));
