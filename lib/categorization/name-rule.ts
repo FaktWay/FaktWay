@@ -30,7 +30,8 @@ function normalizeSellerName(raw: string): string {
 export async function classifyByExactName(
   tenantId: string,
   sellerName: string,
-  grossAmount?: number,
+  /** Kwota brutto w złotych; `null` = nieznana (jak w `classifyByNip`). */
+  grossAmount?: number | null,
 ): Promise<CategorizationResult | null> {
   const wanted = normalizeSellerName(sellerName);
   if (!wanted) return null;
@@ -60,7 +61,10 @@ export async function classifyByExactName(
 
   const rule = rules.find((r) => normalizeSellerName(r.match_value) === wanted);
   if (!rule) return null;
-  if (grossAmount !== undefined) {
+  if (grossAmount === null) {
+    // Kwota w złotych nieznana: reguła z widełkami (w złotych) nie rozstrzyga.
+    if (rule.min_amount != null || rule.max_amount != null) return null;
+  } else if (grossAmount !== undefined) {
     if (rule.min_amount != null && grossAmount < Number(rule.min_amount)) return null;
     if (rule.max_amount != null && grossAmount > Number(rule.max_amount)) return null;
   }

@@ -95,12 +95,11 @@ export interface InvoiceLineItem {
   /** Nazwa towaru/usługi (max 512 znaków w FA(3) - zmiana z FA(2) 256) */
   name: string;
   /**
-   * Kod CN (towary), PKWiU (usługi) albo GTIN, typ zgadywany po długości.
-   * Dawna ścieżka faktury rozliczającej i korekty; zwykła faktura ma jawne
-   * `pkwiuCode` (krok 2.6, część 2b).
+   * PKWiU pozycji (FA(3) `PKWiU`), z jawnym typem: z formularza albo katalogu
+   * produktów (zwykła faktura), z pozycji faktury rozliczającej i korekty.
+   * Dawne `classificationCode` z typem zgadywanym po długości (GTIN, CN, PKWiU)
+   * usunięte w kroku 2.6, części 2b-3.
    */
-  classificationCode?: string;
-  /** PKWiU pozycji (FA(3) `PKWiU`), z formularza albo katalogu produktów. */
   pkwiuCode?: string;
   /**
    * Oznaczenie GTU pozycji (FA(3) `GTU`, JPK_V7M `GTU_xx`), z formularza albo

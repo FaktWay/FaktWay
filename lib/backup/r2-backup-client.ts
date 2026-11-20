@@ -2,6 +2,7 @@ import { Readable } from 'node:stream';
 
 import { GetObjectCommand, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command, type _Object } from '@aws-sdk/client-s3';
 import { getR2Client, getR2Config } from '@/lib/storage/r2-client';
+import { uploadRequestOptions } from '@/lib/storage/s3-timeouts';
 
 /**
  * Klient R2 dla backupów. Reusuje credentials z głównej konfiguracji
@@ -68,6 +69,8 @@ export async function uploadSnapshot(
       // Custom metadata — verify cron porówna z backup_log.checksum.
       Metadata: { 'sha256-hex': checksumSha256Hex },
     }),
+    // Kopia ma do kilkuset MiB: limit odpowiedzi rośnie o czas wgrania (LIM-05).
+    uploadRequestOptions(body.byteLength),
   );
 }
 

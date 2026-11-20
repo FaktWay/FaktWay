@@ -93,6 +93,10 @@ beforeEach(() => {
     organization_invitations: [{ id: 'i1', email: EMAIL, organization_id: 'org-1', role: 'admin', token_hash: SECRET, invited_by: OTHER, invited_at: '2026-01-01' }],
     gdpr_deletion_requests: [{ id: 'g1', user_id: USER, status: 'canceled', scheduled_for: '2026-06-15', cancel_token_hash: SECRET, created_at: '2026-06-01' }],
     newsletter_subscribers: [{ id: 'n1', email: EMAIL, source: 'blog', created_at: '2026-01-05', unsubscribed_at: null }],
+    invoice_form_drafts: [
+      { id: 'd1', tenant_id: 'org-1', user_id: USER, request_key: 'k-1', form_values: { buyerName: 'Acme' }, updated_at: '2026-11-15' },
+      { id: 'd2', tenant_id: 'org-1', user_id: OTHER, request_key: 'k-2', form_values: { buyerName: SECRET }, updated_at: '2026-11-15' },
+    ],
     email_bounces: [{ id: 'b1', email: EMAIL, bounce_type: 'soft', reason: 'mailbox full', occurred_at: '2026-07-01', raw_payload: { s: SECRET } }],
   };
 });
@@ -114,6 +118,8 @@ describe('eksport danych konta — pełny zakres osoby (AUD-76)', () => {
     expect(data.deletion_requests).toEqual([expect.objectContaining({ status: 'canceled' })]);
     expect(data.newsletter).toEqual([expect.objectContaining({ source: 'blog' })]);
     expect(data.email_bounces).toEqual([expect.objectContaining({ bounce_type: 'soft' })]);
+    // Krok 2.8 (00207): kopie robocze formularza faktury, z danymi nabywcy wpisanymi przez osobę.
+    expect(data.invoice_form_drafts).toEqual([expect.objectContaining({ request_key: 'k-1', form_values: { buyerName: 'Acme' } })]);
   });
 
   it('bez sekretów i bez danych innych osób', async () => {
@@ -133,5 +139,6 @@ describe('eksport danych konta — pełny zakres osoby (AUD-76)', () => {
 
     expect(data.coverage.support_conversations).toEqual({ returned: 1, total: 1, truncated: false });
     expect(data.coverage.email_bounces).toEqual({ returned: 1, total: 1, truncated: false });
+    expect(data.coverage.invoice_form_drafts).toEqual({ returned: 1, total: 1, truncated: false });
   });
 });

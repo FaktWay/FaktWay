@@ -13,7 +13,9 @@ import {
 import type { LogoFormat } from '@/lib/pdf/logo-obraz';
 import { LOGO_FILE_LIMIT_BYTES } from '@/lib/upload-limit';
 
+import { isPreconditionFailed } from './r2';
 import { getR2Client, getR2Config } from './r2-client';
+import { uploadRequestOptions } from './s3-timeouts';
 import { isTenantStoragePath } from './tenant-path';
 
 /**
@@ -75,23 +77,34 @@ function isNotFound(error: unknown): boolean {
 }
 
 /**
- * Zapis pliku pod nowym kluczem. `IfNoneMatch: *`: klucz z UUID jest nowy,
- * więc istniejący obiekt znaczy błąd, nie ponowienie, i nie zostaje nadpisany.
+ * Zapis pliku pod nowym kluczem. `IfNoneMatch: *`: istniejący obiekt nie
+ * zostaje nadpisany. Klucz z UUID jest nowy, więc 412 znaczy ponowienie tej
+ * samej próby: biblioteka ponawia po przekroczonym limicie czasu
+ * (`s3-timeouts.ts`), a pierwsza próba mogła zapisać plik i zgubić odpowiedź.
+ * Te same bajty pod kluczem to więc sukces; inne to błąd 412.
  */
 export async function putTenantLogo(key: string, tenantId: string, data: Buffer, format: LogoFormat): Promise<void> {
   assertLogoKey(key, tenantId);
   const { bucketName } = getR2Config();
-  await getR2Client().send(
-    new PutObjectCommand({
-      Bucket: bucketName,
-      Key: key,
-      Body: data,
-      ContentType: LOGO_CONTENT_TYPE[format],
-      CacheControl: 'private, no-store',
-      IfNoneMatch: '*',
-      Metadata: { 'tenant-id': tenantId, 'document-type': 'company-logo' },
-    }),
-  );
+  try {
+    await getR2Client().send(
+      new PutObjectCommand({
+        Bucket: bucketName,
+        Key: key,
+        Body: data,
+        ContentType: LOGO_CONTENT_TYPE[format],
+        CacheControl: 'private, no-store',
+        IfNoneMatch: '*',
+        Metadata: { 'tenant-id': tenantId, 'document-type': 'company-logo' },
+      }),
+      uploadRequestOptions(data.length),
+    );
+  } catch (error) {
+    if (!isPreconditionFailed(error)) throw error;
+    // Błąd odczytu leci dalej: bez porównania nie wiadomo, czy to plik tej próby.
+    const stored = await getTenantLogo(key, tenantId);
+    if (!stored?.equals(data)) throw error;
+  }
 }
 
 /** Plik logo albo `null`, gdy go nie ma. Inny błąd magazynu rzuca. */

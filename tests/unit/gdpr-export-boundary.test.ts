@@ -38,7 +38,7 @@ beforeEach(() => {
     users: [{ id: USER, name: 'Own' }],
     email_preferences: [], push_subscriptions: [], user_passkeys: [], support_conversations: [], support_messages: [],
     organization_join_requests: [], organization_invitations: [], gdpr_deletion_requests: [],
-    newsletter_subscribers: [], email_bounces: [],
+    newsletter_subscribers: [], email_bounces: [], invoice_form_drafts: [],
   };
   mocks.verified.mockResolvedValue({ ok: true, user: { id: USER } });
   mocks.audit.mockResolvedValue(undefined);

@@ -368,6 +368,27 @@ describe.skipIf(!hasDatabase)('00179: link do faktury dla nabywcy na prawdziwym 
       }
     });
 
+    it('00210: pozycja niesie PKWiU i GTU z dokumentu faktury (fa3_data.lines po numerze pozycji), bez reszty dokumentu', async () => {
+      const { id } = await faktura({
+        fa3_data: {
+          internalNumber: 'FV/179/kody', type: 'VAT', annotations: { splitPayment: 2 },
+          lines: [{ ordinal: 1, name: 'Usługa testowa', pkwiuCode: '62.01.11.0', gtuCode: 'GTU_12', unitPriceNet: 500 }],
+        },
+      });
+      const link = await linkSerwisowy(id);
+      const invoice = (await widok(link.hash))!.invoice as Record<string, unknown>;
+      expect(invoice.lines).toEqual([expect.objectContaining({ ordinal: 1, pkwiu_code: '62.01.11.0', gtu_code: 'GTU_12' })]);
+      const json = JSON.stringify(invoice);
+      for (const hidden of ['unitPriceNet', 'internalNumber', 'fa3_data']) expect(json).not.toContain(hidden);
+    });
+
+    it('00210: faktura bez kodów w dokumencie: pola kodów puste', async () => {
+      const { id } = await faktura();
+      const link = await linkSerwisowy(id);
+      const invoice = (await widok(link.hash))!.invoice as Record<string, unknown>;
+      expect(invoice.lines).toEqual([expect.objectContaining({ ordinal: 1, pkwiu_code: null, gtu_code: null })]);
+    });
+
     it('licznik otwarć rośnie tylko przy p_count_open = true', async () => {
       const { id } = await faktura();
       const link = await linkSerwisowy(id);

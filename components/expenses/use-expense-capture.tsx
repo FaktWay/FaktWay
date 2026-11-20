@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import { unstable_isUnrecognizedActionError, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
 import { getOcrJobStatusAction } from '@/app/actions/expenses';
@@ -13,6 +13,15 @@ import { postExpenseUpload } from '@/lib/uploads/client';
 const OCR_TIMEOUT_MS = 60_000;
 /** Ostatnie pytanie o odczyt: 2 s przed limitem. */
 const OCR_LAST_POLL_MS = OCR_TIMEOUT_MS - 2000;
+/**
+ * Tyle odrzuconych z rzędu pytań (poza brakiem sieci) daje jedno
+ * `router.refresh()`, jak w `hooks/use-status-poll.ts`. Tak bramka logowania
+ * (`proxy.ts`) odpowiada na akcję po wygaśnięciu sesji: przekierowaniem,
+ * którego akcja nie przeczyta, a odświeżenie strony za nim pójdzie. Nie od
+ * pierwszego razu: chwilowe 502 przy restarcie serwera daje to samo
+ * odrzucenie, a odświeżenie przeniosłoby kartę na stronę błędu.
+ */
+const OCR_REJECTIONS_BEFORE_REFRESH = 3;
 
 export type CaptureState =
   | { kind: 'idle' }
@@ -25,6 +34,8 @@ export type CaptureState =
  * i przejście do rozpoznanego wydatku. Wspólne dla przycisku „+ Dodaj
  * wydatek” na Kosztach i plusa dolnego paska telefonu — obie drogi muszą
  * zachowywać się tak samo (E16: chwilowy błąd nie kończy czekania).
+ * Nowe wdrożenie i bramka logowania w trakcie czekania kończą się
+ * odświeżeniem strony, a nie komunikatem o czasie.
  *
  * `inputs` trzeba wyrenderować: to ukryte pola pliku, które otwierają aparat
  * i galerię. `click()` na nich musi paść w obsłudze dotknięcia, inaczej iOS
@@ -50,7 +61,10 @@ export function useExpenseCapture({
 
     const jobId = processingJobId;
     let cancelled = false;
-    const timers: { tick?: ReturnType<typeof setTimeout> } = {};
+    const timers: {
+      tick?: ReturnType<typeof setTimeout>;
+      deadline?: ReturnType<typeof setTimeout>;
+    } = {};
     const stopTicks = () => {
       if (timers.tick) clearTimeout(timers.tick);
       timers.tick = undefined;
@@ -59,15 +73,44 @@ export function useExpenseCapture({
     // nakładać się na następne — dwie odpowiedzi „completed” dałyby
     // podwójny toast i podwójne przejście do wydatku.
     let inFlight = false;
+    // Odrzucone pytania z rzędu; odpowiedź serwera liczy od nowa.
+    let rejections = 0;
 
     async function pollOnce() {
       if (cancelled || inFlight) return;
       inFlight = true;
-      // Odrzucona obietnica akcji (sieć, restart serwera) to chwilowy błąd —
-      // stan zadania nieznany, pytamy przy następnym takcie.
-      const status = await getOcrJobStatusAction(jobId).catch(() => null);
+      let status: Awaited<ReturnType<typeof getOcrJobStatusAction>>;
+      try {
+        status = await getOcrJobStatusAction(jobId);
+      } catch (error) {
+        // Odrzucona obietnica akcji: stan zadania nieznany.
+        inFlight = false;
+        if (cancelled) return;
+        if (unstable_isUnrecognizedActionError(error)) {
+          // Nowe wdrożenie: serwer nie zna akcji ze starego buildu, więc
+          // dalsze pytania nic nie dadzą, a komunikat o czasie po 60 s
+          // skłoniłby klienta do drugiego wgrania, choć odczyt mógł już
+          // utworzyć wydatek. Odświeżenie wykryje inny build i przeładuje
+          // kartę; do tego czasu przycisk czeka zablokowany.
+          cancelled = true;
+          stopTicks();
+          clearTimeout(timers.deadline);
+          router.refresh();
+          return;
+        }
+        // Brak sieci (`fetch` rzuca `TypeError`): pytamy przy następnym takcie.
+        if (error instanceof TypeError) return;
+        // Inne odrzucenie (chwilowe 502 przy restarcie, przekierowanie bramki
+        // logowania): pytamy dalej, a trzecie z rzędu odświeża stronę.
+        rejections += 1;
+        if (rejections < OCR_REJECTIONS_BEFORE_REFRESH) return;
+        rejections = 0;
+        router.refresh();
+        return;
+      }
       inFlight = false;
-      if (cancelled || !status) return;
+      rejections = 0;
+      if (cancelled) return;
 
       if (!status.success) {
         // Chwilowy błąd odczytu: zadanie mogło się udać, więc nie pokazujemy
@@ -120,7 +163,7 @@ export function useExpenseCapture({
     void pollOnce();
     scheduleTick();
 
-    const timeoutId = setTimeout(() => {
+    timers.deadline = setTimeout(() => {
       cancelled = true;
       stopTicks();
       setState((s) =>
@@ -137,7 +180,7 @@ export function useExpenseCapture({
     return () => {
       cancelled = true;
       stopTicks();
-      clearTimeout(timeoutId);
+      clearTimeout(timers.deadline);
     };
   }, [processingJobId, router]);
 
