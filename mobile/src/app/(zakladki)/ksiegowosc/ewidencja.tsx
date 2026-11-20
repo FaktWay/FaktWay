@@ -7,7 +7,8 @@ import { DZIS } from '@/dane-przykladowe';
 import { KPIR } from '@/dane-przykladowe/ksiegowosc';
 import { PoleDaty, PoleTekstowe, PoleWyboru } from '@/komponenty/formularz';
 import { EkranListy, Sekcja, Wiersz } from '@/komponenty/lista';
-import { otworzStrone } from '@/komponenty/na-stronie';
+import { odmowaPlikuNaStronie, otworzStrone } from '@/komponenty/na-stronie';
+import { OdmowaPliku } from '@/komponenty/odmowa-pliku';
 import { ZapisyKsiegi } from '@/komponenty/zapisy-ksiegi';
 import { StanPusty } from '@/komponenty/stan-pusty';
 import { SzkieletKwoty, SzkieletListy } from '@/komponenty/szkielet';
@@ -154,7 +155,11 @@ function EkranEwidencjiZBazy({ konto }: { konto: KontoFirmy }) {
       const w = await konto.zapytaj<PlikKsiegiOdpowiedz>('ksiegowosc/ewidencja/plik', { metoda: 'POST', cialo, firmaEkranu });
       if (!w.ok) {
         if (w.blad.pole) setBledy({ [w.blad.pole]: w.blad.komunikat });
-        else setBladPliku(w.blad.komunikat);
+        else {
+          setBladPliku(w.blad.komunikat);
+          // Brak urzędu skarbowego: arkusz z wyjściem, bo tekst pod przyciskiem bywa poza widokiem (U14).
+          odmowaPlikuNaStronie(w.blad.komunikat, konto.firma?.rola, () => setBladPliku(undefined));
+        }
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         return;
       }
@@ -306,9 +311,11 @@ function EkranEwidencjiZBazy({ konto }: { konto: KontoFirmy }) {
             ) : null}
           </Sekcja>
         ) : null}
-        {bladPliku || bledy.rok || bledy.doMiesiaca ? (
+        {bladPliku ? (
+          <OdmowaPliku komunikat={bladPliku} rola={konto.firma?.rola} poPowrocie={() => setBladPliku(undefined)} />
+        ) : bledy.rok || bledy.doMiesiaca ? (
           <Tekst styl="footnote" kolor="blad" style={styles.nota}>
-            {bladPliku ?? bledy.rok ?? bledy.doMiesiaca}
+            {bledy.rok ?? bledy.doMiesiaca}
           </Tekst>
         ) : null}
       </EkranListy>
