@@ -31,6 +31,15 @@ import {
   PKWIU_PATTERN,
   PKWIU_PATTERN_MESSAGE,
 } from '@/lib/invoices/line-codes';
+import {
+  isOrderCalendarDay,
+  ORDER_DATE_INVALID_MESSAGE,
+  ORDER_DATE_MAX,
+  ORDER_DATE_MIN,
+  ORDER_DATE_TOO_LATE_MESSAGE,
+  ORDER_DATE_WITHOUT_NUMBER_MESSAGE,
+  ORDER_NUMBER_MAX,
+} from '@/lib/invoices/order-reference';
 import { isSaleDateWithinLimit, SALE_DATE_TOO_LATE_MESSAGE } from '@/lib/invoices/sale-date';
 import { addressCountryForKodUE, parseVatUe, type KodUE, isNpIiBuyerVat } from '@/lib/invoices/vat-ue';
 import { numberingFormFields } from '@/lib/numeracja/pola';
@@ -293,6 +302,13 @@ export const invoiceFormSchema = z
     paymentDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     bankAccount: z.string().optional(),
     notes: z.string().max(FA3_TEXT_LIMITS.stopkaFaktury.max).refine(xmlSafe, NO_CONTROL_CHARS_MESSAGE).optional(),
+    /**
+     * Numer zamówienia (krok 2.8, FA(3) `Fa/WarunkiTransakcji/Zamowienia`):
+     * opcjonalny, jeden na fakturę; pusty albo z samych spacji to brak.
+     */
+    orderNumber: z.string().max(ORDER_NUMBER_MAX, maxMessage(ORDER_NUMBER_MAX)).refine(xmlSafe, NO_CONTROL_CHARS_MESSAGE).optional(),
+    /** Data zamówienia (`DataZamowienia`): tylko razem z numerem; reguły w `superRefine` niżej. */
+    orderDate: z.string().optional(),
     /** P_18A — mechanizm podzielonej płatności (art. 106e ust. 1 pkt 18a). */
     splitPayment: z.boolean().optional(),
     /**
@@ -503,6 +519,20 @@ export const invoiceFormSchema = z
       if (reported.has(path)) continue;
       reported.add(path);
       ctx.addIssue({ code: 'custom', message: issue.message, path: [path] });
+    }
+  })
+  // Numer i data zamówienia (krok 2.8): data bez numeru nie ma sensu w pliku
+  // (`DataZamowienia` bez `NrZamowienia`), a data musi być prawdziwa.
+  .superRefine((d, ctx) => {
+    const date = d.orderDate?.trim() ?? '';
+    if (date === '') return;
+    if ((d.orderNumber?.trim() ?? '') === '') {
+      ctx.addIssue({ code: 'custom', message: ORDER_DATE_WITHOUT_NUMBER_MESSAGE, path: ['orderNumber'] });
+    }
+    if (!isOrderCalendarDay(date) || date < ORDER_DATE_MIN) {
+      ctx.addIssue({ code: 'custom', message: ORDER_DATE_INVALID_MESSAGE, path: ['orderDate'] });
+    } else if (date > ORDER_DATE_MAX) {
+      ctx.addIssue({ code: 'custom', message: ORDER_DATE_TOO_LATE_MESSAGE, path: ['orderDate'] });
     }
   });
 

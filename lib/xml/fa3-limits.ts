@@ -60,6 +60,7 @@ export const FA3_TEXT_LIMITS = {
   przyczynaKorekty: { elements: ['PrzyczynaKorekty'], xsdType: 'tns:TZnakowy', max: 256, kind: 'token' },
   nrFaKorygowanej: { elements: ['NrFaKorygowanej'], xsdType: 'tns:TZnakowy', max: 256, kind: 'token' },
   nrFaZaliczkowej: { elements: ['NrFaZaliczkowej'], xsdType: 'tns:TZnakowy', max: 256, kind: 'token' },
+  nrZamowienia: { elements: ['NrZamowienia'], xsdType: 'tns:TZnakowy', max: 256, kind: 'token' },
   p7: { elements: ['P_7'], xsdType: 'tns:TZnakowy512', max: 512, kind: 'token' },
   p7z: { elements: ['P_7Z'], xsdType: 'tns:TZnakowy512', max: 512, kind: 'token' },
   p8a: { elements: ['P_8A'], xsdType: 'tns:TZnakowy', max: 256, kind: 'token' },
@@ -70,6 +71,14 @@ export const FA3_TEXT_LIMITS = {
   p19: { elements: ['P_19A', 'P_19B', 'P_19C'], xsdType: 'tns:TZnakowy', max: 256, kind: 'token' },
   stopkaFaktury: { elements: ['StopkaFaktury'], xsdType: 'etd:TTekstowy', max: 3500, kind: 'string' },
 } as const satisfies Record<string, Fa3TextLimit>;
+
+/**
+ * Zakres daty zdarzenia w FA(3): typ `TDataU` (np. `DataZamowienia`) przyjmuje
+ * dni od 1990-01-01 do 2050-01-01 włącznie. Formularz odrzuca datę spoza
+ * zakresu przy polu, zamiast zostawić to walidatorowi XSD przy wysyłce.
+ * Test `tests/xml/fa3-limits.test.ts` czyta zakres wprost z XSD.
+ */
+export const FA3_DATE_LIMITS = { min: '1990-01-01', max: '2050-01-01' } as const;
 
 /** Kolumny bazy węższe niż XSD. */
 export const DB_TEXT_LIMITS = {

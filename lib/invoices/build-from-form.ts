@@ -10,6 +10,7 @@
 
 import { buildInvoiceAnnotations } from '@/lib/invoices/annotations';
 import { isGtuCode } from '@/lib/invoices/line-codes';
+import { orderFromFormValues } from '@/lib/invoices/order-reference';
 import { addressCountryForKodUE, parseVatUe } from '@/lib/invoices/vat-ue';
 import {
   receiptBuyerKindOfForm,
@@ -196,6 +197,9 @@ export function buildInvoiceFromForm(
     ? receiptFromFormValues(values, receiptBuyerKindOfForm(values))
     : undefined;
 
+  // Numer zamówienia (krok 2.8): klucz tylko z numerem, faktura bez niego jak dotąd.
+  const order = orderFromFormValues(values);
+
   return {
     internalNumber: values.internalNumber,
     type: 'VAT',
@@ -216,6 +220,7 @@ export function buildInvoiceFromForm(
     }),
     notes: values.notes && values.notes.length ? values.notes : undefined,
     ...(receipt ? { receipt } : {}),
+    ...(order ? { order } : {}),
   };
 }
 
