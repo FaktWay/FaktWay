@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import { createClient } from '@/lib/supabase/client';
+import { lineCodesText } from '@/lib/invoices/line-codes';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -45,6 +46,9 @@ export interface InvoiceDetailLine {
   net_amount: string | number | null;
   vat_amount: string | number | null;
   gross_amount: string | number | null;
+  /** Krok 2.6, część 2b-3c: poprawne PKWiU i GTU pozycji z dokumentu faktury (jak w pliku FA(3)). */
+  pkwiu_code?: string;
+  gtu_code?: string;
 }
 
 interface AddressSnapshot {
@@ -633,7 +637,14 @@ export function InvoiceDetailView({ initial }: { initial: InvoiceDetailInitial }
                 {lines.map((line) => (
                   <TableRow key={line.ordinal}>
                     <TableCell className="pl-4">{line.ordinal}</TableCell>
-                    <TableCell className="font-medium whitespace-normal">{line.name ?? '—'}</TableCell>
+                    <TableCell className="font-medium whitespace-normal">
+                      {line.name ?? '—'}
+                      {lineCodesText({ pkwiuCode: line.pkwiu_code, gtuCode: line.gtu_code }) ? (
+                        <span data-kody-pozycji="" className="block text-xs font-normal text-muted-foreground">
+                          {lineCodesText({ pkwiuCode: line.pkwiu_code, gtuCode: line.gtu_code })}
+                        </span>
+                      ) : null}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(line.quantity, 4)}</TableCell>
                     <TableCell className="text-muted-foreground">{line.unit ?? ''}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(line.unit_price_net, 4)}</TableCell>

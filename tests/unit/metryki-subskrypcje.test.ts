@@ -17,6 +17,12 @@ vi.mock('@/lib/supabase/admin', () => ({
         neq: (k: string, v: unknown) => { predicates.push((r) => r[k] != null && r[k] !== v); return q; },
         in: (k: string, vs: unknown[]) => { predicates.push((r) => vs.includes(r[k])); return q; },
         gte: (k: string, v: string) => { predicates.push((r) => String(r[k]) >= v); return q; },
+        // Jak w tests/helpers/fake-supabase-memory.ts: wzorce `%tekst%`.
+        ilike: (k: string, pattern: string) => {
+          const needle = pattern.replace(/%/g, '').toLowerCase();
+          predicates.push((r) => String(r[k] ?? '').toLowerCase().includes(needle));
+          return q;
+        },
         order: () => q,
         then: (ok: (v: unknown) => unknown) => {
           const rows = (db.tables[table] ?? []).filter((r) => predicates.every((p) => p(r)));

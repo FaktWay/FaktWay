@@ -70,7 +70,8 @@ describe('PDF: stopka z adresem strony', () => {
   it('nowa stopka unieważnia PDF-y w pamięci podręcznej', () => {
     const key = buildInvoicePdfKey('tenant', 'invoice', '2026-11-02', 'none');
     // Stopka weszła w v6; v7 (krok 1.4, tytuł przelewu z numerem KSeF) ją zawiera.
-    expect(key).toContain('.v7.');
+    // v8 (krok 2.6, część 2b-3c): PKWiU i GTU pod nazwą pozycji; zmiana wydruku podbija wersję (pdf-storage.ts).
+    expect(key).toContain('.v8.');
   });
 });
 

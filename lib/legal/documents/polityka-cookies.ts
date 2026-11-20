@@ -60,6 +60,8 @@ export const POLITYKA_COOKIES: LegalDocument = {
           // Menu boczne panelu (shadcn, plan Finora) — components/ui/sidebar.tsx.
           ['sidebar_state', 'cookie (własne)', 'zapamiętanie, czy menu boczne panelu jest rozwinięte, czy zwinięte', 'do 7 dni'],
           ['install-prompt-dismissed-at, klucze zamkniętych komunikatów', 'localStorage / sessionStorage', 'żeby nie pokazywać ponownie komunikatu, który zamknąłeś', 'jw. (sessionStorage — do zamknięcia karty)'],
+          // Komunikat o zmianach z 1 stycznia 2027 r. na pulpicie (krok 1.6, część 2a) — components/dashboard/zmiany-2027-baner.tsx.
+          ['faktway:zmiany-2027:<identyfikator użytkownika>', 'localStorage', 'zapamiętanie, że zamknąłeś komunikat o zmianach od 1 stycznia 2027 r. na pulpicie; w nazwie klucza jest identyfikator Twojego konta, żeby zamknięcie dotyczyło tylko Ciebie, a nie innych kont w tej samej przeglądarce', 'do wyczyszczenia danych przeglądarki; komunikat i tak przestaje się pokazywać po 28 lutego 2027 r.'],
           ['pamięć aplikacji (Service Worker)', 'pamięć PWA', 'działanie aplikacji instalowanej z przeglądarki, w tym praca przy słabym połączeniu', 'do odinstalowania aplikacji lub wyczyszczenia danych'],
           ['Cloudflare Turnstile', 'skrypt dostawcy (challenges.cloudflare.com)', 'sprawdzenie, czy formularz logowania, rejestracji, resetu hasła albo potwierdzenia hasła w ustawieniach wypełnia człowiek', 'na czas weryfikacji'],
           ['Sentry', 'skrypt w aplikacji (bez cookies)', 'wykrywanie błędów aplikacji; zgłoszenia są oczyszczane z danych osobowych', 'nie zapisuje danych w przeglądarce'],

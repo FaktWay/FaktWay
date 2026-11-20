@@ -347,6 +347,39 @@
       ]
     },
     {
+      "id": "faktury.autozapis",
+      "poziom": "R2",
+      "opis": "Autozapis formularza zwykłej faktury (krok 2.8): kopia robocza surowych wartości, także danych nabywcy, w tabeli invoice_form_drafts (dane osobowe, retencja 30 dni, limity, eksport RODO). To nie jest faktura ani szkic faktury (bez numeru, poza listami, KSeF i JPK); kwoty i zapis faktury zostają w obszarach faktury.kwoty i faktury.wystawianie, a nocne sprzątanie jest w obszarze retencja.",
+      "sciezki": [
+        "lib/invoices/form-autosave.ts",
+        "app/actions/invoice-autosave.ts",
+        "components/invoices/invoice-form-parts/use-form-autosave.ts",
+        "supabase/migrations/00207_invoice_form_drafts.sql"
+      ]
+    },
+    {
+      "id": "poczta.szablon-faktury",
+      "poziom": "R2",
+      "opis": "Własny szablon maila z fakturą (krok 2.8): temat i treść, które widzi nabywca, pola z numerem, kwotą i terminem. Kwota, termin i tytuł przelewu w tabeli maila oraz stopka zostają stałe (sendInvoiceEmail), a wartość pola kwota to kwota z PDF.",
+      "sciezki": [
+        "lib/email/invoice-email-template.ts",
+        "lib/email/invoice-email-template-store.ts",
+        "app/actions/invoice-email-template.ts",
+        "supabase/migrations/00208_invoice_email_templates.sql"
+      ]
+    },
+    {
+      "id": "faktury.ustawienia-domyslne",
+      "poziom": "R2",
+      "opis": "Domyślne ustawienia firmy dla nowej faktury (krok 2.8): forma i termin płatności jako podpowiedź formularza oraz adres księgowej dla kopii maila z fakturą (osobna wiadomość z tym samym PDF). Nie zmieniają kwot ani zapisanych faktur; kwota, termin i tytuł przelewu w mailu pochodzą z tych samych funkcji co mail do nabywcy.",
+      "sciezki": [
+        "lib/invoices/invoice-defaults.ts",
+        "lib/invoices/invoice-copy-email.ts",
+        "app/actions/invoice-defaults.ts",
+        "supabase/migrations/00209_tenant_invoice_defaults.sql"
+      ]
+    },
+    {
       "id": "faktury.pdf",
       "poziom": "R1",
       "opis": "PDF faktury, kody QR weryfikacji, PDF UPO.",
@@ -621,6 +654,7 @@
       "poziom": "R1",
       "opis": "Przechowywanie i usuwanie danych: faktury, UPO, kopie, RODO.",
       "sciezki": [
+        "lib/jobs/runners/cleanup-invoice-form-drafts.ts",
         "lib/retention/**",
         "lib/gdpr/**",
         "lib/backup/**",
@@ -725,6 +759,8 @@
       "poziom": "R2",
       "opis": "Treści o podatkach: FLO, czat pomocy, pomoc, blog, strona, maile (D8: bez porad podatkowych).",
       "sciezki": [
+        "lib/zmiany-2027/okno.ts",
+        "components/dashboard/zmiany-2027-baner.tsx",
         "lib/flo/{tax-topic,llm}.ts",
         "lib/support/chat.ts",
         "lib/help/articles.ts",
@@ -1008,7 +1044,8 @@
       "poziom": "R1",
       "opis": "SQL: dostęp do danych firmy spoza zwykłej sesji: klucze API, link do faktury dla nabywcy, adres kalendarza, sesje kont, podsumowanie firm księgowej i uprawnienia biura w KSeF (funkcje SECURITY DEFINER z tokenem albo rolą).",
       "sciezki": [
-        "supabase/migrations/{00174,00179,00181,00182,00185,00195}_*.sql"
+        "supabase/migrations/{00174,00179,00181,00182,00185,00195}_*.sql",
+        "supabase/migrations/00210_invoice_share_view_line_codes.sql"
       ]
     },
     {

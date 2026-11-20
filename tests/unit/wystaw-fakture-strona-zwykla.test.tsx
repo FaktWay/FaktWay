@@ -4,10 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
   formProps: [] as Array<Record<string, unknown>>,
   loadSeller: vi.fn(),
+  loadAutosave: vi.fn(),
 }));
 
 vi.mock('@/lib/supabase/page-context', () => ({
-  getPageContext: vi.fn().mockResolvedValue({ supabase: {}, tenantId: 'tenant-a' }),
+  getPageContext: vi.fn().mockResolvedValue({ supabase: {}, user: { id: 'user-a' }, tenantId: 'tenant-a' }),
 }));
 vi.mock('@/components/invoices/actions', () => ({
   prefillFromLastInvoiceAction: vi.fn().mockResolvedValue(null),
@@ -18,6 +19,7 @@ vi.mock('@/lib/invoices/vat-exemption', () => ({
 vi.mock('@/lib/invoices/next-number', () => ({
   suggestNextInvoiceNumberForTenant: vi.fn().mockResolvedValue('FV/1/10/2026'),
 }));
+vi.mock('@/lib/invoices/form-autosave', () => ({ loadInvoiceAutosave: m.loadAutosave }));
 vi.mock('@/lib/invoices/load-tenant-seller', () => ({ loadTenantSellerForForms: m.loadSeller }));
 vi.mock('@/components/invoices/invoice-form', () => ({
   InvoiceForm: (props: Record<string, unknown>) => {
@@ -47,6 +49,8 @@ describe('strona /invoices/new/regular — sprzedawca w nagłówku', () => {
   beforeEach(() => {
     m.formProps.length = 0;
     m.loadSeller.mockReset();
+    m.loadAutosave.mockReset();
+    m.loadAutosave.mockResolvedValue(null);
   });
 
   it('przekazuje sprzedawcę z profilu firmy obok numeru i podkładu', async () => {
@@ -70,5 +74,30 @@ describe('strona /invoices/new/regular — sprzedawca w nagłówku', () => {
     m.loadSeller.mockRejectedValue(new Error('admin client unavailable'));
     renderToStaticMarkup(await NewRegularInvoicePage({}));
     expect(m.formProps.at(-1)).toMatchObject({ seller: null, suggestedNumber: 'FV/1/10/2026', tenantId: 'tenant-a' });
+  });
+});
+
+/** Krok 2.8: niezakończona praca z autozapisu tylko przy pustym formularzu, dla osoby z sesji. */
+describe('strona /invoices/new/regular — przywracanie autozapisu', () => {
+  const kopia = { requestKey: '11111111-1111-4111-8111-111111111111', values: { buyerName: 'Acme' }, savedAt: '2026-11-15T17:30:00.000Z' };
+
+  beforeEach(() => {
+    m.formProps.length = 0;
+    m.loadSeller.mockReset();
+    m.loadSeller.mockResolvedValue(null);
+    m.loadAutosave.mockReset();
+    m.loadAutosave.mockResolvedValue(kopia);
+  });
+
+  it('pusty formularz dostaje kopię roboczą osoby z sesji w aktywnej firmie', async () => {
+    renderToStaticMarkup(await NewRegularInvoicePage({ searchParams: Promise.resolve({}) }));
+    expect(m.loadAutosave).toHaveBeenCalledWith(expect.anything(), 'tenant-a', 'user-a');
+    expect(m.formProps.at(-1)).toMatchObject({ restoredDraft: kopia });
+  });
+
+  it('z parametrem podkładu (?wzor=) niczego nie proponuje i nie czyta kopii', async () => {
+    renderToStaticMarkup(await NewRegularInvoicePage({ searchParams: Promise.resolve({ wzor: 'nieistniejacy' }) }));
+    expect(m.loadAutosave).not.toHaveBeenCalled();
+    expect(m.formProps.at(-1)).toMatchObject({ restoredDraft: null });
   });
 });

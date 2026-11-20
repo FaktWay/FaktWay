@@ -55,6 +55,8 @@ export interface UserDataExport {
   deletion_requests: Rows;
   newsletter: Rows;
   email_bounces: Rows;
+  /** Kopie robocze formularza faktury (autozapis, 00207): wartości wpisane przez osobę, także dane nabywcy. */
+  invoice_form_drafts: Rows;
   coverage: Record<
     | 'memberships'
     | 'audit_logs'
@@ -67,7 +69,8 @@ export interface UserDataExport {
     | 'invitations_received'
     | 'deletion_requests'
     | 'newsletter'
-    | 'email_bounces',
+    | 'email_bounces'
+    | 'invoice_form_drafts',
     CollectionCoverage
   >;
   organization_invoices: { included: false; reason: string };
@@ -122,6 +125,7 @@ const SECTIONS = {
   },
   newsletter: { table: 'newsletter_subscribers', columns: 'email, source, created_at, unsubscribed_at', by: 'email' },
   email_bounces: { table: 'email_bounces', columns: 'email, bounce_type, reason, occurred_at', by: 'email' },
+  invoice_form_drafts: { table: 'invoice_form_drafts', columns: 'tenant_id, request_key, form_values, updated_at', by: 'user_id' },
 } as const;
 
 type SectionName = keyof typeof SECTIONS;
@@ -311,6 +315,7 @@ export async function collectUserData(userId: string): Promise<UserDataExport> {
     deletion_requests: byName.deletion_requests,
     newsletter: byName.newsletter,
     email_bounces: byName.email_bounces,
+    invoice_form_drafts: byName.invoice_form_drafts,
     coverage: {
       memberships: complete(memberships),
       audit_logs: complete(audit),
@@ -324,6 +329,7 @@ export async function collectUserData(userId: string): Promise<UserDataExport> {
       deletion_requests: complete(byName.deletion_requests),
       newsletter: complete(byName.newsletter),
       email_bounces: complete(byName.email_bounces),
+      invoice_form_drafts: complete(byName.invoice_form_drafts),
     },
     organization_invoices: {
       included: false,
@@ -332,7 +338,7 @@ export async function collectUserData(userId: string): Promise<UserDataExport> {
     notes: 'Zestawienie obejmuje profil konta, członkostwa, wszystkie zachowane wpisy audytu ' +
       'oraz dane zapisane o Tobie w aplikacji: preferencje poczty, urządzenia z powiadomieniami, ' +
       'urządzenia do logowania biometrią, rozmowy z pomocą, prośby o dołączenie, otrzymane zaproszenia, żądania usunięcia konta, ' +
-      'zapis na newsletter i odbicia poczty. ' +
+      'zapis na newsletter, odbicia poczty i kopie robocze formularza faktury (autozapis). ' +
       'Pola coverage podają liczbę zwróconych i dostępnych rekordów. Plik powstaje tylko w komplecie. ' +
       'Klucze techniczne (np. klucze szyfrowania powiadomień, skróty tokenów) nie są danymi o Tobie i nie trafiają do pliku. ' +
       'Dane firm (faktury, kontrahenci, koszty) pobierzesz eksportem w panelu firmy.',
