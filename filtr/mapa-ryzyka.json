@@ -884,6 +884,7 @@
         "mobile/src/app/(zakladki)/ksiegowosc/**",
         "mobile/src/stan/ksiegowosc.tsx",
         "mobile/src/komponenty/zaplaty-spoza-wyliczenia.tsx",
+        "mobile/src/komponenty/zapisy-ksiegi.tsx",
         "mobile/src/lib/{plik-jpk,miesiace}.ts",
         "mobile/src/lib/api/kontrakt-ksiegowosc.ts",
         "mobile/src/lib/api/kontrakt-ksiegi.ts",
