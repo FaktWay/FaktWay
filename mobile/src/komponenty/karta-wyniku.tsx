@@ -6,7 +6,7 @@
  * liczb. Zastępuje kafle, żeby zadania były widać bez przewijania.
  */
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient, Line, Path, Stop } from 'react-native-svg';
 
 import { Karta } from '@/komponenty/karta';
@@ -16,7 +16,7 @@ import { Tekst } from '@/komponenty/tekst';
 import { Znacznik } from '@/komponenty/znacznik';
 import { kwota } from '@/lib/format';
 import { useKolory } from '@/wyglad/kolory';
-import { MARGINES, ODSTEP } from '@/wyglad/odstepy';
+import { MARGINES, ODSTEP, SKALA_PIONOWA } from '@/wyglad/odstepy';
 
 const WYSOKOSC = 88;
 const MARGINES_WYKRESU = 6;
@@ -40,6 +40,10 @@ type Props = {
 
 export function KartaWyniku({ podpis, wynik, opis, narastajaco, dniWMiesiacu, sredniMiesiac, od, do: doDnia, liczby }: Props) {
   const kolory = useKolory();
+  const { fontScale } = useWindowDimensions();
+  // Przy dużym tekście z ustawień plakietka nie mieści się obok końca linii (wychodziła poza kartę),
+  // więc stoi pod wykresem, a legenda osi pod datami (obchód U36).
+  const duzyTekst = fontScale >= SKALA_PIONOWA;
   const [szerokosc, setSzerokosc] = useState(0);
   const dzis = narastajaco.length;
   const tempoDzis = Math.round((sredniMiesiac * dzis) / dniWMiesiacu);
@@ -85,28 +89,44 @@ export function KartaWyniku({ podpis, wynik, opis, narastajaco, dniWMiesiacu, sr
                 <Path d={linia} stroke={kolory.akcent} strokeWidth={3} fill="none" strokeLinejoin="round" strokeLinecap="round" />
                 <Circle cx={koniecX} cy={koniecY} r={5.5} fill={kolory.tloKomorki} stroke={kolory.akcent} strokeWidth={3} />
               </Svg>
-              <View
-                style={[
-                  styles.plakietka,
-                  { top: Math.max(0, koniecY - 12) },
-                  plakietkaPoLewej ? { right: szerokosc - koniecX + ODSTEP.s } : { left: koniecX + ODSTEP.s },
-                ]}>
-                <Znacznik ton={roznica >= 0 ? 'sukces' : 'blad'}>{plakietka}</Znacznik>
-              </View>
+              {duzyTekst ? null : (
+                <View
+                  style={[
+                    styles.plakietka,
+                    { top: Math.max(0, koniecY - 12) },
+                    plakietkaPoLewej ? { right: szerokosc - koniecX + ODSTEP.s } : { left: koniecX + ODSTEP.s },
+                  ]}>
+                  <Znacznik ton={roznica >= 0 ? 'sukces' : 'blad'}>{plakietka}</Znacznik>
+                </View>
+              )}
             </>
           ) : null}
         </View>
+        {duzyTekst ? (
+          <View style={styles.plakietkaPod}>
+            <View style={styles.plakietkaPodOpakowanie}>
+              <Znacznik ton={roznica >= 0 ? 'sukces' : 'blad'}>{plakietka}</Znacznik>
+            </View>
+          </View>
+        ) : null}
         <View style={styles.os}>
           <Tekst styl="caption2" kolor="etykietaDrugorzedna">
             {od}
           </Tekst>
-          <Tekst styl="caption2" kolor="etykietaDrugorzedna" style={styles.legenda} numberOfLines={1}>
-            przerywana: średni miesiąc
-          </Tekst>
+          {duzyTekst ? null : (
+            <Tekst styl="caption2" kolor="etykietaDrugorzedna" style={styles.legenda} numberOfLines={1}>
+              przerywana: średni miesiąc
+            </Tekst>
+          )}
           <Tekst styl="caption2" kolor="etykietaDrugorzedna">
             {doDnia}
           </Tekst>
         </View>
+        {duzyTekst ? (
+          <Tekst styl="caption2" kolor="etykietaDrugorzedna" style={styles.legenda}>
+            przerywana: średni miesiąc
+          </Tekst>
+        ) : null}
 
         <View style={[styles.separator, { backgroundColor: kolory.separator }]} />
         <RzadLiczb liczby={liczby} />
@@ -122,6 +142,9 @@ const styles = StyleSheet.create({
   srodek: { textAlign: 'center' },
   wykres: { height: WYSOKOSC, marginTop: ODSTEP.xs },
   plakietka: { position: 'absolute' },
+  // Duży tekst: plakietka pod wykresem, wyśrodkowana, zawija się w obrębie karty.
+  plakietkaPod: { flexDirection: 'row', justifyContent: 'center' },
+  plakietkaPodOpakowanie: { flexShrink: 1 },
   os: { flexDirection: 'row', justifyContent: 'space-between', gap: ODSTEP.xs },
   legenda: { flexShrink: 1, textAlign: 'center' },
   separator: { height: StyleSheet.hairlineWidth, marginVertical: ODSTEP.xs },
