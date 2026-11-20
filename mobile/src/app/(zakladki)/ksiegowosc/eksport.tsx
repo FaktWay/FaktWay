@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Share, StyleSheet, View } from 'react-native';
 
 import { EKSPORTY, FORMATY, type FormatEksportu } from '@/dane-przykladowe/ksiegowosc';
-import { PolePrzelacznik, PoleWyboru, Segmenty } from '@/komponenty/formularz';
+import { PoleDaty, PolePrzelacznik, PoleWyboru, Segmenty } from '@/komponenty/formularz';
 import { EkranListy, Sekcja, Wiersz } from '@/komponenty/lista';
 import { PrzyciskGlowny } from '@/komponenty/przycisk-glowny';
 import { StanPusty } from '@/komponenty/stan-pusty';
@@ -117,8 +117,8 @@ const CO_ILE_MS = 4000;
  * Eksport na prawdziwym koncie (M10d część 2): formaty i historia z `GET /eksport` (te same
  * formaty i ten sam odczyt co strona `reports/exports`), zlecenie przez `POST /eksport` (ta sama
  * funkcja co przycisk „Wygeneruj” na stronie, zakres z reguły formatu), gotowy plik z
- * `GET /eksport/pliki/{id}` w arkuszu udostępniania. Telefon wybiera format i miesiąc; kwartał i
- * dowolny okres zostają na stronie. Plik powstaje w tle: historia odświeża się sama.
+ * `GET /eksport/pliki/{id}` w arkuszu udostępniania. Telefon wybiera format i okres (miesiąc,
+ * kwartał albo zakres dat, jak formularz strony). Plik powstaje w tle: historia odświeża się sama.
  */
 function EkranEksportuZBazy({ konto }: { konto: KontoFirmy }) {
   const ek = useOdczyt<EksportTelefonuOdpowiedz>('eksport');
@@ -126,6 +126,11 @@ function EkranEksportuZBazy({ konto }: { konto: KontoFirmy }) {
   const [firmaEkranu] = useState(konto.firma?.id ?? null);
   const [format, setFormat] = useState<string>();
   const [miesiac, setMiesiac] = useState<string>();
+  // Okres jak formularz strony: miesiąc, kwartał albo dowolny zakres dat (domyślne wartości z serwera).
+  const [rodzajOkresu, setRodzajOkresu] = useState(0);
+  const [kwartal, setKwartal] = useState<string>();
+  const [od, setOd] = useState<string>();
+  const [doDnia, setDoDnia] = useState<string>();
   const [trwa, setTrwa] = useState(false);
   const [pobieranie, setPobieranie] = useState<string>();
   const [blad, setBlad] = useState<string>();
@@ -155,6 +160,10 @@ function EkranEksportuZBazy({ konto }: { konto: KontoFirmy }) {
 
   const wybranyFormat = format ?? d.formaty[0]?.format;
   const wybranyMiesiac = miesiac ?? d.miesiac;
+  const wybranyKwartal = kwartal ?? d.kwartal;
+  const wybranyOd = od ?? d.zakres.od;
+  const wybranyDo = doDnia ?? d.zakres.do;
+  const okres = rodzajOkresu === 0 ? { miesiac: wybranyMiesiac } : rodzajOkresu === 1 ? { kwartal: wybranyKwartal } : { od: wybranyOd, do: wybranyDo };
   const bezUrzedu = wybranyFormat === 'jpk_fa' && d.urzadUstawiony === false;
 
   const generuj = async () => {
@@ -163,7 +172,7 @@ function EkranEksportuZBazy({ konto }: { konto: KontoFirmy }) {
     setTrwa(true);
     setBlad(undefined);
     try {
-      const w = await konto.zapytaj<EksportStartOdpowiedz>('eksport', { metoda: 'POST', cialo: { format: wybranyFormat, miesiac: wybranyMiesiac }, firmaEkranu });
+      const w = await konto.zapytaj<EksportStartOdpowiedz>('eksport', { metoda: 'POST', cialo: { format: wybranyFormat, ...okres }, firmaEkranu });
       if (!w.ok) {
         setBlad(w.blad.komunikat);
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -216,8 +225,18 @@ function EkranEksportuZBazy({ konto }: { konto: KontoFirmy }) {
         ))}
       </Sekcja>
 
-      <Sekcja naglowek="Okres" stopka="Miesiąc. Kwartał i dowolny zakres dat wybierzesz na faktway.pl.">
-        <PoleWyboru etykieta="Miesiąc" wartosc={wybranyMiesiac} opcje={d.miesiace.map((m) => ({ wartosc: m, etykieta: nazwaMiesiaca(m) }))} onZmiana={setMiesiac} />
+      <Segmenty wartosci={['Miesiąc', 'Kwartał', 'Zakres']} wybrany={rodzajOkresu} onZmiana={setRodzajOkresu} etykieta="Rodzaj okresu" />
+      <Sekcja naglowek="Okres" stopka={rodzajOkresu === 2 ? (wybranyOd > wybranyDo ? 'Koniec okresu jest przed początkiem. Popraw daty okresu.' : 'Dowolny zakres dat: od pierwszego do ostatniego dnia włącznie.') : undefined}>
+        {rodzajOkresu === 0 ? (
+          <PoleWyboru etykieta="Miesiąc" wartosc={wybranyMiesiac} opcje={d.miesiace.map((m) => ({ wartosc: m, etykieta: nazwaMiesiaca(m) }))} onZmiana={setMiesiac} />
+        ) : rodzajOkresu === 1 ? (
+          <PoleWyboru etykieta="Kwartał" wartosc={wybranyKwartal} opcje={d.kwartaly.map((k) => ({ wartosc: k.wartosc, etykieta: k.nazwa }))} onZmiana={setKwartal} />
+        ) : (
+          <>
+            <PoleDaty etykieta="Od" wartosc={wybranyOd} onZmiana={setOd} />
+            <PoleDaty etykieta="Do" wartosc={wybranyDo} onZmiana={setDoDnia} najwczesniej={wybranyOd} />
+          </>
+        )}
       </Sekcja>
 
       <View style={styles.akcja}>

@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { describeExportPeriod } from '@/components/exports/export-period';
+import { describeExportPeriod, isIsoDate, lastClosedQuarter, quarterOptions, quarterRange } from '@/components/exports/export-period';
 import { friendlyStartError } from '@/components/exports/export-fixes';
 import {
   ENABLED_EXPORT_FORMATS,
@@ -37,9 +37,9 @@ import { isUuid } from '@/lib/supabase/active-org';
  * co `downloadExportFileAction` (`downloadExportFile`). Klient z tokenem
  * telefonu w jego firmie (RLS); każdy członek firmy, jak akcje strony.
  *
- * Telefon wybiera format i miesiąc; domyślne pola formularza strony
- * (faktury wystawione i korekty, bez otrzymanych) bez zmian. Okres kwartalny
- * i dowolny zostają na stronie.
+ * Telefon wybiera format i okres (miesiąc, kwartał albo zakres dat, jak
+ * formularz strony); domyślne pola formularza strony (faktury wystawione i
+ * korekty, bez otrzymanych) bez zmian.
  *
  * Ponowienie: start bez klucza, jak na stronie: drugi start to drugi job
  * (widać go w historii); job bez wysłanego zdarzenia jest od razu usuwany.
@@ -54,6 +54,11 @@ const POZA_KONTRAKTEM = 'Treść żądania nie pasuje do kontraktu. Zaktualizuj 
 const BRAK_URZEDU = 'Najpierw ustaw urząd skarbowy. Urząd ustawia się w Ustawieniach, w części Księgowa.';
 /** Ile miesięcy do wyboru wstecz (miesiąc bieżący i 11 poprzednich). */
 const MIESIECY = 12;
+/** Ile kwartałów do wyboru (jak lista strony). */
+const KWARTALOW = 8;
+// Lata 20xx jak `MIESIAC` w tym pliku (strona dopuszcza dowolne cztery cyfry; bez znaczenia dla listy kwartałów z serwera).
+const KWARTAL = /^20\d{2}-Q[1-4]$/;
+const POPRAW_DATY = 'Popraw daty okresu.';
 
 /** Nazwy stanów jak `STATUS_MAP` historii strony (komponent kliencki, więc tu osobno). */
 const NAZWY_STANOW: Readonly<Record<string, string>> = {
@@ -138,6 +143,10 @@ export async function exportsForMobile(caller: MobileCaller): Promise<NextRespon
     formaty: ENABLED_EXPORT_FORMATS.map((f) => ({ format: f, nazwa: FORMAT_LABELS[f], opis: FORMAT_PURPOSE[f] })),
     miesiac: shiftMonth(dzis.slice(0, 7), -1),
     miesiace: Array.from({ length: MIESIECY }, (_, i) => shiftMonth(dzis.slice(0, 7), -i)),
+    // Kwartały i domyślny wybór jak formularz strony (`quarterOptions`, `lastClosedQuarter`).
+    kwartaly: quarterOptions(dzis.slice(0, 7), KWARTALOW).map((k) => ({ wartosc: k.value, nazwa: k.label })),
+    kwartal: lastClosedQuarter(dzis.slice(0, 7)),
+    zakres: (({ from, to }) => ({ od: from, do: to }))(monthRange(shiftMonth(dzis.slice(0, 7), -1))),
     urzadUstawiony: urzad,
     wstrzymane: wstrzymane ? `Wstrzymane formaty: ${wstrzymane}.` : null,
     historia: ((historia.data ?? []) as unknown as ManualExportJobWithFiles[] as unknown as WierszJobu[]).map(zadanie),
@@ -145,7 +154,13 @@ export async function exportsForMobile(caller: MobileCaller): Promise<NextRespon
   return mobileJson(odpowiedz, 200, headers);
 }
 
-const startSchema = z.object({ format: z.enum(['kpir_excel', 'csv_universal', 'jpk_fa']), miesiac: z.string() }).strict();
+const formatSchema = z.enum(['kpir_excel', 'csv_universal', 'jpk_fa']);
+// Okres: dokładnie jedno z trzech (miesiąc, kwartał, zakres dat); kształt tu, zasady dat niżej i w funkcji strony.
+const startSchema = z.union([
+  z.object({ format: formatSchema, miesiac: z.string() }).strict(),
+  z.object({ format: formatSchema, kwartal: z.string() }).strict(),
+  z.object({ format: formatSchema, od: z.string(), do: z.string() }).strict(),
+]);
 
 /** `POST /api/mobile/v1/eksport`. */
 export async function startExportFromMobile(caller: MobileCaller, request: Request): Promise<NextResponse> {
@@ -155,11 +170,24 @@ export async function startExportFromMobile(caller: MobileCaller, request: Reque
   const raw = await readJsonBody(request, headers, { maxBytes: MAX_BODY_BYTES, tooLarge: 'Treść jest za długa.' });
   if (!raw.ok) return raw.response;
   const parsed = startSchema.safeParse(raw.value);
-  // Kształt jak `miesiacZAdresu` ksiąg: miesiąc RRRR-MM, najpóźniej bieżący (strona sprawdza tylko daty, telefon wybiera z listy).
-  if (!parsed.success || !MIESIAC.test(parsed.data.miesiac) || parsed.data.miesiac > todayInWarsaw().slice(0, 7)) {
-    return mobileError(400, 'invalid_request', POZA_KONTRAKTEM, headers);
+  if (!parsed.success) return mobileError(400, 'invalid_request', POZA_KONTRAKTEM, headers);
+  const dzis = todayInWarsaw();
+  const wejscie = parsed.data;
+  // Miesiąc RRRR-MM i kwartał RRRR-Qn nie późniejsze niż bieżące (telefon wybiera z listy); zakres dat jak formularz strony.
+  let zakres: { from: string; to: string };
+  if ('miesiac' in wejscie) {
+    if (!MIESIAC.test(wejscie.miesiac) || wejscie.miesiac > dzis.slice(0, 7)) return mobileError(400, 'invalid_request', POZA_KONTRAKTEM, headers);
+    zakres = monthRange(wejscie.miesiac);
+  } else if ('kwartal' in wejscie) {
+    if (!KWARTAL.test(wejscie.kwartal)) return mobileError(400, 'invalid_request', POZA_KONTRAKTEM, headers);
+    zakres = quarterRange(wejscie.kwartal);
+    if (zakres.from.slice(0, 7) > dzis.slice(0, 7)) return mobileError(400, 'invalid_request', POZA_KONTRAKTEM, headers);
+  } else {
+    // Jak `datesValid` formularza: obie daty kalendarzowe i od nie później niż do.
+    if (!isIsoDate(wejscie.od) || !isIsoDate(wejscie.do) || wejscie.od > wejscie.do) return mobileError(422, 'export_refused', POPRAW_DATY, headers);
+    zakres = { from: wejscie.od, to: wejscie.do };
   }
-  const format: EnabledExportFormat = parsed.data.format;
+  const format: EnabledExportFormat = wejscie.format;
   // Jak strona: JPK_FA bez urzędu skarbowego i tak odmówi, więc nie zlecamy (odczyt, który się nie udał, niczego nie blokuje).
   if (format === 'jpk_fa') {
     const urzad = await readTenantTaxOffice(db, org.tenantId).then(
@@ -168,7 +196,7 @@ export async function startExportFromMobile(caller: MobileCaller, request: Reque
     );
     if (urzad === false) return mobileError(422, 'export_refused', BRAK_URZEDU, headers);
   }
-  const { from, to } = monthRange(parsed.data.miesiac);
+  const { from, to } = zakres;
   const wynik = await startManualExport(
     { client: caller.db as unknown as KontekstEksportu['client'], tenantId: org.tenantId, userId: caller.user.id },
     // Pola formularza strony po domyślnych: faktury wystawione i korekty, bez otrzymanych; zakres wg reguły formatu.
