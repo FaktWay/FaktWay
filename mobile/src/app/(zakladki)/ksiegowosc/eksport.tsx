@@ -5,10 +5,11 @@ import { Share, StyleSheet, View } from 'react-native';
 import { EKSPORTY, FORMATY, type FormatEksportu } from '@/dane-przykladowe/ksiegowosc';
 import { PoleDaty, PolePrzelacznik, PoleWyboru, Segmenty } from '@/komponenty/formularz';
 import { EkranListy, Sekcja, Wiersz } from '@/komponenty/lista';
+import { odmowaPlikuNaStronie } from '@/komponenty/na-stronie';
+import { OdmowaPliku } from '@/komponenty/odmowa-pliku';
 import { PrzyciskGlowny } from '@/komponenty/przycisk-glowny';
 import { StanPusty } from '@/komponenty/stan-pusty';
 import { SzkieletListy } from '@/komponenty/szkielet';
-import { Tekst } from '@/komponenty/tekst';
 import type { EksportPlikOdpowiedz, EksportStartOdpowiedz, EksportTelefonuOdpowiedz } from '@/lib/api/kontrakt-ksiegi';
 import { dataPelna } from '@/lib/format';
 import { udostepnijBase64 } from '@/lib/plik-jpk';
@@ -100,7 +101,6 @@ function EkranEksportuPrzyklad() {
 
 const styles = StyleSheet.create({
   akcja: { marginHorizontal: MARGINES, marginTop: ODSTEP.xl },
-  nota: { marginHorizontal: MARGINES, marginTop: ODSTEP.s },
 });
 
 export default function EkranEksportu() {
@@ -112,6 +112,9 @@ export default function EkranEksportu() {
 
 /** Co ile ms odświeżamy historię, gdy któryś plik jeszcze powstaje. */
 const CO_ILE_MS = 4000;
+
+/** To samo zdanie co `BRAK_URZEDU` serwera (`lib/api/mobile/ksiegowosc-eksport.ts`): telefon nie zleca JPK_FA firmie bez urzędu. */
+const BRAK_URZEDU = 'Najpierw ustaw urząd skarbowy. Urząd ustawia się w Ustawieniach, w części Księgowa.';
 
 /**
  * Eksport na prawdziwym koncie (M10d część 2): formaty i historia z `GET /eksport` (te same
@@ -165,6 +168,15 @@ function EkranEksportuZBazy({ konto }: { konto: KontoFirmy }) {
   const wybranyDo = doDnia ?? d.zakres.do;
   const okres = rodzajOkresu === 0 ? { miesiac: wybranyMiesiac } : rodzajOkresu === 1 ? { kwartal: wybranyKwartal } : { od: wybranyOd, do: wybranyDo };
   const bezUrzedu = wybranyFormat === 'jpk_fa' && d.urzadUstawiony === false;
+  // Po powrocie ze strony z urzędem: stare zdanie znika, a `urzadUstawiony` wraca z serwera (U14).
+  const poUrzedzie = () => {
+    setBlad(undefined);
+    void odswiez?.();
+  };
+  const zglosBrakUrzedu = () => {
+    setBlad(BRAK_URZEDU);
+    odmowaPlikuNaStronie(BRAK_URZEDU, konto.firma?.rola, poUrzedzie);
+  };
 
   const generuj = async () => {
     if (!wybranyFormat || wToku.current) return;
@@ -176,6 +188,8 @@ function EkranEksportuZBazy({ konto }: { konto: KontoFirmy }) {
       if (!w.ok) {
         setBlad(w.blad.komunikat);
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        // Brak urzędu skarbowego (telefon jeszcze o tym nie wiedział): arkusz z wyjściem (U14).
+        odmowaPlikuNaStronie(w.blad.komunikat, konto.firma?.rola, poUrzedzie);
         // Zerwane połączenie mogło zlecić eksport: historia od nowa, zanim klient dotknie jeszcze raz.
         if (w.blad.rodzaj !== 'odmowa') void ek.odswiez();
         return;
@@ -240,13 +254,9 @@ function EkranEksportuZBazy({ konto }: { konto: KontoFirmy }) {
       </Sekcja>
 
       <View style={styles.akcja}>
-        <PrzyciskGlowny tytul="Wygeneruj plik" ikona="file-upload-line" trwa={trwa} onPress={bezUrzedu ? () => setBlad('Najpierw ustaw urząd skarbowy. Urząd ustawia się w Ustawieniach, w części Księgowa.') : () => void generuj()} />
+        <PrzyciskGlowny tytul="Wygeneruj plik" ikona="file-upload-line" trwa={trwa} onPress={bezUrzedu ? zglosBrakUrzedu : () => void generuj()} />
       </View>
-      {blad ? (
-        <Tekst styl="footnote" kolor="blad" style={styles.nota}>
-          {blad}
-        </Tekst>
-      ) : null}
+      {blad ? <OdmowaPliku komunikat={blad} rola={konto.firma?.rola} poPowrocie={poUrzedzie} /> : null}
 
       <Sekcja naglowek="Historia" stopka="Ostatnie 20 ręcznych eksportów.">
         {d.historia.length === 0 ? (
