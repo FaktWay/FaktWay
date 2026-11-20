@@ -60,7 +60,11 @@ function suma(faktury: Faktura[]): number {
   return faktury.reduce((s, f) => s + (wZlotych(f) ? f.brutto : 0), 0);
 }
 
-/** Ile klienci jeszcze winni w złotych: bez wpłat częściowych. */
+/**
+ * Ile klienci jeszcze winni w złotych: `pozostaloDoZaplaty` (na fakturze
+ * rozliczającej reszta po zaliczkach, od wpłat częściowych odjęte), nie suma
+ * `brutto`. Suma `brutto` to wartość faktur (`suma`), nie należność.
+ */
 function sumaDoZaplaty(faktury: Faktura[]): number {
   return faktury.reduce((s, f) => s + (wZlotych(f) ? pozostaloDoZaplaty(f) : 0), 0);
 }
