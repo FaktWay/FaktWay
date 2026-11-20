@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -10,10 +13,12 @@ import { describe, expect, it } from 'vitest';
  */
 
 import { doWartosciFormularza, fakturaTelefonuSchema } from '@/lib/api/mobile/schematy';
+import type { WyliczenieZadanie } from '@/lib/api/mobile/kontrakt';
 import {
   korektaTelefonuSchema,
   rozliczenieDoFormularza,
   rozliczenieTelefonuSchema,
+  wyliczenieSchema,
   zaliczkaDoFormularza,
   zaliczkaTelefonuSchema,
 } from '@/lib/api/mobile/schematy-rodzaje';
@@ -21,15 +26,20 @@ import { invoiceFormSchema } from '@/lib/schemas/invoice-form';
 import { advanceInvoiceSchema, finalInvoiceSchema } from '@/lib/validators/invoice-validators';
 
 import {
+  brakLiczbWTresci,
   doKorektyTelefonu,
   doRozliczeniaTelefonu,
   doZaliczkiTelefonu,
+  kluczWyliczenia,
   krajZVatUe,
   poleRodzaju,
   poleZPozycji,
+  trescMaBrakLiczb,
+  zdanieBrakuLiczb,
+  type BrakLiczb,
   type DokumentFormularza,
 } from '../../mobile/src/lib/faktura/rodzaje';
-import { doFakturyTelefonu, type FormularzZwyklej } from '../../mobile/src/lib/faktura/wystawienie';
+import { doFakturyTelefonu, liczbaZPola, type FormularzZwyklej } from '../../mobile/src/lib/faktura/wystawienie';
 
 const DZIS = '2026-11-13';
 const KLUCZ = '0c4e5f1a-7b2d-4c3e-9f10-111111111111';
@@ -158,5 +168,121 @@ describe('pomocnicze', () => {
     expect(poleRodzaju('amountChange')).toBe('zmiana');
     expect(poleRodzaju('correctionReason')).toBe('przyczyna');
     expect(poleRodzaju(undefined)).toBe('ogolny');
+  });
+});
+
+/**
+ * Obchód U7 (20.11.2026): w podglądzie kwot telefon co 450 ms wysyłał do
+ * `POST /faktury/wyliczenie` treść z pustymi polami liczbowymi. `liczbaZPola('')`
+ * daje `NaN`, w JSON zostaje `null`, a schemat trasy (`z.number()`) odpowiada 400
+ * `invalid_request`, który ekran pokazywał jako awarię serwera. Telefon nie pyta
+ * serwera o niepełne liczby (stan „czeka” z konkretnym zdaniem).
+ */
+describe('treść wyliczenia z niepełnych pól (U7)', () => {
+  const dok = { ...dokument, numer: 'PODGLAD' };
+  const pelnaZaliczka = { dokument: dok, nabywca, mpp: false, kwota: '1230', wartoscUmowy: '4920', stawka: '23' as const, realizacja: '2026-12-13', otrzymana: DZIS, opis: 'Podgląd kwot' };
+  const pelneRozliczenie = {
+    dokument: dok,
+    nabywca,
+    mpp: false,
+    zaliczki: ['11111111-2222-4333-8444-000000000002'],
+    pozycje: [{ nazwa: 'Projekt', ilosc: '1', jednostka: 'szt', cena: '100', stawka: '23' }],
+  };
+  const pelnaKorekta = {
+    dokument: dok,
+    fakturaId: '11111111-2222-4333-8444-000000000001',
+    typ: 'kwotowa' as const,
+    przyczyna: 'Podgląd kwot',
+    typKsef: '2' as const,
+    pozycje: [poleZPozycji({ name: 'Projekt', unit: 'szt', quantity: 2, unitPriceNet: 500.5, vatRate: '23' })],
+    zmiana: { netto: '-100', vat: '-23', brutto: '-123', opis: 'Podgląd kwot' },
+  };
+  /** Treść tak, jak idzie do serwera: przez JSON (`useWyliczenie` wysyła `JSON.parse(JSON.stringify(...))`). */
+  const poJson = (t: WyliczenieZadanie) => JSON.parse(JSON.stringify(t)) as unknown;
+
+  const niepelne: { opis: string; tresc: WyliczenieZadanie; brak: BrakLiczb }[] = [
+    { opis: 'korekta kwotowa: wpisane tylko „Zmiana netto”, VAT i brutto puste', tresc: { korekta: doKorektyTelefonu({ ...pelnaKorekta, zmiana: { netto: '-100', vat: '', brutto: '', opis: 'x' } }) }, brak: 'zmiana' },
+    { opis: 'korekta kwotowa: samo „-” w polu (początek wpisywania zwrotu)', tresc: { korekta: doKorektyTelefonu({ ...pelnaKorekta, zmiana: { netto: '-', vat: '0', brutto: '-', opis: 'x' } }) }, brak: 'zmiana' },
+    { opis: 'korekta danych: pusta cena „jest”', tresc: { korekta: doKorektyTelefonu({ ...pelnaKorekta, typ: 'dane', pozycje: [{ nazwa: 'P', ilosc: '1', jednostka: 'szt', cena: '', stawka: '23' }] }) }, brak: 'pozycje' },
+    { opis: 'zaliczka: pusta kwota zaliczki', tresc: { zaliczka: doZaliczkiTelefonu({ ...pelnaZaliczka, kwota: '' }) }, brak: 'zaliczka' },
+    { opis: 'zaliczka: wpisana kwota, błędna wartość zamówienia', tresc: { zaliczka: doZaliczkiTelefonu({ ...pelnaZaliczka, wartoscUmowy: 'abc' }) }, brak: 'wartoscUmowy' },
+    { opis: 'rozliczenie: pusta cena pozycji', tresc: { rozliczenie: doRozliczeniaTelefonu({ ...pelneRozliczenie, pozycje: [{ nazwa: 'P', ilosc: '1', jednostka: 'szt', cena: '', stawka: '23' }] }) }, brak: 'pozycje' },
+    { opis: 'rozliczenie: pusta ilość drugiej pozycji', tresc: { rozliczenie: doRozliczeniaTelefonu({ ...pelneRozliczenie, pozycje: [...pelneRozliczenie.pozycje, { nazwa: 'Q', ilosc: '', jednostka: 'szt', cena: '5', stawka: '23' }] }) }, brak: 'pozycje' },
+  ];
+
+  it.each(niepelne)('$opis: serwer odrzuci treść (przyczyna), a telefon jej nie wysyła', ({ tresc, brak }) => {
+    // Przyczyna: liczba niebędąca skończoną zamienia się w JSON w null, a schemat trasy wymaga liczby.
+    const wynik = wyliczenieSchema.safeParse(poJson(tresc));
+    expect(wynik.success).toBe(false);
+    // Naprawa: telefon wykrywa to przed wysłaniem i nie buduje treści do serwera.
+    expect(trescMaBrakLiczb(tresc)).toBe(true);
+    expect(brakLiczbWTresci(tresc)).toBe(brak);
+    expect(kluczWyliczenia(tresc)).toBeNull();
+  });
+
+  const pelne: { opis: string; tresc: WyliczenieZadanie }[] = [
+    { opis: 'zaliczka', tresc: { zaliczka: doZaliczkiTelefonu(pelnaZaliczka) } },
+    { opis: 'rozliczenie', tresc: { rozliczenie: doRozliczeniaTelefonu(pelneRozliczenie) } },
+    { opis: 'korekta kwotowa (ujemne i zero to liczby)', tresc: { korekta: doKorektyTelefonu({ ...pelnaKorekta, zmiana: { netto: '-100', vat: '0', brutto: '-100', opis: 'x' } }) } },
+    { opis: 'korekta danych (amountChange: null to nie brak liczby)', tresc: { korekta: doKorektyTelefonu({ ...pelnaKorekta, typ: 'dane' }) } },
+    { opis: 'anulowanie (bez pozycji i kwot)', tresc: { korekta: doKorektyTelefonu({ ...pelnaKorekta, typ: 'anulowanie' }) } },
+  ];
+
+  it.each(pelne)('pełna treść ($opis) przechodzi schemat trasy i idzie do serwera bez zmian', ({ tresc }) => {
+    expect(wyliczenieSchema.safeParse(poJson(tresc)).success).toBe(true);
+    expect(trescMaBrakLiczb(tresc)).toBe(false);
+    expect(brakLiczbWTresci(tresc)).toBeNull();
+    expect(kluczWyliczenia(tresc)).toBe(JSON.stringify(tresc));
+  });
+
+  it('brak treści (np. nie wybrano faktury pierwotnej) to brak klucza', () => {
+    expect(kluczWyliczenia(null)).toBeNull();
+  });
+
+  it('nieskończoność też jest brakiem liczby (w JSON staje się null jak NaN)', () => {
+    const tresc: WyliczenieZadanie = { zaliczka: { ...doZaliczkiTelefonu(pelnaZaliczka), advanceAmount: Infinity } };
+    expect(wyliczenieSchema.safeParse(poJson(tresc)).success).toBe(false);
+    expect(trescMaBrakLiczb(tresc)).toBe(true);
+    expect(kluczWyliczenia(tresc)).toBeNull();
+  });
+
+  it('jedno źródło prawdy: gdy liczby brakuje poza znanymi polami, klucz też jest pusty i zdanie jest ogólne', () => {
+    const zNowymPolem = { zaliczka: { ...doZaliczkiTelefonu(pelnaZaliczka), nowePoleLiczbowe: NaN } } as unknown as WyliczenieZadanie;
+    expect(trescMaBrakLiczb(zNowymPolem)).toBe(true);
+    expect(brakLiczbWTresci(zNowymPolem)).toBe('liczby');
+    expect(kluczWyliczenia(zNowymPolem)).toBeNull();
+    for (const { tresc } of [...niepelne, ...pelne]) expect(trescMaBrakLiczb(tresc)).toBe(brakLiczbWTresci(tresc) !== null);
+  });
+
+  it('pole z liczbą: puste, samo „-” i zapis spoza zakresu to NaN (nie Infinity, które w JSON też staje się null)', () => {
+    expect(liczbaZPola('')).toBeNaN();
+    expect(liczbaZPola('-')).toBeNaN();
+    expect(liczbaZPola('1e999')).toBeNaN();
+    expect(liczbaZPola('-1e999')).toBeNaN();
+    expect(liczbaZPola('1 500,5')).toBe(1500.5);
+    expect(liczbaZPola('-100')).toBe(-100);
+    expect(liczbaZPola('0')).toBe(0);
+  });
+
+  it('zdania dla klienta: konkretne pole, nazwa produktu bez „serwera”, bez długich myślników', () => {
+    expect(zdanieBrakuLiczb('zmiana')).toBe('Kwoty policzymy, gdy wpiszesz zmianę netto, VAT i brutto.');
+    expect(zdanieBrakuLiczb('zaliczka')).toBe('Kwoty policzymy po wpisaniu kwoty zaliczki.');
+    expect(zdanieBrakuLiczb('wartoscUmowy')).toBe('Kwoty policzymy po wpisaniu wartości zamówienia.');
+    expect(zdanieBrakuLiczb('pozycje')).toBe('Kwoty policzymy po wpisaniu ilości i cen netto pozycji.');
+    expect(zdanieBrakuLiczb('liczby')).toBe('Kwoty policzymy po uzupełnieniu liczb w formularzu.');
+    for (const brak of ['zmiana', 'zaliczka', 'wartoscUmowy', 'pozycje', 'liczby'] as const) {
+      expect(zdanieBrakuLiczb(brak)).not.toMatch(/[—–]|serwer|FaktWay/i);
+    }
+  });
+
+  // Hook i ekran importują React Native, więc nie da się ich uruchomić w Vitest; pilnujemy podłączenia w źródle:
+  // cofnięcie `kluczWyliczenia` do `JSON.stringify(tresc)` albo zdania w „Podsumowaniu” przywraca błąd U7.
+  it('podłączenie: hook liczy klucz przez kluczWyliczenia, a ekran mówi zdaniem zdanieBrakuLiczb', () => {
+    const korzen = join(__dirname, '..', '..', 'mobile', 'src');
+    const hook = readFileSync(join(korzen, 'stan', 'faktury-rodzaje.tsx'), 'utf8');
+    expect(hook).toContain('const klucz = kluczWyliczenia(tresc);');
+    expect(hook).not.toMatch(/JSON\.stringify\(tresc\)/);
+    const ekran = readFileSync(join(korzen, 'app', '(zakladki)', 'faktury', 'nowa', '[rodzaj].tsx'), 'utf8');
+    expect(ekran).toContain('zdanieBrakuLiczb(brakLiczb)');
   });
 });
