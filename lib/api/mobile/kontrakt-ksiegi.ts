@@ -213,6 +213,12 @@ export interface EksportTelefonuOdpowiedz {
   formaty: FormatEksportuTelefonu[];
   miesiac: string;
   miesiace: string[];
+  /** Kwartały od bieżącego (w trakcie) wstecz, „2026-Q3”, jak lista strony. */
+  kwartaly: Array<{ wartosc: string; nazwa: string }>;
+  /** Domyślny kwartał: ostatni zamknięty. */
+  kwartal: string;
+  /** Domyślny zakres dat „Inny okres”: poprzedni miesiąc (RRRR-MM-DD). */
+  zakres: { od: string; do: string };
   /** `false`: urząd skarbowy nie ustawiony (JPK_FA odmówi), `true`: ustawiony, `null`: nie wiemy. */
   urzadUstawiony: boolean | null;
   /** Wstrzymane formaty jednym zdaniem strony albo `null`. */
@@ -220,11 +226,11 @@ export interface EksportTelefonuOdpowiedz {
   historia: ZadanieEksportuTelefonu[];
 }
 
-/** `POST /api/mobile/v1/eksport`: zakres z reguły formatu (FIR-01), jak na stronie. */
-export interface EksportStartZadanie {
-  format: 'kpir_excel' | 'csv_universal' | 'jpk_fa';
-  miesiac: string;
-}
+/**
+ * `POST /api/mobile/v1/eksport`: format i okres (miesiąc `RRRR-MM`, kwartał `RRRR-Qn` albo zakres dat
+ * `od`, `do` RRRR-MM-DD); zakres pól z reguły formatu (FIR-01), jak na stronie.
+ */
+export type EksportStartZadanie = { format: 'kpir_excel' | 'csv_universal' | 'jpk_fa' } & ({ miesiac: string } | { kwartal: string } | { od: string; do: string });
 
 /** 201: job utworzony, plik powstaje w tle (stan w historii). Odmowa: 422 `export_refused` ze zdaniem strony. */
 export interface EksportStartOdpowiedz {

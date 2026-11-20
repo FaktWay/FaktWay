@@ -417,6 +417,12 @@ describe('eksport', () => {
     expect(body).toMatchObject({ miesiac: '2026-10', urzadUstawiony: true });
     expect(body.miesiace[0]).toBe('2026-11');
     expect(body.miesiace).toHaveLength(12);
+    // Kwartały jak lista strony (`quarterOptions`): bieżący w trakcie, domyślny ostatni zamknięty; zakres domyślny to poprzedni miesiąc.
+    expect(body.kwartal).toBe('2026-Q3');
+    expect(body.kwartaly).toHaveLength(8);
+    expect(body.kwartaly[0]).toEqual({ wartosc: '2026-Q4', nazwa: 'IV kw. 2026 (w trakcie)' });
+    expect(body.kwartaly[1]).toEqual({ wartosc: '2026-Q3', nazwa: 'III kw. 2026' });
+    expect(body.zakres).toEqual({ od: '2026-10-01', do: '2026-10-31' });
     const [gotowy, pusty, blad3] = body.historia;
     expect(gotowy).toMatchObject({ stanNazwa: 'Gotowe', okres: 'Październik 2026', nazwaFormatu: 'KPiR Excel', podsumowanie: '14,2 KB', plik: { id: FILE_ID, nazwa: 'KPiR_2026-10.xlsx' }, notatka: null });
     expect(pusty).toMatchObject({ stan: 'empty', stanNazwa: 'Pusty', plik: null, notatka: { tekst: 'Brak dokumentów w tym okresie', blad: false } });
@@ -438,6 +444,48 @@ describe('eksport', () => {
       expect(paramTelefonu).toEqual(paramStrony);
       expect({ tenantId: ctxTelefonu.tenantId, userId: ctxTelefonu.userId }).toEqual({ tenantId: ctxStrony.tenantId, userId: ctxStrony.userId });
     }
+  });
+
+  it('POST: kwartał i dowolny zakres dat: ta sama funkcja i ten sam zakres co `startExportAction` strony (kwartał z `quarterRange`, daty jak w formularzu)', async () => {
+    const { includesFor } = await import('@/components/exports/export-formats');
+    const { quarterRange } = await import('@/components/exports/export-period');
+    const pola = { csv: { issued: true, received: false, corrections: true }, jpkCorrections: true };
+    const przypadki: Array<[Record<string, unknown>, { from: string; to: string }]> = [
+      [{ format: 'kpir_excel', kwartal: '2026-Q3' }, quarterRange('2026-Q3')],
+      [{ format: 'csv_universal', kwartal: '2026-Q4' }, quarterRange('2026-Q4')],
+      [{ format: 'jpk_fa', od: '2026-09-15', do: '2026-10-14' }, { from: '2026-09-15', to: '2026-10-14' }],
+    ];
+    for (const [body, zakres] of przypadki) {
+      fake.start.mockClear();
+      const format = body.format as 'kpir_excel' | 'csv_universal' | 'jpk_fa';
+      await startExportAction({ format, periodStart: zakres.from, periodEnd: zakres.to, ...includesFor(format, pola) });
+      const response = await startRoute(req('eksport', { method: 'POST', body }));
+      expect(response.status).toBe(201);
+      const [[, paramStrony], [, paramTelefonu]] = fake.start.mock.calls as [[unknown, unknown], [unknown, unknown]];
+      expect(paramTelefonu).toEqual(paramStrony);
+    }
+    expect(quarterRange('2026-Q3')).toEqual({ from: '2026-07-01', to: '2026-09-30' });
+  });
+
+  it('POST: zły okres: nieistniejąca data albo odwrócony zakres 422 „Popraw daty okresu.” bez zlecenia; zły albo przyszły kwartał, mieszane pola okresu 400', async () => {
+    for (const body of [
+      { format: 'kpir_excel', od: '2026-02-31', do: '2026-03-10' },
+      { format: 'kpir_excel', od: '2026-10-20', do: '2026-10-10' },
+    ]) {
+      const odmowa = await startRoute(req('eksport', { method: 'POST', body }));
+      expect(odmowa.status).toBe(422);
+      expect(await blad(odmowa)).toMatchObject({ code: 'export_refused', message: 'Popraw daty okresu.' });
+    }
+    for (const body of [
+      { format: 'kpir_excel', kwartal: '2026-Q5' },
+      { format: 'kpir_excel', kwartal: '2027-Q1' },
+      { format: 'kpir_excel', kwartal: '2026-Q3', miesiac: '2026-10' },
+      { format: 'kpir_excel', od: '2026-10-01' },
+      { format: 'kpir_excel' },
+    ]) {
+      expect((await startRoute(req('eksport', { method: 'POST', body }))).status).toBe(400);
+    }
+    expect(fake.start).not.toHaveBeenCalled();
   });
 
   it('POST: JPK_FA bez urzędu skarbowego 422 bez zlecenia; odmowa strony ze zdaniem; treść spoza kontraktu 400; członek firmy zleca (jak strona)', async () => {
