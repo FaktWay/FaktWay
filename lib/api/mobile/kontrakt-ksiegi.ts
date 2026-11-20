@@ -99,6 +99,26 @@ export interface WpisRecznyTelefonu {
   szczegoly: string;
 }
 
+/**
+ * Formularze zapisów ksiąg (właściciel i administrator): opcje i granice z tych samych
+ * stałych co formularze strony (`STAWKI_JPK_EWP_PB`, `KOLUMNY_KPIR`, `RODZAJE_WPISU`,
+ * `SPIS_OD`, `PROFIL_OD_MIN`). Walidację pól robi serwer schematami strony.
+ */
+export interface FormularzKsiegiTelefonu {
+  /** Dzień domyślny: koniec miesiąca albo dziś, jeśli miesiąc trwa. */
+  domyslnaData: string;
+  rodzajeDowodu: Array<{ wartosc: 'raport_kasy' | 'inny'; nazwa: string }>;
+  /** Stawki ryczałtu (ewidencja), „8,5 %”. */
+  stawki: Array<{ pb: number; nazwa: string }>;
+  /** Stawka domyślna z ustawień na dzień domyślny albo `null`. */
+  domyslnaStawkaPb: number | null;
+  /** Kolumny KPiR dla wpisu ręcznego. */
+  kolumny: Array<{ kolumna: 'k7' | 'k8' | 'k10' | 'k11' | 'k12' | 'k13'; nazwa: string }>;
+  /** Najwcześniejszy dzień wpisu (`PROFIL_OD_MIN`) i spisu (`SPIS_OD`). */
+  wpisOd: string;
+  spisOd: string;
+}
+
 /** Plik JPK za rok do końca miesiąca: stan jak karta pliku strony. */
 export interface PlikKsiegiTelefonu {
   plik: 'JPK_EWP' | 'JPK_PKPIR';
@@ -137,8 +157,10 @@ export interface KsiegaTelefonuOdpowiedz {
   wpisyReczne: WpisRecznyTelefonu[];
   spisy: WpisRecznyTelefonu[];
   plik: PlikKsiegiTelefonu | null;
-  /** Wpisy dodaje i usuwa właściciel albo administrator (na stronie). */
+  /** Właściciel albo administrator dodaje i usuwa wpisy ręczne i spisy (M10d część 3). */
   mozeEdytowac: boolean;
+  /** Formularze zapisów: `null` bez uprawnień albo gdy księgi nie pokazujemy. */
+  formularz: FormularzKsiegiTelefonu | null;
 }
 
 /** `POST /api/mobile/v1/ksiegowosc/ewidencja/plik`: dane osoby do pliku nie są zapisywane (D9). */
@@ -212,4 +234,32 @@ export interface EksportPlikOdpowiedz {
   nazwa: string;
   mimeType: string;
   base64: string;
+}
+
+// ─── Zapisy ksiąg (M10d część 3) ─────────────────────────────────────────────
+
+/**
+ * `POST /api/mobile/v1/ksiegowosc/ewidencja/wpisy`: wpis ręczny w ewidencji ryczałtu (`typ: 'ewidencja'`,
+ * ze stawką) albo w KPiR (`typ: 'kpir'`, z kolumną). `kwota` jak w polu strony („1234,56”, zwrot ujemny).
+ */
+export type WpisKsiegiZadanie =
+  | { typ: 'ewidencja'; rodzaj: 'raport_kasy' | 'inny'; dataPrzychodu: string; dokument: string; kwota: string; stawkaPb: number; opis: string | null }
+  | { typ: 'kpir'; rodzaj: 'raport_kasy' | 'inny'; dataPrzychodu: string; dokument: string; kwota: string; kolumna: string; opis: string | null };
+
+/** `POST /api/mobile/v1/ksiegowosc/ewidencja/spisy`: spis z natury (K7.4). */
+export interface SpisZadanie {
+  /** RRRR-MM-DD, od 31 grudnia 2025. */
+  data: string;
+  kwota: string;
+  opis: string | null;
+}
+
+/** 201: zapisano. Odmowa: 422 `ledger_refused` z `field` (`dataPrzychodu`, `dokument`, `kwota`, `stawkaPb`, `kolumna`, `data`). */
+export interface ZapisKsiegiOdpowiedz {
+  zapisano: true;
+}
+
+/** 200 po `POST …/wpisy/{id}/usuniecie` i `…/spisy/{id}/usuniecie`. */
+export interface UsuniecieKsiegiOdpowiedz {
+  usunieto: true;
 }

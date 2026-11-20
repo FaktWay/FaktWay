@@ -90,6 +90,8 @@ const RODZAJ_KODU: Record<MobileApiErrorCode, RodzajBledu> = {
   settlement_refused: 'odmowa',
   // Ręczny eksport (M10d część 2): zdanie strony mówi, co zrobić.
   export_refused: 'odmowa',
+  // Zapisy ksiąg (M10d część 3): zdanie strony, przy złym polu pod polem formularza.
+  ledger_refused: 'odmowa',
   // Rodzaje faktur, ponowienie, szkic (M8b): zdanie strony mówi, co zrobić; ponowienie nic nie zmieni.
   invoice_change_refused: 'odmowa',
   // Kontrahenci (M10e): zdanie z serwera, przy `contractor_invalid` pod polem.
@@ -149,7 +151,7 @@ export function bladApi(status: number, cialo: unknown, retryAfter?: string | nu
   const zSerwera = rodzaj === 'odmowa' ? poleBledu(cialo, 'message') : undefined;
   const komunikatSerwera = zSerwera ? bezDlugichMyslnikow(zSerwera) : undefined;
   // M10d: `settlement_refused` z polem pliku JPK_V7M albo zapłaty spoza wyliczenia (`email`, `kwota`, `dataZaplaty`).
-  const zPolem = kod === 'invoice_invalid' || kod === 'contractor_invalid' || kod === 'settings_invalid' || kod === 'settlement_refused';
+  const zPolem = kod === 'ledger_refused' || kod === 'invoice_invalid' || kod === 'contractor_invalid' || kod === 'settings_invalid' || kod === 'settlement_refused';
   const pole = zPolem ? poleBledu(cialo, 'field') : undefined;
   return {
     rodzaj,

@@ -102,6 +102,8 @@
         "lib/ksiegowosc/{ewidencja,ewidencja-dane,wpisy-reczne}.ts",
         "app/actions/ksiegowosc-ewidencja.ts",
         "lib/api/mobile/{ksiegowosc-ksiegi,kontrakt-ksiegi}.ts",
+        "lib/ksiegowosc/ewidencja-zapis.ts",
+        "lib/api/mobile/ksiegowosc-zapisy.ts",
         "components/ksiegowosc/wpis-reczny-form.tsx",
         "supabase/migrations/00167_*.sql"
       ]

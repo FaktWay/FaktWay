@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import type { MobileCaller } from '@/lib/api/mobile/auth';
 import type {
+  FormularzKsiegiTelefonu,
   KsiegaTelefonuOdpowiedz,
   KpirRaportOdpowiedz,
   PlikKsiegiOdpowiedz,
@@ -30,16 +31,16 @@ import { monthLabel, monthRange, shiftMonth } from '@/lib/expenses/month';
 import { formatIsoDatePl } from '@/lib/format/iso-date';
 import { formatPlMoney } from '@/lib/format/pl';
 import { todayInWarsaw } from '@/lib/format/warsaw-date';
-import { brakiOkresu, etykietaStawki, sumyOkresu, type Ewidencja } from '@/lib/ksiegowosc/ewidencja';
+import { brakiOkresu, etykietaStawki, STAWKI_JPK_EWP_PB, sumyOkresu, type Ewidencja } from '@/lib/ksiegowosc/ewidencja';
 import { czytajEwidencje, KOMUNIKAT_ODCZYT } from '@/lib/ksiegowosc/ewidencja-dane';
 import { pobierzJpkEwp, pobierzJpkPkpir } from '@/lib/ksiegowosc/ewidencja-pliki';
-import { brakiKpirOkresu, NAZWY_KOLUMN, sumyKpir, wierszeKpirOkresu, type Kpir, type WierszKpir } from '@/lib/ksiegowosc/kpir';
+import { brakiKpirOkresu, KOLUMNY_KPIR, NAZWY_KOLUMN, sumyKpir, wierszeKpirOkresu, type Kpir, type WierszKpir } from '@/lib/ksiegowosc/kpir';
 import { czytajKpir } from '@/lib/ksiegowosc/kpir-dane';
 import { odeslanieDoKsiegi } from '@/lib/ksiegowosc/odeslanie';
-import { czytajWersjeProfilu, PROFIL_OD_MIN } from '@/lib/ksiegowosc/profil';
-import { spisyPliku, type Spis } from '@/lib/ksiegowosc/spis-z-natury';
+import { czytajWersjeProfilu, PROFIL_OD_MIN, wersjaNa, type WersjaProfilu } from '@/lib/ksiegowosc/profil';
+import { SPIS_OD, spisyPliku, type Spis } from '@/lib/ksiegowosc/spis-z-natury';
 import { wersjaMiesiaca } from '@/lib/ksiegowosc/ten-miesiac';
-import { NAZWY_RODZAJOW_WPISU } from '@/lib/ksiegowosc/wpisy-reczne';
+import { NAZWY_RODZAJOW_WPISU, RODZAJE_WPISU } from '@/lib/ksiegowosc/wpisy-reczne';
 import { czyKsiegowoscWlaczona, statusObszaru } from '@/lib/ksiegowosc/wylacznik';
 import { getKpirData, kpirTotals } from '@/lib/reports/kpir-data';
 
@@ -188,6 +189,20 @@ function plik(p: Omit<PlikKsiegiTelefonu, 'mozna' | 'powod' | 'spis'> & { mozna?
   return { ...p, mozna: gotowy && mozePobrac, powod: gotowy && !mozePobrac ? TYLKO_PLIK : null, spis: p.spis ?? null };
 }
 
+/** Formularze zapisów jak na stronie: dzień domyślny, stawka z ustawień, stawki ryczałtu i kolumny KPiR z tych samych stałych. */
+function formularz(doDnia: string, dzis: string, wersje: readonly WersjaProfilu[] | null): FormularzKsiegiTelefonu {
+  const domyslnaData = doDnia < dzis ? doDnia : dzis;
+  return {
+    domyslnaData,
+    rodzajeDowodu: RODZAJE_WPISU.map((r) => ({ wartosc: r, nazwa: NAZWY_RODZAJOW_WPISU[r] })),
+    stawki: STAWKI_JPK_EWP_PB.map((pb) => ({ pb, nazwa: etykietaStawki(pb) })),
+    domyslnaStawkaPb: wersje ? (wersjaNa(wersje, domyslnaData)?.stawkaDomyslna ?? null) : null,
+    kolumny: KOLUMNY_KPIR.map((k) => ({ kolumna: k, nazwa: NAZWY_KOLUMN[k] })),
+    wpisOd: PROFIL_OD_MIN,
+    spisOd: SPIS_OD,
+  };
+}
+
 /** Karta pliku JPK_EWP jak `PlikJpk` strony. */
 function plikEwp(ewidencja: Ewidencja, rok: number, miesiac: number, koniecMiesiaca: string, dzis: string, mozePobrac: boolean): PlikKsiegiTelefonu {
   const od = `${rok}-01-01`;
@@ -274,7 +289,7 @@ export async function ledgerForMobile(caller: MobileCaller, request: Request): P
   }
   const pusta: KsiegaTelefonuOdpowiedz = {
     wlaczona, miesiac, miesiace: miesiaceDoWyboru(dzis, PROFIL_OD_MIN.slice(0, 7), 12), dzis, rodzaj: null, komunikat: null, braki: [], pominiete: null,
-    wiersze: [], sumy: null, podpisSum: null, uwaga: null, wpisyReczne: [], spisy: [], plik: null, mozeEdytowac: canEdit,
+    wiersze: [], sumy: null, podpisSum: null, uwaga: null, wpisyReczne: [], spisy: [], plik: null, mozeEdytowac: canEdit, formularz: null,
   };
   if (!wlaczona) return mobileJson(pusta, 200, headers);
   if (doDnia < PROFIL_OD_MIN) {
@@ -336,6 +351,7 @@ export async function ledgerForMobile(caller: MobileCaller, request: Request): P
         })),
       spisy: wynik.spisy.map((s): WpisRecznyTelefonu => ({ id: s.id, tytul: `Spis z natury z ${formatIsoDatePl(s.data)}`, szczegoly: `${zl(s.kwotaGr)}${s.opis ? `. ${s.opis}` : ''}` })),
       plik: plikPkpir(kpir, wynik.spisy, rok, mies, doDnia, dzis, mozePobrac),
+      formularz: canEdit ? formularz(doDnia, dzis, wersje) : null,
     };
     return mobileJson(odpowiedz, 200, headers);
   }
@@ -382,6 +398,7 @@ export async function ledgerForMobile(caller: MobileCaller, request: Request): P
         szczegoly: `${NAZWY_RODZAJOW_WPISU[w.rodzaj]}, wpis z ${formatIsoDatePl(w.dataWpisu)}, przychód z ${formatIsoDatePl(w.dataPrzychodu)}: ${zl(w.kwotaGr)}, stawka ${etykietaStawki(w.stawkaPb)}${w.opis ? `. ${w.opis}` : ''}`,
       })),
     plik: plikEwp(ewidencja, rok, mies, doDnia, dzis, mozePobrac),
+    formularz: canEdit ? formularz(doDnia, dzis, wynik.wersje) : null,
   };
   return mobileJson(odpowiedz, 200, headers);
 }

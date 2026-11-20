@@ -47,7 +47,7 @@ export const EWIDENCJA_NIEDOSTEPNA = 'Ewidencja przychodów nie jest jeszcze dos
 export const KPIR_NIEDOSTEPNA = 'KPiR w module księgowości jest chwilowo niedostępna dla tej firmy.';
 const NIEDOSTEPNE = EWIDENCJA_NIEDOSTEPNA;
 
-async function wlaczona(client: SupabaseClient, tenantId: string): Promise<boolean> {
+export async function wlaczona(client: SupabaseClient, tenantId: string): Promise<boolean> {
   try {
     return (await czyKsiegowoscWlaczona(client, tenantId, 'ewidencja')).wlaczony;
   } catch {
@@ -56,7 +56,7 @@ async function wlaczona(client: SupabaseClient, tenantId: string): Promise<boole
 }
 
 /** KPiR (K7): obszar `ewidencja` (globalny stop, flaga firmy) i blokada w kodzie obszaru `kpir`. */
-const kpirWlaczona = async (client: SupabaseClient, tenantId: string) => statusObszaru('kpir').wlaczony && (await wlaczona(client, tenantId));
+export const kpirWlaczona = async (client: SupabaseClient, tenantId: string) => statusObszaru('kpir').wlaczony && (await wlaczona(client, tenantId));
 
 export const pobranieSchema = z.object({
   rok: z.number().int().min(2026).max(2100),

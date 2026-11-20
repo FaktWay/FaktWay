@@ -290,6 +290,11 @@ describe('GET /api/mobile/v1/ksiegowosc/ewidencja', () => {
     expect(body.wiersze.map((w) => [w.lp, w.dowod, w.kwotaGr, w.kolumna])).toEqual([[1, 'FS/1/10', 1_000_000, '8,5 %'], [2, 'RK/10', 250_050, '12 %']]);
     expect(body.pominiete).toBe('Poza ewidencją: FS/9/10. Faktura zaliczkowa nie wchodzi do ewidencji.');
     expect(body.plik).toMatchObject({ plik: 'JPK_EWP', rok: 2026, doMiesiaca: 10, mozna: true, powod: null });
+    // Formularze zapisów (M10d część 3): opcje i granice z tych samych stałych co formularze strony.
+    expect(body.formularz).toMatchObject({ domyslnaData: '2026-10-31', domyslnaStawkaPb: 850, wpisOd: '2026-01-01', spisOd: '2025-12-31' });
+    expect(body.formularz?.stawki.map((s) => s.pb)).toEqual([1700, 1500, 1400, 1250, 1200, 1000, 850, 550, 300]);
+    expect(body.formularz?.kolumny.map((k) => k.kolumna)).toEqual(['k7', 'k8', 'k10', 'k11', 'k12', 'k13']);
+    expect(body.formularz?.rodzajeDowodu).toEqual([{ wartosc: 'raport_kasy', nazwa: 'Raport z kasy rejestrującej' }, { wartosc: 'inny', nazwa: 'Inny dowód' }]);
     expect(body.plik?.opis).toMatch(/^Plik od 01\.01\.2026 do 31\.10\.2026: wiersze 2, przychód razem 12\s?500,50 zł\./);
   });
 
@@ -350,6 +355,7 @@ describe('GET /api/mobile/v1/ksiegowosc/ewidencja', () => {
     const czlonek = (await (await ewidencjaRoute(req('ksiegowosc/ewidencja?miesiac=2026-10', { token: TOKEN_MEMBER }))).json()) as KsiegaTelefonuOdpowiedz;
     expect(czlonek.plik).toMatchObject({ mozna: false, powod: 'Plik pobiera właściciel, administrator albo księgowa firmy.' });
     expect(czlonek.mozeEdytowac).toBe(false);
+    expect(czlonek.formularz).toBeNull();
     const ksiegowa = (await (await ewidencjaRoute(req('ksiegowosc/ewidencja?miesiac=2026-10', { token: TOKEN_KSIEGOWA }))).json()) as KsiegaTelefonuOdpowiedz;
     expect(ksiegowa.plik?.mozna).toBe(true);
     expect(ksiegowa.mozeEdytowac).toBe(false);
