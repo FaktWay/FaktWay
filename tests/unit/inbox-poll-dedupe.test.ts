@@ -260,6 +260,8 @@ describe('skrzynka KSeF: filtr już zapisanych faktur', () => {
     await expect(runInboxPollTenant(DATA, ctx)).resolves.toMatchObject({ newlyAdded: 1 });
   });
 
+  // S12: bezpiecznik na bazę bez reguły 00120 (indeks 00120 pomija wiersze bez
+  // środowiska). Że po 00120 takiego wiersza nie ma: tests/rls-skrzynka-bez-srodowiska.test.ts.
   it('historyczne nieznane środowisko zatrzymuje import bez zgadywania', async () => {
     vi.mocked(queryReceivedInvoices).mockResolvedValue({ invoices: [faktura(1)], hwm: null } as never);
     db.existing = [storedInvoice(1, null)];

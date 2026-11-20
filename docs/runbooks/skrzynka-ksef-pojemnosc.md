@@ -124,6 +124,9 @@ na stałą liczbę godzin. Firma zimna po 5 h jest w normie, firma gorąca po 2 
 
 Firmy usunięte, nieaktywne i z wygasłym certyfikatem nie są odpytywane i nie budzą.
 
+Przebiegi jednej firmy padają stale z błędem „Historyczna faktura KSeF bez środowiska wymaga
+ręcznego uzgodnienia”: sekcja „Skrzynka staje na fakturze bez środowiska” niżej.
+
 ## Co zmierzono (02.11.2026)
 
 `pnpm load:inbox` na Macu z M4 i lokalną bazą, prawdziwy worker i cron, atrapa KSeF po HTTP
@@ -159,6 +162,42 @@ Po kolei, od najtańszego:
    nie zwiększa limitu firmy, a MF monitoruje używanie wielu adresów w jednym kontekście.
 5. **Wniosek do MF o wyższy limit** (dokumentacja zapowiada formularz), jeśli 429 biorą się
    z samego limitu, a nie z naszego rytmu.
+
+## Skrzynka staje na fakturze bez środowiska
+
+Objaw: przebieg jednej firmy pada za każdym razem z błędem „Historyczna faktura KSeF bez
+środowiska wymaga ręcznego uzgodnienia” (Sentry, dziennik przebiegów, w alarmie
+`stale_inbox_sync` klasa „Błędy KSeF albo nasze”). Firma nie dostaje żadnych nowych faktur
+zakupowych, nie tylko tej jednej. To ustalenie S12 z planu zero zgubionych faktur (E1).
+
+Przyczyna: `findExistingInboxNumbers` (`lib/jobs/runners/inbox-polling.ts`) znalazła w bazie
+fakturę przychodzącą z tym samym numerem KSeF i bez środowiska. Środowiska nie zgaduje, bo indeks
+00120 nie obejmuje wierszy bez środowiska: pominięta, weszłaby drugi raz. Faktury nie giną. HWM
+stoi, przebieg ponawia się według harmonogramu (nasz błąd: 5, 10, 20 … min), a po uzgodnieniu
+następny przebieg pobiera całe okno od HWM.
+
+Po 00120 to nie powinno się zdarzyć: reguła `invoices_incoming_ksef_environment_required` odrzuca
+taki wiersz przy każdej roli, także `postgres`, a migracja nie wchodzi, dopóki taki wiersz jest
+(`tests/rls-skrzynka-bez-srodowiska.test.ts`).
+
+Sprawdzenie, tylko odczyt: `./scripts/ops/kontrola-faktur-ksef.sh`, sekcja 6, dwa wiersze.
+
+| `reguła 00120` | Lista „przychodzące z numerem KSeF bez środowiska” | Co dalej |
+|---|---|---|
+| jest, sprawdzona na wszystkich wierszach | pusta | nic do uzgodnienia; jeśli błąd dalej wraca, zgłoś Bartoszowi (przy tej regule nie powinien) |
+| BRAK | pusta albo wiersze | 00120 niewgrana; przy wierszach migracja się nie wgra (preflight); do Bartosza, `wgrywanie-migracji.md` |
+| jest, NOT VALID | wiersze | stare wiersze bez sprawdzenia; uzgodnienie niżej, potem walidacja reguły |
+
+Uzgodnienie robi Bartosz rolą `postgres`, wiersz po wierszu. Danych nie zmienia ten skrypt ani
+agent.
+
+1. Środowisko ustala się tylko z zewnętrznego dowodu KSeF, który potwierdza ten sam dokument
+   (skrót, sprzedawca, data, kwota, jak `assertSameKsefDocument`). Nigdy z daty ani z bieżącego
+   `KSEF_ENV` (`docs/security/KSEF-INBOX-TOZSAMOSC-ODBIOR-2026-09-26.md`, „Odczytowy preflight”).
+2. Gdy w tym samym środowisku jest już faktura z tym numerem, to duplikat. Uzgadnia się go razem
+   z pozycjami, płatnościami, kosztami i audytem, nie samym skryptem.
+3. Koniec: lista w sekcji 6 pusta, reguła sprawdzona na wszystkich wierszach (przy NOT VALID
+   walidacja `VALIDATE CONSTRAINT`), następny przebieg firmy przechodzi.
 
 ## Czego pomiar nie oddaje
 

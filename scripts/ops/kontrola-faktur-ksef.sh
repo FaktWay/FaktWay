@@ -34,7 +34,9 @@
 #      wpisy zamknięte, przebiegi crona z inngest_run_log — runbook
 #      docs/runbooks/offline24-zalegle.md
 #   5. UPO wg statusu i błędu (W12)
-#   6. skrzynka: przychodzące bez kosztu, bez XML, z otwartym znacznikiem (K2)
+#   6. skrzynka: przychodzące bez kosztu, bez XML, z otwartym znacznikiem (K2),
+#      kursory i harmonogram; reguła 00120 i przychodzące z numerem KSeF bez
+#      środowiska (S12: na takiej fakturze przebieg skrzynki firmy staje)
 #   7. pg-boss: joby wg (kolejka, stan), harmonogramy, polityka kolejek
 #   8. dokumenty, których JPK nie wykaże (W9): stawki spoza FaktWay,
 #      zaimportowane KOR/ZAL/ROZ, a od C5b treść z pliku KSeF (adnotacje
@@ -233,6 +235,17 @@ sql "kursory skrzynki (window_to = HWM, saved_count)" \
   "SELECT tenant_id, window_to, announced_count, saved_count, updated_at FROM ksef_inbox_cursor ORDER BY updated_at DESC LIMIT 10"
 sql "harmonogram skrzynki wg poziomu (00160; należne dawniej niż 5 min = nie nadąża, docs/runbooks/skrzynka-ksef-pojemnosc.md)" \
   "SELECT activity_tier, count(*) AS firmy, count(*) FILTER (WHERE next_poll_at < now() - interval '5 minutes') AS spoznione, count(*) FILTER (WHERE poll_lease_until > now()) AS w_toku, count(*) FILTER (WHERE consecutive_errors > 0) AS z_bledem, min(next_poll_at) AS najstarszy_termin FROM ksef_inbox_schedule GROUP BY 1 ORDER BY 1"
+# S12 (plan zero zgubionych faktur, E1): przebieg skrzynki firmy staje na
+# fakturze przychodzącej z numerem KSeF i bez środowiska (błąd „Historyczna
+# faktura KSeF bez środowiska wymaga ręcznego uzgodnienia”). Po 00120 baza
+# takiej nie przyjmie, a reguła sprawdzona na wszystkich wierszach znaczy, że
+# żadnej nie ma. Warunek listy = preflight 00120. Wiersze na liście albo
+# reguła BRAK lub NOT VALID: docs/runbooks/skrzynka-ksef-pojemnosc.md, sekcja
+# „Skrzynka staje na fakturze bez środowiska”. Danych nie zmieniaj.
+sql "reguła 00120: przychodzące z numerem KSeF mają środowisko (sprawdzona = takich faktur bez środowiska nie ma w bazie)" \
+  "SELECT coalesce((SELECT CASE WHEN c.convalidated THEN 'jest, sprawdzona na wszystkich wierszach' ELSE 'jest, NOT VALID: stare wiersze niesprawdzone' END FROM pg_catalog.pg_constraint c WHERE c.conrelid = 'public.invoices'::regclass AND c.conname = 'invoices_incoming_ksef_environment_required'), 'BRAK: 00120 niewgrana, skrzynka moze stanac (S12)') AS regula"
+sql "przychodzące z numerem KSeF bez środowiska (S12, do 20; ma być pusto): firma | skąd | źródło danych | stan | liczba | najstarsza | najnowsza" \
+  "SELECT tenant_id, origin, coalesce(fa3_data->>'_source','-') AS zrodlo, coalesce(ksef_status,'(null)') AS stan, count(*) AS liczba, min(issue_date) AS najstarsza, max(issue_date) AS najnowsza FROM invoices WHERE direction='incoming' AND ksef_number IS NOT NULL AND ksef_environment IS NULL GROUP BY 1,2,3,4 ORDER BY 5 DESC, 1 LIMIT 20"
 
 section "7. db-1: pg-boss"
 sql "joby wg kolejki i stanu (osierocone kolejki po ETAP 10?)" \

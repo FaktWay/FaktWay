@@ -61,7 +61,9 @@ export { INBOX_MAX_WINDOW_MS, nextInboxHwm };
  *
  * Idempotencja:
  *   - KSeF zwraca tę samą fakturę przy kolejnych pollach jeśli w zakresie dat
- *   - `filter-existing` ogranicza odczyt do tenant + incoming + środowisko.
+ *   - `filter-existing` czyta faktury przychodzące firmy ze wszystkich środowisk:
+ *     inne środowisko pomija, wiersz bez środowiska zatrzymuje przebieg (S12,
+ *     `findExistingInboxNumbers`).
  *   - 00120 rozstrzyga wyścig w bazie po (tenant, environment, KSeF number).
  *     Po konflikcie odczytujemy istniejący dokument i ponawiamy atomowy batch
  *     bez potwierdzonych duplikatów. Wymaga wdrożenia 00120 przed tym kodem.
@@ -142,6 +144,14 @@ async function findExistingInboxNumbers(
     for (const row of existing ?? []) {
       const invoice = byNumber.get(row.ksef_number as string);
       if (!invoice) continue;
+      // S12: zapytanie celowo czyta wszystkie środowiska, żeby zobaczyć wiersz
+      // bez środowiska. Gdyby go pominąć, faktura z KSeF poszłaby do zapisu jako
+      // nowa, a indeks 00120 nie obejmuje wierszy bez środowiska: ten sam numer
+      // wszedłby drugi raz. Dlatego przebieg staje. Po 00120 takiego wiersza nie
+      // ma, bo reguła `invoices_incoming_ksef_environment_required` odrzuca go
+      // przy każdej roli (tests/rls-skrzynka-bez-srodowiska.test.ts). Stan bazy:
+      // scripts/ops/kontrola-faktur-ksef.sh, sekcja 6; wyjście operatora:
+      // docs/runbooks/skrzynka-ksef-pojemnosc.md.
       if (row.ksef_environment == null) {
         throw new Error('Historyczna faktura KSeF bez środowiska wymaga ręcznego uzgodnienia');
       }
