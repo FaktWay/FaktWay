@@ -21,6 +21,9 @@ export default function UkladWiecej() {
       <Stack.Screen name="ustawienia/firma" options={{ title: 'Firma' }} />
       <Stack.Screen name="ustawienia/firma-zmiana" options={{ presentation: 'modal', title: 'Firma' }} />
       <Stack.Screen name="ustawienia/bezpieczenstwo" options={{ title: 'Bezpieczeństwo' }} />
+      <Stack.Screen name="ustawienia/haslo" options={{ presentation: 'modal', title: 'Zmień hasło' }} />
+      <Stack.Screen name="ustawienia/dwa-etapy" options={{ presentation: 'modal', title: 'Weryfikacja dwuetapowa' }} />
+      <Stack.Screen name="ustawienia/ksef-certyfikat" options={{ presentation: 'modal', title: 'Certyfikat KSeF' }} />
       <Stack.Screen name="ustawienia/powiadomienia" options={{ title: 'Powiadomienia' }} />
       <Stack.Screen name="ustawienia/ksef" options={{ title: 'KSeF' }} />
       <Stack.Screen name="ustawienia/przypomnienia" options={{ title: 'Przypomnienia' }} />

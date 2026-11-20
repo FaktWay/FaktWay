@@ -101,6 +101,9 @@
       "sciezki": [
         "lib/ksiegowosc/{ewidencja,ewidencja-dane,wpisy-reczne}.ts",
         "app/actions/ksiegowosc-ewidencja.ts",
+        "lib/api/mobile/{ksiegowosc-ksiegi,kontrakt-ksiegi}.ts",
+        "lib/ksiegowosc/ewidencja-zapis.ts",
+        "lib/api/mobile/ksiegowosc-zapisy.ts",
         "components/ksiegowosc/wpis-reczny-form.tsx",
         "supabase/migrations/00167_*.sql"
       ]
@@ -131,6 +134,7 @@
         "lib/ksiegowosc/{vat,vat-dane}.ts",
         "app/actions/ksiegowosc-vat.ts",
         "lib/ksiegowosc/vat-plik.ts",
+        "lib/ksiegowosc/ewidencja-pliki.ts",
         "lib/api/mobile/{ksiegowosc-vat,kontrakt-ksiegowosc}.ts"
       ]
     },
@@ -493,6 +497,7 @@
         "lib/ksef/{application-url,auth-errors,auth-refresh,auth-token,auth,certificate-files,connect-credentials,owner-claim,reencrypt-credentials,poll-audit,mock-fixtures}.ts",
         "lib/auth/ksef-verification-guard.ts",
         "components/settings/actions.ts",
+        "lib/ksef/upload-certificate.ts",
         "app/(dashboard)/settings/ksef/**",
         "app/actions/ksef-inbox.ts",
         "scripts/reencrypt-ksef-credentials.ts"
@@ -524,6 +529,7 @@
       "opis": "JPK_V7M i JPK_FA: generatory, walidatory, dane, schematy.",
       "sciezki": [
         "lib/exports/{jpk-v7m-generator,jpk-v7m-validator,jpk-fa-generator,jpk-fa-validator,jpk-fa-readiness,jpk-schema-check,suspended-formats,taxpayer-email,tax-office,tax-offices,issuer-address,export-scope,data-fetcher}.ts",
+        "lib/exports/eksport-reczny.ts",
         "lib/exports/schemas/{jpk-v7m3,jpk-fa4}/**"
       ]
     },
@@ -533,7 +539,9 @@
       "opis": "Okres i zakres eksportu (miesiąc, kwartał, od-do), formaty i poprawki przed eksportem: zły okres to JPK albo KPiR za inny miesiąc.",
       "sciezki": [
         "components/exports/{export-period,export-formats,export-fixes}.ts",
-        "app/actions/exports.ts"
+        "app/actions/exports.ts",
+        "lib/api/mobile/ksiegowosc-eksport.ts",
+        "app/api/mobile/v1/eksport/**"
       ]
     },
     {
@@ -546,6 +554,7 @@
         "lib/exports/kpir-generator.ts",
         "lib/categorization/{kpir-revenue,kpir-cost}.ts",
         "app/(dashboard)/reports/kpir/**",
+        "app/api/mobile/v1/raport-kpir/**",
         "lib/invoices/receipt-revenue-guard.ts"
       ]
     },
@@ -692,7 +701,11 @@
         "app/api/mobile/v1/ustawienia/**",
         "lib/settings/company-settings.ts",
         "lib/api/mobile/ustawienia-zapis.ts",
-        "lib/api/mobile/kontrakt-ustawienia.ts"
+        "lib/api/mobile/kontrakt-ustawienia.ts",
+        "lib/api/mobile/ustawienia-bezpieczenstwo.ts",
+        "lib/api/mobile/ustawienia-2fa.ts",
+        "lib/api/mobile/ustawienia-ksef.ts",
+        "lib/api/mobile/kontrakt-bezpieczenstwo.ts"
       ]
     },
     {
@@ -863,6 +876,7 @@
         "mobile/src/app/(zakladki)/faktury/index.tsx",
         "mobile/src/app/(zakladki)/faktury/przypomnienie.tsx",
         "mobile/src/lib/naleznosci.ts",
+        "mobile/src/lib/status-faktury.ts",
         "mobile/src/stan/naleznosci.tsx"
       ]
     },
@@ -875,8 +889,10 @@
         "mobile/src/app/(zakladki)/ksiegowosc/**",
         "mobile/src/stan/ksiegowosc.tsx",
         "mobile/src/komponenty/zaplaty-spoza-wyliczenia.tsx",
+        "mobile/src/komponenty/zapisy-ksiegi.tsx",
         "mobile/src/lib/{plik-jpk,miesiace}.ts",
         "mobile/src/lib/api/kontrakt-ksiegowosc.ts",
+        "mobile/src/lib/api/kontrakt-ksiegi.ts",
         "mobile/src/stan/ustawienia.tsx",
         "mobile/src/app/(zakladki)/wiecej/kontrahenci/**",
         "mobile/src/stan/kontrahenci.tsx",
@@ -884,7 +900,8 @@
         "mobile/src/app/(zakladki)/wiecej/ustawienia/{abonament,ksiegowa}.tsx",
         "mobile/src/app/(zakladki)/wiecej/ustawienia/{firma,firma-zmiana,przypomnienia,powiadomienia}.tsx",
         "mobile/src/stan/ustawienia-zapis.tsx",
-        "mobile/src/lib/api/kontrakt-ustawienia.ts"
+        "mobile/src/lib/api/kontrakt-ustawienia.ts",
+        "mobile/src/lib/ustawienia/**"
       ]
     },
     {

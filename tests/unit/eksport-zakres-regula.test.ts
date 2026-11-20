@@ -242,7 +242,8 @@ describe('strażnik FIR-01: zakres eksportu ma jedno źródło', () => {
 
   it('każdy zapis flag joba idzie przez regułę (wyjątek: Co-Pilot, opisany wyżej)', () => {
     const writers = filesWhere((source) => /\binclude_(issued|received):/.test(source));
-    expect(writers).toEqual(['app/actions/exports.ts', 'lib/jobs/runners/co-pilot-monthly.ts', 'lib/jobs/runners/exports-generate.ts']);
+    // M10d: zapis ręcznego joba przeniesiony z `app/actions/exports.ts` do `lib/exports/eksport-reczny.ts` (ta sama funkcja dla strony i telefonu).
+    expect(writers).toEqual(['lib/exports/eksport-reczny.ts', 'lib/jobs/runners/co-pilot-monthly.ts', 'lib/jobs/runners/exports-generate.ts']);
     for (const file of writers.filter((f) => !WRITES_REQUEST_AS_IS.has(f))) {
       expect(SOURCES.get(file), file).toMatch(SCOPE_IMPORT);
     }

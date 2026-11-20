@@ -45,12 +45,14 @@ import {
 import { KRAJE_UE_TELEFONU, type RodzajIdOsobyTelefonu, type WyliczenieZadanie } from '@/lib/api/kontrakt';
 import { grosze as groszeZApi } from '@/lib/dane/mapowanie';
 import {
+  brakLiczbWTresci,
   doKorektyTelefonu,
   doRozliczeniaTelefonu,
   doZaliczkiTelefonu,
   krajZVatUe,
   poleRodzaju,
   poleZPozycji,
+  zdanieBrakuLiczb,
   type DokumentFormularza,
   type TypKorektyTelefonu,
 } from '@/lib/faktura/rodzaje';
@@ -396,7 +398,10 @@ function FormularzFaktury() {
       }),
     };
   };
-  const wyliczenie = useWyliczenie(trescRodzaju(true), firmaFormularza);
+  // Treść z pustym polem liczbowym zostaje w ekranie: do serwera nie idzie (`useWyliczenie`), a „Podsumowanie” mówi, co wpisać (U7).
+  const trescPodgladu = trescRodzaju(true);
+  const brakLiczb = trescPodgladu ? brakLiczbWTresci(trescPodgladu) : null;
+  const wyliczenie = useWyliczenie(trescPodgladu, firmaFormularza);
   const kwotySerwera = wyliczenie.stan === 'gotowe' || wyliczenie.stan === 'liczymy' ? wyliczenie.kwoty : undefined;
   /** Kwota z serwera (zł) na ekranie; „…”, póki serwer jej nie policzył. */
   const zKwot = (v: number | undefined) => (v === undefined ? '…' : kwota(groszeZApi(v)));
@@ -409,9 +414,11 @@ function FormularzFaktury() {
       : wyliczenie.stan === 'liczymy'
         ? 'Liczymy kwoty…'
         : wyliczenie.stan === 'czeka'
-          ? rodzaj === 'korygujaca'
-            ? 'Kwoty policzymy po wybraniu faktury pierwotnej.'
-            : 'Kwoty policzymy po wybraniu zaliczek.'
+          ? brakLiczb
+            ? zdanieBrakuLiczb(brakLiczb)
+            : rodzaj === 'korygujaca'
+              ? 'Kwoty policzymy po wybraniu faktury pierwotnej.'
+              : 'Kwoty policzymy po wybraniu zaliczek.'
           : 'Kwoty liczy FaktWay tak samo jak na stronie.';
   // Wysyłka tego rodzaju wstrzymana także na stronie (rozliczenie; korekta na produkcji): przycisk zapisuje szkic.
   const wysylkaWstrzymana = zBazy ? podpowiedz.wysylkaWstrzymana : undefined;

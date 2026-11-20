@@ -20,13 +20,14 @@ import type {
   ZaliczkiOdpowiedz,
 } from '@/lib/api/kontrakt';
 import { bezDlugichMyslnikow } from '@/lib/api/bledy';
+import { kluczWyliczenia } from '@/lib/faktura/rodzaje';
 import { useKontoFirmy, type KontoFirmy } from '@/stan/dane';
 
 /** Po tylu ms bez zmian w polach serwer liczy kwoty (pisanie nie wysyła żądania po każdej literze). */
 const ZWLOKA_WYLICZENIA_MS = 450;
 
 export type StanWyliczenia =
-  /** Brak treści do policzenia (np. nie wybrano jeszcze faktury pierwotnej). */
+  /** Brak treści do policzenia (np. nie wybrano faktury pierwotnej albo pole z kwotą jest puste). */
   | { stan: 'czeka' }
   /** Serwer liczy; `kwoty` z poprzedniego wyliczenia, póki nie ma nowych. */
   | { stan: 'liczymy'; kwoty?: WyliczenieOdpowiedz }
@@ -38,11 +39,13 @@ type Wpis = { klucz: string; wynik: StanWyliczenia };
 
 /**
  * Kwoty dokumentu z serwera dla bieżących pól. Każda zmiana pól liczy się od
- * nowa po chwili; odpowiedź do starych pól nie nadpisze nowych.
+ * nowa po chwili; odpowiedź do starych pól nie nadpisze nowych. Treść z pustym
+ * albo błędnym polem liczbowym nie idzie do serwera (stan „czeka”): serwer
+ * odrzuciłby ją jako błąd kontraktu, a ekran pokazałby fałszywą awarię (U7).
  */
 export function useWyliczenie(tresc: WyliczenieZadanie | null, firmaEkranu: string | null): StanWyliczenia {
   const konto = useKontoFirmy();
-  const klucz = tresc ? JSON.stringify(tresc) : null;
+  const klucz = kluczWyliczenia(tresc);
   const [wpis, setWpis] = useState<Wpis | null>(null);
   const [ostatnie, setOstatnie] = useState<WyliczenieOdpowiedz | undefined>(undefined);
 
@@ -68,6 +71,8 @@ export function useWyliczenie(tresc: WyliczenieZadanie | null, firmaEkranu: stri
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [klucz, firmaEkranu]);
 
+  // Pole wyczyszczone: kwoty sprzed czyszczenia nie wrócą jako „poprzednie” przy dalszym wpisywaniu.
+  if (!klucz && ostatnie) setOstatnie(undefined);
   if (!klucz) return { stan: 'czeka' };
   if (wpis?.klucz === klucz) return wpis.wynik;
   return { stan: 'liczymy', ...(ostatnie ? { kwoty: ostatnie } : {}) };

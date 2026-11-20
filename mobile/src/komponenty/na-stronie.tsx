@@ -15,6 +15,7 @@ import { EkranListy } from '@/komponenty/lista';
 import { StanPusty } from '@/komponenty/stan-pusty';
 import { PrzyciskPaska } from '@/komponenty/przycisk-paska';
 import { ADRES_API } from '@/lib/api/polaczenie';
+import { jestBrakiemUrzedu, STRONA_URZEDU, TYTUL_USTAW_URZAD, wyjscieBrakUrzedu } from '@/lib/urzad-skarbowy';
 
 export type ZmianaNaStronie = 'wystawienie' | 'edycja' | 'wysylka' | 'email' | 'cykliczna' | 'xml';
 
@@ -57,6 +58,33 @@ export function otworzStrone(sciezka: string, poPowrocie?: () => void): void {
 }
 
 export const MA_ADRES_STRONY = Boolean(ADRES_API);
+
+/**
+ * Odmowa serwera przy pliku (JPK_V7M, JPK_FA, JPK_EWP, JPK_PKPIR) z powodu braku
+ * urzędu skarbowego firmy (U14): arkusz ze zdaniem serwera i wyjściem „Ustaw urząd
+ * na faktway.pl”. Arkusz, bo sam tekst pod przyciskiem ginie poza widokiem długiej
+ * listy (pod tekstem zostaje wiersz z tym samym wyjściem, `OdmowaPliku`). Inne
+ * odmowy zostawia ekranowi. Stronę z urzędem otwiera tylko właściciel; inne role
+ * dostają zdanie, kto urząd ustawia. `poPowrocie` po zamknięciu strony (jak `otworzStrone`).
+ */
+export function odmowaPlikuNaStronie(komunikat: string, rola: string | undefined, poPowrocie?: () => void): void {
+  if (!jestBrakiemUrzedu(komunikat)) return;
+  const wyjscie = wyjscieBrakUrzedu(rola, MA_ADRES_STRONY);
+  const tytul = 'Najpierw ustaw urząd skarbowy';
+  const opis = [komunikat, wyjscie.podpowiedz].filter(Boolean).join(' ');
+  if (!wyjscie.strona) {
+    Alert.alert(tytul, opis);
+    return;
+  }
+  const otworz = () => otworzStrone(STRONA_URZEDU, poPowrocie);
+  if (Platform.OS === 'ios') {
+    ActionSheetIOS.showActionSheetWithOptions({ title: tytul, message: opis, options: [TYTUL_USTAW_URZAD, 'Zamknij'], cancelButtonIndex: 1 }, (i) => {
+      if (i === 0) otworz();
+    });
+    return;
+  }
+  Alert.alert(tytul, opis, [{ text: 'Zamknij', style: 'cancel' }, { text: TYTUL_USTAW_URZAD, onPress: otworz }]);
+}
 
 /**
  * Wydatek, którego telefon nie zapisze (M9): koszt z KSeF (porównanie z XML

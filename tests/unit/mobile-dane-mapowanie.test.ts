@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import { amountDueOf, outstandingOf } from '../../lib/invoices/amount-due';
 import { bruttoPozycji, nettoPozycji, stawkaTekst, vatPozycji } from '../../mobile/src/dane-przykladowe';
 import { doZaplaty, pozostaloDoZaplaty, statusFaktury } from '../../mobile/src/lib/status-faktury';
 import {
@@ -163,6 +164,124 @@ describe('faktura wystawiona z bazy', () => {
     expect(KOLUMNY_FAKTURY).not.toMatch(/fa3_data/);
     expect(KOLUMNY_SKRZYNKI).toMatch(/seller_fa3:fa3_data->seller/);
     expect(KOLUMNY_SKRZYNKI).not.toMatch(/fa3_data,/);
+  });
+});
+
+/**
+ * U26 (obchód 20.11.2026): faktura rozliczająca (ROZ, `invoice_kind = 'final'`)
+ * ma w `gross_total` PEŁNE zamówienie, a nabywca płaci resztę po zaliczkach,
+ * zapisaną przy wystawieniu w `payment_data.amountDue` (art. 106f ust. 3,
+ * RP-FA-ROZ-01: P_15 to kwota pozostała do zapłaty). Telefon pokazywał
+ * „Do zapłaty” 1230,00 zł zamiast 615,00 zł. Reguła jest kopią `amountDueOf`
+ * i `outstandingOf` strony (`lib/invoices/amount-due.ts`); zgodność sprawdza
+ * ostatni test z tej grupy na tej samej tabeli przypadków.
+ */
+describe('faktura rozliczająca: do zapłaty po zaliczkach (U26)', () => {
+  /** Szkic z obchodu: pozycja 1000 zł netto + 23% = 1230 brutto, zaliczka ZAL/1/2026 na 615 zł. */
+  const rozliczenie = (zmiany: Partial<WierszFaktury> = {}): WierszFaktury =>
+    wiersz({
+      invoice_kind: 'final',
+      net_total: '1000.00',
+      vat_total: '230.00',
+      gross_total: '1230.00',
+      payment_data: { method: 'transfer', amountDue: 615, bankAccount: '12 3456 7890', bankName: 'Bank Testowy' },
+      ...zmiany,
+    });
+
+  it('do zapłaty to reszta po zaliczce (615,00), a brutto zostaje pełnym zamówieniem (1230,00)', () => {
+    const f = fakturaZBazy(rozliczenie());
+    expect(f.rodzaj).toBe('rozliczajaca');
+    expect(f.brutto).toBe(123000);
+    expect(pozostaloDoZaplaty(f)).toBe(61500);
+    expect(doZaplaty(f)).toBe(true);
+  });
+
+  it('zwykła faktura i zaliczkowa: do zapłaty to całe brutto, `amountDue` poza ROZ nie zmienia kwoty', () => {
+    expect(pozostaloDoZaplaty(fakturaZBazy(wiersz()))).toBe(123012);
+    // `amountDue` jest w `payment_data` każdej faktury; tylko ROZ liczy od niego (jak `amountDueOf`).
+    for (const rodzaj of ['regular', 'advance', 'correction']) {
+      const f = fakturaZBazy(wiersz({ invoice_kind: rodzaj, gross_total: '615.00', payment_data: { method: 'transfer', amountDue: 100 } }));
+      expect(pozostaloDoZaplaty(f)).toBe(61500);
+    }
+    // Zwykła faktura bez `payment_data` w ogóle (szkic, stary wiersz).
+    expect(pozostaloDoZaplaty(fakturaZBazy(wiersz({ payment_data: null })))).toBe(123012);
+  });
+
+  it('rozliczona w całości zaliczkami (`amountDue` 0): do zapłaty 0, brutto bez zmian', () => {
+    // Wyzwalacz bazy (00145) oznacza taką ROZ jako zapłaconą od wystawienia.
+    const zaplacona = fakturaZBazy(rozliczenie({ payment_data: { method: 'transfer', amountDue: 0 }, payment_status: 'paid' }));
+    expect(zaplacona.brutto).toBe(123000);
+    expect(pozostaloDoZaplaty(zaplacona)).toBe(0);
+    // Nawet gdyby status nie zdążył się przeliczyć, nie żądamy zapłaty pełnego brutto.
+    const nieprzeliczona = fakturaZBazy(rozliczenie({ payment_data: { method: 'transfer', amountDue: 0 }, payment_status: 'unpaid' }));
+    expect(pozostaloDoZaplaty(nieprzeliczona)).toBe(0);
+  });
+
+  it('zapłata częściowa na rozliczeniu liczy się od reszty po zaliczce, nie od brutto', () => {
+    const f = fakturaZBazy(rozliczenie({ payment_status: 'partial', paid_amount: '200.00' }));
+    expect(f.zaplacono).toBe(20000);
+    expect(pozostaloDoZaplaty(f)).toBe(61500 - 20000);
+    // Wpłata równa reszcie po zaliczce domyka rozliczenie (wyzwalacz bazy 00145 ustawia wtedy `paid`).
+    expect(pozostaloDoZaplaty(fakturaZBazy(rozliczenie({ payment_status: 'partial', paid_amount: '615.00' })))).toBe(0);
+    // Wiersz sprzed 00145 (wyzwalacz porównywał wpłatę z brutto) z wpłatą ponad resztę i starym statusem:
+    // nie schodzimy poniżej zera, jak `outstandingOf` strony (zamiast -85,00 zł w sumie „Do zapłaty”).
+    expect(pozostaloDoZaplaty(fakturaZBazy(rozliczenie({ payment_status: 'partial', paid_amount: '700.00' })))).toBe(0);
+    // Zapłacona w całości: 0, jak dotąd.
+    expect(pozostaloDoZaplaty(fakturaZBazy(rozliczenie({ payment_status: 'paid', paid_amount: '615.00' })))).toBe(0);
+  });
+
+  it('`amountDue` tekstem liczbowym działa jak liczba (z groszami bez błędu zaokrąglenia)', () => {
+    expect(pozostaloDoZaplaty(fakturaZBazy(rozliczenie({ payment_data: { amountDue: '615.00' } })))).toBe(61500);
+    expect(pozostaloDoZaplaty(fakturaZBazy(rozliczenie({ payment_data: { amountDue: ' 615.10 ' } })))).toBe(61510);
+    expect(pozostaloDoZaplaty(fakturaZBazy(rozliczenie({ payment_data: { amountDue: 0.1 + 0.2 } })))).toBe(30);
+  });
+
+  it('śmieci w `amountDue` nie psują kwoty: wraca reguła od pełnego brutto (bezpieczniej gonić zbyt dużo niż za mało)', () => {
+    for (const zle of ['abc', '', '   ', null, undefined, -5, '-5', Number.NaN, Number.POSITIVE_INFINITY, [615], { kwota: 615 }, true]) {
+      const f = fakturaZBazy(rozliczenie({ payment_data: { method: 'transfer', amountDue: zle } }));
+      expect(pozostaloDoZaplaty(f), `amountDue = ${JSON.stringify(zle)}`).toBe(123000);
+    }
+    // Brak `payment_data`, brak klucza, `payment_data` nie będące obiektem.
+    for (const pd of [null, undefined, {}, [], 'tekst', 615]) {
+      expect(pozostaloDoZaplaty(fakturaZBazy(rozliczenie({ payment_data: pd }))), `payment_data = ${JSON.stringify(pd)}`).toBe(123000);
+    }
+    // `amountDue` większe od zamówienia (zepsuty wiersz) nie zażąda więcej niż cała faktura.
+    expect(pozostaloDoZaplaty(fakturaZBazy(rozliczenie({ payment_data: { amountDue: 5000 } })))).toBe(123000);
+  });
+
+  it('brak brutto w wierszu: jak strona (`amountDueOf` bierze brutto 0), bez kwoty ujemnej ani nieskończonej', () => {
+    const f = fakturaZBazy(rozliczenie({ gross_total: null }));
+    expect(f.brutto).toBe(0);
+    expect(pozostaloDoZaplaty(f)).toBe(0);
+    expect(amountDueOf({ invoice_kind: 'final', gross_total: null, payment_data: { amountDue: 615 } })).toBe(0);
+  });
+
+  it('ta sama kwota co strona (`amountDueOf`, `outstandingOf`) na tej samej tabeli przypadków', () => {
+    const przypadki: WierszFaktury[] = [
+      wiersz(),
+      wiersz({ payment_status: 'partial', paid_amount: '200.00' }),
+      wiersz({ invoice_kind: 'advance', gross_total: '615.00', payment_data: { amountDue: 615 } }),
+      rozliczenie(),
+      rozliczenie({ payment_status: 'partial', paid_amount: '200.00' }),
+      rozliczenie({ payment_status: 'partial', paid_amount: '615.00' }),
+      rozliczenie({ payment_status: 'partial', paid_amount: '700.00' }),
+      rozliczenie({ payment_data: { amountDue: 0 } }),
+      rozliczenie({ payment_data: { amountDue: '615.5' } }),
+      rozliczenie({ payment_data: { amountDue: 5000 } }),
+      rozliczenie({ payment_data: { amountDue: -1 } }),
+      rozliczenie({ payment_data: { amountDue: 'abc' } }),
+      rozliczenie({ payment_data: { amountDue: '' } }),
+      rozliczenie({ payment_data: null }),
+    ];
+    for (const w of przypadki) {
+      const f = fakturaZBazy(w);
+      // Strona liczy „zaległość” z wpłat; telefon z `payment_status`. Przypadki mają je spójne.
+      const strona = { invoice_kind: w.invoice_kind, gross_total: w.gross_total, payment_data: w.payment_data, paid_amount: w.paid_amount };
+      const zapisane = JSON.stringify({ rodzaj: w.invoice_kind, brutto: w.gross_total, platnosc: w.payment_data, wplacono: w.paid_amount });
+      expect(pozostaloDoZaplaty(f) / 100, zapisane).toBeCloseTo(outstandingOf(strona), 2);
+      // Dla faktury bez wpłat „do zapłaty” to dokładnie `amountDueOf`.
+      if (grosze(w.paid_amount) === 0) expect(pozostaloDoZaplaty(f) / 100, zapisane).toBeCloseTo(Math.max(0, amountDueOf(strona)), 2);
+    }
   });
 });
 

@@ -39,9 +39,18 @@ export function doZaplaty(f: Faktura): boolean {
   return (f.statusKsef === 'przyjeta' || f.statusKsef === 'wysylanie') && !f.zaplacona;
 }
 
-/** Ile jeszcze do zapłaty: brutto minus wpłaty częściowe (dane z bazy); zapłacona to 0. */
+/**
+ * Ile jeszcze do zapłaty: kwota do zapłaty na fakturze minus wpłaty częściowe
+ * (dane z bazy); zapłacona to 0. Kwota do zapłaty to całe brutto, a na
+ * fakturze rozliczającej reszta po zaliczkach (`kwotaDoZaplaty`, jak na
+ * stronie: `amountDueOf` i `outstandingOf`, z dolną granicą 0). Wszystkie
+ * sumy należności na telefonie liczą się tą funkcją, nie z samego `brutto`.
+ */
 export function pozostaloDoZaplaty(f: Faktura): number {
-  return f.zaplacona ? 0 : f.brutto - (f.zaplacono ?? 0);
+  if (f.zaplacona) return 0;
+  const reszta = (f.kwotaDoZaplaty ?? f.brutto) - (f.zaplacono ?? 0);
+  // Rozliczenie nie schodzi poniżej zera (wpłata ponad resztę po zaliczkach); inne faktury bez zmian.
+  return f.kwotaDoZaplaty === undefined ? reszta : Math.max(0, reszta);
 }
 
 /** „1 faktura”, „2 faktury”, „5 faktur”, „22 faktury” (polska liczba mnoga). */
