@@ -882,7 +882,7 @@
         "mobile/src/stan/ksiegowosc.tsx",
         "mobile/src/komponenty/zaplaty-spoza-wyliczenia.tsx",
         "mobile/src/lib/{plik-jpk,miesiace}.ts",
-        "mobile/src/lib/api/kontrakt-ksiegowosc.ts",
+        "mobile/src/lib/api/{kontrakt-ksiegowosc,kontrakt-ksiegi}.ts",
         "mobile/src/stan/ustawienia.tsx",
         "mobile/src/app/(zakladki)/wiecej/kontrahenci/**",
         "mobile/src/stan/kontrahenci.tsx",
