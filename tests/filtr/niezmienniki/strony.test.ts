@@ -253,6 +253,7 @@ const OGRANICZONE: Readonly<Record<string, { ile: number; powod: string }>> = {
   'lib/exports/data-fetcher.ts#attachKsefNumbers:invoices': { ile: 1, powod: 'numery KSeF po `id`, paczki po 200 (`KSEF_LOOKUP_CHUNK`)' },
   'lib/exports/data-fetcher.ts#fetchExpensesForExport:invoices': { ile: 1, powod: 'waluty faktur KSeF po `id`, paczki po 200 z `assertKsefExpensesReadyForPln`' },
   'lib/exports/data-fetcher.ts#fetchParentInvoices:invoices': { ile: 1, powod: 'faktury korygowane po `id`, paczki po 100, licznik równy paczce' },
+  'lib/exports/eksport-reczny.ts#downloadExportFile:rpc:increment_export_file_download': { ile: 1, powod: 'atomowy zapis licznika pobrań pliku (RPC z 00030), nie odczyt listy; przeniesiony z akcji strony (M10d)' },
   'lib/ksiegowosc/kpir-dane.ts#koszty:invoices': { ile: 1, powod: 'waluty faktur KSeF po `id`, paczki po 200 z `assertKsefExpensesReadyForPln`' },
   'lib/ksiegowosc/powiadomienia.ts#firmyWPilotazu:tenant_feature_flags': { ile: 1, powod: '`limit(1000)`, a 1000 i więcej firm to wyjątek (pora na fan-out)' },
   'lib/ksiegowosc/profil.ts#czytajWersjeProfilu:tax_profiles': {

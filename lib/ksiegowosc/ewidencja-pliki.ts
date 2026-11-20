@@ -7,6 +7,7 @@ import { logAudit } from '@/lib/audit/log';
 import { zglosAlarmy } from '@/lib/bezpieczniki/alarm';
 import { odmowaJpkEwp, sprawdzJpkEwp } from '@/lib/bezpieczniki/jpk-ewp';
 import { odmowaJpkPkpir, sprawdzJpkPkpir } from '@/lib/bezpieczniki/jpk-pkpir';
+import { monthRange } from '@/lib/expenses/month';
 import { redactXsdMessage } from '@/lib/exports/jpk-schema-check';
 import { readTenantTaxOffice } from '@/lib/exports/tax-office';
 import { formatIsoDatePl } from '@/lib/format/iso-date';
@@ -68,9 +69,9 @@ export const pobranieSchema = z.object({
     .refine((v) => v >= '1900-01-01' && v < todayInWarsaw(), { message: 'To nie jest poprawna data urodzenia.' }),
 });
 
-/** Ostatni dzień miesiąca: dzień 0 następnego miesiąca w UTC, bez strefy serwera. */
+/** Ostatni dzień miesiąca (`monthRange`: arytmetyka UTC, bez strefy serwera; ta sama wartość co dotąd). */
 function koniecMiesiaca(rok: number, miesiac: number): string {
-  return new Date(Date.UTC(rok, miesiac, 0)).toISOString().slice(0, 10);
+  return monthRange(`${rok}-${String(miesiac).padStart(2, '0')}`).to;
 }
 
 /** JPK_EWP(4) za ryczałt; rola sprawdzona przez wywołującego. */
