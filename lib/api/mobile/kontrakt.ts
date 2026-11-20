@@ -120,6 +120,9 @@ export const MOBILE_API_ERROR_CODES = [
   // Zapisy ustawień (M10c, typy w `kontrakt-ustawienia.ts`): zdanie strony mówi, co poprawić.
   /** 422: wartość ustawienia nie przeszła zasad strony (dane firmy, rachunek, data, zwolnienie, przypomnienia); `field` to pole formularza telefonu. */
   'settings_invalid',
+  // Ręczny eksport (M10d część 2).
+  /** 422: eksportu nie zlecono (wstrzymany format, brak urzędu skarbowego, plik niegotowy); `message` to zdanie strony z tym, co zrobić. */
+  'export_refused',
   /** 500, opis z identyfikatorem żądania. */
   'internal_error',
 ] as const;

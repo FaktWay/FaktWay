@@ -101,6 +101,7 @@
       "sciezki": [
         "lib/ksiegowosc/{ewidencja,ewidencja-dane,wpisy-reczne}.ts",
         "app/actions/ksiegowosc-ewidencja.ts",
+        "lib/api/mobile/{ksiegowosc-ksiegi,kontrakt-ksiegi}.ts",
         "components/ksiegowosc/wpis-reczny-form.tsx",
         "supabase/migrations/00167_*.sql"
       ]
@@ -535,7 +536,9 @@
       "opis": "Okres i zakres eksportu (miesiąc, kwartał, od-do), formaty i poprawki przed eksportem: zły okres to JPK albo KPiR za inny miesiąc.",
       "sciezki": [
         "components/exports/{export-period,export-formats,export-fixes}.ts",
-        "app/actions/exports.ts"
+        "app/actions/exports.ts",
+        "lib/api/mobile/ksiegowosc-eksport.ts",
+        "app/api/mobile/v1/eksport/**"
       ]
     },
     {
@@ -548,6 +551,7 @@
         "lib/exports/kpir-generator.ts",
         "lib/categorization/{kpir-revenue,kpir-cost}.ts",
         "app/(dashboard)/reports/kpir/**",
+        "app/api/mobile/v1/raport-kpir/**",
         "lib/invoices/receipt-revenue-guard.ts"
       ]
     },
