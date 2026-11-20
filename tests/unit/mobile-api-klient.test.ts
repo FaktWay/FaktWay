@@ -94,6 +94,8 @@ describe('kody błędów kontraktu', () => {
       contractor_exists: 'odmowa',
       // Ręczny eksport (M10d część 2).
       export_refused: 'odmowa',
+      // Zapisy ksiąg (M10d część 3).
+      ledger_refused: 'odmowa',
       // Zapisy ustawień (M10c): zdanie serwera, przy `settings_invalid` pod polem.
       settings_invalid: 'odmowa',
       password_code_required: 'odmowa',

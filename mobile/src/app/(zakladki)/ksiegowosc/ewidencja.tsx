@@ -8,6 +8,7 @@ import { KPIR } from '@/dane-przykladowe/ksiegowosc';
 import { PoleDaty, PoleTekstowe, PoleWyboru } from '@/komponenty/formularz';
 import { EkranListy, Sekcja, Wiersz } from '@/komponenty/lista';
 import { otworzStrone } from '@/komponenty/na-stronie';
+import { ZapisyKsiegi } from '@/komponenty/zapisy-ksiegi';
 import { StanPusty } from '@/komponenty/stan-pusty';
 import { SzkieletKwoty, SzkieletListy } from '@/komponenty/szkielet';
 import { Tekst } from '@/komponenty/tekst';
@@ -124,7 +125,8 @@ export default function EkranEwidencji() {
  * forma z ustawień, braki, sumy okresu, wpisy ręczne, spis z natury, stan pliku). Plik
  * JPK_EWP albo JPK_PKPIR z `POST /ksiegowosc/ewidencja/plik` (ten sam plik co „Pobierz”
  * na stronie) idzie do arkusza udostępniania; dane osoby nie są zapisywane (D9). Wpisy ręczne
- * i spis z natury telefon pokazuje do odczytu: dodaje się je na stronie.
+ * i spis z natury (M10d część 3): lista, dodanie i usunięcie dla właściciela i administratora
+ * (`komponenty/zapisy-ksiegi.tsx`), pozostali widzą listy do odczytu.
  */
 function EkranEwidencjiZBazy({ konto }: { konto: KontoFirmy }) {
   const pasek = useKoloryPaska(false);
@@ -287,15 +289,7 @@ function EkranEwidencjiZBazy({ konto }: { konto: KontoFirmy }) {
           </Sekcja>
         ) : null}
 
-        <Sekcja naglowek="Wpisy ręczne" stopka="Wpisy dodaje i usuwa właściciel albo administrator firmy na faktway.pl.">
-          {d.wpisyReczne.length === 0 ? <Wiersz tytul="W tym miesiącu nie ma wpisów ręcznych" /> : d.wpisyReczne.map((w) => <Wiersz key={w.id} tytul={w.tytul} podtytul={w.szczegoly} />)}
-        </Sekcja>
-
-        {d.rodzaj === 'kpir' ? (
-          <Sekcja naglowek="Spis z natury" stopka="Spisy dodaje i usuwa właściciel albo administrator firmy na faktway.pl.">
-            {d.spisy.length === 0 ? <Wiersz tytul="Brak spisów z natury" /> : d.spisy.map((s) => <Wiersz key={s.id} tytul={s.tytul} podtytul={s.szczegoly} />)}
-          </Sekcja>
-        ) : null}
+        <ZapisyKsiegi key={d.miesiac} konto={konto} d={d} firmaEkranu={firmaEkranu} poZapisie={() => void ks.odswiez()} />
 
         {d.plik ? (
           <Sekcja
