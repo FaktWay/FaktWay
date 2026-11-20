@@ -209,7 +209,7 @@ describe('słownik dziennika: druga linia wpisu (rodzaj obiektu zamiast typ:uuid
     const found = new Map<string, string>();
     for (const dir of ['lib', 'app', 'components']) {
       for (const file of walk(dir)) {
-        for (const m of read(file).matchAll(/\bentityType:\s*'([a-z_]+)'/g)) found.set(m[1], file);
+        for (const m of read(file).matchAll(/\bentityType:\s*'([a-z0-9_]+)'/g)) found.set(m[1], file);
       }
     }
     for (const file of migrations()) {
@@ -219,7 +219,7 @@ describe('słownik dziennika: druga linia wpisu (rodzaj obiektu zamiast typ:uuid
         const columns = m[1].split(',').map((c) => c.trim());
         const index = columns.indexOf('entity_type');
         const value = index >= 0 ? splitSqlValues(m[2])[index] : undefined;
-        const type = value?.match(/^'([a-z_]+)'$/)?.[1];
+        const type = value?.match(/^'([a-z0-9_]+)'$/)?.[1];
         if (type) found.set(type, file);
       }
     }
