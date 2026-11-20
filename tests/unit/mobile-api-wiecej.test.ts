@@ -155,6 +155,10 @@ beforeEach(() => {
     organization_join_requests: [{ id: 'r1', requested_by_user_id: 'u9', message: ' Proszę o dostęp ', created_at: '2026-11-11T00:00:00Z', users: { name: 'Igor' } }],
     subscriptions: [{ id: 's1', tenant_id: ORG_A, stripe_subscription_id: 'sub_NIE-WOLNO', stripe_customer_id: 'cus_NIE-WOLNO', stripe_price_id: 'price_NIE-WOLNO', status: 'trialing', plan: 'monthly', current_period_start: '2026-11-01T10:00:00Z', current_period_end: '2026-11-30T23:30:00Z', trial_start: '2026-11-01T10:00:00Z', trial_end: '2026-11-25T09:00:00Z', cancel_at_period_end: false, canceled_at: null, last_webhook_at: null }],
     audit_logs: [
+      // Zdarzenia z akcji w telefonie (obchód U10): przed poprawką dziennik pokazywał ich surowe kody i `typ:uuid`.
+      { id: 10, action: 'ledger_entry.created', entity_type: 'ledger_manual_entry', entity_id: 'efe30fc1-6d6c-4f0e-9b2b-3d9f1a7c5e21', ip_address: '::1', created_at: '2026-11-20T09:00:00Z' },
+      { id: 9, action: 'jpk_v7m.downloaded', entity_type: 'jpk_v7m', entity_id: '2c4e8a10-1b7d-4f6a-8c3e-5d9b0a1f7e42', ip_address: '::1', created_at: '2026-11-20T08:30:00Z' },
+      { id: 8, action: 'ksef.session.open', entity_type: 'invoice', entity_id: 'a1b2c3d4-0000-4000-8000-000000000009', ip_address: null, created_at: '2026-11-20T08:00:00Z' },
       { id: 7, action: 'auth.login', entity_type: null, entity_id: null, ip_address: '203.0.113.5', created_at: '2026-11-15T08:00:00Z' },
       { id: 6, action: 'contractor.updated', entity_type: 'contractor', entity_id: 'cccccccc-0000-4000-8000-000000000001', ip_address: null, created_at: '2026-11-14T08:00:00Z' },
     ],
@@ -345,9 +349,17 @@ describe('GET /api/mobile/v1/dziennik', () => {
   it('wpisy jak zakładka strony: nazwa zdarzenia, zasób, adres; kolumny jawnie', async () => {
     const body = await (await dziennikRoute(req('dziennik', { token: TOKEN.member }))).json();
     expect(body.wpisy).toEqual([
+      { id: '10', kiedy: expect.stringContaining('20.11.2026'), akcja: 'Dodano wpis ręczny w ewidencji', zasob: 'Wpis ręczny', ip: '::1' },
+      { id: '9', kiedy: expect.stringContaining('20.11.2026'), akcja: 'Pobrano plik JPK_V7M', zasob: 'JPK_V7M', ip: '::1' },
+      { id: '8', kiedy: expect.stringContaining('20.11.2026'), akcja: 'Otwarto sesję w KSeF', zasob: 'Faktura', ip: null },
       { id: '7', kiedy: expect.stringContaining('15.11.2026'), akcja: 'Zalogowanie', zasob: null, ip: '203.0.113.5' },
-      { id: '6', kiedy: expect.stringContaining('14.11.2026'), akcja: 'Poprawiono dane kontrahenta', zasob: 'contractor:cccccccc…', ip: null },
+      { id: '6', kiedy: expect.stringContaining('14.11.2026'), akcja: 'Poprawiono dane kontrahenta', zasob: 'Kontrahent', ip: null },
     ]);
+    // Żaden wpis nie pokazuje surowego kodu zdarzenia ani skrótu identyfikatora (`typ:uuid…`).
+    for (const wpis of body.wpisy as Array<{ akcja: string; zasob: string | null }>) {
+      expect(wpis.akcja).not.toMatch(/[a-z0-9_]+\.[a-z0-9_]+/);
+      expect(wpis.zasob ?? '').not.toMatch(/:|…|[0-9a-f]{8}/);
+    }
     const read = reads.find((r) => r.path === '/rest/v1/audit_logs');
     expect(read?.select).toBe('id,action,entity_type,entity_id,ip_address,created_at');
     expect(read?.org).toBe(ORG_A);
