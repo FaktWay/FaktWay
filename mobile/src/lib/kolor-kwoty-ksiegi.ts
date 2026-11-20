@@ -1,6 +1,6 @@
 /**
  * Kolor kwoty wpisu w księdze (KPiR, ewidencja przychodów) na liście telefonu.
- * Zielony znaczy „przychód, który przybył”. Ujemna kwota w kolumnie przychodu
+ * Zielony znaczy „przychód, który przybył” (zero nie przybyło: neutralny). Ujemna kwota w kolumnie przychodu
  * (korekta w minus, zwrot sprzedaży) przychód zmniejsza, więc nie może wyglądać
  * jak przychód: dostaje kolor błędu (ustalenie U41 z obchodu 20.11.2026).
  * Koszt zostaje neutralny, także ujemny (zwrot kosztu), bo kolor kosztu nic
@@ -12,6 +12,16 @@
 export type KolorKwotyKsiegi = 'sukces' | 'blad' | 'etykieta';
 
 export function kolorKwotyWpisu(przychod: boolean, kwota: number): KolorKwotyKsiegi {
-  if (!przychod) return 'etykieta';
+  if (!przychod || kwota === 0) return 'etykieta';
   return kwota < 0 ? 'blad' : 'sukces';
+}
+
+/**
+ * Kolor plakietki „Marża X%” pod wynikiem KPiR. Była zielona na stałe, więc
+ * przy stracie („Strata, listopad” z marżą -12%) wyglądała jak sukces; strona
+ * daje wtedy kolor błędu (`kpir-result-card.tsx`). Zero jest neutralne.
+ */
+export function kolorMarzy(marza: number): 'sukces' | 'blad' | 'etykietaDrugorzedna' {
+  if (marza === 0) return 'etykietaDrugorzedna';
+  return marza < 0 ? 'blad' : 'sukces';
 }

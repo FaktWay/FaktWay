@@ -18,7 +18,7 @@ import { useOdczyt } from '@/stan/odczyt';
 import { MARGINES, ODSTEP } from '@/wyglad/odstepy';
 import { Wykres } from '@/komponenty/wykres';
 import { dataKrotka, kwota } from '@/lib/format';
-import { kolorKwotyWpisu } from '@/lib/kolor-kwoty-ksiegi';
+import { kolorKwotyWpisu, kolorMarzy } from '@/lib/kolor-kwoty-ksiegi';
 import { type Kolory } from '@/wyglad/kolory';
 import { IKONY_PASKA } from '@/wyglad/ikony-paska';
 import { useKoloryPaska } from '@/wyglad/naglowki';
@@ -78,7 +78,7 @@ function EkranKpirPrzyklad() {
       </Stack.Toolbar>
 
       <EkranListy>
-        <NaglowekKwoty podpis={`${dochod >= 0 ? 'Dochód' : 'Strata'}, ${miesiac.toLowerCase()}`} wartosc={kwota(dochod)} styl="title1" status={`Marża ${marza}%`} statusKolor="sukces" />
+        <NaglowekKwoty podpis={`${dochod >= 0 ? 'Dochód' : 'Strata'}, ${miesiac.toLowerCase()}`} wartosc={kwota(dochod)} styl="title1" status={`Marża ${marza}%`} statusKolor={kolorMarzy(marza)} />
 
         <Sekcja naglowek="Przychody narastająco" stopka={`Przychody ${kwota(przychody)} (faktury przyjęte w KSeF), koszty ${kwota(koszty)}.`} swobodna>
           <Wykres punkty={wykres} rodzaj="pole" etykieta="Przychody narastająco w miesiącu" />
@@ -232,7 +232,7 @@ function EkranKpirZBazy() {
             wartosc={kwota(grosze(s.dochod))}
             styl="title1"
             status={s.marza === null ? undefined : `Marża ${s.marza}%`}
-            statusKolor="sukces"
+            statusKolor={s.marza === null ? undefined : kolorMarzy(s.marza)}
           />
         ) : null}
 
