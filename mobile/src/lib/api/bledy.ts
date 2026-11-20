@@ -97,6 +97,7 @@ const RODZAJ_KODU: Record<MobileApiErrorCode, RodzajBledu> = {
   contractor_exists: 'odmowa',
   // Zapisy ustawień (M10c): zdanie z serwera, przy `settings_invalid` pod polem.
   settings_invalid: 'odmowa',
+  password_code_required: 'odmowa',
 };
 
 /** Kod błędu z ciała `{ error: { code } }`, gdy jest w kontrakcie. */
