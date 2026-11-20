@@ -90,8 +90,15 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   // Klucz serwisowy nie ma prawa się tu pojawić: każda trasa pyta tokenem telefonu.
   if (request.headers.get('apikey') !== 'anon-fixture-key') throw new Error('zapytanie bez klucza publicznego');
   const asObject = request.headers.get('accept')?.includes('vnd.pgrst.object');
-  if (url.pathname === '/rest/v1/memberships' && url.searchParams.get('select')?.includes('users!inner')) {
-    reads.push({ path: url.pathname, select: url.searchParams.get('select'), org: request.headers.get('x-active-org') });
+  // Jak prawdziwy PostgREST (obchód U9): `memberships` i `organization_join_requests` mają po dwa klucze
+  // do `users`, więc osadzenie `users(…)` albo `users!inner(…)` bez podpowiedzi klucza to PGRST201 (HTTP 300).
+  const select = url.searchParams.get('select');
+  const twoKeysToUsers = url.pathname === '/rest/v1/memberships' || url.pathname === '/rest/v1/organization_join_requests';
+  if (twoKeysToUsers && /(^|,)\s*users(!inner)?\(/.test(select ?? '')) {
+    return Response.json({ code: 'PGRST201', message: `Could not embed because more than one relationship was found for '${url.pathname.replace('/rest/v1/', '')}' and 'users'` }, { status: 300 });
+  }
+  if (url.pathname === '/rest/v1/memberships' && select?.includes('users!memberships_user_id_fkey')) {
+    reads.push({ path: url.pathname, select, org: request.headers.get('x-active-org') });
     return Response.json(tables.team ?? []);
   }
   if (url.pathname === '/rest/v1/memberships') {
@@ -303,6 +310,16 @@ describe('GET /api/mobile/v1/zespol', () => {
     expect(body.prosby).toEqual([{ id: 'r1', imie: 'Igor', wiadomosc: 'Proszę o dostęp', utworzono: '2026-11-11T00:00:00Z' }]);
     const own = await (await zespolRoute(req('zespol'))).json();
     expect(own.czlonkowie[0].ty).toBe(true);
+  });
+
+  it('osadzenie users z podpowiedzią klucza (dwa klucze do users: samo `users!inner(name)` to PGRST201 i 503, U9)', async () => {
+    const response = await zespolRoute(req('zespol'));
+    expect(response.status).toBe(200);
+    const selects = reads.filter((r) => ['/rest/v1/memberships', '/rest/v1/organization_join_requests'].includes(r.path)).map((r) => r.select ?? '');
+    expect(selects).toHaveLength(2);
+    for (const select of selects) expect(select).not.toMatch(/(^|,)\s*users(!inner)?\(/);
+    expect(selects[0]).toContain('users!memberships_user_id_fkey');
+    expect(selects[1]).toContain('users!organization_join_requests_requested_by_user_id_fkey');
   });
 
   it('członek: 403', async () => {
