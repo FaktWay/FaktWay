@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { formatPlPercentChange } from '@/lib/format/pl';
 
-import { zmiana, zmianaPelna } from '../../mobile/src/lib/format';
+import { zmiana, zmianaPelna, znakZmiany } from '../../mobile/src/lib/format';
 
 /**
  * Obchód w symulatorze 20.11.2026 (U12): Pulpit, Przepływy, Miesięcznie,
@@ -62,7 +62,8 @@ describe('zmiana: procent zmiany na telefonie w pełnych procentach, po polsku',
   it('telefon zapisuje zmianę tak samo jak strona (formatPlPercentChange) dla każdej wartości skończonej', () => {
     const wartosci: number[] = [];
     for (let pct = -150; pct <= 150; pct += 0.05) wartosci.push(Math.round(pct * 100) / 100);
-    wartosci.push(65.65040650406505, -65.65040650406505, 0.5, -0.5, 2.5, -2.5, 99.5, -99.5, 1234.5);
+    for (let pct = -5000; pct <= 5000; pct += 0.5) wartosci.push(pct);
+    wartosci.push(65.65040650406505, -65.65040650406505, 0.5, -0.5, 2.5, -2.5, 99.5, -99.5, 1234.5, 1e6 + 0.5, -1e6 - 0.5);
     for (const pct of wartosci) expect(zmiana(pct), String(pct)).toBe(formatPlPercentChange(pct));
   });
 });
@@ -77,12 +78,25 @@ describe('zmianaPelna: ta sama liczba, którą zapis pokazuje (do koloru i strza
     expect(zmianaPelna(Number.NaN)).toBe(0);
     expect(zmianaPelna(Number.POSITIVE_INFINITY)).toBe(0);
   });
+});
 
-  it('znak zmianaPelna zgadza się ze znakiem w zapisie „zmiana”', () => {
-    for (const pct of [-66.4, -0.6, -0.4, 0, 0.4, 0.6, 65.65040650406505]) {
+describe('znakZmiany: kolor i strzałka kafla zgodne z napisem', () => {
+  it('plus, minus albo zero dokładnie tak, jak je pokazuje „zmiana”', () => {
+    const wartosci = [-66.4, -1.2, -0.6, -0.5, -0.4, -0, 0, 0.4, 0.5, 0.6, 1.2, 65.65040650406505, Number.NaN, Number.POSITIVE_INFINITY];
+    for (const pct of wartosci) {
       const tekst = zmiana(pct);
-      const znak = Math.sign(zmianaPelna(pct));
-      expect(znak === 1 ? tekst.startsWith('+') : znak === -1 ? tekst.startsWith(MINUS) : tekst === '0%', String(pct)).toBe(true);
+      const znak = znakZmiany(pct);
+      const zNapisu = tekst.startsWith('+') ? 1 : tekst.startsWith(MINUS) ? -1 : 0;
+      expect(znak, `${pct} → ${tekst}`).toBe(zNapisu);
     }
+  });
+
+  it('małe zmiany, które w napisie dają „0%”, są neutralne (bez zielonego i czerwonego)', () => {
+    for (const pct of [0.3, -0.3, 0.49, -0.4999, 1e-9, -1e-9]) {
+      expect(zmiana(pct)).toBe('0%');
+      expect(znakZmiany(pct), String(pct)).toBe(0);
+    }
+    expect(znakZmiany(65.65040650406505)).toBe(1);
+    expect(znakZmiany(-65.65040650406505)).toBe(-1);
   });
 });
