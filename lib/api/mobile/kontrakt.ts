@@ -120,6 +120,8 @@ export const MOBILE_API_ERROR_CODES = [
   // Zapisy ustawień (M10c, typy w `kontrakt-ustawienia.ts`): zdanie strony mówi, co poprawić.
   /** 422: wartość ustawienia nie przeszła zasad strony (dane firmy, rachunek, data, zwolnienie, przypomnienia); `field` to pole formularza telefonu. */
   'settings_invalid',
+  /** 409: zmiana hasła wymaga kodu z e-maila (GoTrue: `reauthentication_needed`); telefon prosi o kod przez `POST /ustawienia/haslo/kod` (M10c, część 2). */
+  'password_code_required',
   /** 500, opis z identyfikatorem żądania. */
   'internal_error',
 ] as const;

@@ -692,7 +692,8 @@
         "app/api/mobile/v1/ustawienia/**",
         "lib/settings/company-settings.ts",
         "lib/api/mobile/ustawienia-zapis.ts",
-        "lib/api/mobile/kontrakt-ustawienia.ts"
+        "lib/api/mobile/kontrakt-ustawienia.ts",
+        "lib/api/mobile/ustawienia-bezpieczenstwo.ts"
       ]
     },
     {

@@ -623,20 +623,19 @@ Android 15 albo nowszy; drugi obraz z Androidem 12 do punktu 13). Zrzuty do
 
 **Następny krok:** M10d część 2 (KPiR raportu, ewidencja modułu z wpisami,
 spisem z natury, JPK_PKPIR i JPK_EWP, eksport dla księgowej; część 1 w #809)
-albo M10c część 2 (hasło, 2FA, klucze dostępu, certyfikat KSeF z telefonu;
-ustalenia z rozpoznania w „Z M10c zostaje”), potem M12b (Android na emulatorze, checklista w sekcji 7a), gdy
+albo M10c część 2b (włączenie i wyłączenie 2FA oraz certyfikat KSeF z
+telefonu; ustalenia w „Z M10c zostaje”), potem M12b (Android na emulatorze, checklista w sekcji 7a), gdy
 Bartosz zainstaluje Android Studio, SDK i obraz emulatora (około 10 GB). M11
 (powiadomienia push, logowanie Apple) i M13 (sklep) czekają na płatne konto
-Apple. M8, M9 i M10 są w `main` i na produkcji od 14.11.2026 (#716, #740, #738,
-#752; migracje 00201 i 00202). M10c część 1 (Firma, Przypomnienia,
-Powiadomienia) w #808.
-**Z M10c zostaje:** (1) część 2 jako osobny PR: hasło (potwierdzenie bez captchy
-jak usunięcie konta, `confirmAccountPassword`; kod z maila przy
-`reauthentication_needed`), 2FA (`enrollTotpAction` i reszta z
+Apple. M10c część 1 (Firma, Przypomnienia, Powiadomienia) w #808, część 2a
+(hasło, klucze dostępu) w PR z dziennika.
+**Z M10c zostaje:** (1) część 2b jako osobny PR (hasło i klucze dostępu są w
+części 2a): 2FA (`enrollTotpAction` i reszta z
 `settings/security/actions.ts`, limit w Redisie; po `mfa.verify` GoTrue wydaje
-nową sesję AAL2, którą trasa musi oddać telefonowi jak `POST /kod`), klucze
-dostępu (na telefonie tylko lista i usunięcie: dodanie wymaga WebAuthn w
-aplikacji i powiązanej domeny, czyli konta Apple), certyfikat KSeF (logika w
+nową sesję AAL2, którą trasa musi oddać telefonowi jak `POST /kod`; wyłączenie
+potwierdza hasłem jak `unenrollTotpAction`, wzór sprawdzenia hasła w
+`lib/api/mobile/ustawienia-bezpieczenstwo.ts`), dodanie klucza dostępu w
+aplikacji (WebAuthn i powiązana domena, czyli konto Apple), certyfikat KSeF (logika w
 całości w `components/settings/actions.ts`, do wydzielenia do `lib/ksef/`;
 wybór pliku wymaga nowej paczki natywnej `expo-document-picker` i nowego
 buildu); (2) obchód w symulatorze nie zrobiony (trasy sprawdzone testami,
@@ -730,4 +729,5 @@ dotknięciem (5.2), D4, D6.
 | 15.11.2026 | M10e | ekrany Więcej i Pulpitu na prawdziwych danych (D3), trasy w `app/api/mobile/v1` na logice strony, klient z tokenem: Kontrahenci (lista z kaflami i należnościami po NIP, karta, dodanie z NIP, poprawka, usunięcie; zapis kontrahenta wydzielony do `lib/contractors/manage.ts`, akcje strony bez zmiany zachowania), Import danych (kafle i zdania modeli strony, `importStatValues`), Księgowa (tylko właściciel, formaty paczki jak wysyłka, `lib/exports/co-pilot-formats.ts`), Zespół, Abonament (bez cen, D5), Dziennik (`lib/audit/labels.ts`); Przepływy i Analizy przez `kontekstDanych` strony (tryb przykładowy oznaczony), każda karta osobno, kwoty, saldo, procenty i kalendarz (kwantyle strony) liczy serwer; w aplikacji wspólny magazyn odczytów `stan/odczyt.tsx` (pyta przy każdym otwarciu, odrzuca odpowiedź sprzed zapisu) i stany z M4f. Testy tras (kontrahenci 27, karty 19, przepływy i analizy 10, kontrakt 5), RLS kontrahentów na bazie (6). Drugi czytelnik: 12 uwag w części 1 i 4 w części 2, poprawione | #791, #792 |
 | 15.11.2026 | M8b | faktury z telefonu w zgodności ze stroną (4.3, „Stan po M8b”): zaliczka, rozliczenie zaliczek (szkic, wysyłka ROZ wstrzymana jak na stronie) i korekta (kwotowa, danych, anulowanie; faktura pierwotna z serwera) przez `POST /faktury`, kwoty z serwera (`/faktury/wyliczenie`), „Wyślij ponownie”, „Wróć do szkicu”, usunięcie i zmiana szkicu, nabywca z UE i z PESEL, GUS po NIP; logika akcji strony w `lib/invoices/` bez zmiany zachowania. Testy: trasy 41 (czerwone na main, z FA(3) przez XSD), formularz 9, baza 5, filtr zielony; pełny vitest znalazł 3 strażniki przeniesionego kodu (poprawione). Bez obchodu w symulatorze (port 8081 i limit użycia), bez KSeF TEST z telefonu | #789 |
 | 16.11.2026 | M10c (część 1) | zapisy ustawień z telefonu (D3) na logice strony: karta Firma (nazwa i adres, rachunek, data rozpoczęcia, zwolnienie z VAT, metoda kasowa; zapis wydzielony z akcji strony do `lib/settings/company-settings.ts` bez zmiany zachowania, właściciel i administrator, dziennik z `client: mobile`), Przypomnienia o zapłacie (cały formularz strony, granice `REMINDER_LIMITS`, tylko właściciel, upsert tokenem z RLS), e-maile w Powiadomieniach (zgoda i wypis wydzielone do `lib/email/settings-toggle.ts`, źródło `mobile_settings`); trasy `POST /ustawienia/firma`, `POST /ustawienia/przypomnienia`, `GET/POST /ustawienia/powiadomienia`, kod `settings_invalid` (422 z polem); w aplikacji arkusz `firma-zmiana` z „Odrzucić zmiany?”, formularz przypomnień, przełączniki e-mail. Naprawa z M10b (4): formularz przypomnień strony bez zapisu pokazuje „wyłączone”. Testy: trasy (37, brak i zły token, rola, schematy, audyt), formularz strony (czerwony na main), RLS zapisów w CI; drugi czytelnik z listą kontrolną, 6 uwag poprawionych. Bez migracji, bez obchodu w symulatorze | #808 |
+| 16.11.2026 | M10c (część 2a) | hasło i klucze dostępu z telefonu tymi samymi warunkami co strona: `POST /ustawienia/haslo` (2FA z bramki, aktualne hasło przez `confirmAccountPassword` ze wspólnym limitem prób, bez Redisa odmowa, `validatePassword`, zapis w GoTrue tokenem telefonu z `current_password`, kod z e-maila przy `reauthentication_needed`: `POST /ustawienia/haslo/kod` z limitem wysyłek), `GET /ustawienia/klucze` i usunięcie klucza (limit `passkey_manage`, RLS 00159, wylogowanie pozostałych sesji, dziennik), kod `password_code_required`; w aplikacji arkusz „Zmień hasło” i lista kluczy z usunięciem w arkuszu akcji. Testy tras (27, mutacja 4 czerwone), drugi czytelnik bez błędów (6 drobnych uwag, 5 poprawionych). Bez migracji, bez obchodu w symulatorze (limit użycia) | #815 |
 | 16.11.2026 | M10d, część 1 | VAT, nadwyżka VAT i zapłaty spoza wyliczenia z telefonu (D3): logika strony wydzielona do `lib/` bez zmiany zachowania (plik JPK_V7M `lib/ksiegowosc/vat-plik.ts`, zapłata spoza wyliczenia `dodajZaplateReczna` w `ten-miesiac-zapis.ts`, nazwy stanów wysyłki i opis odmowy MF w `wysylka-jpk/statusy.ts`); trasy `GET /ksiegowosc/vat`, `POST /ksiegowosc/vat/plik`, `POST /ksiegowosc/zaplaty-reczne`, „Ten miesiąc” z `?nadwyzka=` i nadwyżką w zatwierdzeniu; kontrakt `lib/api/mobile/kontrakt-ksiegowosc.ts`. Telefon: ekran VAT na prawdziwym koncie (kwoty, termin, przelew, nadwyżka z polem, plik w arkuszu udostępniania, lista wysyłek), w „Ten miesiąc” pole nadwyżki i zapłaty spoza wyliczenia. Testy: trasy 18 (czerwone przed zmianą; brak i zły token, kwoty równe `vatMiesiaca`, plik równy akcji strony, te same wywołania zapisu), pełny vitest zielony, filtr lokalnie zielony; drugi czytelnik (Opus, lista kontrolna): 17 uwag, 2 blokujące poprawione. Bez obchodu w symulatorze (limit użycia) | #809 |
