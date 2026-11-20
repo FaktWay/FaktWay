@@ -8,6 +8,7 @@ import { validateNipChecksum, validatePeselChecksum } from '@/lib/xml/invoice-ca
 import { resolveAmountChangeVatRate } from '@/lib/invoices/correction-amount-change';
 import { isForeignEuVat, isNpIiBuyerVat, parseVatUe } from '@/lib/invoices/vat-ue';
 import {
+  gtuCodeSchema,
   NP_II_CORRECTION_BUYER_MESSAGE,
   NP_II_NOT_FOR_XI_MESSAGE,
   pkwiuCodeSchema,
@@ -223,9 +224,17 @@ export const correctionBuyerSchema = z.discriminatedUnion('type', [
   buyerEUSchema,
 ]);
 
-/** Pozycja korekty — jak `invoiceLineSchema`, plus `np_ii` (korekta faktury dla firmy z UE). */
+/**
+ * Pozycja korekty — jak `invoiceLineSchema`, plus `np_ii` (korekta faktury dla
+ * firmy z UE). GTU tylko z listy (krok 2.6, część 2b-3): kody pozycji korekty
+ * pochodzą z dokumentu faktury korygowanej i nadaje je serwer.
+ */
 export const correctionLineSchema = invoiceLineSchema.extend({
   vatRate: z.enum(['23', '8', '5', '0', 'oo', 'np', 'np_ii']),
+  gtuCode: gtuCodeSchema,
+  // Faktura liczona od brutto (faktura za abonament): cenę brutto pozycji nadaje
+  // serwer z jej zapisanych kwot (`fetchParentInvoiceLines`); z żądania się nie liczy.
+  unitPriceGross: z.number().positive().optional(),
 });
 export type CorrectionLineSchema = z.infer<typeof correctionLineSchema>;
 

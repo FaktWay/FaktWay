@@ -21,7 +21,7 @@ function domainLineToPrepared(line: InvoiceLine, ordinal: number): InvoiceLineIt
     quantity: line.quantity,
     unitPriceNet: line.unitPriceNet,
     vatRate: line.vatRate as VatRate,
-  });
+  }, { unitPriceGross: line.unitPriceGross });
   return {
     ordinal,
     name: line.name,
