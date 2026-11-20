@@ -80,7 +80,7 @@ const POLA: ReadonlyArray<readonly [RegExp, Fa3Pole]> = [
   [/^Fa\/PrzyczynaKorekty$/, { label: 'Przyczyna korekty' }],
   [/^Fa\/DaneFaKorygowanej\/NrFaKorygowanej$/, { label: 'Numer korygowanej faktury' }],
   [/^Fa\/DaneFaKorygowanej\/DataWystFaKorygowanej$/, { label: 'Data wystawienia korygowanej faktury', formatHint: DATE_HINT }],
-  [/^Fa\/DaneFaKorygowanej\/(?:NrKSeF|NrKSeFFaKorygowanej)$/, { label: 'Numer KSeF korygowanej faktury' }],
+  [/^Fa\/DaneFaKorygowanej\/NrKSeFFaKorygowanej$/, { label: 'Numer KSeF korygowanej faktury' }],
   [/^Fa\/FakturaZaliczkowa\/NrFaZaliczkowej$/, { label: 'Numer faktury zaliczkowej' }],
   [/^Fa\/FakturaZaliczkowa\/NrKSeFFaZaliczkowej$/, { label: 'Numer KSeF faktury zaliczkowej' }],
   // Pozycje faktury.
@@ -93,6 +93,7 @@ const POLA: ReadonlyArray<readonly [RegExp, Fa3Pole]> = [
   [/^Fa\/FaWiersz\/P_11$/, { label: 'wartość netto', row: true }],
   [/^Fa\/FaWiersz\/P_11A$/, { label: 'wartość brutto', row: true }],
   [/^Fa\/FaWiersz\/P_12$/, { label: 'stawka VAT', row: true }],
+  [/^Fa\/FaWiersz\/GTU$/, { label: 'oznaczenie GTU', row: true }],
   // Zamówienie przy zaliczce (pozycje bez numeru w nazwie pola).
   [/^Fa\/Zamowienie\/WartoscZamowienia$/, { label: 'Wartość zamówienia' }],
   [/^Fa\/Zamowienie\/ZamowienieWiersz\/P_7Z$/, { label: 'Zamówienie, nazwa pozycji' }],
@@ -158,7 +159,7 @@ type XNode = Record<string, unknown>;
 interface Located {
   /** Ścieżka względem `Faktura`, bez indeksów. */
   readonly path: string;
-  /** Numer wiersza faktury (`NrWierszaFa`), gdy element leży w pozycji. */
+  /** Numer wiersza w pliku (`NrWierszaFa`), gdy element leży w pozycji; numerem pozycji z formularza jest tylko w zwykłej fakturze VAT. */
   readonly row: number | null;
   /** Tekst elementu liścia; `null` dla elementu z potomkami. */
   readonly text: string | null;
@@ -234,7 +235,14 @@ function locate(xml: string, local: string, value: string | null): { path: strin
   const pool = byValue.length > 0 ? byValue : named;
   const paths = new Set(pool.map((e) => e.path));
   if (paths.size !== 1) return null;
-  return { path: pool[0].path, row: pool.length === 1 ? pool[0].row : null };
+  // Numer pozycji tylko w zwykłej fakturze VAT: tam `NrWierszaFa` to numer
+  // pozycji z formularza. W korekcie „przed/po” generator numeruje wiersze
+  // XML osobno (pozycja korygowana ma dwa wiersze, niezmieniona żadnego), a w
+  // fakturach zaliczkowych i rozliczeniowych numeracja też nie jest numerem
+  // z formularza, więc numer wskazałby inną pozycję niż widzi klient.
+  const rodzaj = all.find((e) => e.path === 'Fa/RodzajFaktury')?.text;
+  const row = pool.length === 1 && rodzaj === 'VAT' ? pool[0].row : null;
+  return { path: pool[0].path, row };
 }
 
 // ─── Zdanie dla klienta ─────────────────────────────────────────────────────

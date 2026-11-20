@@ -45,8 +45,13 @@ która nie przejdzie lokalnej walidacji XSD i nigdy nie dotrze do KSeF.
   (sam `NIP` nie mówi, czy to sprzedawca, czy nabywca). Gdy pola nie da się
   nazwać bez zgadywania, klient dostaje ogólne zdanie z adresem pomocy.
 - **Nowy element w generatorze** (albo nowe pole faktury) wymaga wpisu w tabeli
-  `POLA` w `fa3-pola.ts`; test `tests/xml/fa3-pola.test.ts` („tabela nazw pól
-  obejmuje to, co generatory FA(3) piszą”) pada, gdy go brak.
+  `POLA` w `fa3-pola.ts`. Test `tests/xml/fa3-pola.test.ts` („tabela nazw pól
+  obejmuje to, co generatory FA(3) piszą”) pada dla elementów, które cztery
+  generatory piszą z danymi testowymi; element, którego te dane nie wywołują
+  (np. kody pozycji), bez wpisu daje klientowi bezpieczne ogólne zdanie z
+  adresem pomocy, więc dopisz go przy okazji. Numer pozycji („Pozycja 2”)
+  podajemy tylko w zwykłej fakturze VAT; w korekcie, zaliczce i rozliczeniu
+  numeracja wierszy pliku nie jest numerem z formularza.
 - **Operator** dostaje pełny tekst techniczny: błąd joba (`NonRetriableError` z
   przyczyną `InvoiceXmlSchemaError.errors`), log workera „Job wysyłki padł —
   klasyfikacja błędu” (`errorMessage`) i audyt `invoice.submit_failed`

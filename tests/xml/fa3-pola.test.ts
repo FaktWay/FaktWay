@@ -101,6 +101,19 @@ describe('U3: nazwa pola z pierwszego błędu XSD', () => {
     expect((await opis(dwaRazy))?.field).toBe('Pozycje: ilość');
   });
 
+  it('korekta: numer wiersza w pliku to nie numer pozycji z formularza, więc „Pozycje”, nie „Pozycja N”', async () => {
+    // Korekta „przed/po” numeruje wiersze XML osobno: pozycja korygowana to dwa wiersze.
+    const xml = generateCorrectionInvoiceXml(korekta(), OPCJE);
+    const issue = await opis(podmien(xml, 'P_8B', '1.1234567890', 0));
+
+    expect(issue?.field).toBe('Pozycje: ilość');
+    expect(issue?.message).not.toMatch(/Pozycja \d/);
+  });
+
+  it('zwykła faktura: numer pozycji z formularza (kolejny numer wiersza)', async () => {
+    expect((await opis(podmien(xmlZwykly(), 'P_8B', '1.1234567890', 1)))?.field).toBe('Pozycja 2: ilość');
+  });
+
   it('bez zgadywania: ta sama zła wartość u sprzedawcy i u nabywcy to brak nazwy pola', async () => {
     const oba = podmien(podmien(xmlZwykly(), 'NIP', '1000000012', 0), 'NIP', '1000000012', 1);
 
@@ -158,6 +171,8 @@ describe('U3: tabela nazw pól obejmuje to, co generatory FA(3) piszą', () => {
     /^Fa\/TypKorekty$/,
     /^Fa\/Adnotacje(\/|$)/,
     /^Fa\/FaWiersz\/(NrWierszaFa|StanPrzed)$/,
+    // Znacznik „numer KSeF korygowanej faktury istnieje” (TWybor1, stała wartość 1), nie numer.
+    /^Fa\/DaneFaKorygowanej\/NrKSeF$/,
     /^Fa\/Zamowienie\/ZamowienieWiersz\/NrWierszaZam$/,
     /^Fa\/Platnosc\/FormaPlatnosci$/,
     /^Podmiot2\/(JST|GV)$/,

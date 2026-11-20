@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { validationFailureIn } from '@/lib/jobs/runners/submit-invoice/komunikat-klienta';
+import { validationFailureIn, withoutErrorClass } from '@/lib/jobs/runners/submit-invoice/komunikat-klienta';
 import { NonRetriableError } from '@/lib/jobs/errors';
 import { assertFa3TextLimits, FA3_TEXT_LIMITS, InvoiceXmlSchemaError } from '@/lib/xml/fa3-limits';
 import { InvoiceValidationError } from '@/lib/xml/fa3-generator';
@@ -57,7 +57,7 @@ describe('validationFailureIn', () => {
       'Faktura nie trafiła do KSeF. NIP nabywcy "123" ma nieprawidłową sumę kontrolną. Faktura musi mieć co najmniej jedną pozycję.',
     );
     expect(failure?.field).toBeNull();
-    expect(failure?.suggestion).toBe('Popraw wskazane dane w szkicu faktury.');
+    expect(failure?.suggestion).toBe('Popraw wskazane dane.');
   });
 
   it('walidacja faktury: najwyżej trzy uwagi, reszta jako liczba', () => {
@@ -84,8 +84,18 @@ describe('granice tekstu przed budową XML (assertFa3TextLimits) niosą opis z n
     const failure = validationFailureIn(owiniety(zlapany as Error));
     expect(failure?.message).toMatch(/^Faktura nie trafiła do KSeF\. Nabywca, nazwa: najwyżej \d+ znaków?, a jest \d+\.$/);
     expect(failure?.field).toBeNull();
-    expect(failure?.suggestion).toBe('Popraw wskazane pola w szkicu faktury.');
+    expect(failure?.suggestion).toBe('Popraw wskazane pola.');
     // Operator dostaje to samo co dotąd w `errors`.
     expect((zlapany as InvoiceXmlSchemaError).errors).toHaveLength(1);
+  });
+});
+
+describe('withoutErrorClass', () => {
+  it('zdejmuje nazwę klasy błędu z początku, także powtórzoną; reszta tekstu bez zmian', () => {
+    expect(withoutErrorClass('TypeError: fetch failed')).toBe('fetch failed');
+    expect(withoutErrorClass('NonRetriableError: Error: Brak certyfikatu')).toBe('Brak certyfikatu');
+    expect(withoutErrorClass('KSeF HTTP 503: Service Unavailable')).toBe('KSeF HTTP 503: Service Unavailable');
+    expect(withoutErrorClass('Faktura nie trafiła do KSeF. NIP: błąd')).toBe('Faktura nie trafiła do KSeF. NIP: błąd');
+    expect(withoutErrorClass('Error w środku: Error: x')).toBe('Error w środku: Error: x');
   });
 });

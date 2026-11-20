@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { NonRetriableError } from '@/lib/jobs/errors';
+import { NonRetriableError, RetryAfterError } from '@/lib/jobs/errors';
 import type { JobContext } from '@/lib/jobs/registry';
 import type { Invoice } from '@/types/invoice';
 
@@ -301,6 +301,9 @@ describe('U3: nazwa klasy błędu nie trafia do klienta na żadnej ścieżce por
   it.each([
     ['błąd sterujący bez ponawiania', new NonRetriableError('Organizacja nie ma zweryfikowanego certyfikatu KSeF (Ustawienia → KSeF). Wysyłka do KSeF jest zablokowana.')],
     ['zwykły błąd po naszej stronie', new Error('Nie można zapisać wyniku wysyłki faktury')],
+    // `send.ts` składa treść ponowienia jako `${error.name}: ${error.message}`.
+    ['ponowienie z nazwą klasy w treści (padła sieć)', new RetryAfterError('TypeError: fetch failed', '30s')],
+    ['ponowienie z nazwą klasy w treści (błąd bez klasy z listy)', new RetryAfterError('Error: KSeF przerwał przetwarzanie faktury', '30s')],
   ])('%s', async (_nazwa, blad) => {
     await onSubmitInvoiceExhausted(blad, event(faktura()), ctx);
     const patch = m.invoiceUpdate.mock.calls.map((c) => c[0] as Patch).filter((p) => 'ksef_status' in p).at(-1);
@@ -308,6 +311,6 @@ describe('U3: nazwa klasy błędu nie trafia do klienta na żadnej ścieżce por
     expect(patch).toBeDefined();
     expect(String(patch?.last_error)).not.toMatch(/^[A-Za-z]*Error: /);
     czystyDlaKlienta(patch?.last_error);
-    expect(String(patch?.last_error)).toContain(blad.message);
+    expect(String(patch?.last_error)).toContain(blad.message.replace(/^[A-Za-z]*Error: /, ''));
   });
 });

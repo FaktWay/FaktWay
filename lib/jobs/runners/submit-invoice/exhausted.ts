@@ -22,7 +22,7 @@ import {
 } from '@/lib/ksef/send-error-codes';
 import { KsefInvoiceRejectedError } from '@/lib/ksef/submit';
 import { KSEF_MAX_RETRIES } from '../../retry-schedule';
-import { validationFailureIn, type CustomerFailure } from './komunikat-klienta';
+import { validationFailureIn, withoutErrorClass, type CustomerFailure } from './komunikat-klienta';
 import {
   currentSubmissionState,
   isHeldRozSubmission,
@@ -274,7 +274,7 @@ export async function onSubmitInvoiceExhausted(
       // błędu. Tekst klienta jej nie niesie (U3): `plainMessage`.
       const heldMessage = HOLD_MARKER.test(error.message) ? error.message.replace(HOLD_MARKER, '') : null;
       const failureMessage = heldRoz ? ROZ_RECONCILIATION_MESSAGE : heldMessage ?? `${error.name}: ${error.message}`;
-      const plainMessage = heldRoz ? ROZ_RECONCILIATION_MESSAGE : heldMessage ?? error.message;
+      const plainMessage = heldRoz ? ROZ_RECONCILIATION_MESSAGE : heldMessage ?? withoutErrorClass(error.message);
       // F-093-STATUS: przy odrzuceniu w statusie komunikat błędu to sam status
       // (log, audyt). Klient dostaje na fakturę i w mailu opis i szczegóły
       // z KSeF jak dotąd: to jego faktura i jedyna wskazówka, co poprawić.

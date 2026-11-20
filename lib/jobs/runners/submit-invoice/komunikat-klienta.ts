@@ -39,6 +39,15 @@ function chain(error: unknown): Error[] {
   return out;
 }
 
+/**
+ * Tekst błędu bez nazwy klasy na początku („TypeError: fetch failed”,
+ * „Error: …”): runner składa ją w treści ponowienia (`send.ts`, `errorLabel`).
+ * Nazwa klasy to szczegół techniczny, nie komunikat dla klienta (U3).
+ */
+export function withoutErrorClass(message: string): string {
+  return message.replace(/^(?:(?:[A-Z][A-Za-z0-9]*)?(?:Error|Exception): )+/, '');
+}
+
 const withDot = (text: string): string => {
   const trimmed = text.trim();
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
@@ -77,7 +86,7 @@ function businessFailure(error: Error): CustomerFailure {
   return {
     message: `${FA3_ISSUE_LEAD} ${shown}${more}`,
     field: null,
-    suggestion: 'Popraw wskazane dane w szkicu faktury.',
+    suggestion: 'Popraw wskazane dane.',
   };
 }
 

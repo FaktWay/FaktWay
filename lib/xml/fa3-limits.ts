@@ -226,7 +226,7 @@ function textLimitIssue(problems: readonly string[]): Fa3CustomerIssue {
   return {
     message: `${FA3_ISSUE_LEAD} ${shown}${more}.`,
     field: null,
-    suggestion: 'Popraw wskazane pola w szkicu faktury.',
+    suggestion: 'Popraw wskazane pola.',
   };
 }
 

@@ -103,7 +103,7 @@ Raport dzienny strażnika na Telegram: liczba faktur per stan, naruszenia I1–I
 |---|---|---|---|---|
 | TERMINAL (treść) | `XSD_INVALID` | `InvoiceXmlSchemaError` | `draft` | „Faktura nie trafiła do KSeF. Pole „NIP nabywcy” ma niepoprawny format.” z polem w `last_error_field` i podpowiedzią w `last_error_suggestion` (U3, `lib/xml/fa3-pola.ts`); bez pola: ogólne zdanie z adresem pomocy |
 | TERMINAL | `KSEF_REJECTED_<kod>` | status faktury ≥ 400 (poza 440), HTTP 4xx poza 401/403/408/429 | `draft` | „KSeF odrzucił fakturę: …” |
-| TERMINAL | `INVALID_DOCUMENT` | `validateInvoice`, `assertSubmitReferences`, `manual reconciliation` strażników treści | `draft` (po poprawie referencji) | „Dokument wymaga poprawy: …” |
+| TERMINAL | `INVALID_DOCUMENT` | `validateInvoice`, `assertSubmitReferences`, `manual reconciliation` strażników treści | `draft` (po poprawie referencji) | „Faktura nie trafiła do KSeF. <komunikaty walidacji z nazwami pól>” (U3, bez nazwy klasy błędu) |
 | TRANSIENT | `KSEF_UNAVAILABLE` | 5xx, 503, timeout, `ECONNRESET`, 408 | `queued` (auto co 60 min / 24 h; KOR/ZAL z kopią tylko w dniu wystawienia) | „KSeF nie odpowiada. Ponowimy wysyłkę automatycznie.” (KOR/ZAL: „…tylko do północy”) |
 | TRANSIENT | `KSEF_RATE_LIMIT` | 429 z `Retry-After`; od L1a 429 to najpierw pauza firmy bez kodu w fakturze (w logach `KSEF_RATE_LIMIT_PAUSE`), a kod zapisuje się po wyczerpaniu prób, gdy łańcuch pauz przekroczy dobę (runbook `hamulce-ksef.md`) | `queued` (auto) | jak wyżej |
 | TRANSIENT | `KSEF_SESSION` | 401, 21184 | `queued` (auto) | jak wyżej |
