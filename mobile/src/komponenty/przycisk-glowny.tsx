@@ -33,6 +33,8 @@ export type PrzyciskGlownyProps = {
    * w pasku przypiętym nad treścią, który przy największym tekście zabierał jej ćwierć ekranu.
    */
   maksSkalaTekstu?: number;
+  /** Etykieta dla czytnika ekranu, gdy widoczny napis jest krótszy (np. bez kwoty); domyślnie tytuł. */
+  etykietaDostepnosci?: string;
   onPress: () => void;
 };
 
@@ -45,7 +47,7 @@ const KOLORY: Record<Wariant, { tlo: keyof Kolory; tresc: keyof Kolory }> = {
   naGradiencie: { tlo: 'naGradiencie', tresc: 'gradientGora' },
 };
 
-export function PrzyciskGlowny({ tytul, ikona, wariant = 'glowny', trwa, maksSkalaTekstu, onPress }: PrzyciskGlownyProps) {
+export function PrzyciskGlowny({ tytul, ikona, wariant = 'glowny', trwa, maksSkalaTekstu, etykietaDostepnosci, onPress }: PrzyciskGlownyProps) {
   const kolory = useKolory();
   const ciemny = useCiemny();
   const kolorTresci = kolory[KOLORY[wariant].tresc];
@@ -55,7 +57,7 @@ export function PrzyciskGlowny({ tytul, ikona, wariant = 'glowny', trwa, maksSka
       wibracja={wariant === 'glowny' && !trwa}
       fala={wariant === 'glowny' ? kolory.falaNaAkcencie : undefined}
       accessibilityRole="button"
-      accessibilityLabel={tytul}
+      accessibilityLabel={etykietaDostepnosci ?? tytul}
       accessibilityState={{ busy: Boolean(trwa) }}
       style={[
         styles.przycisk,

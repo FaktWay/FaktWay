@@ -13,11 +13,20 @@ import { SKALA_PIONOWA } from './odstepy';
 export const MAKS_SKALA_TEKSTU_PASKA = 1.6;
 
 /**
- * Tytuł przycisku wysyłki: „Wyślij do KSeF · 1 230,00 zł”. Kwotę pokazuje też
- * „Podsumowanie” w formularzu, więc przy dużym tekście, gdzie zawinięty napis
- * zajmował około ćwierci ekranu, zostaje sam czasownik.
+ * Etykieta przycisku wysyłki dla czytnika ekranu: zawsze z kwotą, bo to akcja
+ * nieodwracalna (po wysłaniu do KSeF fakturę zmienisz tylko korektą), a ludzie
+ * z VoiceOver często używają też dużego tekstu.
+ */
+export function etykietaPrzyciskuWysylki(czasownik: string, kwotaTekst: string | undefined): string {
+  return kwotaTekst === undefined ? czasownik : `${czasownik} · ${kwotaTekst}`;
+}
+
+/**
+ * Tytuł widoczny na przycisku wysyłki: „Wyślij do KSeF · 1 230,00 zł”. Kwotę
+ * pokazuje też „Podsumowanie” w formularzu, więc przy dużym tekście, gdzie
+ * zawinięty napis zajmował około ćwierci ekranu, zostaje sam czasownik.
  */
 export function tytulPrzyciskuWysylki(czasownik: string, kwotaTekst: string | undefined, fontScale: number): string {
-  if (kwotaTekst === undefined || fontScale >= SKALA_PIONOWA) return czasownik;
-  return `${czasownik} · ${kwotaTekst}`;
+  if (fontScale >= SKALA_PIONOWA) return czasownik;
+  return etykietaPrzyciskuWysylki(czasownik, kwotaTekst);
 }

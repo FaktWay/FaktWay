@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { SKALA_PIONOWA } from '../../mobile/src/wyglad/odstepy';
-import { MAKS_SKALA_TEKSTU_PASKA, tytulPrzyciskuWysylki } from '../../mobile/src/wyglad/pasek-dolny';
+import { etykietaPrzyciskuWysylki, MAKS_SKALA_TEKSTU_PASKA, tytulPrzyciskuWysylki } from '../../mobile/src/wyglad/pasek-dolny';
 
 const FORMULARZ = readFileSync(join(__dirname, '../../mobile/src/app/(zakladki)/faktury/nowa/[rodzaj].tsx'), 'utf8');
 const PRZYCISK = readFileSync(join(__dirname, '../../mobile/src/komponenty/przycisk-glowny.tsx'), 'utf8');
@@ -45,6 +45,17 @@ describe('tytulPrzyciskuWysylki: kwota na przycisku tylko, gdy się mieści', ()
   });
 });
 
+describe('etykietaPrzyciskuWysylki: czytnik ekranu zawsze słyszy kwotę', () => {
+  it('niesie kwotę niezależnie od skali tekstu', () => {
+    expect(etykietaPrzyciskuWysylki('Wyślij do KSeF', '1 230,00 zł')).toBe('Wyślij do KSeF · 1 230,00 zł');
+    expect(etykietaPrzyciskuWysylki('Wyślij korektę', '-123,00 zł')).toBe('Wyślij korektę · -123,00 zł');
+  });
+
+  it('bez kwoty (jeszcze nie wyliczona) to sam czasownik', () => {
+    expect(etykietaPrzyciskuWysylki('Wyślij do KSeF', undefined)).toBe('Wyślij do KSeF');
+  });
+});
+
 describe('formularz faktury: pasek dolny przy dużym tekście', () => {
   it('tytuł przycisku wysyłki idzie przez tytulPrzyciskuWysylki, nie przez sklejanie kwoty w miejscu', () => {
     expect(FORMULARZ).toContain('tytulPrzyciskuWysylki(');
@@ -54,6 +65,16 @@ describe('formularz faktury: pasek dolny przy dużym tekście', () => {
   it('miejsce pod paskiem wynika z zmierzonej wysokości paska, nie ze stałej', () => {
     expect(FORMULARZ).toMatch(/onLayout=\{[^}]*layout\.height/);
     expect(FORMULARZ).not.toMatch(/paddingBottom:\s*WYSOKOSC_PASKA\b/);
+  });
+
+  it('VoiceOver nie traci kwoty: etykieta dostępności przycisku wysyłki niesie ją niezależnie od skali tekstu (drugi czytelnik)', () => {
+    expect(PRZYCISK).toMatch(/etykietaDostepnosci\?:\s*string/);
+    expect(PRZYCISK).toMatch(/accessibilityLabel=\{etykietaDostepnosci \?\? tytul\}/);
+    expect(FORMULARZ).toMatch(/etykietaDostepnosci=\{etykietaPrzyciskuWysylki\(przyciskWyslij, kwotaPrzycisku\)\}/);
+  });
+
+  it('pasek, który chwilowo się kurczy (kółko zamiast napisu), nie cofa miejsca pod nim: treść nie skacze', () => {
+    expect(FORMULARZ).toMatch(/setWysokoscPaska\(\(\w+\) => Math\.max\(\w+, /);
   });
 
   it('przyciski paska mają sufit skali tekstu', () => {

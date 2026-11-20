@@ -85,6 +85,11 @@ SF, bo menu iOS przyjmuje tylko je.
 - **Dynamic Type obowiązkowo.** Każdy ekran działa przy największym tekście
   z ustawień dostępności: tekst się zawija, nic się nie ucina, układ może przejść
   z poziomego w pionowy (wiersze, kafle po jednym w rzędzie).
+  Wyjątek: przycisk w dolnym pasku formularza faktury (obchód U38, 20.11.2026).
+  Napis ma sufit skali 1,6 (`MAKS_SKALA_TEKSTU_PASKA`), a od skali 1,5 niesie
+  sam czasownik bez kwoty (kwotę pokazuje „Podsumowanie”, czytnik ekranu czyta
+  ją w etykiecie), bo pasek przypięty nad treścią zabierał jej ćwierć ekranu.
+  Miejsce pod paskiem wynika z jego zmierzonej wysokości.
 - **Kwoty** w listach wyrównane do prawej, format z `lib/format`
   („1 234,56 zł”, twarda spacja przed „zł”).
 - **Duże kwoty** (nagłówek ekranu, suma „Do zapłaty”, szczegół dokumentu,

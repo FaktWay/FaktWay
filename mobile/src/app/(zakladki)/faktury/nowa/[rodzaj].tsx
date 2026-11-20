@@ -62,7 +62,7 @@ import { szukajWGus, useKontekstKorekty, useWyliczenie, useZaliczkiDoRozliczenia
 import { useStanFaktur, type ZapisNaKoncie } from '@/stan/faktury';
 import { useKolory } from '@/wyglad/kolory';
 import { CEL_DOTYKU, MARGINES, ODSTEP, PROMIEN_PIGULKI } from '@/wyglad/odstepy';
-import { MAKS_SKALA_TEKSTU_PASKA, tytulPrzyciskuWysylki } from '@/wyglad/pasek-dolny';
+import { etykietaPrzyciskuWysylki, MAKS_SKALA_TEKSTU_PASKA, tytulPrzyciskuWysylki } from '@/wyglad/pasek-dolny';
 
 const TYTUL: Record<RodzajFaktury, string> = {
   vat: 'Nowa faktura',
@@ -616,6 +616,7 @@ function FormularzFaktury() {
         : rodzaj === 'korygujaca'
           ? zmianaKorekty
           : sumaNetto + sumaVat;
+  const kwotaPrzycisku = doZaplatyFormularza === undefined ? undefined : kwota(doZaplatyFormularza);
   const terminData = dodajDni(dataWyst, Number(termin));
   const znanyNabywca = nabywcy.some((k) => k.nazwa === nazwa);
   const nabywcaZwiniety = znanyNabywca && !edycjaNabywcy && !bledy.nazwa && !bledy.nip && !bledy.adres;
@@ -1129,7 +1130,11 @@ function FormularzFaktury() {
       {/* W arkuszu `useSafeAreaInsets` zawyża dolny margines (sprawdzone w symulatorze), więc stałe 32 pt nad paskiem domowym. */}
       <View
         style={[styles.pasek, { paddingBottom: ODSTEP.xxl, backgroundColor: kolory.tloGrupowane }]}
-        onLayout={(e) => setWysokoscPaska(Math.ceil(e.nativeEvent.layout.height))}>
+        // Tylko w górę: pasek z kółkiem zamiast napisu (trwa wysyłka) jest niższy, a treść nie ma skakać.
+        onLayout={(e) => {
+          const wysokosc = Math.ceil(e.nativeEvent.layout.height);
+          setWysokoscPaska((p) => Math.max(p, wysokosc));
+        }}>
         <Dotyk
           onPress={() => setPodglad((p) => !p)}
           accessibilityRole="button"
@@ -1143,7 +1148,8 @@ function FormularzFaktury() {
             <PrzyciskGlowny tytul="Zapisz szkic" ikona="file-text-line" trwa={trwa === 'szkic'} maksSkalaTekstu={MAKS_SKALA_TEKSTU_PASKA} onPress={() => void zapisz(false)} />
           ) : (
             <PrzyciskGlowny
-              tytul={tytulPrzyciskuWysylki(przyciskWyslij, doZaplatyFormularza === undefined ? undefined : kwota(doZaplatyFormularza), fontScale)}
+              tytul={tytulPrzyciskuWysylki(przyciskWyslij, kwotaPrzycisku, fontScale)}
+              etykietaDostepnosci={etykietaPrzyciskuWysylki(przyciskWyslij, kwotaPrzycisku)}
               ikona="send-plane-line"
               trwa={trwa === 'wyslij'}
               maksSkalaTekstu={MAKS_SKALA_TEKSTU_PASKA}
