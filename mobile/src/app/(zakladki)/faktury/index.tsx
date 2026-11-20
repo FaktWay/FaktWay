@@ -16,7 +16,7 @@ import { StanPusty } from '@/komponenty/stan-pusty';
 import { WierszFaktury } from '@/komponenty/wiersz-faktury';
 import { grosze } from '@/lib/dane/mapowanie';
 import { dataKrotka, dniMiedzy, kwota } from '@/lib/format';
-import { dni, doZaplaty, ileFaktur, pozostaloDoZaplaty, statusFaktury } from '@/lib/status-faktury';
+import { dni, doZaplaty, ileFaktur, naleznosciOtwarte, statusFaktury, sumaDoZaplaty, wZlotych } from '@/lib/status-faktury';
 import { useStanFaktur } from '@/stan/faktury';
 import { podpisPrzypomnien, useNaleznosci } from '@/stan/naleznosci';
 import { MARGINES, ODSTEP } from '@/wyglad/odstepy';
@@ -53,20 +53,9 @@ function grupujPoMiesiacu(faktury: Faktura[]): [string, Faktura[]][] {
   return [...grupy.entries()];
 }
 
-const wZlotych = (f: Faktura) => !f.waluta || f.waluta === 'PLN';
-
 /** Suma w złotych; faktury w walutach obcych (z bazy) nie dodają się do złotówek. */
 function suma(faktury: Faktura[]): number {
   return faktury.reduce((s, f) => s + (wZlotych(f) ? f.brutto : 0), 0);
-}
-
-/**
- * Ile klienci jeszcze winni w złotych: `pozostaloDoZaplaty` (na fakturze
- * rozliczającej reszta po zaliczkach, od wpłat częściowych odjęte), nie suma
- * `brutto`. Suma `brutto` to wartość faktur (`suma`), nie należność.
- */
-function sumaDoZaplaty(faktury: Faktura[]): number {
-  return faktury.reduce((s, f) => s + (wZlotych(f) ? pozostaloDoZaplaty(f) : 0), 0);
 }
 
 function pasujeStatusKsef(f: Faktura, filtr: (typeof STATUSY_KSEF)[number]): boolean {
@@ -118,7 +107,7 @@ export default function EkranFaktur() {
   // Prawdziwe konto (M10a): „Po terminie” z serwera, jak strona (stan przypomnień, limit 100).
   const naleznosci = useNaleznosci(widok === 2);
 
-  const otwarte = faktury.filter(doZaplaty);
+  const otwarte = naleznosciOtwarte(faktury);
   const zalegle = otwarte.filter((f) => statusFaktury(f, dzis).zalegla);
   // Licznik „Po terminie” na prawdziwym koncie z tej samej listy co widok (zasady strony), gdy już ją mamy.
   const zaplaconeTeraz = new Set(faktury.filter((f) => f.zaplacona).map((f) => f.id));

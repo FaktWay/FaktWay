@@ -82,6 +82,13 @@ export type Faktura = {
    * Brak pola: do zapłaty jest całe brutto.
    */
   kwotaDoZaplaty?: number;
+  /**
+   * Faktura, do której ta jest korektą (`parent_invoice_id`, dane z bazy). Faktura z
+   * „dzieckiem” (korektą albo rozliczeniem) nie jest należnością: `naleznosciOtwarte`.
+   */
+  rodzicId?: string;
+  /** Zaliczki rozliczone tą fakturą (`advance_invoice_ids`, dane z bazy): zaliczka z rozliczeniem nie jest należnością. */
+  zaliczkiId?: string[];
 };
 
 export type MetodaPlatnosci = 'Przelew' | 'Gotówka' | 'Karta' | 'Płatność mobilna' | 'Kompensata' | 'Inna';
