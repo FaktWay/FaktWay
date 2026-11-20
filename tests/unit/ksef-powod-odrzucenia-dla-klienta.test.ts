@@ -173,10 +173,12 @@ async function failAndExhaust(invoice: Invoice): Promise<{ error: Error; patch: 
 }
 
 /** Teksty techniczne, których klient nie ma widzieć ani na stronie, ani w telefonie. */
-const TECHNICZNE = [/NonRetriableError/, /Schemas validity/, /facet/, /crd\.gov\.pl/, /Linia \d+:/, /pattern/, /atomic type/];
+const TECHNICZNE = ['NonRetriableError', 'Schemas validity', 'facet', 'crd.gov.pl', 'pattern', 'atomic type'];
 
 function czystyDlaKlienta(tekst: unknown): void {
-  for (const wzorzec of TECHNICZNE) expect(String(tekst), String(wzorzec)).not.toMatch(wzorzec);
+  const text = String(tekst);
+  for (const fragment of TECHNICZNE) expect(text.includes(fragment), fragment).toBe(false);
+  expect(text, 'numer linii libxml').not.toMatch(/Linia \d+:/);
 }
 
 beforeEach(() => {

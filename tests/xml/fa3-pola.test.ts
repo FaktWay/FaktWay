@@ -141,7 +141,10 @@ describe('U3: nazwa pola z pierwszego błędu XSD', () => {
     for (const [el, wartosc] of [['NIP', '1000000012'], ['P_12', '99'], ['P_8B', '1.1234567890']] as const) {
       const issue = await opis(podmien(xmlZwykly(), el, wartosc));
       const tekst = `${issue?.message} ${issue?.field} ${issue?.suggestion}`;
-      expect(tekst).not.toMatch(/Schemas validity|facet|crd\.gov\.pl|Linia \d|pattern|atomic/);
+      for (const fragment of ['Schemas validity', 'facet', 'crd.gov.pl', 'pattern', 'atomic']) {
+        expect(tekst.includes(fragment), fragment).toBe(false);
+      }
+      expect(tekst).not.toMatch(/Linia \d/);
       expect(tekst).not.toContain('—');
     }
   });
