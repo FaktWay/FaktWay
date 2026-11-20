@@ -622,26 +622,32 @@ Android 15 albo nowszy; drugi obraz z Androidem 12 do punktu 13). Zrzuty do
 ## 9. Dziennik
 
 **Następny krok:** M10d część 2 (KPiR raportu, ewidencja modułu z wpisami,
-spisem z natury, JPK_PKPIR i JPK_EWP, eksport dla księgowej; część 1 w #809)
-albo M10c część 2b (włączenie i wyłączenie 2FA oraz certyfikat KSeF z
-telefonu; ustalenia w „Z M10c zostaje”), potem M12b (Android na emulatorze, checklista w sekcji 7a), gdy
-Bartosz zainstaluje Android Studio, SDK i obraz emulatora (około 10 GB). M11
+spisem z natury, JPK_PKPIR i JPK_EWP, eksport dla księgowej; część 1 w #809),
+potem M12b (Android na emulatorze, checklista w sekcji 7a), gdy Bartosz
+zainstaluje Android Studio, SDK i obraz emulatora (około 10 GB). M11
 (powiadomienia push, logowanie Apple) i M13 (sklep) czekają na płatne konto
-Apple. M10c część 1 (Firma, Przypomnienia, Powiadomienia) w #808, część 2a
-(hasło, klucze dostępu) w PR z dziennika.
-**Z M10c zostaje:** (1) część 2b jako osobny PR (hasło i klucze dostępu są w
-części 2a): 2FA (`enrollTotpAction` i reszta z
-`settings/security/actions.ts`, limit w Redisie; po `mfa.verify` GoTrue wydaje
-nową sesję AAL2, którą trasa musi oddać telefonowi jak `POST /kod`; wyłączenie
-potwierdza hasłem jak `unenrollTotpAction`, wzór sprawdzenia hasła w
-`lib/api/mobile/ustawienia-bezpieczenstwo.ts`), dodanie klucza dostępu w
-aplikacji (WebAuthn i powiązana domena, czyli konto Apple), certyfikat KSeF (logika w
-całości w `components/settings/actions.ts`, do wydzielenia do `lib/ksef/`;
-wybór pliku wymaga nowej paczki natywnej `expo-document-picker` i nowego
-buildu); (2) obchód w symulatorze nie zrobiony (trasy sprawdzone testami,
-zapisy na bazie testem RLS w CI); (3) akcja strony `updateReminderSettingsAction`
+Apple. M10c (zapisy ustawień z telefonu) jest domknięte: część 1 w #808
+(Firma, Przypomnienia, Powiadomienia), część 2a w #815 (hasło, klucze
+dostępu), część 2b w PR z dziennika (2FA, certyfikat KSeF).
+**Z M10c zostaje:** (1) dodanie klucza dostępu w aplikacji (WebAuthn i
+powiązana domena, czyli konto Apple; do tego czasu na faktway.pl); (2)
+certyfikat KSeF wkleja się dziś ze schowka (pliki .crt i .key w formacie PEM,
+bez nowej paczki natywnej; po wklejeniu klucza schowek jest czyszczony); do
+sprawdzenia na telefonie: na iOS plik .crt może otwierać instalację profilu, a
+.key nie ma podglądu tekstu, więc skopiowanie treści bywa kłopotliwe (druga
+droga: wgranie na faktway.pl); wybór pliku z Plików (`expo-document-picker`) wymaga
+nowego buildu i dojdzie z M12b albo M13; plik DER (binarny) wgrywa się na
+faktway.pl; (3) 2FA: bez kodu QR (telefon nie zeskanuje własnego ekranu):
+klucz do wpisania i przycisk otwierający aplikację uwierzytelniającą
+(`otpauth://`), bez kodów ratunkowych (strona też ich nie wydaje); po
+włączeniu telefon przyjmuje nową sesję z odpowiedzi (`setSession`; GoTrue
+unieważnia przy kodzie stary refresh token), po wyłączeniu odświeża token, a
+przy porażce prosi o kod jak zwykle; (4) obchód w symulatorze nie zrobiony dla
+żadnej części (trasy sprawdzone testami, zapisy firmy i przypomnień na bazie
+testem RLS w CI; rdzeń certyfikatu pokrywa `ksef-certificate-claim-action.test.ts`
+na tym samym kodzie co strona); (5) akcja strony `updateReminderSettingsAction`
 nie pisze do dziennika zdarzeń i nie ma schematu po stronie serwera (granice
-tylko w formularzu), telefon ma oba; (4) `tests/unit/anthropic-limit-czasu.test.ts`
+tylko w formularzu), telefon ma oba; (6) `tests/unit/anthropic-limit-czasu.test.ts`
 (LIM-05) bywa czerwony w pełnym Vitest i osobno (niestabilny czas), poza M10c.
 **Z M8b zostaje:** obchód w symulatorze i zrzuty (`docs/mobile/zrzuty/m8b/`)
 oraz zaliczka i korekta przyjęte w KSeF TEST z telefonu (dziś dowodem jest
@@ -730,4 +736,5 @@ dotknięciem (5.2), D4, D6.
 | 15.11.2026 | M8b | faktury z telefonu w zgodności ze stroną (4.3, „Stan po M8b”): zaliczka, rozliczenie zaliczek (szkic, wysyłka ROZ wstrzymana jak na stronie) i korekta (kwotowa, danych, anulowanie; faktura pierwotna z serwera) przez `POST /faktury`, kwoty z serwera (`/faktury/wyliczenie`), „Wyślij ponownie”, „Wróć do szkicu”, usunięcie i zmiana szkicu, nabywca z UE i z PESEL, GUS po NIP; logika akcji strony w `lib/invoices/` bez zmiany zachowania. Testy: trasy 41 (czerwone na main, z FA(3) przez XSD), formularz 9, baza 5, filtr zielony; pełny vitest znalazł 3 strażniki przeniesionego kodu (poprawione). Bez obchodu w symulatorze (port 8081 i limit użycia), bez KSeF TEST z telefonu | #789 |
 | 16.11.2026 | M10c (część 1) | zapisy ustawień z telefonu (D3) na logice strony: karta Firma (nazwa i adres, rachunek, data rozpoczęcia, zwolnienie z VAT, metoda kasowa; zapis wydzielony z akcji strony do `lib/settings/company-settings.ts` bez zmiany zachowania, właściciel i administrator, dziennik z `client: mobile`), Przypomnienia o zapłacie (cały formularz strony, granice `REMINDER_LIMITS`, tylko właściciel, upsert tokenem z RLS), e-maile w Powiadomieniach (zgoda i wypis wydzielone do `lib/email/settings-toggle.ts`, źródło `mobile_settings`); trasy `POST /ustawienia/firma`, `POST /ustawienia/przypomnienia`, `GET/POST /ustawienia/powiadomienia`, kod `settings_invalid` (422 z polem); w aplikacji arkusz `firma-zmiana` z „Odrzucić zmiany?”, formularz przypomnień, przełączniki e-mail. Naprawa z M10b (4): formularz przypomnień strony bez zapisu pokazuje „wyłączone”. Testy: trasy (37, brak i zły token, rola, schematy, audyt), formularz strony (czerwony na main), RLS zapisów w CI; drugi czytelnik z listą kontrolną, 6 uwag poprawionych. Bez migracji, bez obchodu w symulatorze | #808 |
 | 16.11.2026 | M10c (część 2a) | hasło i klucze dostępu z telefonu tymi samymi warunkami co strona: `POST /ustawienia/haslo` (2FA z bramki, aktualne hasło przez `confirmAccountPassword` ze wspólnym limitem prób, bez Redisa odmowa, `validatePassword`, zapis w GoTrue tokenem telefonu z `current_password`, kod z e-maila przy `reauthentication_needed`: `POST /ustawienia/haslo/kod` z limitem wysyłek), `GET /ustawienia/klucze` i usunięcie klucza (limit `passkey_manage`, RLS 00159, wylogowanie pozostałych sesji, dziennik), kod `password_code_required`; w aplikacji arkusz „Zmień hasło” i lista kluczy z usunięciem w arkuszu akcji. Testy tras (27, mutacja 4 czerwone), drugi czytelnik bez błędów (6 drobnych uwag, 5 poprawionych). Bez migracji, bez obchodu w symulatorze (limit użycia) | #815 |
+| 20.11.2026 | M10c (część 2b) | 2FA i certyfikat KSeF z telefonu tymi samymi warunkami co strona: włączanie TOTP (`POST /ustawienia/2fa/start` i `/potwierdzenie`: limit prób 2FA w Redisie fail-closed, stare niepotwierdzone czynniki usuwane, kod 6 cyfr, nowa sesja sprawdzona jako AAL2, wpis `auth.mfa_enrolled`), wyłączenie (`/2fa/wylaczenie`: sesja po kodzie, aktualne hasło ze wspólnym limitem, kody ratunkowe przed czynnikami, `auth.mfa_unenrolled`), certyfikat (`POST /ustawienia/ksef`: tylko właściciel z 2FA po kodzie, rdzeń WYDZIELONY z akcji strony do `lib/ksef/upload-certificate.ts` bez zmiany zachowania: limit 5 prób na godzinę, logowanie do KSeF, własność NIP, szyfrowanie, RPC z audytem); w aplikacji arkusze „Weryfikacja dwuetapowa” (klucz i przycisk `otpauth://`) i „Certyfikat KSeF” (PEM ze schowka, klucz nie jest pokazywany), wiersze w Bezpieczeństwie i KSeF. Testy tras (41, mutacje 4 czerwone), drugi czytelnik z listą kontrolną (9 uwag poprawionych, w tym nowa sesja zamiast odświeżania starym refresh tokenem po włączeniu 2FA). Naprawa z #815: wpis mapy ryzyka trafił do wyłączeń zamiast do obszaru (straż żądała `zgoda:zmiana-filtra`, #815 stał OPEN do 20.11). Bez migracji, bez obchodu w symulatorze | PR_M10C3 |
 | 16.11.2026 | M10d, część 1 | VAT, nadwyżka VAT i zapłaty spoza wyliczenia z telefonu (D3): logika strony wydzielona do `lib/` bez zmiany zachowania (plik JPK_V7M `lib/ksiegowosc/vat-plik.ts`, zapłata spoza wyliczenia `dodajZaplateReczna` w `ten-miesiac-zapis.ts`, nazwy stanów wysyłki i opis odmowy MF w `wysylka-jpk/statusy.ts`); trasy `GET /ksiegowosc/vat`, `POST /ksiegowosc/vat/plik`, `POST /ksiegowosc/zaplaty-reczne`, „Ten miesiąc” z `?nadwyzka=` i nadwyżką w zatwierdzeniu; kontrakt `lib/api/mobile/kontrakt-ksiegowosc.ts`. Telefon: ekran VAT na prawdziwym koncie (kwoty, termin, przelew, nadwyżka z polem, plik w arkuszu udostępniania, lista wysyłek), w „Ten miesiąc” pole nadwyżki i zapłaty spoza wyliczenia. Testy: trasy 18 (czerwone przed zmianą; brak i zły token, kwoty równe `vatMiesiaca`, plik równy akcji strony, te same wywołania zapisu), pełny vitest zielony, filtr lokalnie zielony; drugi czytelnik (Opus, lista kontrolna): 17 uwag, 2 blokujące poprawione. Bez obchodu w symulatorze (limit użycia) | #809 |

@@ -79,8 +79,14 @@ export interface Potwierdzenie2faZadanie {
   kod: string;
 }
 
+/**
+ * `sesja`: nowa sesja po kodzie (AAL2) dla `supabase.auth.setSession`, jak w
+ * `KodOdpowiedz` (`POST /kod`). GoTrue unieważnia przy tym stary refresh token
+ * sesji, więc telefon musi przyjąć nowy, a nie odświeżać starym.
+ */
 export interface Potwierdzenie2faOdpowiedz {
   wlaczone: true;
+  sesja: { accessToken: string; refreshToken: string };
 }
 
 /**

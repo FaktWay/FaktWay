@@ -518,7 +518,8 @@ function DaneZBazy({ children }: { children: ReactNode }) {
     zapytaj,
     // M10c, część 2b.
     odswiezKonto: async () => {
-      const k = await zapytajApi<KontoOdpowiedz>('konto');
+      // Przez `zapytaj`: odmowa `mfa_required` otwiera ekran kodu, a koniec sesji wylogowuje, jak przy zapisach.
+      const k = await zapytaj<KontoOdpowiedz>('konto', { bezFirmy: true });
       if (k.ok) setDane((d) => ({ ...d, konto: k.dane }));
     },
   };

@@ -22,6 +22,8 @@ const ORG = 'aaaaaaaa-0000-4000-8000-000000000001';
 const U_NO2FA = 'aaaaaaaa-1111-4111-8111-000000000001';
 const U_2FA = 'aaaaaaaa-1111-4111-8111-000000000002';
 const U_MEMBER = 'aaaaaaaa-1111-4111-8111-000000000003';
+const U_GOOGLE = 'aaaaaaaa-1111-4111-8111-000000000004';
+const U_DWA = 'aaaaaaaa-1111-4111-8111-000000000005';
 const FACTOR_OLD = 'ffffffff-0000-4000-8000-000000000001';
 const FACTOR_NEW = 'ffffffff-0000-4000-8000-000000000002';
 const FACTOR_2FA = 'ffffffff-0000-4000-8000-000000000003';
@@ -106,6 +108,8 @@ type Wyjscie = { metoda: string; sciezka: string; token: string | null; tresc: u
 let wyjscia: Wyjscie[] = [];
 let kodPoprawny = KOD;
 let awariaUsuwania: string | null = null;
+/** Atrapa GoTrue przy kodzie: sesja po kodzie jest AAL1 (błąd po stronie GoTrue), nie AAL2. */
+let weryfikacjaAal1 = false;
 
 const eq = (url: URL, column: string) => {
   const value = url.searchParams.get(column);
@@ -152,7 +156,7 @@ async function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
       const body = JSON.parse(tekst) as { code: string };
       if (body.code !== kodPoprawny) return Response.json({ error_code: 'mfa_verification_failed', msg: 'Invalid TOTP code entered' }, { status: 422 });
       u.factors = u.factors.map((f) => (f.id === id ? { ...f, status: 'verified' } : f));
-      return Response.json({ access_token: token(sub, 'aal2'), refresh_token: 'nowy-refresh', token_type: 'bearer', expires_in: 3600 });
+      return Response.json({ access_token: token(sub, weryfikacjaAal1 ? 'aal1' : 'aal2'), refresh_token: 'nowy-refresh', token_type: 'bearer', expires_in: 3600 });
     }
   }
   if (url.pathname === '/rest/v1/memberships') {
@@ -174,11 +178,14 @@ let T_NO2FA = '';
 let T_2FA = '';
 let T_2FA_AAL1 = '';
 let T_MEMBER = '';
+let T_GOOGLE = '';
+let T_DWA = '';
 
 beforeEach(() => {
   wyjscia = [];
   kodPoprawny = KOD;
   awariaUsuwania = null;
+  weryfikacjaAal1 = false;
   fake.state.count = 1;
   fake.state.redis = true;
   fake.audit.mockClear();
@@ -189,6 +196,18 @@ beforeEach(() => {
   users[U_NO2FA] = { email: 'jan@example.test', providers: ['email'], password: HASLO, factors: [{ id: FACTOR_OLD, factor_type: 'totp', status: 'unverified' }] };
   users[U_2FA] = { email: 'ewa@example.test', providers: ['email'], password: HASLO, factors: [{ id: FACTOR_2FA, factor_type: 'totp', status: 'verified' }] };
   users[U_MEMBER] = { email: 'kasia@example.test', providers: ['email'], password: HASLO, factors: [{ id: 'ffffffff-0000-4000-8000-000000000009', factor_type: 'totp', status: 'verified' }] };
+  users[U_GOOGLE] = { email: 'ola@example.test', providers: ['google'], factors: [{ id: 'ffffffff-0000-4000-8000-00000000000a', factor_type: 'totp', status: 'verified' }] };
+  users[U_DWA] = {
+    email: 'dwa@example.test',
+    providers: ['email'],
+    password: HASLO,
+    factors: [
+      { id: 'ffffffff-0000-4000-8000-00000000000b', factor_type: 'totp', status: 'verified' },
+      { id: 'ffffffff-0000-4000-8000-00000000000c', factor_type: 'totp', status: 'verified' },
+    ],
+  };
+  T_GOOGLE = token(U_GOOGLE, 'aal2');
+  T_DWA = token(U_DWA, 'aal2');
   T_NO2FA = token(U_NO2FA, 'aal1');
   T_2FA = token(U_2FA, 'aal2');
   T_2FA_AAL1 = token(U_2FA, 'aal1');
@@ -287,8 +306,10 @@ describe('POST /ustawienia/2fa/potwierdzenie', () => {
   it('dobry kod: wyzwanie i kod w GoTrue tokenem telefonu, nowa sesja sprawdzona, wpis w dzienniku, tokenów nie oddaje', async () => {
     const response = await potwierdz({ idFaktora: FACTOR_NEW, kod: KOD });
     expect(response.status).toBe(200);
-    // Tylko `{ wlaczone: true }`: nowych tokenów telefon nie dostaje (odświeża sesję sam).
-    expect(await response.json()).toEqual({ wlaczone: true });
+    // Nowa sesja po kodzie (AAL2) dla `setSession`: GoTrue unieważnia stary refresh token, więc telefon nie może odświeżać starym.
+    const body = await response.json();
+    expect(body).toEqual({ wlaczone: true, sesja: { accessToken: expect.any(String), refreshToken: 'nowy-refresh' } });
+    expect(JSON.parse(Buffer.from(body.sesja.accessToken.split('.')[1], 'base64url').toString())).toMatchObject({ sub: U_NO2FA, aal: 'aal2' });
     expect(zapisyGoTrue('POST', /challenge$/)[0]).toMatchObject({ token: T_NO2FA });
     expect(zapisyGoTrue('POST', /verify$/)[0]).toMatchObject({ token: T_NO2FA, tresc: { challenge_id: 'chal-1', code: KOD } });
     expect(users[U_NO2FA]!.factors[0]!.status).toBe('verified');
@@ -334,6 +355,25 @@ describe('POST /ustawienia/2fa/potwierdzenie', () => {
   it('treść spoza kontraktu: 400 `invalid_request`', async () => {
     expect((await potwierdz({ idFaktora: FACTOR_NEW, kod: KOD, sekret: 'x' })).status).toBe(400);
   });
+
+  it('GoTrue przyjął kod, ale nowa sesja nie jest AAL2: 503, zero wpisów w dzienniku, bez tokenów w odpowiedzi', async () => {
+    weryfikacjaAal1 = true;
+    const response = await potwierdz({ idFaktora: FACTOR_NEW, kod: KOD });
+    expect(response.status).toBe(503);
+    const tekst = await response.text();
+    expect(tekst).not.toContain('nowy-refresh');
+    expect(fake.audit).not.toHaveBeenCalled();
+  });
+
+  it('sekret TOTP, kod i hasło nie trafiają do console.error', async () => {
+    const blad = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await startRoute(req('2fa/start', { token: T_NO2FA }));
+    await potwierdz({ idFaktora: FACTOR_NEW, kod: '654321' });
+    await wylaczenieRoute(req('2fa/wylaczenie', { token: T_2FA, body: { haslo: 'Zle-haslo-123!' } }));
+    const wszystko = JSON.stringify(blad.mock.calls);
+    for (const poufne of ['JBSWY3DPEHPK3PXP', '654321', 'Zle-haslo-123!', HASLO]) expect(wszystko).not.toContain(poufne);
+    blad.mockRestore();
+  });
 });
 
 describe('POST /ustawienia/2fa/wylaczenie', () => {
@@ -348,6 +388,25 @@ describe('POST /ustawienia/2fa/wylaczenie', () => {
     // Kody ratunkowe przed czynnikami: nieudane sprzątanie zatrzymuje operację (test niżej).
     expect(users[U_2FA]!.factors).toEqual([]);
     expect(fake.audit).toHaveBeenCalledWith({ action: 'auth.mfa_unenrolled', tenantId: null, userId: U_2FA, metadata: { factor_type: 'totp', removed_count: 1, client: 'mobile' } });
+  });
+
+  it('częściowa porażka (dwa czynniki, drugi nie schodzi): 503 do ponowienia, bez wpisu w dzienniku; ponowienie dokańcza', async () => {
+    awariaUsuwania = 'ffffffff-0000-4000-8000-00000000000c';
+    const response = await wylacz({ haslo: HASLO }, T_DWA);
+    expect(response.status).toBe(503);
+    expect((await response.json()).error.message).toContain('Spróbuj ponownie');
+    expect(users[U_DWA]!.factors.map((f) => f.id)).toEqual(['ffffffff-0000-4000-8000-00000000000c']);
+    expect(fake.audit).not.toHaveBeenCalled();
+    awariaUsuwania = null;
+    expect((await wylacz({ haslo: HASLO }, T_DWA)).status).toBe(200);
+    expect(users[U_DWA]!.factors).toEqual([]);
+  });
+
+  it('konto tylko z Google (bez hasła): 403 `forbidden` z drogą na stronie, bez logowania hasłem', async () => {
+    const response = await wylacz({ haslo: HASLO }, T_GOOGLE);
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.code).toBe('forbidden');
+    expect(wyjscia.some((w) => w.sciezka === '/auth/v1/token')).toBe(false);
   });
 
   it('złe hasło: 422 pod polem `obecne`, 2FA zostaje', async () => {
@@ -436,11 +495,12 @@ describe('POST /ustawienia/ksef', () => {
     expect(error.field).toBeUndefined();
   });
 
-  it('limit 5 prób na godzinę: 429 z `Retry-After` z minut w zdaniu strony', async () => {
-    fake.upload.mockResolvedValue({ success: false, reason: 'rate_limited', error: 'Zbyt wiele prób połączenia z KSeF w ciągu godziny. Spróbuj ponownie za około 42 min.' });
+  it('limit 5 prób na godzinę: 429 z `Retry-After` z czasu podanego przez rdzeń', async () => {
+    fake.upload.mockResolvedValue({ success: false, reason: 'rate_limited', error: 'Zbyt wiele prób połączenia z KSeF w ciągu godziny. Spróbuj ponownie za około 42 min.', retryAfter: 2490 });
     const response = await wgraj(PLIKI);
     expect(response.status).toBe(429);
-    expect(response.headers.get('retry-after')).toBe(String(42 * 60));
+    // Czas z rdzenia, nie wyciągnięty ze zdania.
+    expect(response.headers.get('retry-after')).toBe('2490');
   });
 
   it.each(['unavailable', 'save_failed', 'internal_error'] as const)('%s: 503 do ponowienia ze zdaniem strony', async (reason) => {

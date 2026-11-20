@@ -66,6 +66,8 @@ function Wlaczenie({ zapis }: { zapis: ZapisBezpieczenstwa }) {
   const [blad, setBlad] = useState<BladApi>();
   const [nota, setNota] = useState<string>();
   const [trwa, setTrwa] = useState(false);
+  /** Klucz skopiowany do schowka systemowego: po włączeniu czyścimy schowek (Universal Clipboard, inne aplikacje). */
+  const [skopiowano, setSkopiowano] = useState(false);
 
   const odmowa = (b: BladApi) => {
     setBlad(b);
@@ -90,7 +92,16 @@ function Wlaczenie({ zapis }: { zapis: ZapisBezpieczenstwa }) {
     setTrwa(false);
     if (!w.ok) return odmowa(w.blad);
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (skopiowano) await Clipboard.setStringAsync('').catch(() => undefined);
     setFaza('gotowe');
+  };
+
+  const odNowa = () => {
+    setFaza('start');
+    setCzynnik(undefined);
+    setKod('');
+    setBlad(undefined);
+    setNota(undefined);
   };
 
   const otworzAplikacje = async () => {
@@ -106,6 +117,7 @@ function Wlaczenie({ zapis }: { zapis: ZapisBezpieczenstwa }) {
   const skopiuj = async () => {
     if (!czynnik) return;
     await Clipboard.setStringAsync(czynnik.sekret);
+    setSkopiowano(true);
     setNota('Klucz skopiowany. Wklej go w aplikacji uwierzytelniającej.');
   };
 
@@ -133,7 +145,11 @@ function Wlaczenie({ zapis }: { zapis: ZapisBezpieczenstwa }) {
       <Sekcja naglowek="2. Wpisz kod z aplikacji">
         <PoleTekstowe etykieta="Kod (6 cyfr)" wartosc={kod} onZmiana={setKod} klawiatura="number-pad" cyfry podpowiedz="000000" blad={blad?.pole === 'kod' ? blad.komunikat : undefined} />
       </Sekcja>
-      {blad && blad.pole !== 'kod' ? <Sekcja stopka={blad.komunikat}>{null}</Sekcja> : null}
+      {blad && blad.pole !== 'kod' ? (
+        <Sekcja stopka={blad.komunikat}>
+          <Wiersz tytul="Zacznij od nowa" akcja onPress={odNowa} />
+        </Sekcja>
+      ) : null}
       <View style={styles.akcja}>
         <PrzyciskGlowny tytul="Włącz weryfikację" ikona="check-line" trwa={trwa} onPress={() => void wlacz()} />
       </View>

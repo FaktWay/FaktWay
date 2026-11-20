@@ -62,6 +62,8 @@ export type UploadCertificateResult =
       error: string;
       reason: ConnectFailureReason;
       code?: 'NIP_ALREADY_CLAIMED';
+      /** Przy `rate_limited`: sekundy do końca blokady (telefon, M10c, składa z tego `Retry-After`). */
+      retryAfter?: number;
       /** Sesja po biometrii: konto ma 2FA, trzeba podać kod. Kreator wraca wtedy do kroku 1 (`reason: 'mfa_required'`). */
       mfaStepUp?: true;
     };
@@ -175,7 +177,12 @@ export async function uploadKsefCertificate(
     });
     if (!budget.allowed) {
       const minutes = Math.max(1, Math.ceil(budget.retryAfter / 60));
-      return fail('rate_limited', `Zbyt wiele prób połączenia z KSeF w ciągu godziny. Spróbuj ponownie za około ${minutes} min.`);
+      return {
+        success: false,
+        reason: 'rate_limited',
+        error: `Zbyt wiele prób połączenia z KSeF w ciągu godziny. Spróbuj ponownie za około ${minutes} min.`,
+        retryAfter: Math.max(1, Math.ceil(budget.retryAfter)),
+      };
     }
 
     try {

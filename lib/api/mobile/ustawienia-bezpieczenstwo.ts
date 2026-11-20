@@ -61,8 +61,8 @@ export function niepoprawne(caller: MobileCaller, pole: 'obecne' | 'nowe' | 'kod
   return mobileError(422, 'settings_invalid', zdanie, caller.headers, pole ?? undefined);
 }
 
-export function niedostepne(caller: MobileCaller): NextResponse {
-  return mobileError(503, 'service_unavailable', 'Nie możemy teraz zmienić hasła. Spróbuj ponownie za chwilę.', caller.headers);
+export function niedostepne(caller: MobileCaller, zdanie = 'Nie możemy teraz zmienić hasła. Spróbuj ponownie za chwilę.'): NextResponse {
+  return mobileError(503, 'service_unavailable', zdanie, caller.headers);
 }
 
 export function zaDuzoProb(caller: MobileCaller, retryAfter: number | undefined, co: string): NextResponse {
@@ -81,7 +81,12 @@ export function bezHasla(caller: MobileCaller): NextResponse | null {
   return mobileError(403, 'forbidden', 'To konto loguje się przez Google i nie ma hasła w FaktWay. Hasło ustawisz na faktway.pl przez „Nie pamiętam hasła”.', caller.headers);
 }
 
-export async function aktualneHaslo(caller: MobileCaller, haslo: string): Promise<Odmowa | null> {
+export async function aktualneHaslo(
+  caller: MobileCaller,
+  haslo: string,
+  /** `zmianaHasla: false` (2FA): bez zdania o haśle, które mogło się już zmienić; `niedostepne`: zdanie przy awarii. */
+  opcje: { zmianaHasla?: boolean; niedostepne?: string } = {},
+): Promise<Odmowa | null> {
   if (!haslo) return { ok: false, response: niepoprawne(caller, 'obecne', 'Wpisz aktualne hasło.') };
   const wynik = await confirmAccountPassword({
     userId: caller.user.id,
@@ -89,22 +94,26 @@ export async function aktualneHaslo(caller: MobileCaller, haslo: string): Promis
     password: haslo,
     verifier: () => createMobileLoginClient() as SupabaseClient,
   }).catch(() => null);
-  if (!wynik) return { ok: false, response: niedostepne(caller) };
+  if (!wynik) return { ok: false, response: niedostepne(caller, opcje.niedostepne) };
   if (wynik.ok) return null;
   if (wynik.error === 'rate_limited') return { ok: false, response: zaDuzoProb(caller, wynik.retryAfter, 'Za dużo prób hasła.') };
   if (wynik.error === 'invalid_password') {
     return {
       ok: false,
-      response: niepoprawne(caller, 'obecne', 'Aktualne hasło jest nieprawidłowe. Sprawdź je; jeśli hasło mogło się już zmienić, użyj nowego.'),
+      response: niepoprawne(caller, 'obecne', opcje.zmianaHasla === false ? 'Aktualne hasło jest nieprawidłowe. Sprawdź je i spróbuj ponownie.' : 'Aktualne hasło jest nieprawidłowe. Sprawdź je; jeśli hasło mogło się już zmienić, użyj nowego.'),
     };
   }
-  return { ok: false, response: niedostepne(caller) };
+  return { ok: false, response: niedostepne(caller, opcje.niedostepne) };
 }
 
 export type OdpowiedzGoTrue = { ok: true; body: Record<string, unknown> } | { ok: false; status: number | null; code: string | null };
 
 /** Żądanie do GoTrue tokenem telefonu (bez sesji w pamięci serwera); błąd sieci to `status: null`. */
-export async function goTrue(request: Request, sciezka: string, init: { method: 'GET' | 'PUT' | 'POST' | 'DELETE'; body?: unknown }): Promise<OdpowiedzGoTrue> {
+export async function goTrue(
+  request: Request,
+  sciezka: string,
+  init: { method: 'GET' | 'PUT' | 'POST' | 'DELETE'; body?: unknown; timeoutMs?: number },
+): Promise<OdpowiedzGoTrue> {
   const token = tokenZadania(request);
   if (!token) return { ok: false, status: 401, code: 'bad_jwt' };
   const { url, anonKey } = resolveTarget({});
@@ -114,7 +123,7 @@ export async function goTrue(request: Request, sciezka: string, init: { method: 
       method: init.method,
       headers: { apikey: anonKey, authorization: `Bearer ${token}`, ...(init.body ? { 'content-type': 'application/json' } : {}) },
       body: init.body ? JSON.stringify(init.body) : undefined,
-      signal: AbortSignal.timeout(GOTRUE_TIMEOUT_MS),
+      signal: AbortSignal.timeout(init.timeoutMs ?? GOTRUE_TIMEOUT_MS),
     });
     const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (res.ok) return { ok: true, body };

@@ -47,11 +47,17 @@ export function useZapisBezpieczenstwa(): ZapisBezpieczenstwa | null {
   if (!k) return null;
   const konto = k.konto?.konto.id;
   /**
-   * Po włączeniu i wyłączeniu 2FA sesja serwera zmieniła poziom (AAL2, AAL1), a token telefonu jeszcze
-   * go nie ma: odświeżenie daje token z nowym poziomem, a stan konta pokazuje wynik. Nieudane odświeżenie
-   * nic nie psuje: telefon zapyta o kod albo wejdzie dalej, jak po zwykłym wygaśnięciu tokenu.
+   * Włączenie 2FA: GoTrue wydaje nową sesję (AAL2) i unieważnia stary refresh token, więc telefon przyjmuje
+   * tę z odpowiedzi (`setSession`, jak po kodzie przy logowaniu); odświeżanie starym tokenem wylogowałoby go
+   * po oknie ponownego użycia. Wyłączenie nie wymienia refresh tokenu: wystarczy odświeżyć token (nowy
+   * poziom AAL1). Stan konta (`dwaEtapy`) odświeża się w obu przypadkach; nieudane odświeżenie tokenu
+   * nic nie psuje: telefon zapyta o kod albo wejdzie dalej, jak po zwykłym wygaśnięciu.
    */
-  const poZmianie2fa = async () => {
+  const poWlaczeniu2fa = async (sesja: Potwierdzenie2faOdpowiedz['sesja']) => {
+    await supabase?.auth.setSession({ access_token: sesja.accessToken, refresh_token: sesja.refreshToken }).catch(() => undefined);
+    await k.odswiezKonto();
+  };
+  const poWylaczeniu2fa = async () => {
     await supabase?.auth.refreshSession().catch(() => undefined);
     await k.odswiezKonto();
   };
@@ -59,12 +65,12 @@ export function useZapisBezpieczenstwa(): ZapisBezpieczenstwa | null {
     startDwaEtapy: () => k.zapytaj<Wlaczenie2faOdpowiedz>('ustawienia/2fa/start', { metoda: 'POST', bezFirmy: true }),
     potwierdzDwaEtapy: async (idFaktora, kod) => {
       const w = await k.zapytaj<Potwierdzenie2faOdpowiedz>('ustawienia/2fa/potwierdzenie', { metoda: 'POST', cialo: { idFaktora, kod }, bezFirmy: true });
-      if (w.ok) await poZmianie2fa();
+      if (w.ok) await poWlaczeniu2fa(w.dane.sesja);
       return w;
     },
     wylaczDwaEtapy: async (haslo) => {
       const w = await k.zapytaj<Wylaczenie2faOdpowiedz>('ustawienia/2fa/wylaczenie', { metoda: 'POST', cialo: { haslo }, bezFirmy: true });
-      if (w.ok) await poZmianie2fa();
+      if (w.ok) await poWylaczeniu2fa();
       return w;
     },
     wgrajCertyfikat: (dane, firmaEkranu) => k.zapytaj<CertyfikatKsefOdpowiedz>('ustawienia/ksef', { metoda: 'POST', cialo: dane, firmaEkranu, limitMs: LIMIT_CERTYFIKATU_MS }),

@@ -8,6 +8,8 @@ import type { CertyfikatKsefOdpowiedz } from '@/lib/api/mobile/kontrakt-bezpiecz
 import { mobileError, mobileJson } from '@/lib/api/mobile/responses';
 import { readJsonBody } from '@/lib/api/mobile/tresc';
 import { niedostepne, niepoprawne } from '@/lib/api/mobile/ustawienia-bezpieczenstwo';
+
+const NIEDOSTEPNE = 'Nie możemy teraz wgrać certyfikatu. Spróbuj ponownie za chwilę.';
 import { uploadKsefCertificate, type ConnectFailureReason } from '@/lib/ksef/upload-certificate';
 
 /**
@@ -74,14 +76,12 @@ export async function uploadCertificateFromMobile(caller: MobileCaller, request:
   }
 
   if (wynik.reason === 'rate_limited') {
-    const minuty = Number(/za około (\d+) min/.exec(wynik.error)?.[1] ?? '10');
-    const sekundy = String(Math.max(60, minuty * 60));
-    return mobileError(429, 'rate_limited', wynik.error, { ...caller.headers, 'Retry-After': sekundy });
+    return mobileError(429, 'rate_limited', wynik.error, { ...caller.headers, 'Retry-After': String(wynik.retryAfter ?? 600) });
   }
   if (AWARIA.has(wynik.reason)) {
     // Zdanie logiki strony (KSeF nie odpowiada, nie udało się zapisać); telefon ponawia jak przy 503.
     return mobileError(503, 'service_unavailable', wynik.error, caller.headers);
   }
-  if (wynik.reason === 'forbidden' || wynik.reason === 'mfa_required') return niedostepne(caller);
+  if (wynik.reason === 'forbidden' || wynik.reason === 'mfa_required') return niedostepne(caller, NIEDOSTEPNE);
   return niepoprawne(caller, POLE[wynik.reason] ?? null, wynik.error);
 }

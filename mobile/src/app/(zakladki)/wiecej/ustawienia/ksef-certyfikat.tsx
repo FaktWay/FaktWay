@@ -32,7 +32,8 @@ function naBase64(tekst: string): string | null {
 /**
  * Certyfikat KSeF z telefonu (M10c, część 2b): arkusz z „Anuluj” w pasku.
  * Pliki z Aplikacji Podatnika (.crt i .key, format PEM) wkleja się ze
- * schowka: otwierasz plik w aplikacji Pliki, kopiujesz treść i wklejasz tu.
+ * schowka: kopiujesz treść pliku (np. w edytorze tekstu) i wklejasz tu;
+ * po wklejeniu klucza schowek jest czyszczony.
  * Bez nowej paczki natywnej do wyboru pliku (ta dojdzie z nowym buildem).
  * Klucza prywatnego nie pokazujemy na ekranie ani nie zapisujemy: zostaje w
  * pamięci do wysłania i znika po zapisie. Sprawdzenia (pliki, hasło do
@@ -91,7 +92,11 @@ export default function EkranCertyfikatuKsef() {
       return;
     }
     if (pole === 'certyfikat') setCertyfikat(tekst);
-    else setKlucz(tekst);
+    else {
+      setKlucz(tekst);
+      // Klucz prywatny nie zostaje w schowku systemowym (Universal Clipboard na Maca i iPada, inne aplikacje).
+      await Clipboard.setStringAsync('').catch(() => undefined);
+    }
   };
 
   const wgraj = async () => {
@@ -121,11 +126,19 @@ export default function EkranCertyfikatuKsef() {
   };
 
   const bladPola = (pole: string) => (blad?.pole === pole ? blad.komunikat : lokalny?.pole === pole ? lokalny.zdanie : undefined);
+  /** Zdanie nad przyciskiem: limit godzinny z czasem (nazwa czynności), awarie z informacją, że pliki zostają. */
+  const zdanieBledu = (b: BladApi): string => {
+    if (b.kod === 'rate_limited') {
+      const minuty = Math.max(1, Math.ceil((b.ponowZaSekund ?? 600) / 60));
+      return `Zbyt wiele prób wgrania certyfikatu KSeF w ciągu godziny. Spróbuj ponownie za około ${minuty} min.`;
+    }
+    return b.rodzaj === 'ponow' || b.rodzaj === 'polaczenie' || b.rodzaj === 'serwer' ? `${b.komunikat} Niczego nie zapisaliśmy, a wklejone pliki zostają na ekranie.` : b.komunikat;
+  };
   const polaNaEkranie = ['certyfikat', 'klucz', 'haslo'];
   return (
     <EkranListy keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
       {pasek}
-      <Sekcja stopka="Pobierz certyfikat w Aplikacji Podatnika KSeF (pliki .crt i .key). Otwórz każdy plik w aplikacji Pliki, skopiuj całą treść i wklej ją tutaj. Klucza nie pokazujemy na ekranie.">{null}</Sekcja>
+      <Sekcja stopka="Pobierz certyfikat w Aplikacji Podatnika KSeF (pliki .crt i .key). Skopiuj całą treść każdego pliku (np. otwórz go w edytorze tekstu) i wklej tutaj. Klucza nie pokazujemy na ekranie, a po wklejeniu czyścimy schowek. Gdy plików nie da się skopiować, wgraj je na faktway.pl.">{null}</Sekcja>
 
       <Sekcja naglowek="Certyfikat (.crt)">
         <Wiersz tytul={certyfikat ? 'Wklejono' : 'Brak'} ikona="file-text-line" wartosc={certyfikat ? 'Wklej ponownie' : undefined} akcja onPress={() => void wklej('certyfikat')} />
@@ -141,7 +154,7 @@ export default function EkranCertyfikatuKsef() {
         <PoleTekstowe etykieta="Hasło do klucza" wartosc={haslo} onZmiana={setHaslo} tajne blad={bladPola('haslo')} />
       </Sekcja>
 
-      {blad && !(blad.pole && polaNaEkranie.includes(blad.pole)) ? <Sekcja stopka={blad.komunikat}>{null}</Sekcja> : null}
+      {blad && !(blad.pole && polaNaEkranie.includes(blad.pole)) ? <Sekcja stopka={zdanieBledu(blad)}>{null}</Sekcja> : null}
 
       <View style={styles.akcja}>
         <PrzyciskGlowny tytul="Wgraj certyfikat" ikona="upload2-line" trwa={trwa} onPress={() => void wgraj()} />

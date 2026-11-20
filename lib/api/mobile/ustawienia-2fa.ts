@@ -31,8 +31,11 @@ import { checkMfaRateLimit } from '@/lib/rate-limit/mfa';
  *  - potwierdzenie: czynnik z listy konta (niepotwierdzony TOTP), kod z sześciu
  *    cyfr, limit prób, wyzwanie i kod w GoTrue tokenem telefonu, nowa sesja
  *    sprawdzona (AAL2, ten sam czynnik zweryfikowany); wpis `auth.mfa_enrolled`.
- *    Nowych tokenów telefon nie dostaje: sesja serwera jest już AAL2, telefon
- *    odświeża token (`refreshSession`), a przy porażce prosi o kod jak zwykle;
+ *    Telefon dostaje nową sesję (`sesja`, jak `POST /kod`): GoTrue wydaje przy
+ *    kodzie nowy refresh token i unieważnia stary, więc odświeżanie starym
+ *    wylogowałoby telefon, gdy minie okno ponownego użycia (10 s). Kroki GoTrue
+ *    mają po 5 s (jak `kod.ts`), żeby bramka i trzy kroki mieściły się w 15 s
+ *    telefonu;
  *  - wyłączenie: sesja po kodzie (bramka), aktualne hasło (wspólny limit prób),
  *    kody ratunkowe usunięte PRZED czynnikami (nieudane sprzątanie nie zostawia
  *    starych kodów), czynniki TOTP usunięte tokenem telefonu; wpis
@@ -47,6 +50,8 @@ import { checkMfaRateLimit } from '@/lib/rate-limit/mfa';
 
 const KONTRAKT = 'Treść żądania nie pasuje do kontraktu. Zaktualizuj aplikację FaktWay.';
 const AUDYT_TELEFONU = { client: 'mobile' } as const;
+const KROK_GOTRUE_MS = 5_000;
+const NIEDOSTEPNE_2FA = 'Nie możemy teraz zmienić weryfikacji dwuetapowej. Spróbuj ponownie za chwilę.';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const potwierdzenieSchema = z.object({ idFaktora: z.string().max(64), kod: z.string().max(64) }).strict();
@@ -55,8 +60,8 @@ const wylaczenieSchema = z.object({ haslo: z.string().max(1024) }).strict();
 type Faktor = { id: string; typ: string; status: string };
 
 /** Czynniki konta z GoTrue (nie z treści tokenu): `GET /user` tokenem telefonu. */
-async function faktoryKonta(request: Request): Promise<{ ok: true; faktory: Faktor[] } | { ok: false; blad: Parameters<typeof odmowaGoTrue>[1] }> {
-  const odp = await goTrue(request, '/user', { method: 'GET' });
+async function faktoryKonta(request: Request, timeoutMs?: number): Promise<{ ok: true; faktory: Faktor[] } | { ok: false; blad: Parameters<typeof odmowaGoTrue>[1] }> {
+  const odp = await goTrue(request, '/user', { method: 'GET', timeoutMs });
   if (!odp.ok) return { ok: false, blad: odp };
   const lista = Array.isArray(odp.body.factors) ? odp.body.factors : [];
   const faktory = lista.flatMap((f): Faktor[] => {
@@ -89,7 +94,7 @@ export async function startTotpFromMobile(caller: MobileCaller, request: Request
   const nowy = await goTrue(request, '/factors', { method: 'POST', body: { factor_type: 'totp', friendly_name: `FaktWay ${new Date().toISOString().slice(0, 10)}` } });
   if (!nowy.ok) return odmowaGoTrue(caller, nowy);
   const totp = (nowy.body.totp ?? {}) as Record<string, unknown>;
-  if (typeof nowy.body.id !== 'string' || typeof totp.secret !== 'string' || typeof totp.uri !== 'string') return niedostepne(caller);
+  if (typeof nowy.body.id !== 'string' || typeof totp.secret !== 'string' || typeof totp.uri !== 'string') return niedostepne(caller, NIEDOSTEPNE_2FA);
   const odpowiedz: Wlaczenie2faOdpowiedz = { idFaktora: nowy.body.id, sekret: totp.secret, uri: totp.uri };
   return mobileJson(odpowiedz, 200, caller.headers);
 }
@@ -105,17 +110,17 @@ export async function confirmTotpFromMobile(caller: MobileCaller, request: Reque
   // Kod spoza sześciu cyfr: bez zużycia próby i bez GoTrue (jak strona).
   if (!/^[0-9]{6}$/.test(kod)) return niepoprawne(caller, 'kod', 'Wpisz sześciocyfrowy kod z aplikacji uwierzytelniającej.');
 
-  const konto = await faktoryKonta(request);
+  const konto = await faktoryKonta(request, KROK_GOTRUE_MS);
   if (!konto.ok) return odmowaGoTrue(caller, konto.blad);
   const faktor = konto.faktory.find((f) => f.id === parsed.data.idFaktora && f.typ === 'totp' && f.status === 'unverified');
   if (!faktor) return niepoprawne(caller, null, 'To włączanie 2FA wygasło. Zacznij od nowa.');
   const odmowaLimitu = await limitProb(caller);
   if (odmowaLimitu) return odmowaLimitu;
 
-  const wyzwanie = await goTrue(request, `/factors/${encodeURIComponent(faktor.id)}/challenge`, { method: 'POST', body: {} });
+  const wyzwanie = await goTrue(request, `/factors/${encodeURIComponent(faktor.id)}/challenge`, { method: 'POST', body: {}, timeoutMs: KROK_GOTRUE_MS });
   if (!wyzwanie.ok) return odmowaGoTrue(caller, wyzwanie);
-  if (typeof wyzwanie.body.id !== 'string') return niedostepne(caller);
-  const weryfikacja = await goTrue(request, `/factors/${encodeURIComponent(faktor.id)}/verify`, { method: 'POST', body: { challenge_id: wyzwanie.body.id, code: kod } });
+  if (typeof wyzwanie.body.id !== 'string') return niedostepne(caller, NIEDOSTEPNE_2FA);
+  const weryfikacja = await goTrue(request, `/factors/${encodeURIComponent(faktor.id)}/verify`, { method: 'POST', body: { challenge_id: wyzwanie.body.id, code: kod }, timeoutMs: KROK_GOTRUE_MS });
   if (!weryfikacja.ok) {
     // GoTrue: 400 i 422 to zły kod albo wygasłe wyzwanie; reszta to nie wina klienta.
     if (weryfikacja.status === 400 || weryfikacja.status === 422) {
@@ -127,10 +132,12 @@ export async function confirmTotpFromMobile(caller: MobileCaller, request: Reque
   // Sama odpowiedź GoTrue nie wystarcza: nowa sesja ma być AAL2 tego samego konta z zweryfikowanym TOTP.
   const noweToken = typeof weryfikacja.body.access_token === 'string' ? weryfikacja.body.access_token : null;
   const stan = noweToken ? await verifyMobileToken(noweToken).catch(() => null) : null;
-  if (!stan || stan.status !== 'ok' || stan.user.id !== caller.user.id || stan.claims.aal !== 'aal2' || !stan.mfaEnabled) return niedostepne(caller);
+  if (!stan || stan.status !== 'ok' || stan.user.id !== caller.user.id || stan.claims.aal !== 'aal2' || !stan.mfaEnabled) return niedostepne(caller, NIEDOSTEPNE_2FA);
 
   await logAudit({ action: 'auth.mfa_enrolled', tenantId: null, userId: caller.user.id, metadata: { factor_id: faktor.id, ...AUDYT_TELEFONU } });
-  const odpowiedz: Potwierdzenie2faOdpowiedz = { wlaczone: true };
+  const odswiezony = typeof weryfikacja.body.refresh_token === 'string' ? weryfikacja.body.refresh_token : null;
+  if (!noweToken || !odswiezony) return niedostepne(caller, NIEDOSTEPNE_2FA);
+  const odpowiedz: Potwierdzenie2faOdpowiedz = { wlaczone: true, sesja: { accessToken: noweToken, refreshToken: odswiezony } };
   return mobileJson(odpowiedz, 200, caller.headers);
 }
 
@@ -146,18 +153,18 @@ export async function disableTotpFromMobile(caller: MobileCaller, request: Reque
     return mobileError(403, 'forbidden', 'To konto loguje się przez Google i nie ma hasła w FaktWay. Wyłączysz 2FA na faktway.pl po ustawieniu hasła.', caller.headers);
   }
 
-  const odmowa = await aktualneHaslo(caller, parsed.data.haslo);
+  const odmowa = await aktualneHaslo(caller, parsed.data.haslo, { zmianaHasla: false, niedostepne: NIEDOSTEPNE_2FA });
   if (odmowa) return odmowa.response;
 
   const konto = await faktoryKonta(request);
   if (!konto.ok) return odmowaGoTrue(caller, konto.blad);
   // Tylko TOTP; telefon i WebAuthn zostają (jak strona).
   const totp = konto.faktory.filter((f) => f.typ === 'totp');
-  if (!totp.some((f) => f.status === 'verified')) return niedostepne(caller);
+  if (!totp.some((f) => f.status === 'verified')) return niedostepne(caller, NIEDOSTEPNE_2FA);
 
   // Nieudane sprzątanie kodów ratunkowych zatrzymuje wyłączanie: stare kody nie mogą zostać po wyłączeniu TOTP.
   const sprzatniete = await deleteAllRecoveryCodes(caller.user.id).then(() => true, () => false);
-  if (!sprzatniete) return niedostepne(caller);
+  if (!sprzatniete) return niedostepne(caller, NIEDOSTEPNE_2FA);
 
   let usuniete = 0;
   for (const f of totp) {
