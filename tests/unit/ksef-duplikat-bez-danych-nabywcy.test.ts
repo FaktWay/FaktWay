@@ -382,13 +382,13 @@ describe('F-093-440: „numer zajęty” (oryginał z innego programu, inna tre�
     expect(zdarzeniePorazki()?.data).toMatchObject({ error: TEKST_KLIENTA });
   });
 
-  it('strażnik: oczekiwanie na pobranie oryginału (503) do wyczerpania prób, tekst klienta jak dotąd (z nazwą klasy błędu)', async () => {
+  it('strażnik: oczekiwanie na pobranie oryginału (503) do wyczerpania prób, tekst klienta jak dotąd, ale bez nazwy klasy błędu (U3)', async () => {
     openSent440();
     m.ksef.downloadFailure = { status: 503 };
 
     await run([job(faktura(), { __attempt: KSEF_MAX_RETRIES })] as never);
 
-    const tekst = 'RetryAfterError: KSeF ma już fakturę o tym numerze (numer KSeF K-OBCA), ale nie udało się pobrać jej treści ' +
+    const tekst = 'KSeF ma już fakturę o tym numerze (numer KSeF K-OBCA), ale nie udało się pobrać jej treści ' +
       'do porównania (HTTP 503). Do uzgodnienia; nie wystawiaj faktury ponownie.';
     expect(m.bossSend).not.toHaveBeenCalled();
     expect(m.invoice).toMatchObject({ last_error_code: 'KSEF_DUPLICATE_RECONCILE', last_error: tekst });

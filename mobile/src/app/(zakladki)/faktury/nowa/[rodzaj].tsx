@@ -525,6 +525,9 @@ function FormularzFaktury() {
       metodaPlatnosci: metoda,
       rachunek: metoda === 'Przelew' ? rachunek : undefined,
       mpp,
+      // Powiązania od razu na liście (do odświeżenia z bazy): zaliczka z rozliczeniem i faktura z korektą nie liczą się na karcie podwójnie.
+      ...(rodzaj === 'rozliczajaca' && idWybranych.length > 0 ? { zaliczkiId: idWybranych } : {}),
+      ...(rodzaj === 'korygujaca' && zrodlo ? { rodzicId: zrodlo.id } : {}),
       uwagi: [rodzaj === 'korygujaca' ? `Przyczyna korekty: ${przyczyna.trim()}` : '', uwagi.trim()].filter(Boolean).join('\n') || undefined,
     };
     if (edytowana && !zBazy) {

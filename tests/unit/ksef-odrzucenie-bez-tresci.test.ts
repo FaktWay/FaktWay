@@ -43,8 +43,11 @@ const ODRZUCENIE = { code: 450, description: OPIS, details: [SZCZEGOL] };
 const TRESC_KSEF = ['Wartownik', '9876543210', OPIS];
 /** Tekst operatora: status i kod, bez treści odpowiedzi. */
 const TEKST_OPERATORA = 'KSeF odrzucił fakturę (status 450)';
-/** Co klient widział na karcie faktury i w mailu przed naprawą; ma zostać bez zmian. */
-const TEKST_KLIENTA = `NonRetriableError: KSeF odrzucił fakturę: ${OPIS}. Szczegóły: ${SZCZEGOL}`;
+/**
+ * Co klient widzi na karcie faktury i w mailu: opis i szczegóły z KSeF jak przed naprawą
+ * F-093-STATUS, ale bez nazwy klasy błędu na początku (U3, obchód 20.11.2026).
+ */
+const TEKST_KLIENTA = `KSeF odrzucił fakturę: ${OPIS}. Szczegóły: ${SZCZEGOL}`;
 
 const m = vi.hoisted(() => ({
   ksef: null as unknown as FakeKsef,
