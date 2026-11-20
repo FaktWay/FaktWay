@@ -103,7 +103,8 @@ export function KartaWyniku({ podpis, wynik, opis, narastajaco, dniWMiesiacu, sr
           ) : null}
         </View>
         {duzyTekst ? (
-          <View style={styles.plakietkaPod}>
+          // Plakietka jest już w etykiecie nagłówka: czytnik ekranu nie czyta jej drugi raz.
+          <View style={styles.plakietkaPod} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             <View style={styles.plakietkaPodOpakowanie}>
               <Znacznik ton={roznica >= 0 ? 'sukces' : 'blad'}>{plakietka}</Znacznik>
             </View>
