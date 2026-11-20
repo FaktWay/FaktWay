@@ -35,6 +35,24 @@ która nie przejdzie lokalnej walidacji XSD i nigdy nie dotrze do KSeF.
   i arytmetyka `P_15 = Σ(P_13 + P_14)`), do tego `pnpm test` (testy tsx
   generatora, kalkulatora i walidatora).
 
+### Co widzi klient, a co operator, gdy XSD odrzuci plik (U3)
+
+- **Klient** (strona i telefon czytają te same kolumny `invoices.last_error`,
+  `last_error_field`, `last_error_suggestion`): zdanie z nazwą pola po
+  polsku („Faktura nie trafiła do KSeF. Pole „NIP nabywcy” ma niepoprawny
+  format.”), nazwa pola i podpowiedź. Bez nazwy klasy błędu i bez tekstu libxml.
+  Pole ustala `lib/xml/fa3-pola.ts` ze ścieżki elementu w wysyłanym pliku
+  (sam `NIP` nie mówi, czy to sprzedawca, czy nabywca). Gdy pola nie da się
+  nazwać bez zgadywania, klient dostaje ogólne zdanie z adresem pomocy.
+- **Nowy element w generatorze** (albo nowe pole faktury) wymaga wpisu w tabeli
+  `POLA` w `fa3-pola.ts`; test `tests/xml/fa3-pola.test.ts` („tabela nazw pól
+  obejmuje to, co generatory FA(3) piszą”) pada, gdy go brak.
+- **Operator** dostaje pełny tekst techniczny: błąd joba (`NonRetriableError` z
+  przyczyną `InvoiceXmlSchemaError.errors`), log workera „Job wysyłki padł —
+  klasyfikacja błędu” (`errorMessage`) i audyt `invoice.submit_failed`
+  (`metadata.error`). Karta `/admin/ksef/<id>` pokazuje `last_error`, czyli zdanie
+  klienta, więc surowy tekst libxml bierz z audytu albo logu.
+
 ## Błędy KSeF
 
 Kody błędów i co robić: `docs/runbooks/ksef-error-codes.md`. Błędy wysyłki

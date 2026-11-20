@@ -101,7 +101,7 @@ Raport dzienny strażnika na Telegram: liczba faktur per stan, naruszenia I1–I
 
 | Klasa | Kod | Źródło | Wyjścia dozwolone | Komunikat dla klienta |
 |---|---|---|---|---|
-| TERMINAL (treść) | `XSD_INVALID` | `InvoiceXmlSchemaError` | `draft` | „Faktura nie przeszła walidacji schematu FA(3): … Popraw dane i wyślij ponownie.” |
+| TERMINAL (treść) | `XSD_INVALID` | `InvoiceXmlSchemaError` | `draft` | „Faktura nie trafiła do KSeF. Pole „NIP nabywcy” ma niepoprawny format.” z polem w `last_error_field` i podpowiedzią w `last_error_suggestion` (U3, `lib/xml/fa3-pola.ts`); bez pola: ogólne zdanie z adresem pomocy |
 | TERMINAL | `KSEF_REJECTED_<kod>` | status faktury ≥ 400 (poza 440), HTTP 4xx poza 401/403/408/429 | `draft` | „KSeF odrzucił fakturę: …” |
 | TERMINAL | `INVALID_DOCUMENT` | `validateInvoice`, `assertSubmitReferences`, `manual reconciliation` strażników treści | `draft` (po poprawie referencji) | „Dokument wymaga poprawy: …” |
 | TRANSIENT | `KSEF_UNAVAILABLE` | 5xx, 503, timeout, `ECONNRESET`, 408 | `queued` (auto co 60 min / 24 h; KOR/ZAL z kopią tylko w dniu wystawienia) | „KSeF nie odpowiada. Ponowimy wysyłkę automatycznie.” (KOR/ZAL: „…tylko do północy”) |

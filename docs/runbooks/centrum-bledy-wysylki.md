@@ -91,6 +91,7 @@ trafiają do dziennika jako `refused` od #257 (#252).
 | „Czy worker działa” na żółto (po terminie) | worker mógł stanąć — pusta lista błędów nic wtedy nie znaczy | logi workera (AGENTS.md, `docker logs`), `/admin/system`, `joby-pg-boss.md` |
 | incydent przejściowy, stan teraz „przyjęte” | błąd był, automat go odzyskał | nic; przy dużej liczbie — czy KSeF nie miał awarii |
 | „nadal z błędem” | faktura `failed`/`rejected` | karta faktury `/admin/ksef/<id>`; wyjście według kodu: `ksef-error-codes.md` |
+| `XSD_INVALID` albo `INVALID_DOCUMENT`: karta pokazuje zdanie bez tekstu libxml | tak ma być (U3): `last_error` to tekst klienta z nazwą pola; pełny komunikat techniczny leży osobno | audyt `invoice.submit_failed` (`metadata.error`) albo log workera „klasyfikacja błędu” (`errorMessage`); skąd nazwa pola: `fa3-ksef.md`, „Co widzi klient, a co operator” |
 | „przerwane” albo „utknęła” | worker padł w trakcie wysyłki | stan faktury na karcie; `sending` ponad 30 min = I2 → `hamulce-ksef.md`, „Faktura utknęła w wysyłce (I1/I2)” (procedura `scripts/ops/zwolnij-utknieta-wysylke.sh` wchodzi z #260) |
 | dużo „odmów przed kolejką” | hamulec, MFA, certyfikat albo KSeF niedostępny przy kliknięciu „Wyślij” | kod odmowy; hamulce: `hamulce-ksef.md` |
 | UPO `pending` ponad godzinę | pobranie albo zapis UPO nie skończył się | karta faktury; cron `upo-retry-stale` ponawia |

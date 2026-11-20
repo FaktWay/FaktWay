@@ -22,6 +22,7 @@ import {
 } from '@/lib/ksef/send-error-codes';
 import { KsefInvoiceRejectedError } from '@/lib/ksef/submit';
 import { KSEF_MAX_RETRIES } from '../../retry-schedule';
+import { validationFailureIn, type CustomerFailure } from './komunikat-klienta';
 import {
   currentSubmissionState,
   isHeldRozSubmission,
@@ -62,6 +63,8 @@ async function markFailureUnlessAccepted(
   status: 'failed' | 'rejected',
   lastError: string,
   code: SendErrorCode,
+  /** Pole i podpowiedź dla klienta (U3): błąd schematu i walidacji faktury; inne porażki zostawiają je puste. */
+  hint: Pick<CustomerFailure, 'field' | 'suggestion'> | null = null,
 ): Promise<boolean> {
   const { data: updated, error } = await (await createAdminClient())
     .from('invoices')
@@ -69,8 +72,8 @@ async function markFailureUnlessAccepted(
       ksef_status: status,
       last_error: lastError,
       last_error_code: code,
-      last_error_field: null,
-      last_error_suggestion: null,
+      last_error_field: hint?.field ?? null,
+      last_error_suggestion: hint?.suggestion ?? null,
       ksef_send_owner: null,
     })
     .eq('id', invoiceId)
@@ -267,11 +270,11 @@ export async function onSubmitInvoiceExhausted(
       const isBusinessRejection = classified.class === 'terminal' && isContentRejection(code);
       // Ponowienie ma sens (awaria, limit, sesja) — jedyna droga do Offline24.
       const isTransientFailure = classified.class === 'transient';
-      const failureMessage = heldRoz
-        ? ROZ_RECONCILIATION_MESSAGE
-        : HOLD_MARKER.test(error.message)
-          ? error.message.replace(HOLD_MARKER, '')
-          : `${error.name}: ${error.message}`;
+      // Tekst operatora (audyt, log, porównanie z werdyktem) niesie nazwę klasy
+      // błędu. Tekst klienta jej nie niesie (U3): `plainMessage`.
+      const heldMessage = HOLD_MARKER.test(error.message) ? error.message.replace(HOLD_MARKER, '') : null;
+      const failureMessage = heldRoz ? ROZ_RECONCILIATION_MESSAGE : heldMessage ?? `${error.name}: ${error.message}`;
+      const plainMessage = heldRoz ? ROZ_RECONCILIATION_MESSAGE : heldMessage ?? error.message;
       // F-093-STATUS: przy odrzuceniu w statusie komunikat błędu to sam status
       // (log, audyt). Klient dostaje na fakturę i w mailu opis i szczegóły
       // z KSeF jak dotąd: to jego faktura i jedyna wskazówka, co poprawić.
@@ -279,13 +282,17 @@ export async function onSubmitInvoiceExhausted(
       // audyt). Klient dostaje na fakturę i w mailu tekst werdyktu jak dotąd,
       // z danymi pobranego oryginału: na nich decyduje, czy to ta sama sprzedaż.
       // Ten sam tekst = ten sam klucz idempotencji maila.
+      // U3: błąd schematu FA(3) i walidacji faktury: zdanie z nazwą pola zamiast
+      // tekstu libxml, a pole i podpowiedź w kolumnach `last_error_field` i
+      // `last_error_suggestion`. Pełny tekst techniczny zostaje w `failureMessage`.
       const statusRejection = heldRoz ? null : statusRejectionIn(error);
       const verdictCarrier = heldRoz ? null : sendVerdictIn(error);
+      const validation = heldRoz ? null : validationFailureIn(error);
+      const verdictText = verdictCarrier && failureMessage === verdictCarrier.message ? verdictCarrier.customerMessage : null;
       const customerFailureMessage = statusRejection
-        ? `${error.name}: ${statusRejection.customerMessage}`
-        : verdictCarrier && failureMessage === verdictCarrier.message
-          ? verdictCarrier.customerMessage
-          : failureMessage;
+        ? statusRejection.customerMessage
+        : verdictText ?? validation?.message ?? plainMessage;
+      const customerHint = statusRejection || verdictText !== null ? null : validation;
 
       logger.error('Job wysyłki padł — klasyfikacja błędu', {
         tenantId,
@@ -370,6 +377,7 @@ export async function onSubmitInvoiceExhausted(
               'failed',
               `${customerFailureMessage} (Offline24 ${offlineResult.reason})`,
               code,
+              customerHint,
             ));
         }
       } else {
@@ -392,6 +400,7 @@ export async function onSubmitInvoiceExhausted(
             isBusinessRejection ? 'rejected' : 'failed',
             customerFailureMessage,
             code,
+            customerHint,
           ));
       }
 
