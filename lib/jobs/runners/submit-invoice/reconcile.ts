@@ -11,6 +11,7 @@ import {
   checkInvoiceStatusByReference,
   KSEF_DUPLICATE_INVOICE,
   KsefInvoiceRejectedError,
+  statusReadUncertain,
 } from '@/lib/ksef/submit';
 import { hexHashToBase64 } from '@/lib/ksef/duplicate-verdict';
 import { ksefSessionCache } from '@/lib/ksef/session-cache';
@@ -164,10 +165,14 @@ export async function reconcilePreviousSubmission(ctx: SubmitRunContext): Promis
     }
     // Awaria łącza albo KSeF: ponawiamy UZGADNIANIE, nigdy wysyłkę.
     // Retry-After odpowiedzi albo harmonogram z rozrzutem (L1a): faktury, które padły razem, nie wracają razem.
+    // WYS-01: błąd klienta HTTP odczytu statusu wysyłki sprzed niecałych 48 h
+    // (400, 404…) to wynik niepewny (`RESULT_UNCERTAIN`), nie odrzucenie: bez
+    // obwoluty klasyfikator wziąłby z przyczyny HTTP 4xx `KSEF_REJECTED`.
+    const cause = statusReadUncertain(error);
     throw new RetryAfterError(
       `Uzgadnianie wcześniejszej wysyłki KSeF nieudane: ${error instanceof Error ? error.message : 'nieznany błąd'}`,
       ksefRetryDelayMsFor(error, attempt, invoiceId),
-      { cause: error instanceof Error ? error : undefined },
+      { cause: cause instanceof Error ? cause : undefined },
     );
   }
 }

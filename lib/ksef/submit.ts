@@ -203,7 +203,8 @@ export async function submitInvoice(
         }
       }
 
-      // 6. Polling statusu
+      // 6. Polling statusu. Plik jest już w KSeF, więc błąd klienta HTTP
+      //    odczytu statusu to niepewny wynik, nie odrzucenie (WYS-01).
       const invoiceStatus = await pollInvoiceStatus(
         session.referenceNumber,
         sendResult.referenceNumber,
@@ -212,7 +213,9 @@ export async function submitInvoice(
         undefined,
         undefined,
         auditContext,
-      );
+      ).catch((e: unknown) => {
+        throw statusReadUncertain(e);
+      });
 
       if (!invoiceStatus.ksefNumber) {
         // F-093-OPIS: sam kod statusu, bez opisu z KSeF (komunikat idzie do logów i telemetrii).
@@ -667,4 +670,37 @@ function sessionTemporarilyUnavailableAsRetryable(e: unknown): unknown {
     );
   }
   return e;
+}
+
+/**
+ * WYS-01: błąd klienta HTTP (400, 404…) przy ODCZYCIE stanu wysyłki, którą
+ * KSeF przyjął albo mógł przyjąć: status pliku po POST (wpis `sent`), status
+ * po numerze referencyjnym przy uzgadnianiu, faktury sesji przy rozstrzyganiu
+ * zamiaru (`intent`). To nie jest decyzja o treści faktury: tę KSeF podaje
+ * w samym statusie (kod 400–499, `KsefInvoiceRejectedError`), który
+ * przechodzi bez zmian. Wcześniej z przyczyny HTTP 4xx klasyfikator robił
+ * `KSEF_REJECTED`: stan `rejected` i mail „odrzucona”, choć KSeF mógł
+ * fakturę przyjąć, powrót do szkicu blokował dowód kontaktu, a uzgodnienie
+ * robił dopiero cron po 48 h (I5). Teraz klasyfikator daje `RESULT_UNCERTAIN`
+ * (przed statusem HTTP z przyczyny), a runner ponawia: ponowienie zaczyna od
+ * uzgodnienia (AUD-01, A2), nigdy od drugiej wysyłki. Przyczyną jest
+ * oryginalny `KsefApiError`, więc dziennik prób zapisuje prawdziwy status.
+ */
+export class KsefStatusReadError extends Error {
+  constructor(readonly original: KsefApiError) {
+    super(
+      `KSeF: odczyt stanu wysyłki nieudany (HTTP ${original.status}), wynik uzgodnimy po numerze referencyjnym`,
+      { cause: original },
+    );
+    this.name = 'KsefStatusReadError';
+  }
+}
+
+/**
+ * Błąd klienta HTTP odczytu stanu wysyłki w obwolucie `KsefStatusReadError`;
+ * reszta bez zmian. 401 i 403 (sesja: runner odnawia ją po 401), 408 i 429
+ * (ponawialne, 429 to pauza firmy) zostają jak były.
+ */
+export function statusReadUncertain(e: unknown): unknown {
+  return e instanceof KsefApiError && !e.isRetryable && !e.isAuthError ? new KsefStatusReadError(e) : e;
 }

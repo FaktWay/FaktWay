@@ -28,7 +28,7 @@
  */
 
 import { KsefApiError } from '@/lib/ksef/client';
-import { KsefInvoiceRejectedError } from '@/lib/ksef/submit';
+import { KsefInvoiceRejectedError, KsefStatusReadError } from '@/lib/ksef/submit';
 import { KOR_HOLD, KSEF_PAUSED } from '@/lib/ksef/submission-holds';
 import { InvoiceXmlSchemaError } from '@/lib/xml/validator';
 import {
@@ -160,6 +160,12 @@ function codeFor(error: unknown): SendErrorCode {
       return rejected.isDuplicate
         ? SEND_ERROR_CODES.KSEF_DUPLICATE_RECONCILE
         : SEND_ERROR_CODES.KSEF_REJECTED;
+    }
+    // WYS-01: błąd klienta HTTP odczytu stanu wysyłki (status pliku, faktury
+    // sesji) to wynik niepewny, nie odrzucenie. Obwoluta leży w łańcuchu nad
+    // swoim `KsefApiError`, więc wygrywa z jego statusem HTTP.
+    if (e instanceof KsefStatusReadError || e.name === 'KsefStatusReadError') {
+      return SEND_ERROR_CODES.RESULT_UNCERTAIN;
     }
     if (e instanceof KsefApiError || e.name === 'KsefApiError') {
       return httpCode(e as KsefApiError);

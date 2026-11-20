@@ -10,6 +10,7 @@ import {
   KSEF_SESSION_NOT_FOUND,
   ksefErrorCodes,
   listSessionInvoicesAfterClose,
+  statusReadUncertain,
   type SessionInvoiceSummary,
 } from '@/lib/ksef/submit';
 import { ksefSessionCache } from '@/lib/ksef/session-cache';
@@ -83,10 +84,13 @@ export async function resolveSubmissionIntents(ctx: SubmitRunContext): Promise<v
         continue;
       }
       // Retry-After odpowiedzi albo harmonogram z rozrzutem (L1a): faktury, które padły razem, nie wracają razem.
+      // WYS-01: błąd klienta HTTP odczytu faktur sesji (400, 404, sesja nieznana
+      // przed upływem 48 h) to wynik niepewny (`RESULT_UNCERTAIN`), nie odrzucenie.
+      const cause = statusReadUncertain(error);
       throw new RetryAfterError(
         `Uzgadnianie zamiaru wysyłki KSeF nieudane: ${error instanceof Error ? error.message : 'nieznany błąd'}`,
         ksefRetryDelayMsFor(error, attempt, invoiceId),
-        { cause: error instanceof Error ? error : undefined },
+        { cause: cause instanceof Error ? cause : undefined },
       );
     }
     const ours = intentInvoiceInSession(found, intent, invoice.internalNumber);
