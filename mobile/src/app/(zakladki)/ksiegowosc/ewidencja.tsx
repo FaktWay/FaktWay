@@ -16,6 +16,7 @@ import { Tekst } from '@/komponenty/tekst';
 import { NaglowekKwoty } from '@/komponenty/naglowek';
 import type { KsiegaTelefonuOdpowiedz, PlikKsiegiOdpowiedz } from '@/lib/api/kontrakt-ksiegi';
 import { dataKrotka, kwota } from '@/lib/format';
+import { kolorKwotyWpisu } from '@/lib/kolor-kwoty-ksiegi';
 import { udostepnijXml } from '@/lib/plik-jpk';
 import { useKontoFirmy, type KontoFirmy } from '@/stan/dane';
 import { nazwaMiesiaca } from '@/stan/ksiegowosc';
@@ -62,7 +63,7 @@ function EkranEwidencjiPrzyklad() {
             tytul={`${w.lp}. ${w.opis}`}
             podtytul={`${dataKrotka(w.data)} · ${w.dowod} · ${w.kontrahent}`}
             wartosc={kwota(w.kwota)}
-            wartoscKolor={w.kolumna === '7' ? 'sukces' : 'etykieta'}
+            wartoscKolor={kolorKwotyWpisu(w.kolumna === '7', w.kwota)}
             wartoscPodpis={w.kolumna === '7' ? 'Przychód' : 'Koszt'}
           />
         ))}
@@ -279,7 +280,7 @@ function EkranEwidencjiZBazy({ konto }: { konto: KontoFirmy }) {
                 tytul={`${w.lp}. ${w.kontrahent || w.dowod}`}
                 podtytul={[dataKrotka(w.data), w.dataWpisu ? `wpis ${dataKrotka(w.dataWpisu)}` : null, w.dowod, w.numerKsef, w.identyfikator, w.kolumna, w.opis, w.uwagi].filter(Boolean).join(' · ')}
                 wartosc={kwota(w.kwotaGr)}
-                wartoscKolor={w.przychod ? 'sukces' : 'etykieta'}
+                wartoscKolor={kolorKwotyWpisu(w.przychod, w.kwotaGr)}
                 wartoscPodpis={w.przychod ? 'Przychód' : 'Koszt'}
               />
             ))}
