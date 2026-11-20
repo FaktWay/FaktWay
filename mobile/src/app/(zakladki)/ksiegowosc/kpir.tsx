@@ -18,6 +18,7 @@ import { useOdczyt } from '@/stan/odczyt';
 import { MARGINES, ODSTEP } from '@/wyglad/odstepy';
 import { Wykres } from '@/komponenty/wykres';
 import { dataKrotka, kwota } from '@/lib/format';
+import { kolorKwotyWpisu } from '@/lib/kolor-kwoty-ksiegi';
 import { type Kolory } from '@/wyglad/kolory';
 import { IKONY_PASKA } from '@/wyglad/ikony-paska';
 import { useKoloryPaska } from '@/wyglad/naglowki';
@@ -123,7 +124,7 @@ function EkranKpirPrzyklad() {
                 tytul={`${w.lp}. ${w.kontrahent}`}
                 podtytul={`${w.dowod} · ${dataKrotka(w.data)} · ${przychod(w) ? '7 · Sprzedaż' : `Kol. ${w.kolumna}`}`}
                 wartosc={kwota(w.kwota)}
-                wartoscKolor={przychod(w) ? 'sukces' : 'etykieta'}
+                wartoscKolor={kolorKwotyWpisu(przychod(w), w.kwota)}
                 wartoscPodpis={w.doSprawdzenia ? 'Do sprawdzenia' : w.opis}
                 wartoscPodpisKolor={w.doSprawdzenia ? 'ostrzezenie' : 'etykietaDrugorzedna'}
               />
@@ -298,7 +299,7 @@ function EkranKpirZBazy() {
                 tytul={`${w.lp}. ${w.kontrahent}`}
                 podtytul={[w.dokument, dataKrotka(w.data), w.uwagaDaty, w.kolumnaNazwa].filter(Boolean).join(' · ')}
                 wartosc={kwota(grosze(w.kwota))}
-                wartoscKolor={przychod(w) ? 'sukces' : 'etykieta'}
+                wartoscKolor={kolorKwotyWpisu(przychod(w), w.kwota)}
                 wartoscPodpis={w.dopisek ?? (w.wSumie ? w.opis : 'Poza sumą')}
                 wartoscPodpisKolor={w.dopisekOstrzezenie || !w.wSumie ? 'ostrzezenie' : 'etykietaDrugorzedna'}
               />
