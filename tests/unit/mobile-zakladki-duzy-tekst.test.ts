@@ -62,6 +62,12 @@ describe('minimalizacjaPaska: duży tekst nie minimalizuje paska', () => {
 });
 
 describe('układ zakładek korzysta z tych reguł', () => {
+  it('rozmiar etykiet rośnie tylko na iOS: Android sam skaluje napis w sp (drugi czytelnik)', () => {
+    // react-native-screens (TabsAppearanceApplicator.kt) przelicza fontSize przez toPixelFromSP,
+    // więc rozmiar już pomnożony przez fontScale rósłby na Androidzie dwa razy.
+    expect(UKLAD).toMatch(/Platform\.OS === 'ios' \? rozmiarEtykietyZakladki\(fontScale\) : ETYKIETA_ZAKLADKI/);
+  });
+
   it('rozmiar etykiet i minimalizacja idą przez funkcje, nie przez stałe', () => {
     expect(UKLAD).toContain('rozmiarEtykietyZakladki(');
     expect(UKLAD).toContain('minimalizacjaPaska(');

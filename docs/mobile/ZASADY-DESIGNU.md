@@ -51,6 +51,12 @@ najlepszych aplikacji finansowych i płynności, którą daje system.
 | Wyszukiwanie | pole wyszukiwania w pasku nawigacji listy | osobny ekran wyszukiwarki |
 | Podzakładki sekcji | pigułki (`Segmenty`, wzór Revolut Business, D14): wybrana w kolorze marki, pozostałe białe, liczba przy pigułce („Po terminie 2”) | systemowy przełącznik segmentowy, zakładki z kreską |
 
+Pasek zakładek jest wyjątkiem od pełnego skalowania tekstu (obchód U39 i U40,
+20.11.2026): system nie skaluje jego napisów sam, więc etykiety rosną na iOS od
+10 do 12 pt (`wyglad/zakladki.ts`, sufit, żeby „Księgowość” mieściła się w
+jednej piątej paska), a od skali 1,5 pasek się nie minimalizuje (kółko
+zasłaniało róg treści). Przy zwykłym tekście nic się nie zmienia.
+
 Główna akcja sekcji ma jedno stałe miejsce: szeroki bloczek u góry listy, pod
 podsumowaniem (decyzja D7, 09.11.2026: „Nowa faktura” w bloczku, nie plus w pasku).
 
