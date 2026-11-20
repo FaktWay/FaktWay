@@ -6,9 +6,9 @@ import { z } from 'zod';
 
 import type { MobileCaller } from '@/lib/api/mobile/auth';
 import type { UsuniecieKsiegiOdpowiedz, ZapisKsiegiOdpowiedz } from '@/lib/api/mobile/kontrakt-ksiegi';
-import { mobileError, mobileJson } from '@/lib/api/mobile/responses';
+import { MobileUpstreamError, mobileError, mobileJson } from '@/lib/api/mobile/responses';
 import { readJsonBody } from '@/lib/api/mobile/tresc';
-import { dodajSpis, dodajWpisKpir, dodajWpisReczny, usunSpis, usunWpisReczny, type KontekstZapisu, type WynikWpisu } from '@/lib/ksiegowosc/ewidencja-zapis';
+import { BLAD_USUNIECIA, BLAD_ZAPISU, dodajSpis, dodajWpisKpir, dodajWpisReczny, usunSpis, usunWpisReczny, type KontekstZapisu, type WynikWpisu } from '@/lib/ksiegowosc/ewidencja-zapis';
 import { isUuid } from '@/lib/supabase/active-org';
 
 /**
@@ -38,8 +38,12 @@ function kontekst(caller: MobileCaller): KontekstZapisu {
   return { client: caller.db as SupabaseClient, tenantId: orgOf(caller).tenantId, userId: caller.user.id };
 }
 
-/** Odmowa funkcji strony: 422 ze zdaniem strony i polem formularza. */
+/**
+ * Odmowa funkcji strony: 422 ze zdaniem strony i polem formularza. Zdania ogólne („Nie udało się zapisać…
+ * Można spróbować jeszcze raz”) to porażka techniczna (zapis, odczyt ustawień): 5xx, telefon ponawia.
+ */
 function odmowa(wynik: Extract<WynikWpisu, { success: false }>, headers: Record<string, string>): NextResponse {
+  if (wynik.error === BLAD_ZAPISU || wynik.error === BLAD_USUNIECIA) throw new MobileUpstreamError('ksiegowosc.ewidencja.zapis');
   return mobileError(422, 'ledger_refused', wynik.error, headers, wynik.pole);
 }
 

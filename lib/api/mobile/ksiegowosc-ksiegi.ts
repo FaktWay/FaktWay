@@ -190,12 +190,18 @@ function plik(p: Omit<PlikKsiegiTelefonu, 'mozna' | 'powod' | 'spis'> & { mozna?
 }
 
 /** Formularze zapisów jak na stronie: dzień domyślny, stawka z ustawień, stawki ryczałtu i kolumny KPiR z tych samych stałych. */
-function formularz(doDnia: string, dzis: string, wersje: readonly WersjaProfilu[] | null): FormularzKsiegiTelefonu {
+function formularz(doDnia: string, dzis: string, wersje: readonly WersjaProfilu[] | null, spisy: readonly Spis[] | null): FormularzKsiegiTelefonu {
   const domyslnaData = doDnia < dzis ? doDnia : dzis;
+  // Jak `SpisZNatury` strony: bez spisu na początek roku proponujemy 31 grudnia poprzedniego roku, potem koniec roku albo dziś.
+  const rok = Number(doDnia.slice(0, 4));
+  const maPoczatek = (spisy ?? []).some((s) => s.data === `${rok - 1}-12-31` || s.data === `${rok}-01-01`);
+  const koniecRoku = `${rok}-12-31`;
   return {
     domyslnaData,
+    domyslnaDataSpisu: maPoczatek ? (koniecRoku < dzis ? koniecRoku : dzis) : `${rok - 1}-12-31`,
     rodzajeDowodu: RODZAJE_WPISU.map((r) => ({ wartosc: r, nazwa: NAZWY_RODZAJOW_WPISU[r] })),
     stawki: STAWKI_JPK_EWP_PB.map((pb) => ({ pb, nazwa: etykietaStawki(pb) })),
+    // Stawka domyślna tylko dla ewidencji ryczałtu (`wersje`); w KPiR strona jej nie podaje.
     domyslnaStawkaPb: wersje ? (wersjaNa(wersje, domyslnaData)?.stawkaDomyslna ?? null) : null,
     kolumny: KOLUMNY_KPIR.map((k) => ({ kolumna: k, nazwa: NAZWY_KOLUMN[k] })),
     wpisOd: PROFIL_OD_MIN,
@@ -351,7 +357,7 @@ export async function ledgerForMobile(caller: MobileCaller, request: Request): P
         })),
       spisy: wynik.spisy.map((s): WpisRecznyTelefonu => ({ id: s.id, tytul: `Spis z natury z ${formatIsoDatePl(s.data)}`, szczegoly: `${zl(s.kwotaGr)}${s.opis ? `. ${s.opis}` : ''}` })),
       plik: plikPkpir(kpir, wynik.spisy, rok, mies, doDnia, dzis, mozePobrac),
-      formularz: canEdit ? formularz(doDnia, dzis, wersje) : null,
+      formularz: canEdit ? formularz(doDnia, dzis, null, wynik.spisy) : null,
     };
     return mobileJson(odpowiedz, 200, headers);
   }
@@ -398,7 +404,7 @@ export async function ledgerForMobile(caller: MobileCaller, request: Request): P
         szczegoly: `${NAZWY_RODZAJOW_WPISU[w.rodzaj]}, wpis z ${formatIsoDatePl(w.dataWpisu)}, przychód z ${formatIsoDatePl(w.dataPrzychodu)}: ${zl(w.kwotaGr)}, stawka ${etykietaStawki(w.stawkaPb)}${w.opis ? `. ${w.opis}` : ''}`,
       })),
     plik: plikEwp(ewidencja, rok, mies, doDnia, dzis, mozePobrac),
-    formularz: canEdit ? formularz(doDnia, dzis, wynik.wersje) : null,
+    formularz: canEdit ? formularz(doDnia, dzis, wynik.wersje, null) : null,
   };
   return mobileJson(odpowiedz, 200, headers);
 }

@@ -15,6 +15,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const SUPABASE_URL = 'https://db.fixture.test';
 const USER_OWNER = 'aaaaaaaa-1111-4111-8111-000000000001';
 const USER_MEMBER = 'aaaaaaaa-1111-4111-8111-000000000002';
+const USER_KSIEGOWA = 'aaaaaaaa-1111-4111-8111-000000000003';
+const USER_ADMIN = 'aaaaaaaa-1111-4111-8111-000000000005';
 const ORG_A = 'aaaaaaaa-0000-4000-8000-000000000001';
 const ID = '99999999-9999-4999-8999-999999999999';
 
@@ -80,11 +82,15 @@ function accessToken(sub: string, n: number): string {
 }
 const TOKEN_OWNER = accessToken(USER_OWNER, 1);
 const TOKEN_MEMBER = accessToken(USER_MEMBER, 2);
+const TOKEN_KSIEGOWA = accessToken(USER_KSIEGOWA, 3);
+const TOKEN_ADMIN = accessToken(USER_ADMIN, 5);
 const TOKEN_OBCY = accessToken('aaaaaaaa-1111-4111-8111-00000000000f', 4);
-const issued = new Map([[TOKEN_OWNER, USER_OWNER], [TOKEN_MEMBER, USER_MEMBER]]);
+const issued = new Map([[TOKEN_OWNER, USER_OWNER], [TOKEN_MEMBER, USER_MEMBER], [TOKEN_KSIEGOWA, USER_KSIEGOWA], [TOKEN_ADMIN, USER_ADMIN]]);
 const memberships = [
   { user_id: USER_OWNER, organization_id: ORG_A, role: 'owner', status: 'active' },
   { user_id: USER_MEMBER, organization_id: ORG_A, role: 'member', status: 'active' },
+  { user_id: USER_KSIEGOWA, organization_id: ORG_A, role: 'accountant', status: 'active' },
+  { user_id: USER_ADMIN, organization_id: ORG_A, role: 'admin', status: 'active' },
 ];
 
 /** Atrapa PostgREST: członkostwa, ustawienia podatkowe (forma od 1.01.2026), zapis wpisu i spisu, usunięcia. */
@@ -222,6 +228,21 @@ describe('zapis wpisu ręcznego: ta sama droga co strona', () => {
     expect((await blad(wylaczony)).message).toBe('Ewidencja przychodów nie jest jeszcze dostępna dla tej firmy.');
     expect(fake.wstawione).toEqual([]);
     expect(fake.audit).not.toHaveBeenCalled();
+  });
+
+  it('role: administrator zapisuje, księgowa i członek 403 bez zapisu; zwrot kwotą ujemną zapisany jako ujemne grosze', async () => {
+    expect((await wpisRoute(req('ksiegowosc/ewidencja/wpisy', { token: TOKEN_ADMIN, body: { ...WPIS, kwota: '-12,50' } }))).status).toBe(201);
+    expect(fake.wstawione[0]).toMatchObject({ kwota_gr: -1250 });
+    expect((await wpisRoute(req('ksiegowosc/ewidencja/wpisy', { token: TOKEN_KSIEGOWA, body: WPIS }))).status).toBe(403);
+    expect((await spisRoute(req('ksiegowosc/ewidencja/spisy', { token: TOKEN_KSIEGOWA, body: SPIS }))).status).toBe(403);
+    expect((await wpisUsunRoute(req(`ksiegowosc/ewidencja/wpisy/${ID}/usuniecie`, { token: TOKEN_KSIEGOWA }), ctxId(ID))).status).toBe(403);
+    expect(fake.wstawione).toHaveLength(1);
+  });
+
+  it('porażka techniczna zapisu (zdanie ogólne strony) to 503 do ponowienia, nie 422', async () => {
+    fake.bladWstawienia = { code: 'XX000' };
+    const spis = await spisRoute(req('ksiegowosc/ewidencja/spisy', { body: SPIS }));
+    expect(spis.status).toBe(503);
   });
 
   it('członek firmy: 403 bez zapisu; treść spoza kontraktu (nieznany typ, obce pole, zły typ pola): 400', async () => {

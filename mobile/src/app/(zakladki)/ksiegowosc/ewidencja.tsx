@@ -289,7 +289,7 @@ function EkranEwidencjiZBazy({ konto }: { konto: KontoFirmy }) {
           </Sekcja>
         ) : null}
 
-        <ZapisyKsiegi konto={konto} d={d} firmaEkranu={firmaEkranu} poZapisie={() => void ks.odswiez()} />
+        <ZapisyKsiegi key={d.miesiac} konto={konto} d={d} firmaEkranu={firmaEkranu} poZapisie={() => void ks.odswiez()} />
 
         {d.plik ? (
           <Sekcja

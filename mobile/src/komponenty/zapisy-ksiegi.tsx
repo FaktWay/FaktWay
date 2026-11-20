@@ -19,7 +19,7 @@ type Props = {
   poZapisie: () => void;
 };
 
-type Zapytanie = (sciezka: string, cialo: unknown, poSukcesie: () => void) => Promise<void>;
+type Zapytanie = (sciezka: string, cialo: unknown, poSukcesie: () => void, odswiezPoOdmowie?: boolean) => Promise<void>;
 
 /**
  * Wspólny zapis: jedno żądanie naraz (ref, nie stan), zdanie serwera pod polem albo pod formularzem,
@@ -30,7 +30,7 @@ function useZapis({ konto, firmaEkranu, poZapisie }: Pick<Props, 'konto' | 'firm
   const [bledy, setBledy] = useState<Record<string, string>>({});
   const [blad, setBlad] = useState<string>();
   const wToku = useRef(false);
-  const zapisz: Zapytanie = async (sciezka, cialo, poSukcesie) => {
+  const zapisz: Zapytanie = async (sciezka, cialo, poSukcesie, odswiezPoOdmowie = false) => {
     if (wToku.current) return;
     wToku.current = true;
     setTrwa(true);
@@ -43,7 +43,8 @@ function useZapis({ konto, firmaEkranu, poZapisie }: Pick<Props, 'konto' | 'firm
         else setBlad(w.blad.komunikat);
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         // Zerwane połączenie mogło zapisać: lista od nowa, zanim klient dotknie jeszcze raz.
-        if (w.blad.rodzaj !== 'odmowa') poZapisie();
+        // Odmowa usunięcia („już nie ma na liście”) też znaczy, że lista jest nieaktualna.
+        if (w.blad.rodzaj !== 'odmowa' || odswiezPoOdmowie) poZapisie();
         return;
       }
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -65,24 +66,27 @@ function useZapis({ konto, firmaEkranu, poZapisie }: Pick<Props, 'konto' | 'firm
  */
 export function ZapisyKsiegi({ konto, d, firmaEkranu, poZapisie }: Props) {
   const f = d.formularz;
-  const { trwa, bledy, blad, zapisz } = useZapis({ konto, firmaEkranu, poZapisie });
+  // Osobny zapis na wpisy i na spisy: błędy pól (`kwota`, `opis`) jednego formularza nie pokazują się pod drugim.
+  const wpisy = useZapis({ konto, firmaEkranu, poZapisie });
+  const spisy = useZapis({ konto, firmaEkranu, poZapisie });
   const [otwarty, setOtwarty] = useState(false);
-  const [rodzaj, setRodzaj] = useState<'raport_kasy' | 'inny'>('inny');
+  // Jak formularz strony: rodzaj od raportu z kasy, kolumna KPiR pusta (klient wybiera świadomie).
+  const [rodzaj, setRodzaj] = useState<'raport_kasy' | 'inny'>('raport_kasy');
   const [data, setData] = useState(f?.domyslnaData ?? d.dzis);
   const [dokument, setDokument] = useState('');
   const [kwotaWpisu, setKwotaWpisu] = useState('');
   const [stawka, setStawka] = useState(f?.domyslnaStawkaPb ? String(f.domyslnaStawkaPb) : '');
-  const [kolumna, setKolumna] = useState('k13');
+  const [kolumna, setKolumna] = useState('');
   const [opis, setOpis] = useState('');
   const [spisOtwarty, setSpisOtwarty] = useState(false);
-  const [spisData, setSpisData] = useState(f?.domyslnaData ?? d.dzis);
+  const [spisData, setSpisData] = useState(f?.domyslnaDataSpisu ?? d.dzis);
   const [spisKwota, setSpisKwota] = useState('');
   const [spisOpis, setSpisOpis] = useState('');
 
   const dodajWpis = () => {
     const wspolne = { rodzaj, dataPrzychodu: data, dokument: dokument.trim(), kwota: kwotaWpisu.trim(), opis: opis.trim() || null };
     const cialo: WpisKsiegiZadanie = d.rodzaj === 'kpir' ? { typ: 'kpir', ...wspolne, kolumna } : { typ: 'ewidencja', ...wspolne, stawkaPb: Number(stawka) };
-    void zapisz('ksiegowosc/ewidencja/wpisy', cialo, () => {
+    void wpisy.zapisz('ksiegowosc/ewidencja/wpisy', cialo, () => {
       setOtwarty(false);
       setDokument('');
       setKwotaWpisu('');
@@ -90,23 +94,23 @@ export function ZapisyKsiegi({ konto, d, firmaEkranu, poZapisie }: Props) {
     });
   };
   const usunWpis = (id: string, tytul: string) =>
-    potwierdz({ tytul: `Usunąć wpis ${tytul}?`, opis: 'Poprawka to usunięcie wpisu i dodanie nowego. Usunięcie zapisuje się w dzienniku zmian.', potwierdz: 'Usuń' }, () => void zapisz(`ksiegowosc/ewidencja/wpisy/${id}/usuniecie`, undefined, () => undefined));
+    potwierdz({ tytul: `Usunąć wpis ${tytul}?`, opis: 'Poprawka to usunięcie wpisu i dodanie nowego. Usunięcie zapisuje się w dzienniku zmian.', potwierdz: 'Usuń' }, () => void wpisy.zapisz(`ksiegowosc/ewidencja/wpisy/${id}/usuniecie`, undefined, () => undefined, true));
   const dodajSpis = () => {
     const cialo: SpisZadanie = { data: spisData, kwota: spisKwota.trim(), opis: spisOpis.trim() || null };
-    void zapisz('ksiegowosc/ewidencja/spisy', cialo, () => {
+    void spisy.zapisz('ksiegowosc/ewidencja/spisy', cialo, () => {
       setSpisOtwarty(false);
       setSpisKwota('');
       setSpisOpis('');
     });
   };
   const usunSpis = (id: string, tytul: string) =>
-    potwierdz({ tytul: `Usunąć ${tytul.toLowerCase()}?`, opis: 'Poprawka to usunięcie spisu i dodanie nowego.', potwierdz: 'Usuń' }, () => void zapisz(`ksiegowosc/ewidencja/spisy/${id}/usuniecie`, undefined, () => undefined));
+    potwierdz({ tytul: `Usunąć ${tytul.toLowerCase()}?`, opis: 'Poprawka to usunięcie spisu i dodanie nowego.', potwierdz: 'Usuń' }, () => void spisy.zapisz(`ksiegowosc/ewidencja/spisy/${id}/usuniecie`, undefined, () => undefined, true));
 
   const kpir = d.rodzaj === 'kpir';
-  const blokada = (pole: string) =>
-    bledy[pole] ? (
+  const blokada = (b: Record<string, string>, pole: string) =>
+    b[pole] ? (
       <Tekst styl="footnote" kolor="blad" style={styles.nota}>
-        {bledy[pole]}
+        {b[pole]}
       </Tekst>
     ) : null;
 
@@ -121,7 +125,7 @@ export function ZapisyKsiegi({ konto, d, firmaEkranu, poZapisie }: Props) {
               key={w.id}
               tytul={w.tytul}
               podtytul={w.szczegoly}
-              onPress={f && !trwa ? () => usunWpis(w.id, w.tytul) : undefined}
+              onPress={f && !wpisy.trwa ? () => usunWpis(w.id, w.tytul) : undefined}
               etykietaDostepnosci={`${w.tytul}. ${w.szczegoly}${f ? ' Dotknij, żeby usunąć wpis.' : ''}`}
             />
           ))
@@ -129,19 +133,19 @@ export function ZapisyKsiegi({ konto, d, firmaEkranu, poZapisie }: Props) {
         {f && otwarty ? (
           <>
             <PoleWyboru etykieta="Rodzaj dowodu" wartosc={rodzaj} opcje={f.rodzajeDowodu.map((r) => ({ wartosc: r.wartosc, etykieta: r.nazwa }))} onZmiana={setRodzaj} />
-            {blokada('rodzaj')}
+            {blokada(wpisy.bledy, 'rodzaj')}
             <PoleDaty etykieta={kpir ? 'Data zdarzenia' : 'Data przychodu'} wartosc={data} onZmiana={setData} najwczesniej={f.wpisOd} />
-            {blokada('dataPrzychodu')}
-            <PoleTekstowe etykieta="Numer dowodu" wartosc={dokument} onZmiana={setDokument} blad={bledy.dokument} />
-            <PoleTekstowe etykieta="Kwota" wartosc={kwotaWpisu} onZmiana={setKwotaWpisu} podpowiedz="zł" klawiatura="numbers-and-punctuation" blad={bledy.kwota} />
+            {blokada(wpisy.bledy, 'dataPrzychodu')}
+            <PoleTekstowe etykieta="Numer dowodu" wartosc={dokument} onZmiana={setDokument} blad={wpisy.bledy.dokument} />
+            <PoleTekstowe etykieta="Kwota" wartosc={kwotaWpisu} onZmiana={setKwotaWpisu} podpowiedz="zł" klawiatura="numbers-and-punctuation" blad={wpisy.bledy.kwota} />
             {kpir ? (
               <PoleWyboru etykieta="Kolumna KPiR" wartosc={kolumna} opcje={f.kolumny.map((k) => ({ wartosc: k.kolumna, etykieta: k.nazwa }))} onZmiana={setKolumna} />
             ) : (
               <PoleWyboru etykieta="Stawka ryczałtu" wartosc={stawka} opcje={f.stawki.map((s) => ({ wartosc: String(s.pb), etykieta: s.nazwa }))} onZmiana={setStawka} />
             )}
-            {blokada(kpir ? 'kolumna' : 'stawkaPb')}
-            <PoleTekstowe etykieta="Opis (opcjonalnie)" wartosc={opis} onZmiana={setOpis} blad={bledy.opis} />
-            <Wiersz tytul={trwa ? 'Zapisujemy' : 'Zapisz wpis'} ikona="checkbox-circle-fill" akcja onPress={trwa ? undefined : dodajWpis} />
+            {blokada(wpisy.bledy, kpir ? 'kolumna' : 'stawkaPb')}
+            <PoleTekstowe etykieta="Opis (opcjonalnie)" wartosc={opis} onZmiana={setOpis} blad={wpisy.bledy.opis} />
+            <Wiersz tytul={wpisy.trwa ? 'Zapisujemy' : 'Zapisz wpis'} ikona="checkbox-circle-fill" akcja onPress={wpisy.trwa ? undefined : dodajWpis} />
           </>
         ) : f ? (
           // Pola dopiero po dotknięciu, żeby ekran przeglądu nie był formularzem (WZORCE-MOBBIN.md 5.3).
@@ -150,7 +154,7 @@ export function ZapisyKsiegi({ konto, d, firmaEkranu, poZapisie }: Props) {
       </Sekcja>
 
       {kpir ? (
-        <Sekcja naglowek="Spis z natury" stopka={f ? 'Na początek roku (31 grudnia poprzedniego) i na koniec roku albo przy zmianie formy opodatkowania. Poprawka to usunięcie spisu i dodanie nowego.' : 'Spisy dodaje i usuwa właściciel albo administrator firmy.'}>
+        <Sekcja naglowek="Spis z natury" stopka={f ? 'Spis z natury robi się na 1 stycznia (albo na dzień rozpoczęcia działalności) i na 31 grudnia, a także np. przy zmianie formy opodatkowania. Plik JPK_PKPIR bierze z niego spis na początek roku (z 31 grudnia poprzedniego roku albo z 1 stycznia) i na koniec roku. Poprawka to usunięcie spisu i dodanie nowego.' : 'Spisy dodaje i usuwa właściciel albo administrator firmy.'}>
           {d.spisy.length === 0 ? (
             <Wiersz tytul="Brak spisów z natury" />
           ) : (
@@ -159,7 +163,7 @@ export function ZapisyKsiegi({ konto, d, firmaEkranu, poZapisie }: Props) {
                 key={s.id}
                 tytul={s.tytul}
                 podtytul={s.szczegoly}
-                onPress={f && !trwa ? () => usunSpis(s.id, s.tytul) : undefined}
+                onPress={f && !spisy.trwa ? () => usunSpis(s.id, s.tytul) : undefined}
                 etykietaDostepnosci={`${s.tytul}. ${s.szczegoly}${f ? ' Dotknij, żeby usunąć spis.' : ''}`}
               />
             ))
@@ -167,19 +171,19 @@ export function ZapisyKsiegi({ konto, d, firmaEkranu, poZapisie }: Props) {
           {f && spisOtwarty ? (
             <>
               <PoleDaty etykieta="Data spisu" wartosc={spisData} onZmiana={setSpisData} najwczesniej={f.spisOd} />
-              {blokada('data')}
-              <PoleTekstowe etykieta="Wartość" wartosc={spisKwota} onZmiana={setSpisKwota} podpowiedz="zł" klawiatura="decimal-pad" blad={bledy.kwota} />
-              <PoleTekstowe etykieta="Opis (opcjonalnie)" wartosc={spisOpis} onZmiana={setSpisOpis} blad={bledy.opis} />
-              <Wiersz tytul={trwa ? 'Zapisujemy' : 'Zapisz spis'} ikona="checkbox-circle-fill" akcja onPress={trwa ? undefined : dodajSpis} />
+              {blokada(spisy.bledy, 'data')}
+              <PoleTekstowe etykieta="Wartość" wartosc={spisKwota} onZmiana={setSpisKwota} podpowiedz="zł" klawiatura="decimal-pad" blad={spisy.bledy.kwota} />
+              <PoleTekstowe etykieta="Opis (opcjonalnie)" wartosc={spisOpis} onZmiana={setSpisOpis} blad={spisy.bledy.opis} />
+              <Wiersz tytul={spisy.trwa ? 'Zapisujemy' : 'Zapisz spis'} ikona="checkbox-circle-fill" akcja onPress={spisy.trwa ? undefined : dodajSpis} />
             </>
           ) : f ? (
             <Wiersz tytul="Dodaj spis" ikona="add-line" akcja onPress={() => setSpisOtwarty(true)} />
           ) : null}
         </Sekcja>
       ) : null}
-      {blad ? (
+      {wpisy.blad || spisy.blad ? (
         <Tekst styl="footnote" kolor="blad" style={styles.nota}>
-          {blad}
+          {wpisy.blad ?? spisy.blad}
         </Tekst>
       ) : null}
     </>

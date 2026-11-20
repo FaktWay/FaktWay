@@ -291,7 +291,7 @@ describe('GET /api/mobile/v1/ksiegowosc/ewidencja', () => {
     expect(body.pominiete).toBe('Poza ewidencją: FS/9/10. Faktura zaliczkowa nie wchodzi do ewidencji.');
     expect(body.plik).toMatchObject({ plik: 'JPK_EWP', rok: 2026, doMiesiaca: 10, mozna: true, powod: null });
     // Formularze zapisów (M10d część 3): opcje i granice z tych samych stałych co formularze strony.
-    expect(body.formularz).toMatchObject({ domyslnaData: '2026-10-31', domyslnaStawkaPb: 850, wpisOd: '2026-01-01', spisOd: '2025-12-31' });
+    expect(body.formularz).toMatchObject({ domyslnaData: '2026-10-31', domyslnaStawkaPb: 850, wpisOd: '2026-01-01', spisOd: '2025-12-31', domyslnaDataSpisu: '2025-12-31' });
     expect(body.formularz?.stawki.map((s) => s.pb)).toEqual([1700, 1500, 1400, 1250, 1200, 1000, 850, 550, 300]);
     expect(body.formularz?.kolumny.map((k) => k.kolumna)).toEqual(['k7', 'k8', 'k10', 'k11', 'k12', 'k13']);
     expect(body.formularz?.rodzajeDowodu).toEqual([{ wartosc: 'raport_kasy', nazwa: 'Raport z kasy rejestrującej' }, { wartosc: 'inny', nazwa: 'Inny dowód' }]);
@@ -316,6 +316,11 @@ describe('GET /api/mobile/v1/ksiegowosc/ewidencja', () => {
     fake.kpirObszar = false;
     const wylaczona = (await (await ewidencjaRoute(req('ksiegowosc/ewidencja?miesiac=2026-10'))).json()) as KsiegaTelefonuOdpowiedz;
     expect(wylaczona.komunikat).toMatch(/^KPiR w module księgowości jest chwilowo wyłączona\./);
+    expect(wylaczona.formularz).toBeNull();
+    // KPiR: stawki domyślnej strona nie podaje; bez spisu na początek roku proponujemy 31 grudnia poprzedniego roku.
+    fake.kpirObszar = true;
+    const kpirOk = (await (await ewidencjaRoute(req('ksiegowosc/ewidencja?miesiac=2026-10'))).json()) as KsiegaTelefonuOdpowiedz;
+    expect(kpirOk.formularz).toMatchObject({ domyslnaStawkaPb: null, domyslnaDataSpisu: '2025-12-31' });
   });
 
   it('braki: zdania strony, bez sum i bez pliku (z miesiącami braków); okres przed 2026, obszar wyłączony i błąd odczytu ustawień', async () => {
@@ -335,6 +340,7 @@ describe('GET /api/mobile/v1/ksiegowosc/ewidencja', () => {
     fake.czytajEwidencje.mockClear();
     const wylaczony = (await (await ewidencjaRoute(req('ksiegowosc/ewidencja'))).json()) as KsiegaTelefonuOdpowiedz;
     expect(wylaczony.wlaczona).toBe(false);
+    expect(wylaczony.formularz).toBeNull();
     expect(fake.czytajEwidencje).not.toHaveBeenCalled();
   });
 

@@ -43,12 +43,11 @@ export type KontekstZapisu = KontekstPliku;
 export type WynikWpisu = { success: true } | { success: false; error: string; pole?: string };
 
 const NIEDOSTEPNE = EWIDENCJA_NIEDOSTEPNA;
-const BLAD_ZAPISU = 'Nie udało się zapisać wpisu i nic się nie zmieniło. Można spróbować jeszcze raz.';
-const BLAD_USUNIECIA = 'Nie udało się usunąć wpisu i nic się nie zmieniło. Można spróbować jeszcze raz.';
+export const BLAD_ZAPISU = 'Nie udało się zapisać wpisu i nic się nie zmieniło. Można spróbować jeszcze raz.';
+export const BLAD_USUNIECIA = 'Nie udało się usunąć wpisu i nic się nie zmieniło. Można spróbować jeszcze raz.';
 const PROFIL_TEKST = 'Ustawienia są w Księgowości, w zakładce „Ustawienia podatkowe”.';
 
 export async function dodajWpisReczny(ctx: KontekstZapisu, wejscie: WpisWejscie): Promise<WynikWpisu> {
-
   const parsed = wpisSchema.safeParse(wejscie);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
@@ -106,7 +105,6 @@ export async function dodajWpisReczny(ctx: KontekstZapisu, wejscie: WpisWejscie)
   return { success: true };
 }
 
-
 export async function usunWpisReczny(ctx: KontekstZapisu, id: string): Promise<WynikWpisu> {
   if (!z.string().uuid().safeParse(id).success) return { success: false, error: BLAD_USUNIECIA };
 
@@ -135,7 +133,6 @@ export async function usunWpisReczny(ctx: KontekstZapisu, id: string): Promise<W
   revalidatePath('/reports/ewidencja');
   return { success: true };
 }
-
 
 export async function dodajWpisKpir(ctx: KontekstZapisu, wejscie: WpisKpirWejscie): Promise<WynikWpisu> {
   const parsed = wpisKpirSchema.safeParse(wejscie);
@@ -180,7 +177,6 @@ export async function dodajWpisKpir(ctx: KontekstZapisu, wejscie: WpisKpirWejsci
   return { success: true };
 }
 
-
 export async function dodajSpis(ctx: KontekstZapisu, wejscie: SpisWejscie): Promise<WynikWpisu> {
   const parsed = spisSchema.safeParse(wejscie);
   if (!parsed.success) {
@@ -213,7 +209,6 @@ export async function dodajSpis(ctx: KontekstZapisu, wejscie: SpisWejscie): Prom
   revalidatePath('/reports/ewidencja');
   return { success: true };
 }
-
 
 export async function usunSpis(ctx: KontekstZapisu, id: string): Promise<WynikWpisu> {
   if (!z.string().uuid().safeParse(id).success) return { success: false, error: BLAD_USUNIECIA };

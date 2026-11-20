@@ -107,6 +107,8 @@ export interface WpisRecznyTelefonu {
 export interface FormularzKsiegiTelefonu {
   /** Dzień domyślny: koniec miesiąca albo dziś, jeśli miesiąc trwa. */
   domyslnaData: string;
+  /** Dzień domyślny spisu jak na stronie: 31 grudnia poprzedniego roku, dopóki nie ma spisu na początek roku; potem koniec roku albo dziś. */
+  domyslnaDataSpisu: string;
   rodzajeDowodu: Array<{ wartosc: 'raport_kasy' | 'inny'; nazwa: string }>;
   /** Stawki ryczałtu (ewidencja), „8,5 %”. */
   stawki: Array<{ pb: number; nazwa: string }>;
