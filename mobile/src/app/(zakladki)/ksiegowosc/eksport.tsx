@@ -130,6 +130,7 @@ function EkranEksportuZBazy({ konto }: { konto: KontoFirmy }) {
   const [pobieranie, setPobieranie] = useState<string>();
   const [blad, setBlad] = useState<string>();
   const wToku = useRef(false);
+  const wPobraniu = useRef(false);
   const odswiez = ek?.odswiez;
   const wGenerowaniu = d?.historia.some((z) => z.stan === 'pending' || z.stan === 'generating') ?? false;
 
@@ -161,26 +162,32 @@ function EkranEksportuZBazy({ konto }: { konto: KontoFirmy }) {
     wToku.current = true;
     setTrwa(true);
     setBlad(undefined);
-    const w = await konto.zapytaj<EksportStartOdpowiedz>('eksport', { metoda: 'POST', cialo: { format: wybranyFormat, miesiac: wybranyMiesiac }, firmaEkranu });
-    wToku.current = false;
-    setTrwa(false);
-    if (!w.ok) {
-      setBlad(w.blad.komunikat);
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      // Zerwane połączenie mogło zlecić eksport: historia od nowa, zanim klient dotknie jeszcze raz.
-      if (w.blad.rodzaj !== 'odmowa') void ek.odswiez();
-      return;
+    try {
+      const w = await konto.zapytaj<EksportStartOdpowiedz>('eksport', { metoda: 'POST', cialo: { format: wybranyFormat, miesiac: wybranyMiesiac }, firmaEkranu });
+      if (!w.ok) {
+        setBlad(w.blad.komunikat);
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        // Zerwane połączenie mogło zlecić eksport: historia od nowa, zanim klient dotknie jeszcze raz.
+        if (w.blad.rodzaj !== 'odmowa') void ek.odswiez();
+        return;
+      }
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void ek.odswiez();
+    } finally {
+      // Wyjątek z `zapytaj` nie zostawia przycisku zablokowanego do zamknięcia ekranu.
+      wToku.current = false;
+      setTrwa(false);
     }
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    void ek.odswiez();
   };
 
   const pobierz = async (id: string) => {
-    if (pobieranie) return;
+    // Ref, nie stan: dwa szybkie dotknięcia przed ponownym narysowaniem nie pobierają dwa razy (licznik pobrań, dwa arkusze).
+    if (wPobraniu.current) return;
+    wPobraniu.current = true;
     setPobieranie(id);
     setBlad(undefined);
-    const w = await konto.zapytaj<EksportPlikOdpowiedz>(`eksport/pliki/${encodeURIComponent(id)}`);
     try {
+      const w = await konto.zapytaj<EksportPlikOdpowiedz>(`eksport/pliki/${encodeURIComponent(id)}`);
       if (!w.ok) {
         setBlad(w.blad.komunikat);
         return;
@@ -189,6 +196,7 @@ function EkranEksportuZBazy({ konto }: { konto: KontoFirmy }) {
     } catch {
       setBlad('Nie udało się zapisać pliku na telefonie. Zwolnij trochę miejsca i spróbuj ponownie.');
     } finally {
+      wPobraniu.current = false;
       setPobieranie(undefined);
     }
   };
@@ -221,7 +229,7 @@ function EkranEksportuZBazy({ konto }: { konto: KontoFirmy }) {
         </Tekst>
       ) : null}
 
-      <Sekcja naglowek="Historia" stopka="Ostatnie 20 ręcznych eksportów. Pliki są dostępne 30 dni.">
+      <Sekcja naglowek="Historia" stopka="Ostatnie 20 ręcznych eksportów.">
         {d.historia.length === 0 ? (
           <Wiersz tytul="Nie ma jeszcze eksportów" />
         ) : (

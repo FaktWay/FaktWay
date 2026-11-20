@@ -148,8 +148,8 @@ function EkranEwidencjiZBazy({ konto }: { konto: KontoFirmy }) {
     setBladPliku(undefined);
     setBledy({});
     const cialo = { plik: d.plik.plik, rok: d.plik.rok, doMiesiaca: d.plik.doMiesiaca, imie, nazwisko, dataUrodzenia: urodzenie.trim() };
-    const w = await konto.zapytaj<PlikKsiegiOdpowiedz>('ksiegowosc/ewidencja/plik', { metoda: 'POST', cialo, firmaEkranu });
     try {
+      const w = await konto.zapytaj<PlikKsiegiOdpowiedz>('ksiegowosc/ewidencja/plik', { metoda: 'POST', cialo, firmaEkranu });
       if (!w.ok) {
         if (w.blad.pole) setBledy({ [w.blad.pole]: w.blad.komunikat });
         else setBladPliku(w.blad.komunikat);
@@ -270,7 +270,7 @@ function EkranEwidencjiZBazy({ konto }: { konto: KontoFirmy }) {
               <Wiersz
                 key={`${w.lp}-${w.dowod}`}
                 tytul={`${w.lp}. ${w.kontrahent || w.dowod}`}
-                podtytul={[dataKrotka(w.data), w.dowod, w.numerKsef, w.kolumna, w.opis, w.uwagi].filter(Boolean).join(' · ')}
+                podtytul={[dataKrotka(w.data), w.dataWpisu ? `wpis ${dataKrotka(w.dataWpisu)}` : null, w.dowod, w.numerKsef, w.identyfikator, w.kolumna, w.opis, w.uwagi].filter(Boolean).join(' · ')}
                 wartosc={kwota(w.kwotaGr)}
                 wartoscKolor={w.przychod ? 'sukces' : 'etykieta'}
                 wartoscPodpis={w.przychod ? 'Przychód' : 'Koszt'}

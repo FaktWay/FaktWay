@@ -333,6 +333,19 @@ describe('GET /api/mobile/v1/ksiegowosc/ewidencja', () => {
     expect(fake.czytajEwidencje).not.toHaveBeenCalled();
   });
 
+  it('wyjątek odczytu wyłącznika to 5xx do ponowienia, nie pusta księga; wiersze niosą datę wpisu i identyfikator kontrahenta', async () => {
+    const zbudowane = (await (await ewidencjaRoute(req('ksiegowosc/ewidencja?miesiac=2026-10'))).json()) as KsiegaTelefonuOdpowiedz;
+    expect(zbudowane.wiersze[0]).toMatchObject({ dataWpisu: '2026-10-06', identyfikator: null, kontrahent: 'PL 5252248481' });
+    fake.wersje.mockResolvedValue([wersja('skala')]);
+    const kpir = (await (await ewidencjaRoute(req('ksiegowosc/ewidencja?miesiac=2026-10'))).json()) as KsiegaTelefonuOdpowiedz;
+    expect(kpir.wiersze[0]).toMatchObject({ dataWpisu: null, identyfikator: '5252248481' });
+    fake.czytajEwidencje.mockClear();
+    fake.obszary = new Proxy({}, { get: () => { throw new Error('wyłącznik niedostępny'); } }) as Record<string, boolean>;
+    const wyjatek = await ewidencjaRoute(req('ksiegowosc/ewidencja?miesiac=2026-10'));
+    expect(wyjatek.status).toBe(503);
+    expect(fake.czytajEwidencje).not.toHaveBeenCalled();
+  });
+
   it('członek firmy widzi księgę, pliku nie pobiera (zdanie z rolą), księgowa pobiera', async () => {
     const czlonek = (await (await ewidencjaRoute(req('ksiegowosc/ewidencja?miesiac=2026-10', { token: TOKEN_MEMBER }))).json()) as KsiegaTelefonuOdpowiedz;
     expect(czlonek.plik).toMatchObject({ mozna: false, powod: 'Plik pobiera właściciel, administrator albo księgowa firmy.' });
@@ -424,12 +437,17 @@ describe('eksport', () => {
     // Odczyt urzędu, który się nie udał, niczego nie blokuje (jak strona).
     fake.urzad.mockRejectedValue(new Error('baza'));
     expect((await startRoute(req('eksport', { method: 'POST', body: { format: 'jpk_fa', miesiac: '2026-10' } }))).status).toBe(201);
+    // Porażka techniczna (zapis joba, zdarzenie dla workera) to 5xx do ponowienia, nie „odmowa”.
     fake.start.mockResolvedValue({ success: false, error: 'cokolwiek technicznego' });
+    const techniczna = await startRoute(req('eksport', { method: 'POST', body: { format: 'kpir_excel', miesiac: '2026-10' } }));
+    expect(techniczna.status).toBe(503);
+    // Odmowa merytoryczna (zdanie strony) zostaje 422.
+    fake.start.mockResolvedValue({ success: false, error: 'Data końcowa < początkowa' });
     const odmowa = await startRoute(req('eksport', { method: 'POST', body: { format: 'kpir_excel', miesiac: '2026-10' } }));
     expect(odmowa.status).toBe(422);
-    expect(await blad(odmowa)).toMatchObject({ code: 'export_refused', message: 'Nie udało się zlecić eksportu. Spróbuj ponownie.' });
+    expect(await blad(odmowa)).toMatchObject({ code: 'export_refused' });
     fake.start.mockClear();
-    for (const zle of [{ format: 'symfonia', miesiac: '2026-10' }, { format: 'kpir_excel', miesiac: '10-2026' }, { format: 'kpir_excel', miesiac: '2026-10', x: 1 }]) {
+    for (const zle of [{ format: 'symfonia', miesiac: '2026-10' }, { format: 'kpir_excel', miesiac: '10-2026' }, { format: 'kpir_excel', miesiac: '2026-12' }, { format: 'kpir_excel', miesiac: '2026-10', x: 1 }]) {
       expect((await startRoute(req('eksport', { method: 'POST', body: zle }))).status).toBe(400);
     }
     expect(fake.start).not.toHaveBeenCalled();

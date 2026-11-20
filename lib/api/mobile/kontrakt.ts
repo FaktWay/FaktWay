@@ -121,7 +121,7 @@ export const MOBILE_API_ERROR_CODES = [
   /** 422: wartość ustawienia nie przeszła zasad strony (dane firmy, rachunek, data, zwolnienie, przypomnienia); `field` to pole formularza telefonu. */
   'settings_invalid',
   // Ręczny eksport (M10d część 2).
-  /** 422: eksportu nie zlecono (wstrzymany format, brak urzędu skarbowego, plik niegotowy); `message` to zdanie strony z tym, co zrobić. */
+  /** 422: eksportu nie zlecono (wstrzymany format, brak urzędu skarbowego, plik niegotowy); `message` to zdanie strony z tym, co zrobić. Porażka techniczna (zapis joba, zdarzenie) to 503 do ponowienia, nie ten kod. */
   'export_refused',
   /** 500, opis z identyfikatorem żądania. */
   'internal_error',

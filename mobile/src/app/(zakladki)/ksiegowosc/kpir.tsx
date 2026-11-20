@@ -12,6 +12,7 @@ import { Tekst } from '@/komponenty/tekst';
 import type { KpirRaportOdpowiedz } from '@/lib/api/kontrakt-ksiegi';
 import { grosze } from '@/lib/dane/mapowanie';
 import { useKontoFirmy } from '@/stan/dane';
+import { odmiana } from '@/lib/wiecej';
 import { nazwaMiesiaca } from '@/stan/ksiegowosc';
 import { useOdczyt } from '@/stan/odczyt';
 import { MARGINES, ODSTEP } from '@/wyglad/odstepy';
@@ -274,7 +275,7 @@ function EkranKpirZBazy() {
 
         {d.doOpisania ? (
           <Sekcja naglowek="Do opisania" stopka="Koszty z KSeF, które trzeba opisać, zanim wejdą do sum.">
-            <Wiersz tytul={`${d.doOpisania.liczba} kosztów poza sumą`} wartosc={kwota(grosze(d.doOpisania.kwota))} strzalka onPress={() => router.push('/koszty')} />
+            <Wiersz tytul={`${odmiana(d.doOpisania.liczba, ['koszt', 'koszty', 'kosztów'])} poza sumą`} wartosc={kwota(grosze(d.doOpisania.kwota))} strzalka onPress={() => router.push('/koszty')} />
           </Sekcja>
         ) : null}
 

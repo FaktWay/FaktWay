@@ -155,7 +155,10 @@ export async function startExportFromMobile(caller: MobileCaller, request: Reque
   const raw = await readJsonBody(request, headers, { maxBytes: MAX_BODY_BYTES, tooLarge: 'Treść jest za długa.' });
   if (!raw.ok) return raw.response;
   const parsed = startSchema.safeParse(raw.value);
-  if (!parsed.success || !MIESIAC.test(parsed.data.miesiac)) return mobileError(400, 'invalid_request', POZA_KONTRAKTEM, headers);
+  // Kształt jak `miesiacZAdresu` ksiąg: miesiąc RRRR-MM, najpóźniej bieżący (strona sprawdza tylko daty, telefon wybiera z listy).
+  if (!parsed.success || !MIESIAC.test(parsed.data.miesiac) || parsed.data.miesiac > todayInWarsaw().slice(0, 7)) {
+    return mobileError(400, 'invalid_request', POZA_KONTRAKTEM, headers);
+  }
   const format: EnabledExportFormat = parsed.data.format;
   // Jak strona: JPK_FA bez urzędu skarbowego i tak odmówi, więc nie zlecamy (odczyt, który się nie udał, niczego nie blokuje).
   if (format === 'jpk_fa') {
@@ -171,7 +174,12 @@ export async function startExportFromMobile(caller: MobileCaller, request: Reque
     // Pola formularza strony po domyślnych: faktury wystawione i korekty, bez otrzymanych; zakres wg reguły formatu.
     { format, periodStart: from, periodEnd: to, ...includesFor(format, { csv: { issued: true, received: false, corrections: true }, jpkCorrections: true }) },
   );
-  if (!wynik.success) return mobileError(422, 'export_refused', friendlyStartError(wynik.error), headers);
+  if (!wynik.success) {
+    const zdanie = friendlyStartError(wynik.error);
+    // Zdanie ogólne to porażka techniczna (zapis joba, zdarzenie dla workera): telefon ponawia (5xx), nie pokazuje „odmowy”.
+    if (zdanie === friendlyStartError('')) throw new MobileUpstreamError('ksiegowosc.eksport.start');
+    return mobileError(422, 'export_refused', zdanie, headers);
+  }
   const odpowiedz: EksportStartOdpowiedz = { jobId: wynik.jobId };
   return mobileJson(odpowiedz, 201, headers);
 }

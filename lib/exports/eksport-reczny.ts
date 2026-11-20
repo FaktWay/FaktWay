@@ -14,7 +14,7 @@ import type { Database } from '@/types/database';
 /**
  * Ręczny eksport (zakładka „Eksport” Księgowości): start joba i pobranie
  * gotowego pliku, wspólne dla akcji strony (`app/actions/exports.ts`, sesja z
- * ciasteczek) i telefonu (`/api/mobile/v1/ksiegowosc/eksport`, M10d, sesja z
+ * ciasteczek) i telefonu (`/api/mobile/v1/eksport`, M10d, sesja z
  * tokenu). Kod przeniesiony z akcji bez zmian. Klient to klient sesji klienta
  * (RLS), a każde zapytanie ma też `tenant_id` (obrona w głąb).
  *

@@ -90,8 +90,8 @@ function EkranVatZBazy({ konto }: { konto: KontoFirmy }) {
     setBladPliku(undefined);
     setBledy({});
     const cialo = { miesiac: d.miesiac, nadwyzka: d.nadwyzka?.wpisana ?? null, imie, nazwisko, dataUrodzenia: urodzenie.trim(), email: email ?? d.plik.email ?? '' };
-    const w = await konto.zapytaj<PlikVatOdpowiedz>('ksiegowosc/vat/plik', { metoda: 'POST', cialo, firmaEkranu });
     try {
+      const w = await konto.zapytaj<PlikVatOdpowiedz>('ksiegowosc/vat/plik', { metoda: 'POST', cialo, firmaEkranu });
       if (!w.ok) {
         if (w.blad.pole) setBledy({ [w.blad.pole]: w.blad.komunikat });
         else setBladPliku(w.blad.komunikat);

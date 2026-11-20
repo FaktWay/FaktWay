@@ -48,7 +48,7 @@ export interface KolumnaKosztowTelefonu {
 
 export interface KpirRaportOdpowiedz {
   miesiac: string;
-  /** Miesiące do wyboru, od najnowszego (jak na stronie: od 2026, najwyżej 24). */
+  /** Miesiące do wyboru, od najnowszego (od stycznia 2020, najwyżej 24). */
   miesiace: string[];
   dzis: string;
   /** `przyklad`: firma przed weryfikacją KSeF, dane przykładowe jak na stronie (plakietka). */
@@ -80,6 +80,10 @@ export interface WierszKsiegiTelefonu {
   dowod: string;
   numerKsef: string | null;
   kontrahent: string;
+  /** Kraj i identyfikator kontrahenta („PL 5252248481”) albo `null`. */
+  identyfikator: string | null;
+  /** Data wpisu do ewidencji (kolumna „Data wpisu” strony); `null` w KPiR modułu. */
+  dataWpisu: string | null;
   opis: string | null;
   kwotaGr: number;
   /** Przychód (kolumny 7 i 8, ewidencja) albo koszt. */
