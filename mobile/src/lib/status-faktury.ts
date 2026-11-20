@@ -75,15 +75,18 @@ function idZDzieckiem(faktury: readonly Faktura[]): Set<string> {
 
 /**
  * Faktury, które liczą się do należności (karta „Do zapłaty od klientów”,
- * licznik „Po terminie”): jedna reguła dla wszystkich sum na telefonie, jak
- * `getReceivables` strony (§2.4 pkt 11). Czekają na zapłatę (`doZaplaty`) i:
+ * licznik „Po terminie”): jedna reguła dla sum na ekranie Faktury, w częściach
+ * `getReceivables` strony (§2.4 pkt 11), które telefon umie sprawdzić ze swoich
+ * kolumn. Czekają na zapłatę (`doZaplaty`) i:
  * - nie są korektą (korekt nie liczymy nigdy, także w plus),
  * - nie mają „dziecka” (zaliczka z rozliczeniem, faktura z korektą liczą się
  *   przez dziecko albo wcale, nie drugi raz),
  * - mają dodatnią resztę do zapłaty (rozliczenie w całości pokryte
  *   zaliczkami nie jest pozycją „po terminie”).
- * Telefon liczy też fakturę „w drodze do KSeF” (`doZaplaty`), serwer dopiero
- * przyjętą; reszta reguły jest ta sama.
+ * Czego telefon nie sprawdza: pochodzenia (`origin`: import z KSeF, strona
+ * liczy tylko sprzedaż z aplikacji), środowiska KSeF i znaczników FP, bo
+ * `KOLUMNY_FAKTURY` ich nie czyta (ustalenie U42c). Telefon liczy też fakturę
+ * „w drodze do KSeF” (`doZaplaty`), serwer dopiero przyjętą.
  */
 export function naleznosciOtwarte(faktury: readonly Faktura[]): Faktura[] {
   const zDzieckiem = idZDzieckiem(faktury);
@@ -97,6 +100,18 @@ export function naleznosciOtwarte(faktury: readonly Faktura[]): Faktura[] {
  */
 export function sumaDoZaplaty(faktury: readonly Faktura[]): number {
   return faktury.reduce((s, f) => s + (wZlotych(f) ? pozostaloDoZaplaty(f) : 0), 0);
+}
+
+/**
+ * Karta „Do zapłaty od klientów” na ekranie Faktury: ile klienci winni w sumie
+ * (`razem`), ile z tego po terminie i które to faktury (`zalegle`). Jedno
+ * złożenie dla ekranu i testu (`tests/unit/mobile-naleznosci-dzieci.test.ts`),
+ * żeby nikt nie zsumował listy obok reguły `naleznosciOtwarte`.
+ */
+export function kartaNaleznosci(faktury: readonly Faktura[], dzis: string): { otwarte: Faktura[]; zalegle: Faktura[]; razem: number; poTerminie: number } {
+  const otwarte = naleznosciOtwarte(faktury);
+  const zalegle = otwarte.filter((f) => statusFaktury(f, dzis).zalegla);
+  return { otwarte, zalegle, razem: sumaDoZaplaty(otwarte), poTerminie: sumaDoZaplaty(zalegle) };
 }
 
 /** „1 faktura”, „2 faktury”, „5 faktur”, „22 faktury” (polska liczba mnoga). */

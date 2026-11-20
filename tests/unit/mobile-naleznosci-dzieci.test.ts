@@ -21,7 +21,7 @@ vi.mock('@/lib/ksef/claim-environment', () => ({ requireConfiguredKsefEnvironmen
 import { isReceivableBase } from '../../lib/dashboard/receivables';
 import { outstandingOf } from '../../lib/invoices/amount-due';
 import { fakturaZBazy, grosze, KOLUMNY_FAKTURY, type WierszFaktury } from '../../mobile/src/lib/dane/mapowanie';
-import { naleznosciOtwarte, statusFaktury, sumaDoZaplaty } from '../../mobile/src/lib/status-faktury';
+import { kartaNaleznosci } from '../../mobile/src/lib/status-faktury';
 
 const NIP = '1234567890';
 const DZIS = '2026-11-20';
@@ -75,11 +75,10 @@ const korekta = (zmiany: Partial<WierszFaktury> = {}) =>
 
 const vat = (id: string, brutto: string, zmiany: Partial<WierszFaktury> = {}) => wiersz({ id, gross_total: brutto, ...zmiany });
 
-/** To, co robi karta na ekranie Faktury: lista z bazy, należności, suma i licznik po terminie. */
+/** To, co pokazuje karta na ekranie Faktury (`kartaNaleznosci`, tą samą funkcją woła ją ekran): lista z bazy, suma i licznik po terminie. */
 function karta(wiersze: WierszFaktury[]) {
-  const otwarte = naleznosciOtwarte(wiersze.map(fakturaZBazy));
-  const zalegle = otwarte.filter((f) => statusFaktury(f, DZIS).zalegla);
-  return { id: otwarte.map((f) => f.id), razem: sumaDoZaplaty(otwarte), poTerminie: sumaDoZaplaty(zalegle), ilePoTerminie: zalegle.length };
+  const k = kartaNaleznosci(wiersze.map(fakturaZBazy), DZIS);
+  return { id: k.otwarte.map((f) => f.id), razem: k.razem, poTerminie: k.poTerminie, ilePoTerminie: k.zalegle.length };
 }
 
 describe('zaliczka i jej rozliczenie: dług liczy się raz (U42)', () => {
@@ -121,6 +120,11 @@ describe('zaliczka i jej rozliczenie: dług liczy się raz (U42)', () => {
     ['błąd wysyłki', 'failed', 0, []],
   ])('rozliczenie %s: zaliczka wykluczona', (_opis, statusKsef, razem, id) => {
     expect(karta([zaliczka(), rozliczenie({ ksef_status: statusKsef })])).toMatchObject({ razem, id });
+  });
+
+  it('zaliczka zapłacona, rozliczenie niezapłacone (zwykły przebieg): do zapłaty reszta rozliczenia, 615,00 zł', () => {
+    const zal = zaliczka({ payment_status: 'paid', paid_amount: '615.00' });
+    expect(karta([zal, rozliczenie()])).toMatchObject({ razem: 61500, id: ['roz-1'], poTerminie: 61500, ilePoTerminie: 1 });
   });
 
   it('rozliczenie opłacone: zaliczka nie wraca do należności', () => {
@@ -173,11 +177,13 @@ describe('model telefonu czyta kolumny „dziecka” z bazy', () => {
     expect(KOLUMNY_FAKTURY).toMatch(/\badvance_invoice_ids\b/);
   });
 
-  it('wiersz bez tych pól (pamięć z poprzedniego otwarcia) działa jak dotąd, bez wyjątku', () => {
-    const stary = wiersz({ id: 'stary-1', gross_total: '100.00' });
-    delete stary.parent_invoice_id;
-    delete stary.advance_invoice_ids;
-    expect(karta([stary]).razem).toBe(10000);
+  it('faktura z pamięci z poprzedniego otwarcia (model bez tych pól) liczy się jak dotąd, bez wyjątku', () => {
+    // Pamięć trzyma już zmapowane `Faktura[]`; zapis sprzed U42 nie ma `rodzicId` ani `zaliczkiId`.
+    const stara = fakturaZBazy(zaliczka());
+    expect(stara).not.toHaveProperty('rodzicId');
+    expect(stara).not.toHaveProperty('zaliczkiId');
+    const zapisanaPrzedU42 = [stara, { ...fakturaZBazy(rozliczenie()), zaliczkiId: undefined }];
+    expect(kartaNaleznosci(zapisanaPrzedU42, DZIS).razem).toBe(61500 + 61500);
   });
 });
 
@@ -198,19 +204,29 @@ describe('zgodność ze stroną (`isReceivableBase`, `outstandingOf`)', () => {
     invoice_type: ({ regular: 'VAT', advance: 'ZAL', final: 'ROZ', correction: 'KOR' } as Record<string, string>)[w.invoice_kind ?? ''],
   });
 
-  function sumaStrony(wiersze: WierszFaktury[]): number {
+  /** To, co liczy `getReceivables` na tych wierszach: suma, suma po terminie (termin przed dniem „dziś”) i ich liczba. */
+  function wedlugStrony(wiersze: WierszFaktury[]) {
     const childIds = new Set<string>();
     for (const w of wiersze) {
       if (w.parent_invoice_id) childIds.add(w.parent_invoice_id);
       for (const id of w.advance_invoice_ids ?? []) childIds.add(id);
     }
     const ctx = { environment: 'production' as const, childIds };
-    return wiersze.map(wierszStrony).reduce((s, w) => {
+    let razem = 0;
+    let poTerminie = 0;
+    let ilePoTerminie = 0;
+    for (const w of wiersze.map(wierszStrony)) {
       const otwarta = ['unpaid', 'partial', 'overdue'].includes(w.payment_status ?? '');
-      if (!otwarta || !isReceivableBase(w as never, ctx)) return s;
-      const reszta = outstandingOf(w as never);
-      return reszta > 0 ? s + grosze(reszta) : s;
-    }, 0);
+      if (!otwarta || !isReceivableBase(w as never, ctx)) continue;
+      const reszta = grosze(outstandingOf(w as never));
+      if (reszta <= 0) continue;
+      razem += reszta;
+      if (w.payment_due_date && w.payment_due_date < DZIS) {
+        poTerminie += reszta;
+        ilePoTerminie += 1;
+      }
+    }
+    return { razem, poTerminie, ilePoTerminie };
   }
 
   const przypadki: Array<[string, WierszFaktury[]]> = [
@@ -226,10 +242,21 @@ describe('zgodność ze stroną (`isReceivableBase`, `outstandingOf`)', () => {
     ['faktura z korektą i druga faktura', [vat('vat-1', '1230.00'), korekta(), vat('vat-2', '500.00')]],
     ['faktura z korektą w szkicu', [vat('vat-1', '1230.00'), korekta({ ksef_status: 'draft' })]],
     ['zwykłe faktury', [vat('vat-1', '1230.00'), vat('vat-2', '10.10', { payment_status: 'partial', paid_amount: '0.10' })]],
-    ['waluta obca', [zaliczka({ currency: 'EUR' }), rozliczenie({ currency: 'EUR' }), vat('vat-2', '500.00')]],
+    ['zaliczka zapłacona, rozliczenie w terminie', [zaliczka({ payment_status: 'paid', paid_amount: '615.00' }), rozliczenie({ payment_due_date: '2026-12-01' })]],
+    ['zaliczka po terminie i druga w terminie, rozliczona pierwsza', [zaliczka(), zaliczka({ id: 'zal-2', payment_due_date: '2026-12-01' }), rozliczenie()]],
   ];
 
-  it.each(przypadki)('%s: telefon liczy tyle co strona', (_opis, wiersze) => {
-    expect(karta(wiersze).razem).toBe(sumaStrony(wiersze));
+  it.each(przypadki)('%s: telefon liczy tyle co strona (suma, po terminie, liczba)', (_opis, wiersze) => {
+    const k = karta(wiersze);
+    expect({ razem: k.razem, poTerminie: k.poTerminie, ilePoTerminie: k.ilePoTerminie }).toEqual(wedlugStrony(wiersze));
+  });
+
+  // U42d (osobne ustalenie, sprzed U42): licznik „po terminie” na telefonie wlicza faktury w walucie obcej, serwer
+  // (`overdueCount`) tylko PLN. Sumy w PLN są zgodne; licznik tu celowo nie jest porównywany.
+  it('waluta obca: suma i suma po terminie jak strona', () => {
+    const wiersze = [zaliczka({ currency: 'EUR' }), rozliczenie({ currency: 'EUR' }), vat('vat-2', '500.00')];
+    const k = karta(wiersze);
+    const strona = wedlugStrony(wiersze);
+    expect({ razem: k.razem, poTerminie: k.poTerminie }).toEqual({ razem: strona.razem, poTerminie: strona.poTerminie });
   });
 });
