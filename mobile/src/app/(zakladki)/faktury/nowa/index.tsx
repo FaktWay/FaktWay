@@ -2,22 +2,24 @@ import { useRouter } from 'expo-router';
 
 import { EkranListy, Sekcja, Wiersz } from '@/komponenty/lista';
 import { PrzyciskPaska } from '@/komponenty/przycisk-paska';
-import { useStanFaktur } from '@/stan/faktury';
 
 /**
  * Wybór rodzaju faktury: odpowiednik `components/invoices/invoice-type-selector.tsx`.
- * Na prawdziwym koncie (M8) z telefonu wystawisz zwykłą fakturę; pozostałe
- * rodzaje otwierają ekran „na faktway.pl” (formularz, M10).
+ * Wszystkie cztery rodzaje otwierają formularz w telefonie: zwykłą fakturę
+ * wystawia się z telefonu od M8, zaliczkę, rozliczenie i korektę od M8b. Czego
+ * telefon nie zrobi (wysyłki rozliczenia albo korekty, gdy serwer ją wstrzymał
+ * tak samo jak na stronie: `wysylkaWstrzymana` z podpowiedzi), mówi sam
+ * formularz: główny przycisk zmienia się wtedy na „Zapisz szkic”. Ten ekran
+ * niczego nie obiecuje ani nie odsyła na stronę.
  */
 export default function EkranRodzajuFaktury() {
   const router = useRouter();
-  const zBazy = useStanFaktur().dane.zrodlo === 'baza';
   const otworz = (rodzaj: string) => router.push({ pathname: '/faktury/nowa/[rodzaj]', params: { rodzaj } });
   return (
     <>
       <PrzyciskPaska strona="lewa" tytul="Anuluj" onPress={() => router.dismissTo('/faktury')} />
       <EkranListy>
-        <Sekcja naglowek="Rodzaj faktury" stopka={zBazy ? 'Z telefonu wystawisz fakturę zwykłą. Korektę, zaliczkę i rozliczenie wystawisz na faktway.pl.' : undefined}>
+        <Sekcja naglowek="Rodzaj faktury">
           <Wiersz tytul="Faktura zwykła" podtytul="Standardowa faktura sprzedażowa B2B lub B2C" ikona="file-text-line" strzalka onPress={() => otworz('vat')} />
           <Wiersz tytul="Faktura korygująca" podtytul="Korekta wystawionej faktury (dane, kwoty, anulowanie)" ikona="arrow-go-back-line" strzalka onPress={() => otworz('korygujaca')} />
           <Wiersz tytul="Faktura zaliczkowa" podtytul="Zaliczka na poczet przyszłej dostawy lub usługi" ikona="cash-line" strzalka onPress={() => otworz('zaliczkowa')} />
