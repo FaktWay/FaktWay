@@ -28,6 +28,11 @@ export type PrzyciskGlownyProps = {
   wariant?: Wariant;
   /** Trwa akcja (logowanie, wysyłka): kółko zamiast napisu, dotknięcie nic nie robi. */
   trwa?: boolean;
+  /**
+   * Sufit skali napisu z ustawień dostępności (`maxFontSizeMultiplier`): dla przycisku
+   * w pasku przypiętym nad treścią, który przy największym tekście zabierał jej ćwierć ekranu.
+   */
+  maksSkalaTekstu?: number;
   onPress: () => void;
 };
 
@@ -40,7 +45,7 @@ const KOLORY: Record<Wariant, { tlo: keyof Kolory; tresc: keyof Kolory }> = {
   naGradiencie: { tlo: 'naGradiencie', tresc: 'gradientGora' },
 };
 
-export function PrzyciskGlowny({ tytul, ikona, wariant = 'glowny', trwa, onPress }: PrzyciskGlownyProps) {
+export function PrzyciskGlowny({ tytul, ikona, wariant = 'glowny', trwa, maksSkalaTekstu, onPress }: PrzyciskGlownyProps) {
   const kolory = useKolory();
   const ciemny = useCiemny();
   const kolorTresci = kolory[KOLORY[wariant].tresc];
@@ -63,7 +68,7 @@ export function PrzyciskGlowny({ tytul, ikona, wariant = 'glowny', trwa, onPress
         ) : (
           <>
             {ikona ? <Ikona nazwa={ikona} rozmiar={18} kolor={kolorTresci} /> : null}
-            <Tekst styl="callout" waga="semibold" style={[styles.napis, { color: kolorTresci }]} numberOfLines={3}>
+            <Tekst styl="callout" waga="semibold" style={[styles.napis, { color: kolorTresci }]} numberOfLines={3} maxFontSizeMultiplier={maksSkalaTekstu}>
               {tytul}
             </Tekst>
           </>
