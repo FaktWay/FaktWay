@@ -493,6 +493,7 @@
         "lib/ksef/{application-url,auth-errors,auth-refresh,auth-token,auth,certificate-files,connect-credentials,owner-claim,reencrypt-credentials,poll-audit,mock-fixtures}.ts",
         "lib/auth/ksef-verification-guard.ts",
         "components/settings/actions.ts",
+        "lib/ksef/upload-certificate.ts",
         "app/(dashboard)/settings/ksef/**",
         "app/actions/ksef-inbox.ts",
         "scripts/reencrypt-ksef-credentials.ts"
@@ -693,7 +694,10 @@
         "lib/settings/company-settings.ts",
         "lib/api/mobile/ustawienia-zapis.ts",
         "lib/api/mobile/kontrakt-ustawienia.ts",
-        "lib/api/mobile/ustawienia-bezpieczenstwo.ts"
+        "lib/api/mobile/ustawienia-bezpieczenstwo.ts",
+        "lib/api/mobile/ustawienia-2fa.ts",
+        "lib/api/mobile/ustawienia-ksef.ts",
+        "lib/api/mobile/kontrakt-bezpieczenstwo.ts"
       ]
     },
     {

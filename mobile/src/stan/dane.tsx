@@ -120,6 +120,8 @@ export type KontoFirmy = {
    * wraca do ekranu ze zdaniem dla klienta.
    */
   zapytaj: <T>(sciezka: string, opcje?: OpcjeFirmy) => Promise<Wynik<T>>;
+  /** M10c, część 2b: stan konta (`dwaEtapy`) z serwera po włączeniu albo wyłączeniu 2FA, bez przeładowania firm i faktur. */
+  odswiezKonto: () => Promise<void>;
 };
 
 /**
@@ -514,6 +516,11 @@ function DaneZBazy({ children }: { children: ReactNode }) {
       void laduj(uzytkownik, id);
     },
     zapytaj,
+    // M10c, część 2b.
+    odswiezKonto: async () => {
+      const k = await zapytajApi<KontoOdpowiedz>('konto');
+      if (k.ok) setDane((d) => ({ ...d, konto: k.dane }));
+    },
   };
 
   const stanDanych: StanDanych = {

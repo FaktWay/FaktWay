@@ -57,3 +57,62 @@ export interface UsuniecieKluczaOdpowiedz {
   usuniety: true;
   inneWylogowane: boolean;
 }
+
+// ─── 2FA (TOTP), M10c część 2b ───────────────────────────────────────
+
+/**
+ * `POST /api/mobile/v1/ustawienia/2fa/start`: zaczyna włączanie 2FA (jak
+ * `enrollTotpAction` strony): czynnik w stanie „niepotwierdzony”. Telefon
+ * pokazuje `sekret` do wpisania w aplikacji uwierzytelniającej i `uri`
+ * (`otpauth://`), które otwiera ją na tym samym telefonie. Konto z włączonym
+ * 2FA dostaje 422 `settings_invalid`.
+ */
+export interface Wlaczenie2faOdpowiedz {
+  idFaktora: string;
+  sekret: string;
+  uri: string;
+}
+
+/** `POST /api/mobile/v1/ustawienia/2fa/potwierdzenie`: pierwszy kod z aplikacji kończy włączanie. Zły kod: 422 `settings_invalid` z polem `kod`. */
+export interface Potwierdzenie2faZadanie {
+  idFaktora: string;
+  kod: string;
+}
+
+export interface Potwierdzenie2faOdpowiedz {
+  wlaczone: true;
+}
+
+/**
+ * `POST /api/mobile/v1/ustawienia/2fa/wylaczenie`: wyłączenie 2FA po aktualnym
+ * haśle (jak `unenrollTotpAction`). Wymaga sesji po kodzie.
+ */
+export interface Wylaczenie2faZadanie {
+  haslo: string;
+}
+
+export interface Wylaczenie2faOdpowiedz {
+  wylaczone: true;
+}
+
+// ─── Certyfikat KSeF, M10c część 2b ──────────────────────────────────
+
+/**
+ * `POST /api/mobile/v1/ustawienia/ksef`: wgranie certyfikatu KSeF jak w
+ * kreatorze strony. Pliki (PEM, tekst) jako base64 bajtów. Tylko właściciel,
+ * z włączonym 2FA po kodzie; limit 5 prób na godzinę.
+ */
+export interface CertyfikatKsefZadanie {
+  certyfikat: string;
+  klucz: string;
+  /** Tylko gdy klucz jest zaszyfrowany. Nigdzie nie jest zapisywane. */
+  haslo?: string;
+}
+
+export interface CertyfikatKsefOdpowiedz {
+  polaczono: true;
+  pierwszePolaczenie: boolean;
+  /** RRRR-MM-DD. */
+  wazneDo: string;
+  komunikat: string;
+}
