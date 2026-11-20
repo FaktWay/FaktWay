@@ -120,6 +120,8 @@ export type KontoFirmy = {
    * wraca do ekranu ze zdaniem dla klienta.
    */
   zapytaj: <T>(sciezka: string, opcje?: OpcjeFirmy) => Promise<Wynik<T>>;
+  /** M10c, część 2b: stan konta (`dwaEtapy`) z serwera po włączeniu albo wyłączeniu 2FA, bez przeładowania firm i faktur. */
+  odswiezKonto: () => Promise<void>;
 };
 
 /**
@@ -514,6 +516,12 @@ function DaneZBazy({ children }: { children: ReactNode }) {
       void laduj(uzytkownik, id);
     },
     zapytaj,
+    // M10c, część 2b.
+    odswiezKonto: async () => {
+      // Przez `zapytaj`: odmowa `mfa_required` otwiera ekran kodu, a koniec sesji wylogowuje, jak przy zapisach.
+      const k = await zapytaj<KontoOdpowiedz>('konto', { bezFirmy: true });
+      if (k.ok) setDane((d) => ({ ...d, konto: k.dane }));
+    },
   };
 
   const stanDanych: StanDanych = {
