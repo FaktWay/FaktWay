@@ -92,6 +92,8 @@ describe('kody błędów kontraktu', () => {
       // Kontrahenci (M10e): zdanie serwera, przy `contractor_invalid` pod polem.
       contractor_invalid: 'odmowa',
       contractor_exists: 'odmowa',
+      // Ręczny eksport (M10d część 2).
+      export_refused: 'odmowa',
       // Zapisy ustawień (M10c): zdanie serwera, przy `settings_invalid` pod polem.
       settings_invalid: 'odmowa',
       password_code_required: 'odmowa',

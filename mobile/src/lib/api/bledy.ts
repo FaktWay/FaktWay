@@ -88,6 +88,8 @@ const RODZAJ_KODU: Record<MobileApiErrorCode, RodzajBledu> = {
   deletion_blocked: 'odmowa',
   deletion_in_progress: 'odmowa',
   settlement_refused: 'odmowa',
+  // Ręczny eksport (M10d część 2): zdanie strony mówi, co zrobić.
+  export_refused: 'odmowa',
   // Rodzaje faktur, ponowienie, szkic (M8b): zdanie strony mówi, co zrobić; ponowienie nic nie zmieni.
   invoice_change_refused: 'odmowa',
   // Kontrahenci (M10e): zdanie z serwera, przy `contractor_invalid` pod polem.
