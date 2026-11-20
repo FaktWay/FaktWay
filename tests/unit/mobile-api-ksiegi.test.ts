@@ -454,6 +454,9 @@ describe('eksport', () => {
       [{ format: 'kpir_excel', kwartal: '2026-Q3' }, quarterRange('2026-Q3')],
       [{ format: 'csv_universal', kwartal: '2026-Q4' }, quarterRange('2026-Q4')],
       [{ format: 'jpk_fa', od: '2026-09-15', do: '2026-10-14' }, { from: '2026-09-15', to: '2026-10-14' }],
+      // Jak strona: zakres dat z przyszłości i kwartał spoza listy (ale nie późniejszy niż bieżący) przechodzą.
+      [{ format: 'kpir_excel', od: '2027-01-01', do: '2027-01-31' }, { from: '2027-01-01', to: '2027-01-31' }],
+      [{ format: 'kpir_excel', kwartal: '2024-Q1' }, quarterRange('2024-Q1')],
     ];
     for (const [body, zakres] of przypadki) {
       fake.start.mockClear();

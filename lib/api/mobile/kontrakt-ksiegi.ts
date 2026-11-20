@@ -230,7 +230,11 @@ export interface EksportTelefonuOdpowiedz {
  * `POST /api/mobile/v1/eksport`: format i okres (miesiąc `RRRR-MM`, kwartał `RRRR-Qn` albo zakres dat
  * `od`, `do` RRRR-MM-DD); zakres pól z reguły formatu (FIR-01), jak na stronie.
  */
-export type EksportStartZadanie = { format: 'kpir_excel' | 'csv_universal' | 'jpk_fa' } & ({ miesiac: string } | { kwartal: string } | { od: string; do: string });
+export type EksportStartZadanie = { format: 'kpir_excel' | 'csv_universal' | 'jpk_fa' } & (
+  | { miesiac: string; kwartal?: never; od?: never; do?: never }
+  | { kwartal: string; miesiac?: never; od?: never; do?: never }
+  | { od: string; do: string; miesiac?: never; kwartal?: never }
+);
 
 /** 201: job utworzony, plik powstaje w tle (stan w historii). Odmowa: 422 `export_refused` ze zdaniem strony. */
 export interface EksportStartOdpowiedz {

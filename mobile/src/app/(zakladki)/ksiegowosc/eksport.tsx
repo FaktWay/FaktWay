@@ -226,7 +226,7 @@ function EkranEksportuZBazy({ konto }: { konto: KontoFirmy }) {
       </Sekcja>
 
       <Segmenty wartosci={['Miesiąc', 'Kwartał', 'Zakres']} wybrany={rodzajOkresu} onZmiana={setRodzajOkresu} etykieta="Rodzaj okresu" />
-      <Sekcja naglowek="Okres" stopka={rodzajOkresu === 2 ? 'Dowolny zakres dat: od pierwszego do ostatniego dnia włącznie.' : undefined}>
+      <Sekcja naglowek="Okres" stopka={rodzajOkresu === 2 ? (wybranyOd > wybranyDo ? 'Koniec okresu jest przed początkiem. Popraw daty okresu.' : 'Dowolny zakres dat: od pierwszego do ostatniego dnia włącznie.') : undefined}>
         {rodzajOkresu === 0 ? (
           <PoleWyboru etykieta="Miesiąc" wartosc={wybranyMiesiac} opcje={d.miesiace.map((m) => ({ wartosc: m, etykieta: nazwaMiesiaca(m) }))} onZmiana={setMiesiac} />
         ) : rodzajOkresu === 1 ? (

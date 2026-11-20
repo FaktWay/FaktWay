@@ -56,6 +56,7 @@ const BRAK_URZEDU = 'Najpierw ustaw urząd skarbowy. Urząd ustawia się w Ustaw
 const MIESIECY = 12;
 /** Ile kwartałów do wyboru (jak lista strony). */
 const KWARTALOW = 8;
+// Lata 20xx jak `MIESIAC` w tym pliku (strona dopuszcza dowolne cztery cyfry; bez znaczenia dla listy kwartałów z serwera).
 const KWARTAL = /^20\d{2}-Q[1-4]$/;
 const POPRAW_DATY = 'Popraw daty okresu.';
 
