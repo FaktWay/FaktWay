@@ -1,5 +1,6 @@
 import { TeamManagement } from '@/components/team/team-management';
 import { emailsForUserIds } from '@/lib/auth/auth-users';
+import { ZESPOL_CZLONKOWIE_KOLUMNY, ZESPOL_PROSBY_KOLUMNY } from '@/lib/organizations/zespol-zapytania';
 import { getPageContextWithRole } from '@/lib/supabase/page-context';
 import { createAdminClient } from '@/lib/supabase/server';
 
@@ -42,7 +43,7 @@ export default async function TeamSettingsPage() {
   // Lista członków org. Cross-schema email tylko przez admin client.
   const { data: memberships } = await supabase
     .from('memberships')
-    .select('id, user_id, role, status, joined_at, users!inner(name)')
+    .select(ZESPOL_CZLONKOWIE_KOLUMNY)
     .eq('organization_id', tenantId)
     .order('joined_at', { ascending: true });
 
@@ -56,9 +57,7 @@ export default async function TeamSettingsPage() {
 
   const { data: pendingJoinRequests } = await supabase
     .from('organization_join_requests')
-    .select(
-      'id, requested_by_user_id, message, created_at, users!inner(name)',
-    )
+    .select(ZESPOL_PROSBY_KOLUMNY)
     .eq('organization_id', tenantId)
     .eq('status', 'pending')
     .order('created_at', { ascending: false });
