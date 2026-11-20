@@ -223,6 +223,9 @@ describe('faktura rozliczająca: do zapłaty po zaliczkach (U26)', () => {
     expect(pozostaloDoZaplaty(f)).toBe(61500 - 20000);
     // Wpłata równa reszcie po zaliczce domyka rozliczenie (wyzwalacz bazy 00145 ustawia wtedy `paid`).
     expect(pozostaloDoZaplaty(fakturaZBazy(rozliczenie({ payment_status: 'partial', paid_amount: '615.00' })))).toBe(0);
+    // Wiersz sprzed 00145 (wyzwalacz porównywał wpłatę z brutto) z wpłatą ponad resztę i starym statusem:
+    // nie schodzimy poniżej zera, jak `outstandingOf` strony (zamiast -85,00 zł w sumie „Do zapłaty”).
+    expect(pozostaloDoZaplaty(fakturaZBazy(rozliczenie({ payment_status: 'partial', paid_amount: '700.00' })))).toBe(0);
     // Zapłacona w całości: 0, jak dotąd.
     expect(pozostaloDoZaplaty(fakturaZBazy(rozliczenie({ payment_status: 'paid', paid_amount: '615.00' })))).toBe(0);
   });
@@ -261,6 +264,7 @@ describe('faktura rozliczająca: do zapłaty po zaliczkach (U26)', () => {
       rozliczenie(),
       rozliczenie({ payment_status: 'partial', paid_amount: '200.00' }),
       rozliczenie({ payment_status: 'partial', paid_amount: '615.00' }),
+      rozliczenie({ payment_status: 'partial', paid_amount: '700.00' }),
       rozliczenie({ payment_data: { amountDue: 0 } }),
       rozliczenie({ payment_data: { amountDue: '615.5' } }),
       rozliczenie({ payment_data: { amountDue: 5000 } }),

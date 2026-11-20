@@ -876,6 +876,7 @@
         "mobile/src/app/(zakladki)/faktury/index.tsx",
         "mobile/src/app/(zakladki)/faktury/przypomnienie.tsx",
         "mobile/src/lib/naleznosci.ts",
+        "mobile/src/lib/status-faktury.ts",
         "mobile/src/stan/naleznosci.tsx"
       ]
     },
