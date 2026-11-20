@@ -55,33 +55,38 @@ const hasloSchema = z
   .strict();
 const kodSchema = z.object({ obecne: z.string().max(1024) }).strict();
 
-type Odmowa = { ok: false; response: NextResponse };
+export type Odmowa = { ok: false; response: NextResponse };
 
-function niepoprawne(caller: MobileCaller, pole: 'obecne' | 'nowe' | 'kod', zdanie: string): NextResponse {
-  return mobileError(422, 'settings_invalid', zdanie, caller.headers, pole);
+export function niepoprawne(caller: MobileCaller, pole: 'obecne' | 'nowe' | 'kod' | 'haslo' | 'certyfikat' | 'klucz' | null, zdanie: string): NextResponse {
+  return mobileError(422, 'settings_invalid', zdanie, caller.headers, pole ?? undefined);
 }
 
-function niedostepne(caller: MobileCaller): NextResponse {
-  return mobileError(503, 'service_unavailable', 'Nie możemy teraz zmienić hasła. Spróbuj ponownie za chwilę.', caller.headers);
+export function niedostepne(caller: MobileCaller, zdanie = 'Nie możemy teraz zmienić hasła. Spróbuj ponownie za chwilę.'): NextResponse {
+  return mobileError(503, 'service_unavailable', zdanie, caller.headers);
 }
 
-function zaDuzoProb(caller: MobileCaller, retryAfter: number | undefined, co: string): NextResponse {
+export function zaDuzoProb(caller: MobileCaller, retryAfter: number | undefined, co: string): NextResponse {
   const sekundy = String(Math.max(1, retryAfter ?? 60));
   return mobileError(429, 'rate_limited', `${co} Spróbuj ponownie za ${sekundy} s.`, { ...caller.headers, 'Retry-After': sekundy });
 }
 
 /** Token z nagłówka, tym samym wzorem co bramka (`lib/api/mobile/auth.ts`), która już go sprawdziła w GoTrue. */
-function tokenZadania(request: Request): string | null {
+export function tokenZadania(request: Request): string | null {
   return (request.headers.get('authorization') ?? '').trim().match(/^bearer +(\S+)$/i)?.[1] ?? null;
 }
 
 /** Konto bez hasła (tylko Google) nie ma czego zmieniać; strona też pokazuje mu inną drogę. */
-function bezHasla(caller: MobileCaller): NextResponse | null {
+export function bezHasla(caller: MobileCaller): NextResponse | null {
   if (caller.user.providers.includes('email') && caller.user.email) return null;
   return mobileError(403, 'forbidden', 'To konto loguje się przez Google i nie ma hasła w FaktWay. Hasło ustawisz na faktway.pl przez „Nie pamiętam hasła”.', caller.headers);
 }
 
-async function aktualneHaslo(caller: MobileCaller, haslo: string): Promise<Odmowa | null> {
+export async function aktualneHaslo(
+  caller: MobileCaller,
+  haslo: string,
+  /** `zmianaHasla: false` (2FA): bez zdania o haśle, które mogło się już zmienić; `niedostepne`: zdanie przy awarii. */
+  opcje: { zmianaHasla?: boolean; niedostepne?: string } = {},
+): Promise<Odmowa | null> {
   if (!haslo) return { ok: false, response: niepoprawne(caller, 'obecne', 'Wpisz aktualne hasło.') };
   const wynik = await confirmAccountPassword({
     userId: caller.user.id,
@@ -89,22 +94,26 @@ async function aktualneHaslo(caller: MobileCaller, haslo: string): Promise<Odmow
     password: haslo,
     verifier: () => createMobileLoginClient() as SupabaseClient,
   }).catch(() => null);
-  if (!wynik) return { ok: false, response: niedostepne(caller) };
+  if (!wynik) return { ok: false, response: niedostepne(caller, opcje.niedostepne) };
   if (wynik.ok) return null;
   if (wynik.error === 'rate_limited') return { ok: false, response: zaDuzoProb(caller, wynik.retryAfter, 'Za dużo prób hasła.') };
   if (wynik.error === 'invalid_password') {
     return {
       ok: false,
-      response: niepoprawne(caller, 'obecne', 'Aktualne hasło jest nieprawidłowe. Sprawdź je; jeśli hasło mogło się już zmienić, użyj nowego.'),
+      response: niepoprawne(caller, 'obecne', opcje.zmianaHasla === false ? 'Aktualne hasło jest nieprawidłowe. Sprawdź je i spróbuj ponownie.' : 'Aktualne hasło jest nieprawidłowe. Sprawdź je; jeśli hasło mogło się już zmienić, użyj nowego.'),
     };
   }
-  return { ok: false, response: niedostepne(caller) };
+  return { ok: false, response: niedostepne(caller, opcje.niedostepne) };
 }
 
-type OdpowiedzGoTrue = { ok: true; body: Record<string, unknown> } | { ok: false; status: number | null; code: string | null };
+export type OdpowiedzGoTrue = { ok: true; body: Record<string, unknown> } | { ok: false; status: number | null; code: string | null };
 
 /** Żądanie do GoTrue tokenem telefonu (bez sesji w pamięci serwera); błąd sieci to `status: null`. */
-async function goTrue(request: Request, sciezka: string, init: { method: 'GET' | 'PUT'; body?: unknown }): Promise<OdpowiedzGoTrue> {
+export async function goTrue(
+  request: Request,
+  sciezka: string,
+  init: { method: 'GET' | 'PUT' | 'POST' | 'DELETE'; body?: unknown; timeoutMs?: number },
+): Promise<OdpowiedzGoTrue> {
   const token = tokenZadania(request);
   if (!token) return { ok: false, status: 401, code: 'bad_jwt' };
   const { url, anonKey } = resolveTarget({});
@@ -114,7 +123,7 @@ async function goTrue(request: Request, sciezka: string, init: { method: 'GET' |
       method: init.method,
       headers: { apikey: anonKey, authorization: `Bearer ${token}`, ...(init.body ? { 'content-type': 'application/json' } : {}) },
       body: init.body ? JSON.stringify(init.body) : undefined,
-      signal: AbortSignal.timeout(GOTRUE_TIMEOUT_MS),
+      signal: AbortSignal.timeout(init.timeoutMs ?? GOTRUE_TIMEOUT_MS),
     });
     const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (res.ok) return { ok: true, body };
@@ -126,7 +135,7 @@ async function goTrue(request: Request, sciezka: string, init: { method: 'GET' |
 }
 
 /** Odmowa GoTrue na odpowiedź telefonu; kody jak `passwordAuthError` strony. */
-function odmowaGoTrue(caller: MobileCaller, blad: Extract<OdpowiedzGoTrue, { ok: false }>): NextResponse {
+export function odmowaGoTrue(caller: MobileCaller, blad: Extract<OdpowiedzGoTrue, { ok: false }>): NextResponse {
   switch (blad.code) {
     case 'reauthentication_needed':
       return mobileError(409, 'password_code_required', 'Ze względów bezpieczeństwa potrzebny jest kod z e-maila. Wyślemy go na adres konta.', caller.headers);

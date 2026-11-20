@@ -39,8 +39,9 @@ function BlokadaAplikacji() {
  * Bezpieczeństwo na prawdziwym koncie (M10b, hasło i klucze od M10c): stan
  * 2FA z `GET /konto`, zmiana hasła w arkuszu `haslo`, klucze dostępu z
  * `GET /ustawienia/klucze` z usunięciem, blokada aplikacji na telefonie.
- * Włączenie i wyłączenie 2FA oraz dodanie klucza dostępu zostają na
- * faktway.pl (klucz w aplikacji wymaga powiązanej domeny w koncie Apple).
+ * Włączenie i wyłączenie 2FA od M10c (część 2b) też z telefonu (`dwa-etapy`);
+ * dodanie klucza dostępu zostaje na faktway.pl (klucz w aplikacji wymaga
+ * powiązanej domeny w koncie Apple).
  */
 function EkranBezpieczenstwaZBazy({ konto }: { konto: KontoFirmy }) {
   const router = useRouter();
@@ -81,14 +82,14 @@ function EkranBezpieczenstwaZBazy({ konto }: { konto: KontoFirmy }) {
             ? 'Wczytujemy stan konta.'
             : dwaEtapy
               ? 'Włączona: przy logowaniu prosimy o kod z aplikacji TOTP.'
-              : 'Włącz, żeby podłączyć KSeF i wejść w ustawienia wrażliwe. Kod QR zeskanujesz na faktway.pl.'
+              : 'Włącz, żeby podłączyć KSeF i wejść w ustawienia wrażliwe. Potrzebna aplikacja uwierzytelniająca na tym telefonie.'
         }>
         <Wiersz
           tytul="Kod z aplikacji (TOTP)"
           wartosc={dwaEtapy === undefined ? undefined : dwaEtapy ? 'Włączona' : 'Wyłączona'}
           wartoscKolor={dwaEtapy ? 'sukces' : 'ostrzezenie'}
         />
-        {naStronie ? <Wiersz tytul={dwaEtapy ? 'Zarządzaj na faktway.pl' : 'Włącz na faktway.pl'} ikona="global-line" akcja onPress={naStronie} /> : null}
+        {dwaEtapy === undefined ? null : <Wiersz tytul={dwaEtapy ? 'Wyłącz weryfikację dwuetapową' : 'Włącz weryfikację dwuetapową'} ikona="shield-keyhole-line" strzalka onPress={() => router.push('/wiecej/ustawienia/dwa-etapy')} />}
       </Sekcja>
 
       <Sekcja naglowek="Hasło">
