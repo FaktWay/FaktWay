@@ -11,7 +11,7 @@ import { Ikona, KoloIkony, type NazwaIkony } from '@/komponenty/ikona';
 import { useStylKarty } from '@/komponenty/karta';
 import { Tekst } from '@/komponenty/tekst';
 import { Znacznik } from '@/komponenty/znacznik';
-import { zmiana as tekstZmiany } from '@/lib/format';
+import { zmiana as tekstZmiany, zmianaPelna } from '@/lib/format';
 import { tonKoloru, useKolory, type Kolory } from '@/wyglad/kolory';
 import { MARGINES, ODSTEP, SKALA_PIONOWA } from '@/wyglad/odstepy';
 
@@ -55,7 +55,9 @@ function KafelWidok({ kafel: k, szeroki }: { kafel: Kafel; szeroki: boolean }) {
   const kolory = useKolory();
   const stylKarty = useStylKarty();
   const ikona = k.ikonaKolor && TONY_STANU.includes(k.ikonaKolor) ? k.ikona : undefined;
-  const zmianaKolor: keyof Kolory = k.zmiana === undefined || k.zmiana === 0 ? 'etykietaDrugorzedna' : k.zmiana > 0 ? 'sukces' : 'blad';
+  // Kolor i strzałka z tej samej liczby, którą napis pokazuje: „0%” (z 0,3 albo −0,4) nie jest ani zielone, ani czerwone.
+  const pelna = k.zmiana === undefined ? 0 : zmianaPelna(k.zmiana);
+  const zmianaKolor: keyof Kolory = pelna === 0 ? 'etykietaDrugorzedna' : pelna > 0 ? 'sukces' : 'blad';
   const etykieta = [k.podpis, k.wartosc, k.zmiana !== undefined ? `${tekstZmiany(k.zmiana)} wobec poprzedniego okresu` : null, k.opis]
     .filter(Boolean)
     .join(', ');
@@ -75,7 +77,7 @@ function KafelWidok({ kafel: k, szeroki }: { kafel: Kafel; szeroki: boolean }) {
               <Tekst styl="footnote" kolor={zmianaKolor} cyfry waga="medium">
                 {tekstZmiany(k.zmiana)}
               </Tekst>
-              {k.zmiana !== 0 ? <Ikona nazwa={k.zmiana > 0 ? 'arrow-up-s-line' : 'arrow-down-s-line'} rozmiar={16} kolor={kolory[zmianaKolor]} /> : null}
+              {pelna !== 0 ? <Ikona nazwa={pelna > 0 ? 'arrow-up-s-line' : 'arrow-down-s-line'} rozmiar={16} kolor={kolory[zmianaKolor]} /> : null}
             </View>
           ) : null}
         </View>

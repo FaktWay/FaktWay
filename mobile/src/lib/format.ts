@@ -96,10 +96,30 @@ export function kwotaKrotka(grosze: number): string {
   return kwota(grosze);
 }
 
-/** Zmiana procentowa ze znakiem: „+2%”, „−6%”, „0%”. */
-export function zmiana(pct: number): string {
-  if (pct > 0) return `+${pct}%`;
-  if (pct < 0) return `\u2212${Math.abs(pct)}%`;
+/**
+ * Zmiana procentowa w pełnych procentach, tak jak na stronie
+ * (`formatPlPercentChange` w `lib/format/pl.ts`). Serwer podaje surowy
+ * ułamek (np. 65,6504…), a pokazujemy 66. Zero także dla „−0” i dla braku
+ * liczby skończonej. Znak i kolor kafla (strzałka, zielony, czerwony) liczysz
+ * z tej wartości, nie z surowej, żeby zgadzały się z napisem.
+ * To procent, nie kwota: kwot ta funkcja nie dotyka.
+ */
+export function zmianaPelna(pct: number): number {
+  if (!Number.isFinite(pct)) return 0;
+  return Math.round(pct) || 0;
+}
+
+/**
+ * Zmiana procentowa ze znakiem: „+2%”, „−6%” (minus typograficzny jak na
+ * stronie), „0%”. Bez ułamka i kropki: „+66%”, nie „+65.65040650406505%”.
+ * Brak liczby (null, undefined, NaN, nieskończoność) to „b.d.”, nie „NaN%”;
+ * ekrany i tak nie pokazują zmiany bez podstawy porównania.
+ */
+export function zmiana(pct: number | null | undefined): string {
+  if (pct === null || pct === undefined || !Number.isFinite(pct)) return 'b.d.';
+  const pelna = zmianaPelna(pct);
+  if (pelna > 0) return `+${pelna}%`;
+  if (pelna < 0) return `\u2212${Math.abs(pelna)}%`;
   return '0%';
 }
 

@@ -22,7 +22,7 @@ import { bezDlugichMyslnikow } from '@/lib/api/bledy';
 import type { PrzeplywyOdpowiedz } from '@/lib/api/kontrakt-wiecej';
 import { grosze } from '@/lib/dane/mapowanie';
 import { dzienZnacznika } from '@/lib/wiecej';
-import { dataKrotka, kwota, kwotaKrotka, zmiana } from '@/lib/format';
+import { dataKrotka, kwota, kwotaKrotka, zmiana, zmianaPelna } from '@/lib/format';
 import { doZaplaty, kiedyTermin } from '@/lib/status-faktury';
 import { type Kolory } from '@/wyglad/kolory';
 import { IKONY_PASKA } from '@/wyglad/ikony-paska';
@@ -154,7 +154,7 @@ function EkranPrzeplywowZBazy({ odczyt }: { odczyt: StanOdczytu<PrzeplywyOdpowie
                       podpis: 'Wpłynęło w tym miesiącu',
                       wartosc: dane.miesiac.dane.wplywy.liczba > 0 ? zlKrotko(dane.miesiac.dane.wplywy.kwota) : 'Brak wpłat',
                       ...(dane.miesiac.dane.wplywy.zmianaPct !== null
-                        ? { opis: `${zmiana(dane.miesiac.dane.wplywy.zmianaPct)} wobec poprzedniego miesiąca`, opisKolor: dane.miesiac.dane.wplywy.zmianaPct < 0 ? ('blad' as const) : ('sukces' as const) }
+                        ? { opis: `${zmiana(dane.miesiac.dane.wplywy.zmianaPct)} wobec poprzedniego miesiąca`, opisKolor: zmianaPelna(dane.miesiac.dane.wplywy.zmianaPct) < 0 ? ('blad' as const) : ('sukces' as const) }
                         : {}),
                     },
                     {
