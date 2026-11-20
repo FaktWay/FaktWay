@@ -101,6 +101,7 @@
       "sciezki": [
         "lib/ksiegowosc/{ewidencja,ewidencja-dane,wpisy-reczne}.ts",
         "app/actions/ksiegowosc-ewidencja.ts",
+        "lib/api/mobile/{ksiegowosc-ksiegi,kontrakt-ksiegi}.ts",
         "components/ksiegowosc/wpis-reczny-form.tsx",
         "supabase/migrations/00167_*.sql"
       ]
@@ -131,6 +132,7 @@
         "lib/ksiegowosc/{vat,vat-dane}.ts",
         "app/actions/ksiegowosc-vat.ts",
         "lib/ksiegowosc/vat-plik.ts",
+        "lib/ksiegowosc/ewidencja-pliki.ts",
         "lib/api/mobile/{ksiegowosc-vat,kontrakt-ksiegowosc}.ts"
       ]
     },
@@ -524,6 +526,7 @@
       "opis": "JPK_V7M i JPK_FA: generatory, walidatory, dane, schematy.",
       "sciezki": [
         "lib/exports/{jpk-v7m-generator,jpk-v7m-validator,jpk-fa-generator,jpk-fa-validator,jpk-fa-readiness,jpk-schema-check,suspended-formats,taxpayer-email,tax-office,tax-offices,issuer-address,export-scope,data-fetcher}.ts",
+        "lib/exports/eksport-reczny.ts",
         "lib/exports/schemas/{jpk-v7m3,jpk-fa4}/**"
       ]
     },
@@ -533,7 +536,9 @@
       "opis": "Okres i zakres eksportu (miesiąc, kwartał, od-do), formaty i poprawki przed eksportem: zły okres to JPK albo KPiR za inny miesiąc.",
       "sciezki": [
         "components/exports/{export-period,export-formats,export-fixes}.ts",
-        "app/actions/exports.ts"
+        "app/actions/exports.ts",
+        "lib/api/mobile/ksiegowosc-eksport.ts",
+        "app/api/mobile/v1/eksport/**"
       ]
     },
     {
@@ -546,6 +551,7 @@
         "lib/exports/kpir-generator.ts",
         "lib/categorization/{kpir-revenue,kpir-cost}.ts",
         "app/(dashboard)/reports/kpir/**",
+        "app/api/mobile/v1/raport-kpir/**",
         "lib/invoices/receipt-revenue-guard.ts"
       ]
     },
@@ -878,6 +884,7 @@
         "mobile/src/komponenty/zaplaty-spoza-wyliczenia.tsx",
         "mobile/src/lib/{plik-jpk,miesiace}.ts",
         "mobile/src/lib/api/kontrakt-ksiegowosc.ts",
+        "mobile/src/lib/api/kontrakt-ksiegi.ts",
         "mobile/src/stan/ustawienia.tsx",
         "mobile/src/app/(zakladki)/wiecej/kontrahenci/**",
         "mobile/src/stan/kontrahenci.tsx",
