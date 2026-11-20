@@ -11,6 +11,7 @@ import { countNoteEmailsTo, counterpartyFromContractor, getNote, notesTable } fr
 import { normalizeNoteRecipient, noteEmailHtml, noteEmailIdempotencyKey, noteEmailSubject } from '@/lib/noty/mail';
 import { canWriteNotes, noteTotal, type NoteContractorOption } from '@/lib/noty/model';
 import { notePdfFilename, notePdfInput, renderNotePdf } from '@/lib/noty/pdf';
+import { loadCompanyPdfLogo } from '@/lib/pdf/logo-odczyt';
 import { noteDraftSchema, noteIssueDateError, type NoteDraftInput } from '@/lib/noty/schemat';
 import { NOTE_TEXTS, noteEmailLimitMessage, noteIssuedLockedMessage } from '@/lib/noty/teksty';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -298,7 +299,9 @@ export async function sendNoteEmailAction(noteId: string, recipientEmail: string
   const pdfInput = notePdfInput(note);
   if (!pdfInput) return { success: false, error: NOTE_TEXTS.emailDraft };
 
-  const pdf = await renderNotePdf(pdfInput);
+  // Logo firmy z ustawień (krok 2.2); bez pliku albo przy błędzie PDF bez logo.
+  const companyLogo = await loadCompanyPdfLogo(tenantId);
+  const pdf = await renderNotePdf(pdfInput, { logo: companyLogo.logo });
   const content = {
     kind: pdfInput.kind,
     number: pdfInput.number,
@@ -307,7 +310,7 @@ export async function sendNoteEmailAction(noteId: string, recipientEmail: string
     dueDate: pdfInput.dueDate,
     issuerName: pdfInput.issuer.name,
   };
-  const idempotencyKey = noteEmailIdempotencyKey(note.id, recipient, previousSends);
+  const idempotencyKey = noteEmailIdempotencyKey(note.id, recipient, previousSends, companyLogo.logo ? companyLogo.key : null);
 
   let sent: EmailStubResult;
   try {
