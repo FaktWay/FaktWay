@@ -59,18 +59,84 @@ export async function runArchiveOldInvoices({ step, logger }: JobContext) {
       await step.run(`glacier-${candidate.id}`, async () => {
         if (!candidate.xml_storage_path) return { skipped: true };
 
+        // Dowód pliku czytany po fakturze, nie po ścieżce, i jako lista
+        // (ustalenie z #732, R1 `retencja`). Wcześniej `.maybeSingle()` bez
+        // `error` po ścieżce pliku: limit czasu, 5xx bramki, dwa wiersze dowodu
+        // (możliwe bez indeksu z 00164) i wiersz wskazujący inny plik (konflikt
+        // przy zapisie dowodu, `XmlDocumentConflictError` połknięty w
+        // `save-accepted.ts`) dawały `null` jak brak wiersza. Plik szedł wtedy
+        // do Glacier bez kontroli skrótu, a faktura dostawała znaczniki i datę
+        // usunięcia. Teraz brak dowodu to tylko pusta lista (jeden wyjątek
+        // niżej, przy kontroli odpowiedzi). Błąd odczytu, odpowiedź bez listy
+        // wierszy i duble rzucają przed pobraniem pliku, a wiersz dowodu
+        // zawsze idzie przez kontrolę skrótu. Po każdym takim błędzie faktura
+        // zostaje bez znaczników, a ponowienie od zera albo następny przebieg
+        // weźmie ją jeszcze raz.
+        // Ścieżka operatora: docs/runbooks/joby-pg-boss.md, „Typowe sytuacje”.
         const supabase = createAdminClient();
-        const { data: xmlDoc } = await supabase
+        const { data: xmlDocs, error: xmlDocError } = await supabase
           .from('xml_documents')
-          .select('sha256_hash')
-          .eq('storage_path', candidate.xml_storage_path)
+          .select('storage_path, sha256_hash')
           .eq('tenant_id', candidate.tenant_id)
           .eq('invoice_id', candidate.id)
-          .maybeSingle();
+          .limit(2);
 
-        const hash = xmlDoc?.sha256_hash as string | undefined;
-        const xml = hash
-          ? await downloadInvoiceXml(candidate.xml_storage_path, hash, candidate.tenant_id)
+        if (xmlDocError) {
+          // Odrzucony `fetch` (np. `SupabaseTimeoutError` z limitu czasu
+          // klienta albo `TypeError: fetch failed` bez połączenia z bramką)
+          // biblioteka postgrest-js oddaje z pustym kodem, stąd `||`.
+          throw new Error(
+            `Archiwum: nie można odczytać skrótu XML faktury ${candidate.id} ` +
+              `(${xmlDocError.code || 'bez kodu'}: ${xmlDocError.message}); ` +
+              'plik nie trafia do Glacier bez kontroli skrótu'
+          );
+        }
+        // Biblioteka oddaje `data: null` bez `error` przy odpowiedzi spoza
+        // umowy (pusta treść 2xx, 404 bez treści, treść `null`), a treść
+        // `[null]` daje listę z `null` zamiast wiersza. Żadna z nich nie
+        // oznacza braku wiersza. Po tej kontroli `xmlDocs[0]` jest obiektem
+        // albo `undefined` (pusta lista); obiekt bez skrótu i tak padnie na
+        // kontroli skrótu. Wyjątek, jak przed zmianą: odpowiedź 404 z tablicą
+        // JSON w treści biblioteka sama zamienia na pustą listę bez `error`
+        // i ze statusem 200, więc tu wygląda jak brak wiersza i nie da się
+        // jej odróżnić (przypadek teoretyczny).
+        if (
+          !Array.isArray(xmlDocs) ||
+          xmlDocs.some((doc: unknown) => typeof doc !== 'object' || doc === null)
+        ) {
+          throw new Error(
+            `Archiwum: nie można odczytać skrótu XML faktury ${candidate.id} ` +
+              '(odpowiedź bazy bez listy wierszy i bez błędu); ' +
+              'plik nie trafia do Glacier bez kontroli skrótu'
+          );
+        }
+        if (xmlDocs.length > 1) {
+          throw new Error(
+            `Archiwum: nie można odczytać skrótu XML faktury ${candidate.id}: ` +
+              'kilka wierszy xml_documents tej faktury (duble do uzgodnienia, zapytanie w nagłówku 00164); ' +
+              'plik nie trafia do Glacier bez kontroli skrótu'
+          );
+        }
+
+        // Wiersz dowodu jest: plik faktury tylko po kontroli skrótem z tego
+        // wiersza, także gdy wiersz wskazuje inną ścieżkę (do Glacier idzie
+        // wtedy plik o treści z dowodu albo nic) i gdy skrót jest pusty (nie
+        // zgodzi się z żadnym plikiem, więc krok padnie na niezgodności).
+        // Bez wiersza (pusta lista) bez zmian: plik bez kontroli, bo nie ma
+        // z czym go porównać.
+        const xmlDoc = xmlDocs[0];
+        if (xmlDoc && xmlDoc.storage_path !== candidate.xml_storage_path) {
+          logger.warn(
+            `Archiwum: wiersz xml_documents faktury ${candidate.id} wskazuje inną ścieżkę pliku niż faktura; ` +
+              'plik faktury idzie do Glacier tylko ze skrótem z tego wiersza'
+          );
+        }
+        const xml = xmlDoc
+          ? await downloadInvoiceXml(
+              candidate.xml_storage_path,
+              String(xmlDoc.sha256_hash ?? ''),
+              candidate.tenant_id
+            )
           : await downloadInvoiceXmlUnchecked(candidate.xml_storage_path, candidate.tenant_id);
 
         const glacierKey = await uploadToGlacier(
