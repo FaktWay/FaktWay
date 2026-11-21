@@ -168,7 +168,9 @@ Po kolei, od najtańszego:
 Objaw: przebieg jednej firmy pada za każdym razem z błędem „Historyczna faktura KSeF bez
 środowiska wymaga ręcznego uzgodnienia” (Sentry, dziennik przebiegów, w alarmie
 `stale_inbox_sync` klasa „Błędy KSeF albo nasze”). Firma nie dostaje żadnych nowych faktur
-zakupowych, nie tylko tej jednej. To ustalenie S12 z planu zero zgubionych faktur (E1).
+zakupowych, nie tylko tej jednej. Komunikatu dla klienta nie ma: widzi tylko, że „Ostatnie
+sprawdzenie” w skrzynce (`/inbox`) przestaje się przesuwać, bo pokazuje ostatni udany przebieg.
+To ustalenie S12 z planu zero zgubionych faktur (E1).
 
 Przyczyna: `findExistingInboxNumbers` (`lib/jobs/runners/inbox-polling.ts`) znalazła w bazie
 fakturę przychodzącą z tym samym numerem KSeF i bez środowiska. Środowiska nie zgaduje, bo indeks
@@ -186,7 +188,7 @@ Sprawdzenie, tylko odczyt: `./scripts/ops/kontrola-faktur-ksef.sh`, sekcja 6, dw
 |---|---|---|
 | jest, sprawdzona na wszystkich wierszach | pusta | nic do uzgodnienia; jeśli błąd dalej wraca, zgłoś Bartoszowi (przy tej regule nie powinien) |
 | BRAK | pusta albo wiersze | 00120 niewgrana; przy wierszach migracja się nie wgra (preflight); do Bartosza, `wgrywanie-migracji.md` |
-| jest, NOT VALID | wiersze | stare wiersze bez sprawdzenia; uzgodnienie niżej, potem walidacja reguły |
+| jest, NOT VALID | pusta albo wiersze | stare wiersze bez sprawdzenia; przy pustej liście sama walidacja reguły (`VALIDATE CONSTRAINT`, Bartosz rolą `postgres`), przy wierszach najpierw uzgodnienie niżej, potem walidacja |
 
 Uzgodnienie robi Bartosz rolą `postgres`, wiersz po wierszu. Danych nie zmienia ten skrypt ani
 agent.

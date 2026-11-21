@@ -220,7 +220,10 @@ describe.skipIf(!hasDatabase)('S12: faktura przychodząca z numerem KSeF bez śr
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ contype: 'c', convalidated: true });
       const definition = String(rows[0]!.definition);
-      expect(definition).toContain("direction <> 'incoming'");
+      // `direction` to VARCHAR(10) (00001), więc PostgreSQL pokazuje porównanie
+      // z rzutowaniem: ((direction)::text <> 'incoming'::text). Wzorzec przyjmuje
+      // też zapis bez rzutowania (kolumna TEXT).
+      expect(definition).toMatch(/\(?direction\)?(?:::text)? <> 'incoming'(?:::text)?/);
       expect(definition).toContain('ksef_number IS NULL');
       expect(definition).toContain('ksef_environment IS NOT NULL');
     });
