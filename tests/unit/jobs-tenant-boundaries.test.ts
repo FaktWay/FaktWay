@@ -45,6 +45,12 @@ vi.mock('@/lib/auth/ksef-verification-guard', () => ({
   KsefNotVerifiedError: class KsefNotVerifiedError extends Error {},
 }));
 vi.mock('@/lib/xml/fa3-generator', () => ({ InvoiceValidationError: class InvoiceValidationError extends Error {} }));
+// Fikcyjny NIP 1234567890 nie ma poprawnej sumy kontrolnej, a granica odwołań
+// porównuje sprzedawcę zaliczki z profilem firmy. Jak w ksef-submit-reference-boundary.test.ts.
+vi.mock('@/lib/xml/invoice-calculator', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/lib/xml/invoice-calculator')>(),
+  validateNipChecksum: () => true,
+}));
 
 import { requireInvoiceTenant, requireImportJobTenant } from '@/lib/jobs/runners/tenant-boundary';
 import { getInvoiceForSubmit, updateInvoiceStatus } from '@/lib/supabase/admin-queries';
@@ -97,6 +103,13 @@ function client() {
       eq: (key: string, val: unknown) => { q.filters.push([key, val]); return builder; },
       is: (key: string, val: unknown) => { q.filters.push([key, val]); return builder; },
       neq: (key: string, val: unknown) => { (q.exclusions ??= []).push([key, val]); return builder; },
+      // Tylko IS NOT NULL: `skipLiveTenantSeller` z runnera szuka otwartych wysyłek i zamiarów
+      // (`submission-log.ts`), zanim granica porówna sprzedawcę zaliczki z profilem firmy.
+      not: (key: string, operator: string, val: unknown) => {
+        if (operator !== 'is' || val !== null) throw new Error(`Unexpected NOT filter ${key}.${operator}.${String(val)}`);
+        (q.exclusions ??= []).push([key, null]);
+        return builder;
+      },
       in: (key: string, vals: unknown[]) => { (q.inclusions ??= []).push([key, vals]); return builder; },
       // Dwa filtry OR z obu stron scalenia: status bez `accepted` (main)
       // i środowisko KSeF (#63 Codexa).
@@ -302,59 +315,82 @@ describe('service-role job boundaries', () => {
     await expect(onSubmitInvoiceExhausted(new Error('failed'), {} as typeof submitEvent, ctx)).resolves.toMatchObject({ handled: false });
     expect(mocks.admin).not.toHaveBeenCalled(); expect(sendEvent).not.toHaveBeenCalled();
   });
-  it.each(['correction', 'advance', 'final'])('does not send an incomplete %s event as ordinary VAT', async (invoiceKind) => {
+  // Korekta i zaliczka bez danych dokumentu: kontrola dokumentu z #63
+  // (`submit-reference-boundary.ts`). ROZ zatrzymuje wcześniej wstrzymanie
+  // rozliczeń w runnerze; gałąź ROZ granicy sprawdza ksef-submit-reference-boundary.test.ts.
+  // W każdym przypadku bez zapisu, sondy i wysyłki.
+  it.each([
+    ['correction', 'KSeF document kind or source requires manual reconciliation'],
+    ['advance', 'KSeF document kind or source requires manual reconciliation'],
+    ['final', 'Wysyłka faktur rozliczających jest tymczasowo wstrzymana'],
+  ] as const)('does not send an incomplete %s event as ordinary VAT', async (invoiceKind, stop) => {
     tables.invoices = [{
-      id: ID, tenant_id: A, ksef_status: 'draft', invoice_kind: invoiceKind,
+      id: ID, tenant_id: A, direction: 'outgoing', ksef_status: 'draft', invoice_kind: invoiceKind,
       internal_number: 'TEST-1', parent_invoice_id: OTHER, advance_invoice_ids: [OTHER],
+      // Ten sam dokument co w zdarzeniu: bieg dochodzi do kontroli rodzaju dokumentu.
+      fa3_data: { internalNumber: 'TEST-1' },
     }];
-    // ROZ zatrzymuje wcześniej wstrzymanie z main; korekta i zaliczka — kontrola
-    // dokumentu z #63. W każdym przypadku bez zapisu, sondy i wysyłki.
-    await expect(runSubmitInvoice(submitEvent, ctx)).rejects.toThrow(
-      /manual reconciliation|Wysyłka faktur rozliczających jest tymczasowo wstrzymana/,
-    );
+    await expect(runSubmitInvoice(submitEvent, ctx)).rejects.toThrow(stop);
     expect(writes()).toEqual([]);
     expect(mocks.submit).not.toHaveBeenCalled();
     expect(mocks.health).not.toHaveBeenCalled();
   });
   // Offline24 wstrzymany (decyzja 02.10.2026, #71): bez sondy zdrowia
-  // i bez Offline24 — zaliczka idzie zwykłą wysyłką, którą job ponawia.
+  // i bez Offline24, zaliczka idzie zwykłą wysyłką, którą job ponawia.
   it('sends an advance without an Offline24 detour on KSeF outage', async () => {
-    const advanceInvoice = { type: 'ZAL', internalNumber: 'TEST-1' } as Invoice;
+    const address = { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' };
+    const seller = { nip: '1234567890', name: 'Firma testowa', address };
+    const taxAnnotations = { cashMethod: 2, splitPayment: 2 };
+    const advanceData = {
+      invoiceType: 'advance', internalNumber: 'TEST-1', seller,
+      paymentMethod: 'transfer', paymentDueDate: '2026-12-01', taxAnnotations,
+    } as AdvanceInvoiceData;
+    // Pełna koperta zaliczki, żeby bieg minął granicę odwołań i doszedł do bramki Offline24.
+    const advanceInvoice = {
+      type: 'ZAL', internalNumber: 'TEST-1', seller, advanceEnvelope: advanceData,
+      annotations: taxAnnotations, payment: { method: 'transfer', dueDate: '2026-12-01' },
+    } as Invoice;
     tables.invoices = [{
       id: ID, tenant_id: A, direction: 'outgoing', ksef_status: 'draft', invoice_kind: 'advance',
       invoice_type: 'ZAL', internal_number: 'TEST-1', advance_invoice_ids: [],
-      fa3_data: advanceInvoice,
+      // Baza oddaje kopię JSON, nie obiekt ze zdarzenia.
+      seller_nip: seller.nip, seller_data: JSON.parse(JSON.stringify(seller)),
+      fa3_data: JSON.parse(JSON.stringify(advanceInvoice)),
     }];
+    // Celowy punkt zatrzymania: profil firmy zgodny ze sprzedawcą, ale NIP niezweryfikowany,
+    // więc bieg mija bramkę Offline24 i kończy się na `load-credentials-meta`.
+    tables.tenants = [{ id: A, nip: seller.nip, name: seller.name, address_json: address }];
     mocks.health.mockResolvedValue({ offline: true, reason: 'KSeF down', isMfOutage: true });
-    const specialEvent = {
-      ...submitEvent,
-      invoice: advanceInvoice,
-      advanceData: { invoiceType: 'advance', internalNumber: 'TEST-1' } as AdvanceInvoiceData,
-    };
-    await runSubmitInvoice(specialEvent, ctx).catch(() => undefined);
+    await expect(runSubmitInvoice({ ...submitEvent, invoice: advanceInvoice, advanceData }, ctx))
+      .rejects.toThrow('Nie można użyć credentials KSeF');
     expect(mocks.health).not.toHaveBeenCalled();
     expect(mocks.offlineAdd).not.toHaveBeenCalled();
+    expect(writes()).toEqual([]);
   });
   it('does not create an Offline24 document for an ordinary PROD submit (AUD-14)', async () => {
     vi.stubEnv('KSEF_ENV', 'production');
     const regularInvoice = { type: 'VAT', internalNumber: 'TEST-1' } as Invoice;
     tables.invoices = [{
-      id: ID, tenant_id: A, ksef_status: 'draft', invoice_kind: 'regular',
+      id: ID, tenant_id: A, direction: 'outgoing', ksef_status: 'draft', invoice_kind: 'regular',
       invoice_type: 'VAT', internal_number: 'TEST-1', fa3_data: regularInvoice,
     }];
+    // Celowy punkt zatrzymania: NIP firmy niezweryfikowany, więc bieg mija granicę
+    // odwołań i bramkę Offline24, a kończy się na `load-credentials-meta`.
+    tables.tenants = [{ id: A }];
     mocks.health.mockResolvedValue({ offline: true, reason: 'KSeF down', isMfOutage: true });
-    await runSubmitInvoice({
+    await expect(runSubmitInvoice({
       ...submitEvent, environment: 'production', invoice: regularInvoice,
-    }, ctx).catch(() => undefined);
+    }, ctx)).rejects.toThrow('Nie można użyć credentials KSeF');
     expect(mocks.health).not.toHaveBeenCalled();
     expect(mocks.offlineAdd).not.toHaveBeenCalled();
+    expect(writes()).toEqual([]);
   });
   it('rejects a stale event whose legal document differs from stored fa3_data before KSeF I/O', async () => {
     const staleInvoice = {
       type: 'VAT', internalNumber: 'TEST-1', buyer: { name: 'Before edit' },
     } as Invoice;
     tables.invoices = [{
-      id: ID, tenant_id: A, ksef_status: 'draft', invoice_kind: 'regular',
+      id: ID, tenant_id: A, direction: 'outgoing', ksef_status: 'draft', invoice_kind: 'regular',
       invoice_type: 'VAT', internal_number: 'TEST-1',
       fa3_data: { type: 'VAT', internalNumber: 'TEST-1', buyer: { name: 'After edit' } },
     }];
@@ -386,6 +422,8 @@ describe('service-role job boundaries', () => {
     expect(result).toMatchObject({ handled: true, finalStatus: 'failed' });
     expect(tables.invoices[0].ksef_status).toBe('failed');
     expect(mocks.offlineAdd).not.toHaveBeenCalled();
+    // Bez próby parkowania: krok Offline24 nie czyta nawet certyfikatu firmy (`exhausted.ts`).
+    expect(calls.map((q) => q.table)).not.toContain('tenants');
   });
   it('does not park a special document after retry exhaustion', async () => {
     tables.invoices = [{ id: ID, tenant_id: A, ksef_status: 'sending', invoice_kind: 'advance' }];
