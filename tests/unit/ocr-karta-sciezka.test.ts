@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { fakePostgrest } from '@/lib/demo/fake-postgrest';
+import { readOcrJobStatus } from '@/lib/expenses/ocr-status';
 import type { FloProposalRow } from '@/lib/flo/db-types';
 import { assertFresh } from '@/lib/flo/fingerprint';
 import { toProposalView } from '@/lib/flo/proposals';
@@ -704,5 +706,72 @@ describe('karta porażki a ponowne doręczenie tego samego joba', () => {
       expect.objectContaining({ message: expect.stringContaining('baza niedostępna') }),
       expect.objectContaining({ tags: expect.objectContaining({ step: 'exhausted-close-failed-card' }) }),
     );
+  });
+});
+
+/**
+ * LIM-05, punkt 9 „Ryzyk, które zostają” (#782): porażka odczytu zapisuje
+ * techniczny tekst dla operatora i raportu dziennego (`OCR_TIMEOUT_ERROR_PATTERN`),
+ * a klient dostawał go bez zmian: w powiadomieniu (ucięty do 80 znaków) i przy
+ * odczycie stanu zadania (karta wgrywania, telefon). Oba kanały mają teraz
+ * zdanie dla klienta, a zapis w bazie zostaje taki, jaki był.
+ */
+describe('porażka odczytu: zdanie dla klienta, zapis dla operatora (LIM-05)', () => {
+  const failedRead = (error: string) => ({
+    success: false, error, inputTokens: 1, outputTokens: 1, processingTimeMs: 1,
+  });
+  /** Ten sam odczyt, który robią karta wgrywania i trasa telefonu. */
+  const statusRead = async () => {
+    const status = await readOcrJobStatus(fakePostgrest(h.tables) as never, OCR_JOB);
+    if (!status.success) throw new Error('oczekiwano odczytu zadania');
+    return status.job.error_message;
+  };
+  const SECRETS = ['Kowalski', 'Polna', 'Claude', 'Anthropic', 'credit', 'timed out', 'tenants/'];
+
+  it.each([
+    ['limit czasu z SDK', 'Request timed out.', 'Odczyt trwał zbyt długo. Można spróbować ponownie za kilka minut.'],
+    [
+      'limit zapytań u dostawcy (SDK)',
+      '429 {"type":"error","error":{"type":"rate_limit_error","message":"Number of request tokens has exceeded your per-minute rate limit"}}',
+      'Usługa odczytu jest teraz zajęta. Można spróbować ponownie za kilka minut.',
+    ],
+    [
+      'odpowiedź modelu z treścią paragonu',
+      'Claude zwrócił nieprawidłowy JSON: {"seller_name":"Jan Kowalski","seller_address":"ul. Polna 1',
+      'Nie udało się odczytać danych z tego dokumentu. Można wgrać go ponownie.',
+    ],
+    [
+      'brak środków na koncie dostawcy',
+      '400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."},"request_id":"req_011CTest"}',
+      'Usługa odczytu jest chwilowo niedostępna. Można spróbować ponownie później.',
+    ],
+  ])('%s: powiadomienie i stan zadania mówią zdaniem, zapis zostaje', async (_opis, zapis, zdanie) => {
+    h.extract.mockResolvedValue(failedRead(zapis));
+
+    expect(await runProcessOcr(event, ctx)).toEqual({ success: false });
+
+    expect(jobRow()).toMatchObject({ status: 'failed', error_message: zapis });
+    expect(pushBodies()).toEqual([zdanie]);
+    const read = await statusRead();
+    expect(read).toBe(zdanie);
+    for (const secret of SECRETS) {
+      expect(pushBodies().join(' ')).not.toContain(secret);
+      expect(read).not.toContain(secret);
+    }
+  });
+
+  it('po wyczerpaniu prób: zapis z magazynu zostaje, klient nie widzi klucza pliku', async () => {
+    const storage = new Error(`R2: empty body for expense photo: ${String(jobRow().source_file_path)}`);
+
+    await onProcessOcrExhausted(storage, event, ctx);
+
+    expect(jobRow()).toMatchObject({ status: 'failed', error_message: storage.message });
+    expect(await statusRead()).toBe('Nie udało się odczytać dokumentu. Można spróbować ponownie.');
+  });
+
+  it('po wyczerpaniu prób bez treści błędu: zapisane zdanie przechodzi do klienta bez zmian', async () => {
+    await onProcessOcrExhausted(new Error(''), event, ctx);
+
+    expect(await statusRead()).toBe('Nie udało się rozpoznać paragonu. Spróbuj ponownie za kilka minut.');
   });
 });

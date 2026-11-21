@@ -17,7 +17,14 @@ vi.mock('@/lib/flo/budget', async (orig) => ({
 }));
 
 import { AI_DAILY_OCR_LIMIT, checkTenantAiBudget, recordTenantAiUsage } from '@/lib/ai/tenant-ai-budget';
+import {
+  TENANT_AI_BUDGET_DAILY_MESSAGE,
+  TENANT_AI_BUDGET_MESSAGES,
+  TENANT_AI_BUDGET_MONTHLY_MESSAGE,
+  TENANT_AI_BUDGET_UNAVAILABLE_MESSAGE,
+} from '@/lib/ai/tenant-ai-budget-messages';
 import { USD_PLN } from '@/lib/flo/budget';
+import { komunikatBleduOdczytu, POWIADOMIENIE_MAX_ZNAKOW, trescPowiadomienia } from '@/lib/ocr/komunikat-dla-klienta';
 
 const usd = (pln: number) => pln / USD_PLN;
 
@@ -68,9 +75,10 @@ describe('budżet AI firmy', () => {
 /**
  * Plan kompletnej aplikacji, 2.6: komunikaty odmowy kazały „wprowadzić dane
  * ręcznie”, a formularza kosztu bez zdjęcia nie ma. Komunikat mówi, kiedy
- * limit wraca. Trafia do zadania OCR (`error_message`, widoczny przy przycisku
- * „Dodaj wydatek”) i do powiadomienia, które process-ocr ucina do 80 znaków,
- * więc ma być jednym zdaniem w tej długości (bez urwanego słowa).
+ * limit wraca. Trafia do zadania OCR (`error_message`), stamtąd bez zmian do
+ * przycisku „Dodaj wydatek” i do telefonu, a powiadomienie bierze z niego
+ * pełne zdania do 80 znaków (`trescPowiadomienia`). Limity mieszczą się
+ * w jednym zdaniu tej długości, więc powiadomienie mówi to samo co ekran.
  */
 describe('komunikaty odmowy mówią, kiedy limit wraca', () => {
   const odmowa = async (tenantId: string) => {
@@ -112,5 +120,42 @@ describe('komunikaty odmowy mówią, kiedy limit wraca', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/**
+ * LIM-05, punkt 9 (#782): tłumaczenie błędu odczytu przepuszcza odmowę budżetu
+ * bez zmian tylko wtedy, gdy job zapisał dokładnie zdanie z listy. Ten opis
+ * pilnuje, że `checkTenantAiBudget` zwraca te same stałe, a powiadomienie
+ * z każdej odmowy to pełne zdania z jej początku.
+ */
+describe('odmowa budżetu to zdanie dla klienta (LIM-05)', () => {
+  it('chwilowa niedostępność, miesięczny i dzienny: dokładnie stałe z listy zdań', async () => {
+    mocks.spend.mockRejectedValueOnce(new Error('fixture db'));
+    expect(await checkTenantAiBudget('t-lista-blad', 'ocr')).toEqual({
+      allowed: false,
+      message: TENANT_AI_BUDGET_UNAVAILABLE_MESSAGE,
+    });
+
+    mocks.spend.mockResolvedValueOnce({ monthUsd: usd(3.01), todayUsd: 0 });
+    expect(await checkTenantAiBudget('t-lista-miesiac', 'ocr')).toEqual({
+      allowed: false,
+      message: TENANT_AI_BUDGET_MONTHLY_MESSAGE,
+    });
+
+    for (let i = 0; i < AI_DAILY_OCR_LIMIT; i += 1) await checkTenantAiBudget('t-lista-dzien', 'ocr');
+    expect(await checkTenantAiBudget('t-lista-dzien', 'ocr')).toEqual({
+      allowed: false,
+      message: TENANT_AI_BUDGET_DAILY_MESSAGE,
+    });
+  });
+
+  it.each(TENANT_AI_BUDGET_MESSAGES)('„%s”: klient widzi całość, powiadomienie pełne zdania z początku', (komunikat) => {
+    expect(komunikatBleduOdczytu(komunikat)).toBe(komunikat);
+
+    const tresc = trescPowiadomienia(komunikat);
+    expect(tresc.length).toBeLessThanOrEqual(POWIADOMIENIE_MAX_ZNAKOW);
+    expect(komunikat.startsWith(tresc)).toBe(true);
+    expect(tresc.endsWith('.')).toBe(true);
   });
 });

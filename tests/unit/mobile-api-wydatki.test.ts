@@ -88,6 +88,7 @@ import type {
 import { STALE_UPLOAD_MS } from '@/lib/api/mobile/wydatki';
 import { zatwierdzenieWydatkuSchema, zmianyWydatkuSchema } from '@/lib/api/mobile/schematy';
 import type { ExpenseReviewUpdates } from '@/lib/expenses/review';
+import { IMAGE_TOO_LARGE_MESSAGE } from '@/lib/ocr/image-for-api';
 import type { Database } from '@/types/database';
 
 // ─── Tokeny ───────────────────────────────────────────────────────────
@@ -610,8 +611,33 @@ describe('GET /api/mobile/v1/wydatki/odczyt/{id}', () => {
 
   it('nieudany: 200 ze zdaniem z odczytu', async () => {
     const { odczyt: { id } } = (await (await wgraj(jpeg())).json()) as WgranieWydatkuOdpowiedz;
-    Object.assign(jobs[0]!, { status: 'failed', error_message: 'Nie udało się rozpoznać paragonu.' });
-    expect(await (await odczyt(id)).json()).toEqual({ odczyt: { id, stan: 'failed', wydatekId: null, blad: 'Nie udało się rozpoznać paragonu.' } });
+    // Zdanie, które silnik OCR pisze już dla klienta (zdjęcie ponad 8000 px), idzie bez zmian.
+    Object.assign(jobs[0]!, { status: 'failed', error_message: IMAGE_TOO_LARGE_MESSAGE });
+    expect(await (await odczyt(id)).json()).toEqual({ odczyt: { id, stan: 'failed', wydatekId: null, blad: IMAGE_TOO_LARGE_MESSAGE } });
+  });
+
+  // LIM-05, punkt 9 (#782): `error_message` to zapis dla operatora, a telefon dostawał go bez zmian.
+  it.each([
+    ['limit czasu z SDK', 'Request timed out.', 'Odczyt trwał zbyt długo. Można spróbować ponownie za kilka minut.'],
+    [
+      'odpowiedź modelu z treścią paragonu',
+      'Claude zwrócił nieprawidłowy JSON: {"seller_name":"Jan Kowalski","seller_address":"ul. Polna 1',
+      'Nie udało się odczytać danych z tego dokumentu. Można wgrać go ponownie.',
+    ],
+    [
+      'brak środków na koncie dostawcy',
+      '400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}',
+      'Usługa odczytu jest chwilowo niedostępna. Można spróbować ponownie później.',
+    ],
+    ['brak zapisu', null, 'Nie udało się odczytać dokumentu. Można spróbować ponownie.'],
+  ])('nieudany, %s: zdanie dla klienta zamiast zapisu technicznego', async (_opis, zapis, zdanie) => {
+    const { odczyt: { id } } = (await (await wgraj(jpeg())).json()) as WgranieWydatkuOdpowiedz;
+    Object.assign(jobs[0]!, { status: 'failed', error_message: zapis });
+
+    const body = await (await odczyt(id)).text();
+
+    expect(JSON.parse(body)).toEqual({ odczyt: { id, stan: 'failed', wydatekId: null, blad: zdanie } });
+    for (const secret of ['Kowalski', 'Claude', 'Anthropic', 'timed out']) expect(body).not.toContain(secret);
   });
 
   it('zadania nie ma (albo jest w innej firmie): 404 not_found', async () => {

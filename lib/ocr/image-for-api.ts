@@ -13,6 +13,8 @@
 import type { Base64ImageSource } from '@anthropic-ai/sdk/resources/messages/messages';
 import type sharpFactory from 'sharp';
 
+import { IMAGE_TOO_LARGE_MESSAGE } from './komunikat-dla-klienta';
+
 type SharpFactory = typeof sharpFactory;
 
 /** Najdłuższy bok obrazu, który API przyjmuje (dokumentacja „Vision”, 13.11.2026). */
@@ -56,14 +58,10 @@ const JPEG_QUALITY = 85;
  */
 const JPEG_OPTIMISE_CODING = false;
 
-/**
- * Komunikat dla klienta, gdy obrazu ponad 8000 px nie da się przygotować dla
- * API: za dużo pikseli, uszkodzony plik albo kopia ponad limit bajtów. Bez
- * trybu rozkazującego (lista kontrolna filtra, pkt 16) i do 80 znaków, bo tyle
- * zostawia powiadomienie. Wyjście: mniejsze zdjęcie albo PDF; oryginał zostaje
- * w archiwum, a karta „nie odczytałem” prowadzi do ponownego wgrania.
- */
-export const IMAGE_TOO_LARGE_MESSAGE = 'Zdjęcie ma ponad 8000 px i nie da się go odczytać. Potrzebne mniejsze albo PDF.';
+// Komunikat dla klienta przy obrazie, którego nie da się przygotować dla API.
+// Definicja i opis są w `komunikat-dla-klienta.ts`, bo stan zadania czyta
+// aplikacja, a ten moduł ładuje tylko worker; eksport zostaje dla wywołujących.
+export { IMAGE_TOO_LARGE_MESSAGE };
 
 export interface ApiImage {
   data: string;

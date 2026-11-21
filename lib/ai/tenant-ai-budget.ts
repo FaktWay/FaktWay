@@ -19,6 +19,11 @@
 
 import * as Sentry from '@sentry/nextjs';
 
+import {
+  TENANT_AI_BUDGET_DAILY_MESSAGE,
+  TENANT_AI_BUDGET_MONTHLY_MESSAGE,
+  TENANT_AI_BUDGET_UNAVAILABLE_MESSAGE,
+} from '@/lib/ai/tenant-ai-budget-messages';
 import { evaluateBudget, readSpend, recordUsage } from '@/lib/flo/budget';
 import { checkRateLimit } from '@/lib/rate-limit';
 
@@ -32,30 +37,27 @@ export type TenantAiKind = 'ocr' | 'classify';
 export type TenantAiBudget = { allowed: true } | { allowed: false; message: string };
 
 /**
- * Komunikat odmowy trafia do zadania OCR (`error_message`, widoczny przy
- * „Dodaj wydatek”) i do powiadomienia, które process-ocr ucina do 80 znaków,
- * więc jest jednym zdaniem w tej długości i mówi, kiedy limit wraca. Wpisu
- * ręcznego kosztu nie ma (plan kompletnej aplikacji, 2.6; formularz to krok
- * 3.8), dlatego nie odsyłamy do wpisywania. Okna, o których mówi komunikat,
- * sprawdza tests/unit/ai-limit-firmy.test.ts (dzienny: 24 godziny kroczące)
+ * Komunikat odmowy trafia do zadania OCR (`error_message`), a stamtąd bez
+ * zmian do klienta: przy „Dodaj wydatek” i w telefonie, bo jest na liście
+ * zdań dla klienta (`lib/ocr/komunikat-dla-klienta.ts`). Powiadomienie bierze
+ * z niego tyle pełnych zdań, ile mieści się w 80 znakach, więc pierwsze zdanie
+ * ma sens samo. Limity mówią, kiedy wracają. Wpisu ręcznego kosztu nie ma
+ * (plan kompletnej aplikacji, 2.6; formularz to krok 3.8), dlatego nie
+ * odsyłamy do wpisywania. Okna, o których mówi komunikat, sprawdza
+ * tests/unit/ai-limit-firmy.test.ts (dzienny: 24 godziny kroczące)
  * i tests/unit/koszt-bez-wpisu-recznego.test.ts (miesięczny: od 1. dnia miesiąca).
+ * Treści leżą w `lib/ai/tenant-ai-budget-messages.ts`.
  */
 export async function checkTenantAiBudget(tenantId: string, kind: TenantAiKind): Promise<TenantAiBudget> {
   let verdict: ReturnType<typeof evaluateBudget>;
   try {
     verdict = evaluateBudget(await readSpend(tenantId));
   } catch {
-    return {
-      allowed: false,
-      message: 'Automatyczne rozpoznawanie dokumentów jest chwilowo niedostępne. Spróbuj ponownie później.',
-    };
+    return { allowed: false, message: TENANT_AI_BUDGET_UNAVAILABLE_MESSAGE };
   }
 
   if (!verdict.allowed && verdict.reason === 'monthly') {
-    return {
-      allowed: false,
-      message: 'Wykorzystano miesięczny limit odczytu dokumentów, wróci od następnego miesiąca.',
-    };
+    return { allowed: false, message: TENANT_AI_BUDGET_MONTHLY_MESSAGE };
   }
   if (verdict.allowed && verdict.alert) {
     Sentry.captureMessage('AI: firma przekroczyła dwukrotność miesięcznego celu kosztu', {
@@ -72,10 +74,7 @@ export async function checkTenantAiBudget(tenantId: string, kind: TenantAiKind):
     windowSeconds: 24 * 60 * 60,
   });
   if (!daily.allowed) {
-    return {
-      allowed: false,
-      message: 'Wykorzystano dzienny limit odczytu dokumentów, wróci w ciągu 24 godzin.',
-    };
+    return { allowed: false, message: TENANT_AI_BUDGET_DAILY_MESSAGE };
   }
   return { allowed: true };
 }

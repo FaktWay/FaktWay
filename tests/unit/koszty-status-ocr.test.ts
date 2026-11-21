@@ -177,3 +177,98 @@ describe('getOcrJobStatusAction — trzy wyniki (E16)', () => {
     expect(mocks.createClient).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * LIM-05, punkt 9 „Ryzyk, które zostają” (#782): `ocr_jobs.error_message` to
+ * zapis dla operatora i raportu dziennego: angielski tekst SDK, odpowiedź
+ * modelu z treścią paragonu, klucz pliku z magazynu. Akcja oddawała go bez
+ * zmian na kartę przy „Dodaj wydatek” i w całej odpowiedzi do przeglądarki.
+ */
+describe('getOcrJobStatusAction: tekst błędu odczytu dla klienta (LIM-05)', () => {
+  const row = (over: Record<string, unknown>) => ({
+    id: JOB_ID,
+    status: 'failed',
+    error_message: null,
+    expense_id: null,
+    extracted_data: null,
+    ...over,
+  });
+  async function errorMessageFor(over: Record<string, unknown>) {
+    mocks.response = { data: row(over), error: null };
+    const out = await getOcrJobStatusAction(JOB_ID);
+    if (!out.success) throw new Error('oczekiwano odczytu zadania');
+    return out.job.error_message;
+  }
+
+  it.each([
+    ['limit czasu z SDK', 'Request timed out.', 'Odczyt trwał zbyt długo. Można spróbować ponownie za kilka minut.'],
+    [
+      'przeciążenie u dostawcy (SDK)',
+      '529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+      'Usługa odczytu jest teraz zajęta. Można spróbować ponownie za kilka minut.',
+    ],
+    [
+      'odpowiedź modelu z treścią paragonu',
+      'Claude zwrócił nieprawidłowy JSON: {"seller_name":"Jan Kowalski","seller_address":"ul. Polna 1',
+      'Nie udało się odczytać danych z tego dokumentu. Można wgrać go ponownie.',
+    ],
+    [
+      'klucz pliku z magazynu',
+      'R2: empty body for expense photo: tenants/aaaaaaaa/expenses/2026/11/job.jpg',
+      'Nie udało się odczytać dokumentu. Można spróbować ponownie.',
+    ],
+    ['brak zapisu', null, 'Nie udało się odczytać dokumentu. Można spróbować ponownie.'],
+  ])('nieudany, %s → zdanie dla klienta', async (_opis, zapis, zdanie) => {
+    expect(await errorMessageFor({ error_message: zapis })).toBe(zdanie);
+  });
+
+  it('reszta wiersza bez zmian: id, status, wydatek, odczyt', async () => {
+    mocks.response = { data: row({ error_message: 'Request timed out.' }), error: null };
+
+    expect(await getOcrJobStatusAction(JOB_ID)).toEqual({
+      success: true,
+      job: row({ error_message: 'Odczyt trwał zbyt długo. Można spróbować ponownie za kilka minut.' }),
+    });
+  });
+
+  // Udane ponowienie nie czyści `error_message` (process-ocr): zdanie błędu
+  // tylko przy `failed`, inaczej odbiorca pola pokazałby błąd przy udanym odczycie.
+  it('zakończone po wcześniejszej porażce: błędu nie ma (null), stary zapis nie wychodzi do przeglądarki', async () => {
+    mocks.response = {
+      data: row({
+        status: 'completed',
+        expense_id: 'exp-1',
+        error_message: 'Claude zwrócił nieprawidłowy JSON: {"seller_name":"Jan Kowalski"',
+      }),
+      error: null,
+    };
+
+    const out = await getOcrJobStatusAction(JOB_ID);
+
+    expect(out).toEqual({
+      success: true,
+      job: row({ status: 'completed', expense_id: 'exp-1', error_message: null }),
+    });
+    const sent = JSON.stringify(out);
+    for (const secret of ['Kowalski', 'Claude', 'JSON']) expect(sent).not.toContain(secret);
+  });
+
+  it.each(['processing', 'pending'])('%s ze starym zapisem po porażce (ponowienie): błędu nie ma (null)', async (status) => {
+    expect(await errorMessageFor({ status, error_message: 'Request timed out.' })).toBeNull();
+  });
+
+  it('w toku bez zapisu: błędu nie ma (null)', async () => {
+    expect(await errorMessageFor({ status: 'processing', error_message: null })).toBeNull();
+  });
+
+  it.each([
+    ['zdjęcie ponad 8000 px', 'Zdjęcie ma ponad 8000 px i nie da się go odczytać. Potrzebne mniejsze albo PDF.'],
+    ['dzienny limit odczytu', 'Wykorzystano dzienny limit odczytu dokumentów, wróci w ciągu 24 godzin.'],
+    [
+      'budżet chwilowo niedostępny',
+      'Automatyczne rozpoznawanie dokumentów jest chwilowo niedostępne. Spróbuj ponownie później.',
+    ],
+  ])('zdanie, które już jest dla klienta (%s), przechodzi bez zmian', async (_opis, zdanie) => {
+    expect(await errorMessageFor({ error_message: zdanie })).toBe(zdanie);
+  });
+});

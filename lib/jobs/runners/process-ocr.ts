@@ -19,6 +19,7 @@ import {
   type OcrFacts,
 } from '@/lib/flo/functions/expense-review';
 import { extractInvoiceFromImage } from '@/lib/ocr/engine';
+import { komunikatBleduOdczytu, OCR_NIEUDANY_PO_PROBACH, trescPowiadomienia } from '@/lib/ocr/komunikat-dla-klienta';
 import { checkTenantAiBudget, recordTenantAiUsage } from '@/lib/ai/tenant-ai-budget';
 import {
   extractedInvoiceSchema,
@@ -244,9 +245,7 @@ export async function onProcessOcrExhausted(
     .from('ocr_jobs')
     .update({
       status: 'failed',
-      error_message:
-        error.message?.slice(0, 500) ||
-        'Nie udało się rozpoznać paragonu. Spróbuj ponownie za kilka minut.',
+      error_message: error.message?.slice(0, 500) || OCR_NIEUDANY_PO_PROBACH,
       completed_at: new Date().toISOString(),
     })
     .eq('id', ocrJobId)
@@ -462,12 +461,12 @@ export async function runProcessOcr(data: Parameters<typeof ocrProcessPhotoReque
         // „Nieudane” już zapisane, karta niżej zostaje — push jest dodatkiem.
         // Błąd (np. PushReadError: awaria bazy) nie może ponowić joba: ponowienie
         // od zera zapłaciłoby drugi raz za OCR i mogło nie dojść do karty.
+        // Treść to zdanie dla klienta w pełnych zdaniach do 80 znaków, nie zapis
+        // z zadania: ten zostaje techniczny dla operatora (LIM-05, punkt 9).
         try {
           await sendPushToUser(job.created_by, 'invoice_rejected', {
             title: '❌ Nie udało się rozpoznać paragonu',
-            body:
-              ocrResult.error?.slice(0, 80) ??
-              'Spróbuj ponownie z lepszym zdjęciem',
+            body: trescPowiadomienia(komunikatBleduOdczytu(ocrResult.error)),
             url: '/expenses',
             tag: `ocr-${ocrJobId}`,
           });

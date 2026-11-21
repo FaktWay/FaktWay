@@ -95,6 +95,7 @@ vi.mock('@/lib/supabase/admin', () => ({
 
 
 import { runProcessOcr } from '@/lib/jobs/runners/process-ocr';
+import { sendPushToUser } from '@/lib/push/sender';
 
 const ctx: JobContext = {
   attempt: 0,
@@ -110,6 +111,7 @@ beforeEach(() => {
   budget.check.mockReset().mockResolvedValue({ allowed: true });
   budget.record.mockReset().mockResolvedValue(undefined);
   budget.extract.mockClear();
+  vi.mocked(sendPushToUser).mockClear();
 });
 
 describe('OCR a limit AI firmy', () => {
@@ -125,5 +127,28 @@ describe('OCR a limit AI firmy', () => {
     await runProcessOcr(event, ctx);
     expect(budget.extract).toHaveBeenCalledOnce();
     expect(budget.record).toHaveBeenCalledWith(TENANT, { inputTokens: 1, outputTokens: 1 });
+  });
+
+  // LIM-05, punkt 9 (#782): powiadomienie ucinało komunikat odmowy w połowie
+  // słowa („Spróbuj ponown”). Teksty jak w `checkTenantAiBudget`; zadanie
+  // zachowuje cały komunikat, powiadomienie dostaje pełne zdania w 80 znakach.
+  it.each([
+    [
+      'budżet chwilowo niedostępny (dwa zdania, 90 znaków)',
+      'Automatyczne rozpoznawanie dokumentów jest chwilowo niedostępne. Spróbuj ponownie później.',
+      'Automatyczne rozpoznawanie dokumentów jest chwilowo niedostępne.',
+    ],
+    [
+      'dzienny limit (jedno zdanie w 80 znakach)',
+      'Wykorzystano dzienny limit odczytu dokumentów, wróci w ciągu 24 godzin.',
+      'Wykorzystano dzienny limit odczytu dokumentów, wróci w ciągu 24 godzin.',
+    ],
+  ])('odmowa budżetu, %s: zadanie ma cały komunikat, powiadomienie pełne zdania', async (_opis, komunikat, tresc) => {
+    budget.check.mockResolvedValue({ allowed: false, message: komunikat });
+
+    expect(await runProcessOcr(event, ctx)).toEqual({ success: false });
+
+    expect(state.jobUpdates).toContainEqual(expect.objectContaining({ status: 'failed', error_message: komunikat }));
+    expect(vi.mocked(sendPushToUser).mock.calls.map(([, , payload]) => payload.body)).toEqual([tresc]);
   });
 });

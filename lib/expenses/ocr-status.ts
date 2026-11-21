@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { komunikatBleduOdczytu } from '@/lib/ocr/komunikat-dla-klienta';
 import { isUuid } from '@/lib/supabase/active-org';
 import type { Database } from '@/types/database';
 
@@ -27,11 +28,17 @@ import type { Database } from '@/types/database';
  * (brak uprawnień). Uproszczenie świadome: rozróżnianie kodów nic by nie
  * dało, bo ekran i tak przestaje pytać po czasie, a pomyłka w drugą stronę
  * (chwilowy uznany za trwały) to znów drugi wydatek z tego samego zdjęcia.
+ *
+ * Błąd odczytu wychodzi zdaniem dla klienta (`komunikatBleduOdczytu`), nie
+ * zapisem z `ocr_jobs.error_message`. Zapis zostaje techniczny dla operatora
+ * i raportu dziennego: angielski tekst SDK, odpowiedź modelu z treścią
+ * paragonu, klucz pliku z magazynu (LIM-05, punkt 9 z #782).
  */
 
 export interface OcrJobStatusRow {
   id: string;
   status: Database['public']['Enums']['ocr_status'];
+  /** Zdanie dla klienta, nie zapis z bazy: tylko przy `failed`, w innych stanach `null`. */
   error_message: string | null;
   expense_id: string | null;
   extracted_data: Database['public']['Tables']['ocr_jobs']['Row']['extracted_data'];
@@ -68,5 +75,10 @@ export async function readOcrJobStatus(supabase: SupabaseClient<Database>, ocrJo
 
   if (!job) return OCR_JOB_MISSING;
 
-  return { success: true, job };
+  // Zdanie tylko przy `failed`. W innych stanach `null`, także gdy w bazie
+  // został stary zapis: udane ponowienie go nie czyści (`mark-processing`
+  // i `mark-completed` w process-ocr), więc niepusty zapis nie znaczy, że ten
+  // odczyt się nie udał. Porażka bez zapisu dostaje zdanie ogólne.
+  const errorMessage = job.status === 'failed' ? komunikatBleduOdczytu(job.error_message) : null;
+  return { success: true, job: { ...job, error_message: errorMessage } };
 }
