@@ -152,6 +152,17 @@ describe('teksty prawdziwego SDK i silnika: zdanie kategorii', () => {
       ),
     ],
     [
+      // W treści tylko ścieżka `document.source`, bez „PDF”: te dwa wiersze strzegą słowa „document” w obu regułach 400.
+      '400 odrzucony dokument (w treści tylko ścieżka `document.source`)',
+      'pdf',
+      bladApi(400, 'invalid_request_error', 'messages.0.content.0.document.source.base64.data: invalid'),
+    ],
+    [
+      '400 dokument ponad limit (w treści tylko ścieżka `document.source`)',
+      'rozmiar',
+      bladApi(400, 'invalid_request_error', 'messages.0.content.0.document.source.base64.data: exceeds maximum size'),
+    ],
+    [
       '400 plik ponad okno kontekstu modelu',
       'rozmiar',
       bladApi(400, 'invalid_request_error', 'prompt is too long: 250000 tokens > 200000 maximum'),
