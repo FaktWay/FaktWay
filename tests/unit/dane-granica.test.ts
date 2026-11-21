@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 
 import { ESLint } from 'eslint';
 import { describe, expect, it } from 'vitest';
@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
  */
 
 const ROOT = resolve(__dirname, '../..');
+/** Ścieżki w tym teście są z `join` i `resolve`, czyli z separatorem systemu (`\` na Windowsie): granica katalogu to `DEMO_DIR + sep`. */
 const DEMO_DIR = join(ROOT, 'lib/demo');
 const DOZWOLONY = join(DEMO_DIR, 'tryb-danych');
 
@@ -37,17 +38,23 @@ const IMPORT = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\s*\(\s*)['"]
 describe('granica importów lib/demo', () => {
   it('poza lib/demo/ nikt nie importuje danych przykładowych ani atrapy — tylko tryb-danych', () => {
     const naruszenia: string[] = [];
+    let dozwolone = 0;
     for (const top of ['app', 'components', 'lib']) {
       for (const file of pliki(join(ROOT, top))) {
-        if (file.startsWith(DEMO_DIR + '/')) continue;
+        if (file.startsWith(DEMO_DIR + sep)) continue;
         for (const [, spec] of readFileSync(file, 'utf8').matchAll(IMPORT)) {
           const target = cel(file, spec!)?.replace(/\.(ts|tsx)$/, '');
-          if (!target || !target.startsWith(DEMO_DIR + '/')) continue;
-          if (target === DOZWOLONY) continue;
+          if (!target || !target.startsWith(DEMO_DIR + sep)) continue;
+          if (target === DOZWOLONY) {
+            dozwolone++;
+            continue;
+          }
           naruszenia.push(`${relative(ROOT, file)} → ${spec}`);
         }
       }
     }
+    // skaner widzi znane importy `tryb-danych` spoza lib/demo (inaczej „0 naruszeń” nic nie znaczy; na Windowsie przy `DEMO_DIR + '/'` było ich 0)
+    expect(dozwolone).toBeGreaterThan(0);
     expect(naruszenia).toEqual([]);
   });
 

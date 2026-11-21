@@ -30,8 +30,9 @@ function files(dir: string): string[] {
   return out;
 }
 
+/** `path` zawsze z `/`, także na Windowsie: porównujemy go z `MARKETING_GROUP`, `components/` i specyfikatorem `@/…`, które są napisami z `/`. */
 const SOURCES = SCANNED.flatMap((d) => files(join(ROOT, d))).map((f) => ({
-  path: relative(ROOT, f),
+  path: relative(ROOT, f).replaceAll('\\', '/'),
   text: readFileSync(f, 'utf8'),
 }));
 
