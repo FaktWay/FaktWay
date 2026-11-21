@@ -806,6 +806,24 @@ async function normalizePayload(
         error: `Korekta obniżyłaby wartość faktury poniżej zera: dziś to ${formatPlMoney(baseline.totals.net)} zł netto i ${formatPlMoney(baseline.totals.gross)} zł brutto. Zwrot całej kwoty to anulowanie faktury.`,
       };
     }
+    // F12-D2 w każdej stawce (KOR-01): różnica idzie według stawek faktury
+    // korygowanej, więc nie tylko suma, ale i stawka korekty (netto, VAT, brutto)
+    // nie schodzi poniżej zera (faktura 1 000 zł w 23% i 1 000 zł w 8%: −1 500 zł
+    // w 23% to odmowa). Pozycje są stanem bieżącym tylko przy `allowed: 'all'`.
+    // Po przyjętej korekcie kwotowej stan stawki obejmuje też różnice tych korekt
+    // w ich stawkach (wiersz pozycji korekty); tego tu jeszcze nie liczymy
+    // (osobne ustalenie KOR-03) i zostaje sprawdzenie sumy wyżej.
+    if (baseline.allowed === 'all') {
+      const wStawce = linesTotals(original.filter((line) => line.vatRate === rate));
+      if (roundToCents(wStawce.netTotal + amounts.netDelta) < 0 ||
+          roundToCents(wStawce.vatTotal + amounts.vatDelta) < 0 ||
+          roundToCents(wStawce.grossTotal + amounts.grossDelta) < 0) {
+        const stawka = /^\d+$/.test(rate) ? `${rate}%` : `„${rate}”`;
+        return {
+          error: `Korekta obniżyłaby wartość faktury ${parentNumber} w stawce ${stawka} poniżej zera: dziś w tej stawce to ${formatPlMoney(wStawce.netTotal)} zł netto, ${formatPlMoney(wStawce.vatTotal)} zł VAT i ${formatPlMoney(wStawce.grossTotal)} zł brutto. Różnicę wykazuje się według stawek faktury korygowanej (art. 106j ust. 2 pkt 5 ustawy o VAT), więc w każdej stawce korekta schodzi najwyżej do zera. Obniżkę w kilku stawkach wykazuje korekta pozycji („przed / po”).`,
+        };
+      }
+    }
   }
 
   const normalized: CorrectionInvoiceSchemaIn = {
