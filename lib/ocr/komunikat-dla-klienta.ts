@@ -162,8 +162,9 @@ function kategoria(t: string): Kategoria {
     // Ścieżka bloku z plikiem („…image.source…”, „…document.source…”) i słowo
     // o limicie: obraz ponad limit bajtów albo pikseli, PDF ponad limit stron.
     // Bez pliku w treści „maximum” znaczy co innego (np. `max_tokens`).
-    if (/\bpdf\b|document|image/i.test(tresc) && /exceed|maximum|too (large|big|long)/i.test(tresc)) return 'rozmiar';
-    if (/\bpdf\b|document/i.test(tresc)) return 'pdf';
+    // „document” tylko jako całe słowo: „documentation” to nie plik.
+    if (/\bpdf\b|\bdocuments?\b|image/i.test(tresc) && /exceed|maximum|too (large|big|long)/i.test(tresc)) return 'rozmiar';
+    if (/\bpdf\b|\bdocuments?\b/i.test(tresc)) return 'pdf';
     if (/image/i.test(tresc)) return 'zdjecie';
     return 'ogolny';
   }

@@ -261,9 +261,27 @@ describe('reguły bez SDK', () => {
     ['503 bez ciała', 'niedostepna', '503 status code (no body)'],
     ['502 z ciałem spoza JSON-u', 'niedostepna', '502 <html>Bad Gateway</html>'],
     [
+      // Konto u dostawcy wygrywa z limitem zapytań także bez kodu w `error.details`.
+      '429 z treścią o limicie użycia, bez kodu',
+      'niedostepna',
+      '429 {"type":"error","error":{"type":"rate_limit_error","message":"You have reached your specified API usage limits."}}',
+    ],
+    ['413 bez ciała (pośrednik)', 'rozmiar', '413 status code (no body)'],
+    [
       '400 z „pdf” tylko w identyfikatorze żądania',
       'ogolny',
       `400 {"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: must be positive"},"request_id":"${REQUEST_ID}"}`,
+    ],
+    [
+      // „document” tylko jako całe słowo (ścieżka `…document.source…`), nie w „documentation”.
+      '400 ze słowem „documentation”, bez pliku w treści',
+      'ogolny',
+      '400 {"type":"error","error":{"type":"invalid_request_error","message":"top_k: must be positive. See the documentation for valid values."}}',
+    ],
+    [
+      '400 ze słowami „documentation” i „maximum”, bez pliku w treści',
+      'ogolny',
+      '400 {"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: 100000 > 64000, which is the maximum allowed number of output tokens. See the documentation for model limits."}}',
     ],
     ['przeciążenie bez kodu na początku', 'ogolny', '{"type":"overloaded_error","message":"Overloaded"}'],
     ['przerwane żądanie', 'ogolny', 'Request was aborted.'],
