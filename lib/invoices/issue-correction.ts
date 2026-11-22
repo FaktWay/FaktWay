@@ -897,11 +897,14 @@ async function normalizePayload(
     }
     // VAT od brutto tylko dla faktury liczonej od brutto: pozycje w tej stawce mają cenę
     // brutto. Po F12-D2 (stawka jest w fakturze), żeby najpierw padła właściwa odmowa.
+    // Odmowa podaje kwoty, które przejdą: VAT od zmiany netto do grosza (art. 106e ust. 11)
+    // i brutto = netto + VAT, bo klient wpisuje wszystkie trzy pola sam.
     const ratePct = /^\d+$/.test(rate) ? Number(rate) : 0;
-    if (vatFromNetCents(amounts.netDelta, ratePct) !== roundToCents(amounts.vatDelta) &&
+    const vatFromNet = vatFromNetCents(amounts.netDelta, ratePct);
+    if (vatFromNet !== roundToCents(amounts.vatDelta) &&
         original.some((line) => line.vatRate === rate && line.unitPriceGross === undefined)) {
       return {
-        error: `Kwota VAT korekty jest liczona od brutto, a faktura ${parentLabelOf(parent)} liczy VAT od netto. Podaj VAT od netto (netto × stawka).`,
+        error: `Zmiana VAT (${formatPlMoney(amounts.vatDelta)} zł) nie jest VAT od zmiany netto, a faktura ${parentLabelOf(parent)} liczy VAT od netto. Przy zmianie netto ${formatPlMoney(amounts.netDelta)} zł i stawce ${ratePct}% zmiana VAT to ${formatPlMoney(vatFromNet)} zł, a zmiana brutto ${formatPlMoney(roundToCents(amounts.netDelta + vatFromNet))} zł: wpisz te kwoty w polach „Zmiana VAT” i „Zmiana brutto”.`,
       };
     }
     // F12-D2: korekta nie schodzi poniżej zera (stan bieżący: faktura i przyjęte korekty).
