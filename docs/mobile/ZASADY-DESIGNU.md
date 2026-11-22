@@ -51,6 +51,12 @@ najlepszych aplikacji finansowych i płynności, którą daje system.
 | Wyszukiwanie | pole wyszukiwania w pasku nawigacji listy | osobny ekran wyszukiwarki |
 | Podzakładki sekcji | pigułki (`Segmenty`, wzór Revolut Business, D14): wybrana w kolorze marki, pozostałe białe, liczba przy pigułce („Po terminie 2”) | systemowy przełącznik segmentowy, zakładki z kreską |
 
+Pasek zakładek jest wyjątkiem od pełnego skalowania tekstu (obchód U39 i U40,
+20.11.2026): system nie skaluje jego napisów sam, więc etykiety rosną na iOS od
+10 do 12 pt (`wyglad/zakladki.ts`, sufit, żeby „Księgowość” mieściła się w
+jednej piątej paska), a od skali 1,5 pasek się nie minimalizuje (kółko
+zasłaniało róg treści). Przy zwykłym tekście nic się nie zmienia.
+
 Główna akcja sekcji ma jedno stałe miejsce: szeroki bloczek u góry listy, pod
 podsumowaniem (decyzja D7, 09.11.2026: „Nowa faktura” w bloczku, nie plus w pasku).
 
@@ -85,6 +91,11 @@ SF, bo menu iOS przyjmuje tylko je.
 - **Dynamic Type obowiązkowo.** Każdy ekran działa przy największym tekście
   z ustawień dostępności: tekst się zawija, nic się nie ucina, układ może przejść
   z poziomego w pionowy (wiersze, kafle po jednym w rzędzie).
+  Wyjątek: przycisk w dolnym pasku formularza faktury (obchód U38, 20.11.2026).
+  Napis ma sufit skali 1,6 (`MAKS_SKALA_TEKSTU_PASKA`), a od skali 1,5 niesie
+  sam czasownik bez kwoty (kwotę pokazuje „Podsumowanie”, czytnik ekranu czyta
+  ją w etykiecie), bo pasek przypięty nad treścią zabierał jej ćwierć ekranu.
+  Miejsce pod paskiem wynika z jego zmierzonej wysokości.
 - **Kwoty** w listach wyrównane do prawej, format z `lib/format`
   („1 234,56 zł”, twarda spacja przed „zł”).
 - **Duże kwoty** (nagłówek ekranu, suma „Do zapłaty”, szczegół dokumentu,

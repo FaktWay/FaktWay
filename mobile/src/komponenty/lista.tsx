@@ -6,7 +6,7 @@
  * Okrągłe ikony Remix, liczby cyframi tabelarycznymi, statusy jako plakietki
  * (docs/mobile/ZASADY-DESIGNU.md, sekcja 5).
  */
-import { Children, Fragment, isValidElement, useState, type ReactElement, type ReactNode } from 'react';
+import { Fragment, useState, type ReactElement, type ReactNode } from 'react';
 import { Platform, Pressable, RefreshControl, ScrollView, StyleSheet, useWindowDimensions, View, type ScrollViewProps } from 'react-native';
 
 import { GradientNaglowka } from '@/komponenty/gradient-naglowka';
@@ -15,6 +15,7 @@ import { Kategoria } from '@/komponenty/kategoria';
 import { Ikona, KoloIkony, type NazwaIkony } from '@/komponenty/ikona';
 import { Tekst } from '@/komponenty/tekst';
 import { Znacznik } from '@/komponenty/znacznik';
+import { splaszcz } from '@/lib/splaszcz';
 import { tonKoloru, useKolory, type Kolory } from '@/wyglad/kolory';
 import { CEL_DOTYKU, MARGINES, ODSTEP, SKALA_PIONOWA } from '@/wyglad/odstepy';
 
@@ -94,13 +95,6 @@ type ZPolem = { pole?: boolean };
 
 function jestPolem(el: ReactElement): boolean {
   return typeof el.type !== 'string' && (el.type as ZPolem).pole === true;
-}
-
-/** Dzieci z rozwiniętymi fragmentami (`<>...</>`), żeby linie szły między wszystkimi wierszami. */
-function splaszcz(children: ReactNode): ReactElement[] {
-  return Children.toArray(children)
-    .filter(isValidElement)
-    .flatMap((el) => (el.type === Fragment ? splaszcz((el as ReactElement<{ children?: ReactNode }>).props.children) : [el]));
 }
 
 export function Sekcja({ naglowek, opis, naglowekAkcja, naglowekWartosc, stopka, swobodna, bezKarty, linie, children }: SekcjaProps) {

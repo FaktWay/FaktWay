@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { RiLoader4Line } from '@remixicon/react';
 import { toast } from 'sonner';
 
@@ -41,8 +41,18 @@ export function VatExemptionForm({
   const [choice, setChoice] = useState<string>(presetMatch ?? (initialBasis ? CUSTOM : VAT_EXEMPTION_PRESETS[0].value));
   const [custom, setCustom] = useState(presetMatch ? '' : initialBasis ?? '');
   const [pending, startTransition] = useTransition();
+  const customRef = useRef<HTMLInputElement>(null);
+  const [missing, setMissing] = useState(false);
 
   const save = () => {
+    // Pusty tekst to dla akcji „czynny podatnik VAT”: przy włączonym zwolnieniu i pustej „Innej podstawie”
+    // zapis zdjąłby zwolnienie wbrew wyborowi klienta (U19), więc prosimy o podstawę i niczego nie wysyłamy.
+    if (exempt && choice === CUSTOM && custom.trim() === '') {
+      setMissing(true);
+      toast.error('Podaj podstawę zwolnienia z VAT.');
+      customRef.current?.focus();
+      return;
+    }
     const basis = !exempt ? null : choice === CUSTOM ? custom : choice;
     startTransition(async () => {
       const result = await updateVatExemptionAction(basis);
@@ -102,6 +112,8 @@ export function VatExemptionForm({
             </Select>
             {choice === CUSTOM ? (
               <Input
+                ref={customRef}
+                aria-invalid={missing && custom.trim() === '' ? true : undefined}
                 value={custom}
                 disabled={!canEdit || pending}
                 onChange={(e) => setCustom(e.target.value)}
