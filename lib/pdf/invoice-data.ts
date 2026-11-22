@@ -1,6 +1,7 @@
 import { MARGIN_SCHEME_LABELS } from '@/lib/invoices/annotations';
 import { documentGrossPrices } from '@/lib/invoices/document-lines';
 import { documentLineCodes, type DocumentLineCodes } from '@/lib/invoices/line-codes';
+import { orderFromJson } from '@/lib/invoices/order-reference';
 import { isReceiptInvoiceColumns, receiptFromJson } from '@/lib/invoices/receipt-invoice';
 import type { CorrectedInvoiceRef } from '@/lib/pdf/invoice-renderer';
 import { isTenantStoragePath } from '@/lib/storage/tenant-path';
@@ -91,6 +92,8 @@ interface InvoiceRow {
   annotations: unknown;
   /** `fa3_data->receipt`: faktura do paragonu z FaktWay (krok 1.2). */
   receipt?: unknown;
+  /** `fa3_data->order`: numer i data zamówienia (krok 2.8). */
+  order_ref?: unknown;
   /** `fa3_data->ksefLineFields`: pola pozycji z pliku KSeF (import), m.in. cena brutto P_9B. */
   ksef_line_fields?: unknown;
   /** `fa3_data->lines`: PKWiU i GTU pozycji (krok 2.6, część 2b-3c), jak w pliku FA(3); cena brutto przy cenach brutto. */
@@ -116,6 +119,7 @@ const SELECT = `
   pdf_storage_path, pdf_generated_at, seller_data, buyer_data, payment_data,
   annotations:fa3_data->annotations,
   receipt:fa3_data->receipt,
+  order_ref:fa3_data->order,
   ksef_fp:fa3_data->ksefMarkers->>fp,
   ksef_line_fields:fa3_data->ksefLineFields,
   document_lines:fa3_data->lines,
@@ -239,6 +243,8 @@ export async function loadInvoiceForPdf(
   // Krok 1.2: paragon tylko w pełnym kształcie; każde inne oznaczenie FP daje samo „Faktura do paragonu”.
   const receipt = receiptFromJson(row.receipt);
   const receiptInvoice = isReceiptInvoiceColumns(row.receipt, row.ksef_fp);
+  // Krok 2.8: numer zamówienia tylko w pełnym kształcie; zły zapis to brak wiersza na wydruku.
+  const order = orderFromJson(row.order_ref);
 
   const invoice: Invoice = {
     internalNumber: row.internal_number ?? row.id.slice(0, 8),
@@ -255,6 +261,7 @@ export async function loadInvoiceForPdf(
     notes: row.notes ?? undefined,
     annotations: readAnnotations(row.annotations),
     ...(receipt ? { receipt } : {}),
+    ...(order ? { order } : {}),
   };
 
   return {

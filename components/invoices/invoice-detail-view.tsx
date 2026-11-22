@@ -152,6 +152,8 @@ export interface InvoiceDetailInitial {
   ksef_imported_original?: ImportedOriginalProvenance | null;
   /** Krok 1.2: faktura do paragonu, oznaczenie i dane paragonu liczone na serwerze. Brak pola = `null`. */
   receipt_invoice?: ReceiptInvoiceView | null;
+  /** Krok 2.8: gotowy wiersz „Zamówienie: …” z `fa3_data.order` (liczy serwer). Brak pola = `null`. */
+  order_reference?: string | null;
 }
 
 interface PaymentSnapshot {
@@ -548,6 +550,7 @@ export function InvoiceDetailView({ initial }: { initial: InvoiceDetailInitial }
                     {inv.receipt_invoice.details && <p>{inv.receipt_invoice.details}</p>}
                   </>
                 )}
+                {inv.order_reference && <p data-testid="numer-zamowienia">{inv.order_reference}</p>}
                 {payment?.dueDate && <p>Termin płatności: {formatInvoiceDate(payment.dueDate)}</p>}
               </div>
             </div>

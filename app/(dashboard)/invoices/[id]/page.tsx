@@ -13,6 +13,7 @@ import { canCorrectInvoice, canMarkInvoicePaid } from '@/lib/invoices/list-row-f
 import { canChangeInvoicePayment } from '@/lib/invoices/manual-payment';
 import { documentGrossPrices } from '@/lib/invoices/document-lines';
 import { documentLineCodes } from '@/lib/invoices/line-codes';
+import { orderReferenceView } from '@/lib/invoices/order-reference';
 import { receiptInvoiceView } from '@/lib/invoices/receipt-invoice';
 import { canDuplicateInvoice, canSetAsRecurring } from '@/lib/invoices/recurring/visibility';
 import { buyerLinkRefusal, canManageBuyerLinks } from '@/lib/invoice-share/policy';
@@ -297,6 +298,8 @@ export default async function InvoiceDetailPage({
     ksef_imported_original: importedOriginalProvenance(invoice.fa3_data),
     // Krok 1.2: oznaczenie FP i dane paragonu jako gotowy tekst, fa3_data zostaje na serwerze.
     receipt_invoice: receiptInvoiceView(invoice.fa3_data),
+    // Krok 2.8: numer zamówienia jako gotowy wiersz, reszta `fa3_data` zostaje na serwerze.
+    order_reference: orderReferenceView(invoice.fa3_data),
   };
 
   return <InvoiceDetailView key={initial.id} initial={initial} />;
