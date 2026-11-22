@@ -607,7 +607,16 @@ const ZERO_VAT_RATE_LABELS: Partial<Record<VatRate, string>> = {
  * może wtedy mieć P_9B i P_11A, rozstrzyga księgowa (RP-FA-BRUTTO-01). Stawka 0 %
  * to stawka podatku (od brutto wychodzi 0 zł), więc zostaje.
  */
-const GROSS_PRICES_UNTAXED_RATES: ReadonlySet<VatRate> = new Set<VatRate>(['zw', 'oo', 'np', 'np_ii']);
+export const GROSS_PRICES_UNTAXED_RATES: ReadonlySet<VatRate> = new Set<VatRate>(['zw', 'oo', 'np', 'np_ii']);
+
+/**
+ * Odmowa stawki bez podatku w fakturze w cenach brutto: to samo zdanie w bramce
+ * wysyłki (z numerem pozycji) i w formularzu (bez numeru, przy polu stawki pozycji).
+ */
+export function grossPricesUntaxedRateMessage(rate: VatRate, ordinal?: number): string {
+  const text = `„${ZERO_VAT_RATE_LABELS[rate] ?? rate}” nie ma podatku, więc faktura w cenach brutto jej nie obsługuje. Wystaw fakturę w cenach netto.`;
+  return ordinal === undefined ? `Stawka ${text}` : `Pozycja ${ordinal}: stawka ${text}`;
+}
 
 function lineVatMessage(line: InvoiceLineItem, netGr: number, vatGr: number, ratePct: number): string {
   if (ratePct === 0) {
@@ -709,10 +718,7 @@ export function validateInvoice(invoice: Invoice, now: Date = new Date()): strin
       if (linePct === undefined) {
         errors.push(`Pozycja ${line.ordinal}: nieznana stawka VAT „${line.vatRate}”. Wybierz w pozycji stawkę z listy formularza.`);
       } else if (GROSS_PRICES_UNTAXED_RATES.has(line.vatRate)) {
-        errors.push(
-          `Pozycja ${line.ordinal}: stawka „${ZERO_VAT_RATE_LABELS[line.vatRate] ?? line.vatRate}” nie ma podatku, więc faktura w cenach brutto jej nie obsługuje. ` +
-            'Wystaw fakturę w cenach netto.',
-        );
+        errors.push(grossPricesUntaxedRateMessage(line.vatRate, line.ordinal));
       } else {
         // VAT pozycji to jej udział w VAT stawki (brutto × stawka / (100 + stawka)) w dół albo
         // w górę (`grossPricedLines`): te kwoty idą do JPK i KPiR, więc podział 0,57 / −0,01 / 0
