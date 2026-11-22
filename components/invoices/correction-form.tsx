@@ -278,7 +278,8 @@ function buildDefaultCorrectionFormValues(
     parentInvoiceIssueDate: ctx.issueDate,
     parentKsefNumber: ctx.ksefNumber ?? undefined,
 
-    correctionType: 'before_after',
+    // Faktura z pozycją od brutto: korekty pozycji nie ma (serwer odmawia), domyślnie anulowanie.
+    correctionType: ctx.beforeAfterRefusal ? 'cancellation' : 'before_after',
     correctionReason: '',
     typKorekty: '2',
 
@@ -649,6 +650,10 @@ function CorrectionFillForm({ parentRow, defaults, onPickOther, tenantId, number
   });
 
   const correctionType = useWatch({ control: form.control, name: 'correctionType' });
+  // Pozycje od brutto (cena brutto nadana przez serwer): bez korekty „przed/po”, jak na serwerze.
+  const linesBeforeWatched = useWatch({ control: form.control, name: 'linesBefore' });
+  const odBrutto = (linesBeforeWatched ?? []).some((l) => l?.unitPriceGross !== undefined);
+  const typeItems = odBrutto ? CORRECTION_TYPE_ITEMS.filter((o) => o.value !== 'before_after') : CORRECTION_TYPE_ITEMS;
   const typKorekty = useWatch({ control: form.control, name: 'typKorekty' }) ?? '2';
   const paymentMethod = useWatch({ control: form.control, name: 'paymentMethod' });
   const issueDateWatch = useWatch({ control: form.control, name: 'issueDate' }) ?? defaults.issueDate;
@@ -800,7 +805,7 @@ function CorrectionFillForm({ parentRow, defaults, onPickOther, tenantId, number
           <Label htmlFor="kor-typ" className={labelClass}>Typ korekty</Label>
           <Select
             value={correctionType}
-            items={CORRECTION_TYPE_ITEMS}
+            items={typeItems}
             onValueChange={(v) => {
               if (v == null) return
               handleCorrectionTypeChange(v as CorrectionFormParsed['correctionType'])
@@ -814,13 +819,18 @@ function CorrectionFillForm({ parentRow, defaults, onPickOther, tenantId, number
               <SelectValue placeholder="Typ" />
             </SelectTrigger>
             <SelectContent>
-              {CORRECTION_TYPE_ITEMS.map((o) => (
+              {typeItems.map((o) => (
                 <SelectItem key={o.value} value={o.value}>
                   {o.label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          {odBrutto ? (
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Pozycje tej faktury liczą VAT od ceny brutto, więc korekta pozycji („przed / po”) jest niedostępna. Anuluj fakturę albo wystaw korektę kwotową.
+            </p>
+          ) : null}
           {form.formState.errors.correctionType && (
             <p id="kor-typ-error" role="alert" className="mt-1 text-xs text-red-600">
               {form.formState.errors.correctionType.message}
@@ -1066,11 +1076,12 @@ function CorrectionLinesTable(props: {
           <tbody>
             {fields.map((field, index) => {
               const wl = watched?.[index];
+              // Jak serwer: pozycja od brutto liczy kwoty od ceny brutto.
               const calc = calculateLineItem({
                 quantity: Number(wl?.quantity) || 0,
                 unitPriceNet: Number(wl?.unitPriceNet) || 0,
                 vatRate: wl?.vatRate ?? '23',
-              });
+              }, { unitPriceGross: wl?.unitPriceGross });
               return (
                 <tr key={field.id} className={c.tdRow}>
                   <td className="py-3 text-muted-foreground">{index + 1}</td>
