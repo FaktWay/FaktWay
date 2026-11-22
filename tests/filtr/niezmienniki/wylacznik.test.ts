@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, posix } from 'node:path';
 
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
@@ -28,11 +28,12 @@ MODULY.push('lib/ksiegowosc/ewidencja-pliki.ts', 'lib/api/mobile/ksiegowosc-ksie
 // M10d część 3: zapisy ksiąg (`dodajWpisReczny`, `dodajWpisKpir`, `dodajSpis`, usunięcia) same pytają o wyłącznik; trasy telefonu wołają je z importu.
 MODULY.push('lib/ksiegowosc/ewidencja-zapis.ts', 'lib/api/mobile/ksiegowosc-zapisy.ts');
 
+/** Ścieżki względne zawsze z `/` (`posix.join`), także na Windowsie: wzorce i listy niżej porównują napisy z `/`. */
 function pliki(katalog: string, wzorzec: RegExp): string[] {
   const wynik: string[] = [];
   const idz = (k: string) => {
     for (const n of readdirSync(join(KATALOG, k))) {
-      const sciezka = join(k, n);
+      const sciezka = posix.join(k, n);
       if (statSync(join(KATALOG, sciezka)).isDirectory()) idz(sciezka);
       else if (wzorzec.test(sciezka)) wynik.push(sciezka);
     }
@@ -126,7 +127,7 @@ describe('NZ-WYL-01: każde wejście do modułu księgowości pyta o wyłącznik
     const p = czytaj(sciezka);
     const z = zeStraza(p, obce);
     const bez = p.eksportowane.filter((f) => !z.has(f));
-    expect(bez.map((f) => `${relative(KATALOG, join(KATALOG, sciezka))}#${f}`)).toEqual([]);
+    expect(bez.map((f) => `${sciezka}#${f}`)).toEqual([]);
   });
 
   it('moduły współdzielone dochodzą do wyłącznika w funkcjach zapisu i odczytu dla telefonu', () => {
