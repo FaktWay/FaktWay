@@ -39,6 +39,7 @@ import {
   KOR_HOLD_MESSAGE,
   KSEF_PAUSED_MESSAGE,
 } from '@/lib/ksef/submission-holds';
+import { odmowaCenBrutto } from '@/lib/invoices/ceny-brutto-wylacznik';
 import { describeKsefSendError, ksefSendTransactionStep, type KsefSendMode } from '@/lib/invoices/ksef-send-step';
 import { recordSendRefusal, type SendRefusalCode } from '@/lib/ksef/send-attempt-ledger';
 import {
@@ -238,6 +239,16 @@ async function decideKsefSubmitEnqueue(
     isCorrectionSubmission({ invoiceType: invoice.type, auditKind, correctionData })
   ) {
     return { ok: false, refusal: 'KOR_HOLD', error: KOR_HOLD_MESSAGE };
+  }
+  // Wyłącznik cen brutto (RP-FA-BRUTTO-01, B4.0 zasada 2): każde zlecenie klienta,
+  // także szkic i „Wyślij ponownie” z zapisanego `fa3_data` (strona, telefon, API).
+  // Przed Offline24 i kolejką. „Sprawdź ponownie” nic nie wysyła, więc bez odmowy:
+  // uzgadnia fakturę, która mogła trafić do KSeF przy włączonym wyłączniku.
+  if (!reconcileOnly) {
+    const gross = await odmowaCenBrutto(resend ? 'ponowienie' : 'wysylka', invoice);
+    if (gross) {
+      return { ok: false, refusal: gross.powod === 'wylaczone' ? 'INVALID_DOCUMENT' : 'INFRA', error: gross.tekst };
+    }
   }
   // F12-G6b: firma zwolniona podmiotowo (art. 113) nie wysyła faktury ze
   // stawką z podatkiem, bo podatek wykazany na fakturze trzeba zapłacić

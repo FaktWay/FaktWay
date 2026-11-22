@@ -257,7 +257,10 @@
         "app/api/proformy/**",
         "app/actions/produkty.ts",
         "lib/produkty/**",
-        "supabase/migrations/00204_*.sql"
+        "supabase/migrations/00204_*.sql",
+        "lib/invoices/ceny-brutto-wylacznik.ts",
+        "lib/invoices/ceny-brutto-wylacznik-wspolne.ts",
+        "scripts/ops/ceny-brutto.sh"
       ]
     },
     {
