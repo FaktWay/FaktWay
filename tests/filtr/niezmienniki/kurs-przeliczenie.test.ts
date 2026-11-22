@@ -18,12 +18,13 @@ import { opcje } from '../generatory/ustawienia';
  * razy kurs średni NBP, połówka grosza od zera, iloczyn na BigInt.
  *
  * 1. Wzorzec na liczbach całkowitych z zapisu dziesiętnego kursu: `przeliczNaPln`
- *    daje to samo dla kursów z 4 i 6 miejscami po przecinku, w połowie grosza
+ *    daje to samo dla kursów z 4, 6 i 8 miejscami po przecinku, w połowie grosza
  *    (losowe remisy i tabela) i dla kwot ujemnych (korekty). API NBP podaje kurs
  *    przeliczony na jedną jednostkę, więc przy walutach z tabeli A za 100
- *    i 10 000 jednostek ma on 6 i 8 miejsc (do potwierdzenia jednym odczytem API).
- * 2. Kurs z 8 miejscami (IDR za 10 000 jednostek): `przeliczNaPln` skaluje kurs
- *    przez 10^6 i gubi dwa ostatnie miejsca: FZ-020.
+ *    i 10 000 jednostek ma on 6 i 8 miejsc (odczyt 22.11, 226/A/NBP/2026: IDR
+ *    0,00022236; sześć miejsc HUF, JPY, ISK, CLP, INR i KRW).
+ * 2. Kurs z 8 miejscami (IDR): `przeliczNaPln` skalował kurs przez 10^6 i gubił
+ *    dwa ostatnie miejsca (FZ-020); od naprawy skala 10^8.
  * 3. Test strukturalny po nazwie kursu (`NAZWY_KURSU` i ich aliasy w tym samym
  *    pliku: `const r = rate.mid`, `{ mid: r }`, `Number(mid)`, `mid as number`,
  *    `rate['mid']`): mnożenie albo dzielenie przez kurs w `lib/`, `app/`
@@ -103,11 +104,11 @@ describe('NZ-KURS-03: kwota razy kurs do groszy jedną funkcją, bez błędu flo
     expect(przeliczNaPln(kwotaGr, Number(k))).toBe(oczekiwane);
   });
 
-  it.each([4, 6])('losowa kwota i kurs z %i miejscami po przecinku: jak wzorzec na liczbach całkowitych', (miejsca) => {
+  it.each([4, 6, 8])('losowa kwota i kurs z %i miejscami po przecinku: jak wzorzec na liczbach całkowitych', (miejsca) => {
     fc.assert(fc.property(KWOTA, kurs(miejsca), (kwotaGr, k) => przeliczNaPln(kwotaGr, Number(k)) === wzorzec(kwotaGr, k)), opcje());
   });
 
-  it.each([4, 6])('losowy remis w połowie grosza przy kursie z %i miejscami, w obie strony: od zera, jak wzorzec', (miejsca) => {
+  it.each([4, 6, 8])('losowy remis w połowie grosza przy kursie z %i miejscami, w obie strony: od zera, jak wzorzec', (miejsca) => {
     fc.assert(
       fc.property(remis(miejsca), ([kwotaGr, k]) => {
         // Sprawdzenie generatora: iloczyn ma dokładnie pół grosza.
@@ -143,7 +144,7 @@ const KATALOG = process.cwd();
 const NAZWY_KURSU = ['mid', 'rateToPln', 'kurs', 'kursNbp', 'kursSredni', 'exchangeRate', 'fxRate', 'USD_PLN', 'EUR_PLN', 'usdToPln', 'USD_TO_PLN'];
 /** `plik#funkcja`: ile przeliczeń w niej stoi i dlaczego wolno. */
 const DOZWOLONE: Readonly<Record<string, { ile: number; powod: string }>> = {
-  'lib/ksiegowosc/ewidencja.ts#przeliczNaPln': { ile: 2, powod: 'ta jedna funkcja (kurs razy 10^6, iloczyn na BigInt)' },
+  'lib/ksiegowosc/ewidencja.ts#przeliczNaPln': { ile: 2, powod: 'ta jedna funkcja (kurs razy 10^8, iloczyn na BigInt)' },
   'lib/flo/budget.ts#usdToPln': { ile: 1, powod: 'koszt modelu językowego FLO w USD po stałym kursie założonym (limit budżetu), nie kwota dla klienta ani księgi' },
   'lib/flo/metrics.ts#computeCost': { ile: 2, powod: 'koszt modelu FLO na firmę wobec progów w złotych (metryka), nie kwota dla klienta ani księgi' },
   'app/admin/flo/page.tsx#AdminFloPage': { ile: 1, powod: 'panel administratora: średni koszt modelu FLO po kursie z `FLO_USD_PLN`, nie kwota dla klienta ani księgi' },
