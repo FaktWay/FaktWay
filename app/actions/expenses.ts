@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache';
 
 import { readOcrJobStatus, OCR_JOB_MISSING } from '@/lib/expenses/ocr-status';
+import { logAudit } from '@/lib/audit/log';
+import { createManualExpense } from '@/lib/expenses/manual-expense';
 import { reviewExpense, type ExpenseReviewUpdates } from '@/lib/expenses/review';
 import { isUuid } from '@/lib/supabase/active-org';
 import { createClient } from '@/lib/supabase/server';
@@ -73,4 +75,47 @@ export async function deleteExpenseAction(expenseId: string) {
 
   revalidatePath('/expenses');
   return { success: true as const };
+}
+
+/**
+ * Koszt wpisany ręcznie (krok 3.8, część 1): opłata bez faktury, składka,
+ * zakup bez zdjęcia. Logika i opis niezmienników: `lib/expenses/manual-expense.ts`.
+ * Osoba i firma z sesji; `expectedTenantId` (firma, dla której strona
+ * wyrenderowała formularz) tylko do porównania z firmą aktywną (UX-01).
+ */
+export type ManualExpenseActionResult =
+  | { success: true; expenseId: string; duplicate: boolean }
+  | { success: false; error: string };
+
+export async function createManualExpenseAction(
+  values: unknown,
+  expectedTenantId: string,
+): Promise<ManualExpenseActionResult> {
+  let auth;
+  try {
+    auth = await requireUserAndActiveOrg({ expectedTenantId });
+  } catch (e) {
+    return { success: false, error: e instanceof Error && e.message ? e.message : 'Brak autoryzacji' };
+  }
+  const { supabase, user, tenantId } = auth;
+  const result = await createManualExpense({ supabase, userId: user.id, tenantId }, values);
+  if (!result.success) return result;
+  if (!result.duplicate && result.row) {
+    await logAudit({
+      action: 'expense.created_manually',
+      tenantId,
+      userId: user.id,
+      entityType: 'expense',
+      entityId: result.expenseId,
+      metadata: {
+        documentType: result.row.document_type,
+        documentNumber: result.row.document_number ?? null,
+        grossAmount: result.row.gross_amount,
+        kpirColumn: result.row.kpir_column,
+        isDeductible: result.row.is_deductible,
+      },
+    });
+    revalidatePath('/expenses');
+  }
+  return { success: true, expenseId: result.expenseId, duplicate: result.duplicate };
 }

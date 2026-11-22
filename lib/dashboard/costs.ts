@@ -1,4 +1,5 @@
 import { readCompletePages } from '@/lib/accounting/read-complete-pages';
+import { documentKey, nip10 } from '@/lib/expenses/document-identity';
 import { kpirCostAmount } from '@/lib/categorization/kpir-cost';
 import { KSEF_INVOICE_CATEGORY, KSEF_INVOICE_COST_SOURCE } from '@/lib/dashboard/ksef-invoice-cost';
 import { assertKsefExpensesReadyForPln } from '@/lib/expenses/ksef-currency-review';
@@ -240,18 +241,6 @@ interface PurchaseRow {
 
 const text = (value: unknown): string | null =>
   typeof value === 'string' && value.trim() ? value.trim() : null;
-
-/** NIP do porównań: same cyfry, dokładnie 10 — inaczej brak. */
-function nip10(value: unknown): string | null {
-  const digits = typeof value === 'string' ? value.replace(/\D/g, '') : '';
-  return digits.length === 10 ? digits : null;
-}
-
-/** Numer dokumentu do porównań: bez odstępów i wielkości liter („fv 1/10” = „FV1/10”). */
-function documentKey(value: unknown): string | null {
-  const key = typeof value === 'string' ? value.replace(/\s+/g, '').toUpperCase() : '';
-  return key || null;
-}
 
 function purchaseNumber(row: PurchaseRow): string | null {
   return text(row.internal_number) ?? text(row.ksef_number);

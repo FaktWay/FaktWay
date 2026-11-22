@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
@@ -48,12 +48,13 @@ const KANALY: ReadonlyArray<[string, string]> = [
 /** Użycia bramki, które nie pokazują kwot klientowi wprost. */
 const INNE_UZYCIA: ReadonlyArray<[string, string]> = [['zatwierdzenie miesiąca (zapis wersji z kwotami po bramce)', 'lib/ksiegowosc/ten-miesiac-zapis.ts']];
 
+/** Ścieżki względne zawsze z `/` (`posix.join`), także na Windowsie: listy `WOLNO`, `KANALY` i `INNE_UZYCIA` są napisami z `/`. */
 function pliki(katalog: string): string[] {
   const wynik: string[] = [];
   const idz = (k: string) => {
     for (const n of readdirSync(join(KATALOG, k))) {
       if (n === 'node_modules' || n.startsWith('.')) continue;
-      const s = join(k, n);
+      const s = posix.join(k, n);
       if (statSync(join(KATALOG, s)).isDirectory()) idz(s);
       else if (/\.(ts|tsx)$/.test(n) && !/\.test\.(ts|tsx)$/.test(n)) wynik.push(s);
     }
