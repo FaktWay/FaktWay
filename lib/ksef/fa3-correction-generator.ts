@@ -10,12 +10,12 @@ import type { XMLBuilder } from 'xmlbuilder2/lib/interfaces';
 import type { InvoiceLineItem, VatRate } from '@/types/invoice';
 import {
   calculateInvoiceTotals,
-  calculateLineItem,
   differenceSummaries,
   roundToCents,
   summarizeVatPerRate,
 } from '@/lib/xml/invoice-calculator';
 import type { BuyerEU, CorrectionInvoiceData, InvoiceLine } from '@/types/invoice-types';
+import { correctionStateAmounts, lineAmounts, negatedAmounts } from '@/lib/invoices/calculator';
 import { resolveAmountChangeVatRate } from '@/lib/invoices/correction-amount-change';
 import { isGtuCode, lineCodesOf } from '@/lib/invoices/line-codes';
 import { addressCountryForKodUE, parseVatUe, type ParsedVatUe } from '@/lib/invoices/vat-ue';
@@ -237,30 +237,37 @@ export function withCodesFromBefore(before: readonly InvoiceLine[], after: reado
  * korygowana, więc do XML nie trafia; pozycja dopisana ma tylko wiersz „po”,
  * usunięta — tylko „przed”. Parowanie: `correctionLinePairs`.
  */
-function beforeAfterRows(before: InvoiceLine[], after: InvoiceLine[]): CorrectionRow[] {
+function beforeAfterRows(
+  before: InvoiceLine[],
+  after: InvoiceLine[],
+  prepared: { before: InvoiceLineItem[]; after: InvoiceLineItem[] },
+): CorrectionRow[] {
   const { pairOf, usedAfter, unchanged } = correctionLinePairs(before, after);
 
   const rows: CorrectionRow[] = [];
-  before.forEach((b, bi) => {
+  before.forEach((_b, bi) => {
     if (unchanged.has(bi)) return;
-    rows.push({ ...toPreparedLineItems([b])[0]!, stanPrzed: true });
+    rows.push({ ...prepared.before[bi]!, stanPrzed: true });
     const ai = pairOf.get(bi);
-    if (ai != null) rows.push(toPreparedLineItems([after[ai]!])[0]!);
+    if (ai != null) rows.push(prepared.after[ai]!);
   });
-  after.forEach((a, ai) => {
-    if (!usedAfter.has(ai)) rows.push(toPreparedLineItems([a])[0]!);
+  after.forEach((_a, ai) => {
+    if (!usedAfter.has(ai)) rows.push(prepared.after[ai]!);
   });
   return rows.map((row, idx) => ({ ...row, ordinal: idx + 1 }));
 }
 
-function toPreparedLineItems(lines: InvoiceLine[]): InvoiceLineItem[] {
+/**
+ * Wiersze pozycji z kwotami podanymi z zewnątrz: stan przed z zapisu faktury
+ * korygowanej, stan po z `correctionStateAmounts` (`lib/invoices/calculator.ts`),
+ * anulowanie z kwotami stanu przed z minusem. Bez kwot: `lineAmounts`.
+ */
+function toPreparedLineItems(
+  lines: InvoiceLine[],
+  amounts: ReadonlyArray<Pick<InvoiceLineItem, 'netAmount' | 'vatAmount' | 'grossAmount'>> = lines.map(lineAmounts),
+): InvoiceLineItem[] {
   return lines.map((line, idx) => {
-    // Faktura liczona od brutto: kwoty pozycji od ceny brutto, jak na fakturze.
-    const { netAmount, vatAmount, grossAmount } = calculateLineItem({
-      quantity: line.quantity,
-      unitPriceNet: line.unitPriceNet,
-      vatRate: line.vatRate as VatRate,
-    }, { unitPriceGross: line.unitPriceGross });
+    const { netAmount, vatAmount, grossAmount } = amounts[idx]!;
     return {
       ordinal: idx + 1,
       name: line.name,
@@ -486,12 +493,14 @@ function correctionAmounts(
   domainLines: InvoiceLine[],
 ): { preparedLines: CorrectionRow[]; summaries: ReturnType<typeof summarizeVatPerRate>; grossTotal: number } {
   if (data.correctionType === 'before_after') {
-    const before = toPreparedLineItems(data.linesBefore ?? []);
-    const after = toPreparedLineItems(data.linesAfter ?? []);
+    // Stan przed z zapisu faktury korygowanej, pozycja bez zmian z tymi samymi kwotami w stanie po.
+    const states = correctionStateAmounts(data.linesBefore ?? [], data.linesAfter ?? []);
+    const before = toPreparedLineItems(data.linesBefore ?? [], states.before);
+    const after = toPreparedLineItems(data.linesAfter ?? [], states.after);
     if (before.length === 0 && after.length === 0) {
       throw new Error('FA(3) KOR: brak pozycji — uzupełnij linie wg typu korekty.');
     }
-    const preparedLines = beforeAfterRows(data.linesBefore ?? [], data.linesAfter ?? []);
+    const preparedLines = beforeAfterRows(data.linesBefore ?? [], data.linesAfter ?? [], { before, after });
     if (preparedLines.length === 0) {
       throw new Error('FA(3) KOR: korekta przed/po nie zmienia żadnej pozycji — nie ma czego korygować.');
     }
@@ -524,7 +533,8 @@ function correctionAmounts(
       },
     ];
   } else {
-    preparedLines = toPreparedLineItems(domainLines);
+    // Anulowanie: kwoty stanu przed z zapisu faktury z minusem (`domainLinesForCorrection`).
+    preparedLines = toPreparedLineItems(domainLines, (data.linesBefore ?? []).map((l) => negatedAmounts(lineAmounts(l))));
   }
   return {
     preparedLines,

@@ -16,12 +16,64 @@ import {
   roundToCents,
 } from '@/lib/xml/invoice-calculator';
 
+type LineAmounts = Pick<InvoiceLineItem, 'netAmount' | 'vatAmount' | 'grossAmount'>;
+
+/**
+ * Kwoty pozycji: z zapisu faktury (`recordedAmounts`, stan przed korekty,
+ * także pozycja liczona od brutto). Bez zapisu od ilości × ceny: netto, a przy
+ * cenie brutto z serwera korekty (`unitPriceGross`, koperta bez kwot zapisu)
+ * od brutto jak na fakturze.
+ */
+export function lineAmounts(line: InvoiceLine): LineAmounts {
+  if (line.recordedAmounts) {
+    const { netAmount, vatAmount, grossAmount } = line.recordedAmounts;
+    return { netAmount, vatAmount, grossAmount };
+  }
+  return calculateLineItem(
+    { quantity: line.quantity, unitPriceNet: line.unitPriceNet, vatRate: line.vatRate as VatRate },
+    { unitPriceGross: line.unitPriceGross },
+  );
+}
+
+/** Kwoty pozycji z minusem (anulowanie); `+ 0`: bez zera ze znakiem. */
+export function negatedAmounts(amounts: LineAmounts): LineAmounts {
+  return { netAmount: -amounts.netAmount + 0, vatAmount: -amounts.vatAmount + 0, grossAmount: -amounts.grossAmount + 0 };
+}
+
+/** Ta sama pozycja w obu stanach korekty: jak `sameLine` w `lib/ksef/fa3-correction-generator.ts`. */
+function sameCorrectionLine(a: InvoiceLine, b: InvoiceLine): boolean {
+  return a.name === b.name && a.unit === b.unit && a.quantity === b.quantity &&
+    a.unitPriceNet === b.unitPriceNet && a.vatRate === b.vatRate;
+}
+
+/**
+ * Kwoty stanów korekty „przed/po”. Stan przed: kwoty pozycji z zapisu faktury
+ * korygowanej (`lineAmounts`), nie liczone od nowa. Stan po: pozycja bez zmian
+ * (ta sama nazwa, j.m., ilość, cena netto i stawka co pozycja „przed”, parowana
+ * jak pozycje bez zmian w `correctionLinePairs`) ma kwoty tej pozycji „przed”,
+ * więc nie robi różnicy; pozycja zmieniona albo dopisana liczy się od ilości ×
+ * ceny netto. Kwoty przysłane w pozycji „po” się nie liczą. Jedno liczenie dla
+ * sum korekty, jej pozycji w bazie, pliku FA(3) KOR, JPK i podglądu w formularzu.
+ */
+export function correctionStateAmounts(
+  before: readonly InvoiceLine[],
+  after: readonly InvoiceLine[],
+): { before: LineAmounts[]; after: LineAmounts[] } {
+  const beforeAmounts = before.map(lineAmounts);
+  const unchanged: Array<LineAmounts | undefined> = after.map(() => undefined);
+  before.forEach((b, bi) => {
+    const ai = after.findIndex((a, i) => unchanged[i] === undefined && sameCorrectionLine(b, a));
+    if (ai !== -1) unchanged[ai] = beforeAmounts[bi];
+  });
+  return {
+    before: beforeAmounts,
+    after: after.map((a, i) =>
+      unchanged[i] ?? calculateLineItem({ quantity: a.quantity, unitPriceNet: a.unitPriceNet, vatRate: a.vatRate as VatRate }),
+    ),
+  };
+}
+
 function domainLineToPrepared(line: InvoiceLine, ordinal: number): InvoiceLineItem {
-  const { netAmount, vatAmount, grossAmount } = calculateLineItem({
-    quantity: line.quantity,
-    unitPriceNet: line.unitPriceNet,
-    vatRate: line.vatRate as VatRate,
-  }, { unitPriceGross: line.unitPriceGross });
   return {
     ordinal,
     name: line.name,
@@ -29,9 +81,7 @@ function domainLineToPrepared(line: InvoiceLine, ordinal: number): InvoiceLineIt
     quantity: line.quantity,
     unitPriceNet: line.unitPriceNet,
     vatRate: line.vatRate as VatRate,
-    netAmount,
-    vatAmount,
-    grossAmount,
+    ...lineAmounts(line),
   };
 }
 
@@ -61,12 +111,9 @@ export interface CorrectionTotals {
 
 export function calculateCorrectionTotals(data: CorrectionInvoiceData): CorrectionTotals {
   if (data.correctionType === 'before_after') {
-    const before = data.linesBefore
-      ? calculateInvoiceTotals(data.linesBefore)
-      : { netTotal: 0, vatTotal: 0, grossTotal: 0 };
-    const after = data.linesAfter
-      ? calculateInvoiceTotals(data.linesAfter)
-      : { netTotal: 0, vatTotal: 0, grossTotal: 0 };
+    const states = correctionStateAmounts(data.linesBefore ?? [], data.linesAfter ?? []);
+    const before = summarizePreparedLineItems(states.before);
+    const after = summarizePreparedLineItems(states.after);
 
     return {
       netBefore: before.netTotal,
@@ -96,9 +143,8 @@ export function calculateCorrectionTotals(data: CorrectionInvoiceData): Correcti
   }
 
   if (data.correctionType === 'cancellation') {
-    const before = data.linesBefore
-      ? calculateInvoiceTotals(data.linesBefore)
-      : { netTotal: 0, vatTotal: 0, grossTotal: 0 };
+    // Stan przed z zapisu faktury korygowanej (`lineAmounts`).
+    const before = summarizePreparedLineItems((data.linesBefore ?? []).map(lineAmounts));
 
     return {
       netBefore: before.netTotal,

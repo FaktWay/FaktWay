@@ -45,7 +45,7 @@ import {
   type CorrectionInvoiceSchemaIn,
   type CorrectionLineSchema,
 } from '@/lib/validators/invoice-validators';
-import { calculateCorrectionTotals } from '@/lib/invoices/calculator';
+import { calculateCorrectionTotals, correctionStateAmounts } from '@/lib/invoices/calculator';
 import {
   CORRECTION_PICKER_SIZE,
   type CorrectionParentInvoiceRow,
@@ -54,9 +54,8 @@ import { zeroVatRateFromParentLines } from '@/lib/invoices/correction-amount-cha
 import { addressCountryForKodUE, parseVatUe } from '@/lib/invoices/vat-ue';
 import { dueDateFrom, todayInWarsaw } from '@/lib/format/warsaw-date';
 import { EU_BUYER_COUNTRIES } from '@/lib/schemas/invoice-form';
-import { calculateLineItem } from '@/lib/xml/invoice-calculator';
 import { CORRECTION_TYPE_LABELS } from '@/types/invoice-types';
-import type { CorrectionInvoiceData, ZeroVatAmountChangeRate } from '@/types/invoice-types';
+import type { CorrectionInvoiceData, InvoiceLine, ZeroVatAmountChangeRate } from '@/types/invoice-types';
 import type { InvoiceNumbering } from '@/lib/numeracja/model';
 import { hasSeriesChoice, numberingDefaults, SeriesSelect, useSeriesNumber } from './numeracja/series-select-row';
 
@@ -1015,6 +1014,25 @@ function linesTableClasses() {
   };
 }
 
+/** Pozycja formularza (pola mogą być puste w trakcie wpisywania) jako pozycja korekty do liczenia kwot. */
+function formLine(
+  line: (Partial<Omit<CorrectionLineSchema, 'recordedAmounts'>> & {
+    recordedAmounts?: Partial<NonNullable<CorrectionLineSchema['recordedAmounts']>>;
+  }) | undefined,
+): InvoiceLine {
+  const recorded = line?.recordedAmounts;
+  return {
+    name: line?.name ?? '',
+    unit: line?.unit ?? '',
+    quantity: Number(line?.quantity) || 0,
+    unitPriceNet: Number(line?.unitPriceNet) || 0,
+    vatRate: line?.vatRate ?? '23',
+    ...(recorded?.netAmount !== undefined && recorded.vatAmount !== undefined && recorded.grossAmount !== undefined
+      ? { recordedAmounts: { netAmount: recorded.netAmount, vatAmount: recorded.vatAmount, grossAmount: recorded.grossAmount } }
+      : {}),
+  };
+}
+
 function CorrectionLinesTable(props: {
   title: string;
   subtitle?: string;
@@ -1030,6 +1048,14 @@ function CorrectionLinesTable(props: {
     shouldUnregister: false,
   });
   const watched = useWatch({ control: form.control, name });
+  const watchedBefore = useWatch({ control: form.control, name: 'linesBefore' });
+  // Kwoty jak na serwerze (`correctionStateAmounts`): pozycja „Było” bez zmian względem faktury
+  // ma kwoty z jej zapisu, pozycja „Jest” bez zmian względem „Było” też; zmieniona albo
+  // dopisana liczy się od ilości × ceny netto.
+  const amounts = correctionStateAmounts(
+    (name === 'linesBefore' ? form.formState.defaultValues?.linesBefore ?? [] : watchedBefore ?? []).map(formLine),
+    (watched ?? []).map(formLine),
+  ).after;
   const c = linesTableClasses();
   const lineErrors =
     name === 'linesBefore' ? form.formState.errors.linesBefore : form.formState.errors.linesAfter;
@@ -1076,12 +1102,7 @@ function CorrectionLinesTable(props: {
           <tbody>
             {fields.map((field, index) => {
               const wl = watched?.[index];
-              // Jak serwer: pozycja od brutto liczy kwoty od ceny brutto.
-              const calc = calculateLineItem({
-                quantity: Number(wl?.quantity) || 0,
-                unitPriceNet: Number(wl?.unitPriceNet) || 0,
-                vatRate: wl?.vatRate ?? '23',
-              }, { unitPriceGross: wl?.unitPriceGross });
+              const calc = amounts[index] ?? { netAmount: 0, vatAmount: 0, grossAmount: 0 };
               return (
                 <tr key={field.id} className={c.tdRow}>
                   <td className="py-3 text-muted-foreground">{index + 1}</td>
