@@ -132,5 +132,6 @@ KSeF: wtedy job uzgadnia tamtą wysyłkę zamiast wysyłać nową, więc wyłąc
 ich nie zatrzymuje. Co jest w drodze: druga tabela `stan` (`queued`,
 `sending`, `failed`).
 
-Wszystkie flagi globalne razem pokazuje też
-`./scripts/ops/kontrola-go-live-ksef.sh` (sekcja 2).
+Wiersz flagi (jest dopiero po pierwszym `wlacz --tak` albo `wylacz --tak`)
+pokazuje też `./scripts/ops/kontrola-go-live-ksef.sh` (sekcja 2, wszystkie
+flagi globalne).
