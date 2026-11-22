@@ -20,7 +20,7 @@
  * Moduł czysty; kwoty w groszach całkowitych (Number — bezpieczne do 2^53).
  */
 
-import { roundToCents } from '@/lib/xml/invoice-calculator';
+import { roundToCents, vatFromNetCents } from '@/lib/xml/invoice-calculator';
 import type { ParsedInvoice, ParsedLine } from './fa3-parser';
 
 export interface ImportLineRow {
@@ -104,7 +104,7 @@ export function legacyLineAmounts(line: ParsedLine, unitPriceNet: number | null 
   if (!(raw === 'zw' || raw === 'oo' || raw === 'np' || /^0(\s|$|kr|ex|wt)/i.test(raw))) {
     const pctMatch = raw.match(/^(\d+(?:[.,]\d+)?)/);
     const pct = pctMatch ? parseFloat(pctMatch[1]!.replace(',', '.')) : NaN;
-    if (Number.isFinite(pct)) vat = roundToCents((net * pct) / 100);
+    if (Number.isFinite(pct)) vat = vatFromNetCents(net, pct);
   }
   return { ordinal: line.position, unitPriceNet, netAmount: net, vatAmount: vat, grossAmount: roundToCents(net + vat) };
 }

@@ -39,7 +39,7 @@ import {
   type NumberedResult,
 } from '@/lib/numeracja/nadanie';
 import { formatPlMoney } from '@/lib/format/pl';
-import { amountsFollowNetPrice, calculateLineItem, calculateInvoiceTotals, roundToCents } from '@/lib/xml/invoice-calculator';
+import { amountsFollowNetPrice, calculateLineItem, calculateInvoiceTotals, roundToCents, vatFromNetCents } from '@/lib/xml/invoice-calculator';
 import type { Invoice, InvoiceLineItem, BuyerParty, PaymentMethod, SellerParty } from '@/types/invoice';
 import type {
   BuyerB2B,
@@ -897,8 +897,8 @@ async function normalizePayload(
     }
     // VAT od brutto tylko dla faktury liczonej od brutto: pozycje w tej stawce mają cenę
     // brutto. Po F12-D2 (stawka jest w fakturze), żeby najpierw padła właściwa odmowa.
-    const ratePct = /^\d+$/.test(rate) ? Number(rate) / 100 : 0;
-    if (roundToCents(amounts.netDelta * ratePct) !== amounts.vatDelta &&
+    const ratePct = /^\d+$/.test(rate) ? Number(rate) : 0;
+    if (vatFromNetCents(amounts.netDelta, ratePct) !== roundToCents(amounts.vatDelta) &&
         original.some((line) => line.vatRate === rate && line.unitPriceGross === undefined)) {
       return {
         error: `Kwota VAT korekty jest liczona od brutto, a faktura ${parentLabelOf(parent)} liczy VAT od netto. Podaj VAT od netto (netto × stawka).`,

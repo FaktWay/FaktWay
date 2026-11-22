@@ -1,4 +1,4 @@
-import { roundToCents, toGrosze, vatFromGrossGrosze } from '@/lib/xml/invoice-calculator';
+import { roundToCents, toGrosze, vatFromGrossGrosze, vatFromNetCents } from '@/lib/xml/invoice-calculator';
 import type { ZeroVatAmountChangeRate } from '@/types/invoice-types';
 
 type AmountChange = {
@@ -30,12 +30,14 @@ export function resolveAmountChangeVatRate(change: AmountChange): Rate {
   }
 
   const rates = [
-    ['23', 0.23], ['8', 0.08], ['5', 0.05], ['0', 0],
+    ['23', 23], ['8', 8], ['5', 5], ['0', 0],
   ] as const;
   // Najpierw VAT od netto (art. 106e ust. 1 pkt 14), jak dotąd. Wzór od brutto (ust. 7
   // i 10: faktura za abonament) tylko, gdy żadna stawka nie pasuje od netto, żeby drobne
   // kwoty nie stały się niejednoznaczne. Czy faktura liczy od brutto, sprawdza serwer.
-  const fromNet = rates.filter(([, rate]) => roundToCents(netDelta * rate) === vatDelta);
+  // VAT od netto w groszach całkowitych (art. 106e ust. 11: od 0,5 grosza w górę), nie
+  // `roundToCents(netto × stawka)` na liczbach zmiennoprzecinkowych (FZ-025).
+  const fromNet = rates.filter(([, rate]) => toGrosze(vatFromNetCents(netDelta, rate)) === toGrosze(vatDelta));
   const matches = fromNet.length > 0
     ? fromNet
     : rates.filter(([label]) => vatFromGrossGrosze(toGrosze(grossDelta), Number(label)) === toGrosze(vatDelta));
