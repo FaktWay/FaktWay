@@ -116,9 +116,10 @@ describe('suggestProducts', () => {
       produkt({ name: 'Abonament B', default_price_net: null, default_vat_rate: '7' }),
     ]);
     const out = await suggestProducts(f.client, 'T1', 'abonament');
+    // Cena brutto (plan cen brutto, PR (d), 00213): produkt bez niej ma `priceGross: null`, nie 0.
     expect(out).toEqual([
-      { id: expect.any(String), name: 'Abonament A', unit: 'mies.', priceNet: 1250.5, vatRate: '8', pkwiuCode: null, gtuCode: null },
-      { id: expect.any(String), name: 'Abonament B', unit: 'szt.', priceNet: null, vatRate: null, pkwiuCode: null, gtuCode: null },
+      { id: expect.any(String), name: 'Abonament A', unit: 'mies.', priceNet: 1250.5, priceGross: null, vatRate: '8', pkwiuCode: null, gtuCode: null },
+      { id: expect.any(String), name: 'Abonament B', unit: 'szt.', priceNet: null, priceGross: null, vatRate: null, pkwiuCode: null, gtuCode: null },
     ]);
   });
 
