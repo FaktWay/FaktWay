@@ -227,6 +227,7 @@ const STATIC = ['ceny-brutto', 'korekta', 'stawka-nieznana'] as const;
 const EDGE = [
   'nabywca-ue', 'zaliczka', 'rozliczeniowa', 'okres-fa', 'daty-pozycji-fp-gtu',
   'tylko-p15', 'tylko-p15-niezgodne', 'vat-naglowka-niezgodny', 'dane-stron', 'bez-platnosci',
+  'odwrotne-obciazenie',
 ] as const;
 
 type FixtureName = keyof typeof GENERATED | (typeof STATIC)[number] | (typeof EDGE)[number];
@@ -317,7 +318,7 @@ describe('C0: fikstury', () => {
       numbers.add(/<P_2>([^<]+)<\/P_2>/.exec(xml(name))![1]!);
     }
     expect([...numbers].sort()).toEqual([
-      'FV/C0/BEZPLAT', 'FV/C0/OKRES', 'FV/C0/P14', 'FV/C0/P15', 'FV/C0/P15-ZLE', 'FV/C0/P6A', 'FV/C0/ROZ', 'FV/C0/STRONY', 'FV/C0/UE', 'FV/C0/ZAL',
+      'FV/C0/BEZPLAT', 'FV/C0/OKRES', 'FV/C0/OO', 'FV/C0/P14', 'FV/C0/P15', 'FV/C0/P15-ZLE', 'FV/C0/P6A', 'FV/C0/ROZ', 'FV/C0/STRONY', 'FV/C0/UE', 'FV/C0/ZAL',
     ]);
     // Zmiana sprawdzana w treści pliku, bez komentarza z jej opisem. Komentarz
     // stoi zaraz po deklaracji XML (sprawdzone wyżej), więc treść = wszystko po
@@ -354,6 +355,8 @@ describe('C0: fikstury', () => {
     expect(body('dane-stron')).toContain('<FormaPlatnosci>3</FormaPlatnosci>');
     expect(body('dane-stron')).not.toContain('<AdresL2>00-002');
     expect(body('bez-platnosci')).not.toMatch(/<Platnosc>|<FormaPlatnosci>|<TerminPlatnosci>|<NrRB>/);
+    expect(body('odwrotne-obciazenie').match(/<P_12>oo<\/P_12>/g)).toHaveLength(3);
+    expect(body('odwrotne-obciazenie')).toContain('<P_18>1</P_18>');
   });
 });
 

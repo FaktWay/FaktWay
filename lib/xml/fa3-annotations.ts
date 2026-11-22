@@ -212,7 +212,7 @@ export function markersJpkCannotExpress(m?: Fa3Markers | null): string[] {
   if (m.tp) out.push('powiązania między nabywcą a sprzedawcą (TP)');
   if (m.authorizedEntityRole !== undefined) {
     const role = AUTHORIZED_ROLE[m.authorizedEntityRole];
-    out.push(`podmiot upoważniony${role ? ` — ${role}` : ''} (RolaPU ${m.authorizedEntityRole})`);
+    out.push(`podmiot upoważniony${role ? `: ${role}` : ''} (RolaPU ${m.authorizedEntityRole})`);
   }
   if (m.gtu?.length) out.push(`oznaczenie GTU w pozycjach (${m.gtu.join(', ')})`);
   if (m.procedures?.length) out.push(`procedura w pozycjach (${m.procedures.join(', ')})`);
