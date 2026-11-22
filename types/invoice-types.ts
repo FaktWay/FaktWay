@@ -117,6 +117,12 @@ export interface InvoiceLine {
   vatRate: '23' | '8' | '5' | '0' | 'oo' | 'np' | 'np_ii' | 'zw';
   pkwiuCode?: string;
   gtuCode?: string;
+  /**
+   * Cena brutto pozycji faktury liczonej od brutto (korekta faktury za
+   * abonament): kwoty pozycji liczy wtedy `calculateLineItem` od brutto.
+   * Nadaje ją tylko serwer korekty z kwot zapisanej pozycji.
+   */
+  unitPriceGross?: number;
 }
 
 // ============================================================================

@@ -833,10 +833,12 @@ describe('Bez strat: stawki, kwoty, daty, płatność i adnotacje z pliku (stra�
     });
   });
 
-  it.each(EACH)('%s: nic, co zatrzymałoby JPK (adnotacje, daty, kwoty pozycji)', (_name, c) => {
+  it.each(EACH)('%s: nic, co zatrzymałoby JPK (adnotacje, daty, kwoty pozycji), poza stawką oo dla JPK_V7M', (_name, c) => {
     const parsed = parse(c);
     const { content, amounts } = importedInvoiceContent(parsed);
-    expect(contentHeldReasons(parsed, content)).toEqual([]);
+    // Stawka „oo” (odwrotne obciążenie): JPK_V7M jej nie wykazuje (JpkV7mReverseChargeNotSupportedError), więc import ostrzega o tym pliku.
+    const maOo = parsed.lines.some((l) => l.vatRate.trim().toLowerCase() === 'oo');
+    expect(contentHeldReasons(parsed, content)).toEqual(maOo ? ['stawka „oo” (odwrotne obciążenie): FaktWay nie wykazuje jej w JPK_V7M'] : []);
     expect(amounts.problems).toEqual([]);
   });
 });
