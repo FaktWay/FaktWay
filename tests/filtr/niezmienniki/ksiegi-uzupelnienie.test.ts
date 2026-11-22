@@ -319,11 +319,15 @@ describe('niezmienniki ksiąg (F5), uzupełnienie: stawki, kolumny, FP, rok, rod
     expect(odliczenia(powrot).reduce((s, o) => s + o.spoleczneBezFpGr, 0)).toBe(165_000);
   });
 
-  /** FP w kolumnie 13 i odliczenie składek za grudzień 2025 albo brak w księdze z nazwą okresu. */
+  /**
+   * FP w kolumnie 13 (albo brak w KPiR z nazwą okresu) i odliczenie składek
+   * za grudzień 2025. Odliczenie sprawdza się zawsze: przy ryczałcie nie
+   * korzysta z KPiR, więc brak w samej księdze go nie naprawia.
+   */
   const podzialGrudnia = (zaplaty: ZaplaconeSkladki[]) => {
     const k = kpir({ zaplatyFp: zaplatyFunduszuPracy(zaplaty) });
-    if (k.braki.some((b) => b.dokument === 'Składki ZUS za 12/2025')) return 'brak';
-    return [sumyKpir(k.wiersze).kolumny.k13, odliczenia(zaplaty).reduce((s, o) => s + o.spoleczneBezFpGr, 0)];
+    const brak = k.braki.some((b) => b.dokument === 'Składki ZUS za 12/2025');
+    return { fp: brak ? 'brak' : sumyKpir(k.wiersze).kolumny.k13, odliczenie: odliczenia(zaplaty).reduce((s, o) => s + o.spoleczneBezFpGr, 0) };
   };
 
   it.fails('NZ-PIT-08: wersja, która przesuwa kwotę z FP do części bez FP, daje FP i odliczenie z ostatniej wersji albo brak (FZ-027)', () => {
@@ -332,7 +336,8 @@ describe('niezmienniki ksiąg (F5), uzupełnienie: stawki, kolumny, FP, rok, rod
       { id: 'v1', okres: '2025-12', wersja: 1, kwotaGr: 100_000, spoleczneBezFpGr: 0, zaplaconeO: '2026-01-10' },
       { id: 'v2', okres: '2025-12', wersja: 2, kwotaGr: 100_000, spoleczneBezFpGr: 90_000, zaplaconeO: '2026-01-20' },
     ]);
-    if (w !== 'brak') expect(w).toEqual([10_000, 90_000]);
+    if (w.fp !== 'brak') expect(w.fp).toBe(10_000);
+    expect(w.odliczenie).toBe(90_000);
   });
 
   it.fails('NZ-PIT-08: wersja, która przesuwa kwotę z części bez FP do FP, daje FP i odliczenie z ostatniej wersji albo brak (FZ-027)', () => {
@@ -341,7 +346,8 @@ describe('niezmienniki ksiąg (F5), uzupełnienie: stawki, kolumny, FP, rok, rod
       { id: 'v1', okres: '2025-12', wersja: 1, kwotaGr: 100_000, spoleczneBezFpGr: 100_000, zaplaconeO: '2026-01-10' },
       { id: 'v2', okres: '2025-12', wersja: 2, kwotaGr: 100_000, spoleczneBezFpGr: 90_000, zaplaconeO: '2026-01-20' },
     ]);
-    if (w !== 'brak') expect(w).toEqual([10_000, 90_000]);
+    if (w.fp !== 'brak') expect(w.fp).toBe(10_000);
+    expect(w.odliczenie).toBe(90_000);
   });
 
   // NZ-KPIR-03: dni od listopada roku poprzedniego do lutego następnego.
