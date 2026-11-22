@@ -224,17 +224,17 @@ export function heldDocumentWarning(
   if (codes.length === 0 && !special && !mismatch && contentReasons.length === 0 && !amountReason) return null;
 
   if (status !== 'accepted') {
-    return codes.length ? `${doc}: stawka ${rates} nie ma odpowiednika w FaktWay — szkic zapisany z tą stawką.` : null;
+    return codes.length ? `${doc}: stawka ${rates} nie ma odpowiednika w FaktWay, szkic zapisany z tą stawką.` : null;
   }
   if (direction === 'incoming') {
     return codes.length
-      ? `${doc}: stawka ${rates} — FaktWay jej nie rozlicza; faktura jest zapisana z kwotami z KSeF, sprawdź ją z księgową.`
+      ? `${doc}: stawka ${rates}, FaktWay jej nie rozlicza. Faktura jest zapisana z kwotami z KSeF, a jej ujęcie ustala księgowa.`
       : null;
   }
   // Wszystkie powody naraz (C5b) — JPK odmówi z pierwszym, klient widzi komplet.
   const what = [
-    special ? `zaimportowana faktura ${special} — FaktWay nie zna jej powiązań (faktura pierwotna, zaliczki)` : null,
-    codes.length ? `stawka VAT ${rates} — FaktWay jej jeszcze nie wykazuje w JPK` : null,
+    special ? `zaimportowana faktura ${special}, FaktWay nie zna jej powiązań (faktura pierwotna, zaliczki)` : null,
+    codes.length ? `stawka VAT ${rates}, FaktWay jej jeszcze nie wykazuje w JPK` : null,
     ...contentReasons,
     amountReason,
     mismatch ? 'netto albo VAT pozycji nie sumuje się do sum faktury z KSeF' : null,
@@ -247,6 +247,13 @@ export function heldDocumentWarning(
   // i niezgodność sum wstrzymują oba pliki; oznaczenia GTU i FP z pliku KSeF bywają wstrzymaniem samego JPK_FA.
   const held = new Set<HeldJpkFile>(contentItems.flatMap((item) => item.files));
   const bothHeld = codes.length > 0 || Boolean(special) || Boolean(amountReason) || mismatch || held.size > 1;
+  if (!bothHeld && !held.has('JPK_FA') && held.has('JPK_V7M')) {
+    // Samo wstrzymanie JPK_V7M (np. stawka „oo”, której JPK_V7M nie wykazuje): JPK_FA tej faktury powstaje.
+    return (
+      `${doc}: ${what}. Faktura jest zapisana, ale JPK_V7M za ${inv.issueDate.slice(0, 7)} nie powstanie ` +
+      'w FaktWay, dopóki ta faktura jest w okresie. JPK_V7M przygotuje księgowa poza FaktWay.'
+    );
+  }
   if (!bothHeld && held.has('JPK_FA')) {
     return (
       `${doc}: ${what}. Faktura jest zapisana, ale JPK_FA za ${inv.issueDate.slice(0, 7)} nie powstanie ` +
