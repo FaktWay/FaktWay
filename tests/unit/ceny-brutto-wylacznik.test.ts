@@ -92,6 +92,21 @@ describe('flaga', () => {
   });
 });
 
+describe('części wspólne dla formularza i schematu (b), które wczytuje też przeglądarka', () => {
+  it('moduł wspólny ma tylko importy typów (bez bazy, Next i Sentry), a moduł serwera oddaje te same stałe', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const kod = readFileSync(join(__dirname, '../../lib/invoices/ceny-brutto-wylacznik-wspolne.ts'), 'utf8');
+    const importy = [...kod.matchAll(/^import\s+(?!type\s)[^;]*;/gm)].map((m) => m[0]);
+    expect(importy).toEqual([]);
+    const wspolne = await import('@/lib/invoices/ceny-brutto-wylacznik-wspolne');
+    expect(wspolne.FLAGA_CEN_BRUTTO).toBe(FLAGA_CEN_BRUTTO);
+    expect(wspolne.CENY_BRUTTO_PODKLAD).toBe(CENY_BRUTTO_PODKLAD);
+    expect(wspolne.czyFakturaWCenachBrutto).toBe(czyFakturaWCenachBrutto);
+    expect(wspolne.tekstOdmowyCenBrutto).toBe(tekstOdmowyCenBrutto);
+  });
+});
+
 describe('czy dokument jest fakturą w cenach brutto', () => {
   it('tylko pricesGross === true; napis, liczba, brak i null to faktura w cenach netto (tak czytają ją generator i bramka wysyłki)', () => {
     expect(czyFakturaWCenachBrutto({ pricesGross: true })).toBe(true);
