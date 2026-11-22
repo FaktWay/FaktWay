@@ -39,6 +39,14 @@ interface Notice {
   link?: { href: string; label: string };
 }
 
+/**
+ * Komunikat podkładu z dopiskiem o cenach (N6, wyłącznik cen brutto): wzór
+ * w cenach brutto daje pozycje z pustą ceną, którą klient wpisuje w netto.
+ */
+function withPriceNotice(text: string, prefill: Pick<PrefillFromInvoice, 'priceNotice'>): string {
+  return prefill.priceNotice ? `${text} ${prefill.priceNotice}` : text;
+}
+
 /** Podkład ze wskazanej faktury albo pozycji cyklicznej (plan Finora N1) albo z proformy (krok 2.4). */
 interface Source {
   /** Z proformy bez numeru i dat (zostają domyślne formularza), stąd `Partial`. */
@@ -121,7 +129,10 @@ async function loadSource(
       notice: {
         tone: 'info',
         title: `Faktura cykliczna „${pozycja.name}” — ${okres}`,
-        text: `Wypełniliśmy formularz na podstawie faktury ${prefill.sourceNumber ?? 'wzoru'} z nowym numerem i dzisiejszą datą. Sprawdź dane i wystaw fakturę.`,
+        text: withPriceNotice(
+          `Wypełniliśmy formularz na podstawie faktury ${prefill.sourceNumber ?? 'wzoru'} z nowym numerem i dzisiejszą datą. Sprawdź dane i wystaw fakturę.`,
+          prefill,
+        ),
       },
     };
   }
@@ -161,7 +172,10 @@ async function loadSource(
       notice: {
         tone: 'info',
         title: `Kopia faktury ${prefill.sourceNumber ?? ''}`.trim(),
-        text: 'Nabywca, pozycje i sposób zapłaty jak w kopiowanej fakturze; numer i daty są nowe. Sprawdź dane przed wystawieniem.',
+        text: withPriceNotice(
+          'Nabywca, pozycje i sposób zapłaty jak w kopiowanej fakturze; numer i daty są nowe. Sprawdź dane przed wystawieniem.',
+          prefill,
+        ),
       },
     };
   }
