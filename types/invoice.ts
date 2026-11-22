@@ -223,6 +223,18 @@ export interface ReceiptInvoiceData {
   buyerNipOnReceipt?: true;
 }
 
+/**
+ * Zamówienie, którego dotyczy zwykła faktura VAT (krok 2.8): FA(3)
+ * `Fa/WarunkiTransakcji/Zamowienia`. Jeden numer na fakturę (XSD dopuszcza
+ * do 100 zamówień, FaktWay wystawia jedno), z opcjonalną datą zamówienia.
+ */
+export interface InvoiceOrder {
+  /** Numer zamówienia (`NrZamowienia`, TZnakowy do 256 znaków). */
+  number: string;
+  /** Data zamówienia, RRRR-MM-DD (`DataZamowienia`). */
+  date?: string;
+}
+
 export interface Invoice {
   /** Wewnętrzny numer faktury (np. FV 2026/04/001) */
   internalNumber: string;
@@ -256,6 +268,9 @@ export interface Invoice {
 
   /** Faktura do paragonu (FP). Brak = faktura bez paragonu. Tylko zwykła faktura VAT. */
   receipt?: ReceiptInvoiceData;
+
+  /** Numer i data zamówienia (krok 2.8). Brak = faktura bez zamówienia. Tylko zwykła faktura VAT. */
+  order?: InvoiceOrder;
 
   /**
    * Faktura w cenach brutto (art. 106e ust. 7-9 ustawy o VAT): pozycje z ceną
