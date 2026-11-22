@@ -26,9 +26,13 @@ import { tekstBezZnacznikow } from './helpers/tekst-html';
  * teksty twierdzą: dzienny limit liczy odczyty z ostatnich 24 godzin
  * (tests/unit/ai-limit-firmy.test.ts), miesięczny odnawia się z początkiem miesiąca (niżej).
  *
- * Formularz kosztu bez zdjęcia to krok 3.8 planu
- * (docs/koordynacja/PLAN-KOMPLETNA-APLIKACJA.md). Gdy powstanie, ten plik traci
- * rację bytu: usuń go razem z przywróceniem tekstów o wpisie ręcznym.
+ * Formularz kosztu bez zdjęcia powstał w kroku 3.8 planu
+ * (docs/koordynacja/PLAN-KOMPLETNA-APLIKACJA.md, strona /expenses/new). Strażnik
+ * zostaje, ale zna już jedyne miejsca, w których wpis ręczny naprawdę jest:
+ * opcja „Wpisz ręcznie” w arkuszu „+ Dodaj wydatek” (WYJATKI niżej) i sam
+ * formularz. Wszędzie indziej (cennik, pomoc, treści agenta FLO, komunikaty
+ * odczytu) obietnica dalej jest zabroniona: nieudany odczyt nie otwiera
+ * formularza sam z siebie, a agent FLO nie ma narzędzia do zapisu kosztu.
  */
 
 const ROOT = join(__dirname, '..', '..');
@@ -48,6 +52,13 @@ const KATALOGI = [
 
 /** Pojedyncze pliki z tekstami karty agenta. */
 const PLIKI = ['lib/flo/copy.ts'];
+
+/**
+ * Pliki, w których wpis ręczny kosztu naprawdę istnieje (krok 3.8): arkusz „+ Dodaj
+ * wydatek” z opcją prowadzącą do formularza. Wyjątek dotyczy całego pliku, więc
+ * trzecie, niżej, pilnuje, że ten plik rzeczywiście prowadzi do formularza.
+ */
+const WYJATKI = ['components/expenses/capture-button.tsx', 'components/expenses/manual-expense-form.tsx'];
 
 /**
  * „Wpisz ręcznie”, „Wpisz kwotę ręcznie”, „wprowadź dane ręcznie”, „dane wpisujesz ręcznie”,
@@ -82,6 +93,7 @@ function obietnice(): string[] {
   );
   const wynik: string[] = [];
   for (const plik of pliki) {
+    if (WYJATKI.includes(relative(ROOT, plik))) continue;
     const surowa = readFileSync(plik, 'utf8');
     const tresc = CZY_KOD.test(plik) ? bezKomentarzy(surowa) : surowa;
     for (const linia of tresc.split('\n')) {
@@ -111,8 +123,16 @@ describe('po wyczerpaniu limitu odczytu zdjęć nikt nie obiecuje wpisu ręczneg
   it('strony, pomoc, treści agenta i komunikaty odczytu milczą o wpisie ręcznym kosztu', () => {
     expect(
       obietnice(),
-      'Formularza kosztu bez zdjęcia nie ma (krok 3.8 planu kompletnej aplikacji). Napisz, że dokument wgrywa się ponownie po odnowieniu limitu.',
+      'Wpis ręczny kosztu jest tylko w arkuszu „+ Dodaj wydatek” i na /expenses/new (WYJATKI). Cennik, pomoc, agent FLO i komunikaty odczytu nie obiecują go: napisz, że dokument wgrywa się ponownie po odnowieniu limitu.',
     ).toEqual([]);
+  });
+
+  it('wyjątek od strażnika jest prawdziwy: „Wpisz ręcznie” prowadzi do formularza, a strona formularza istnieje', () => {
+    const arkusz = readFileSync(join(ROOT, 'components/expenses/capture-button.tsx'), 'utf8');
+    expect(arkusz).toMatch(/Wpisz ręcznie/);
+    expect(arkusz).toContain('/expenses/new');
+    expect(statSync(join(ROOT, 'app/(dashboard)/expenses/new/page.tsx')).isFile()).toBe(true);
+    for (const wyjatek of WYJATKI) expect(statSync(join(ROOT, wyjatek)).isFile(), wyjatek).toBe(true);
   });
 
   it('cennik mówi, kiedy limit odczytu wraca, i że dokument wgrywa się ponownie', () => {

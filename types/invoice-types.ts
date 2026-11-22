@@ -117,6 +117,23 @@ export interface InvoiceLine {
   vatRate: '23' | '8' | '5' | '0' | 'oo' | 'np' | 'np_ii' | 'zw';
   pkwiuCode?: string;
   gtuCode?: string;
+  /**
+   * Cena brutto pozycji faktury liczonej od brutto (korekta faktury za
+   * abonament): znak, że korekta pozycji („przed/po”) tej faktury liczyłaby
+   * stan po inną metodą niż faktura (odmowa), a VAT korekty kwotowej może
+   * być od brutto. Kwoty stanu przed ma `recordedAmounts`. Nadaje ją tylko
+   * serwer korekty z kwot zapisanej pozycji.
+   */
+  unitPriceGross?: number;
+  /**
+   * Kwoty pozycji z zapisu faktury korygowanej (`invoice_line_items`): stan
+   * przed korekty to faktura, jak ją wystawiono, a nie liczona od nowa. Faktury
+   * sprzed naprawy ilość × cena mają czasem grosz mniej (VAT 8,16 od 35,50 zł
+   * zamiast 8,17), faktura za abonament liczy od brutto. Nadaje je tylko serwer
+   * korekty stanowi przed; pozycja „po” bez zmian bierze kwoty swojej pozycji
+   * „przed” (`correctionStateAmounts` w `lib/invoices/calculator.ts`).
+   */
+  recordedAmounts?: { netAmount: number; vatAmount: number; grossAmount: number };
 }
 
 // ============================================================================
