@@ -73,8 +73,22 @@ export type Faktura = {
   emailKontrahenta?: string;
   dataSprzedazy?: string;
   bank?: string;
-  /** Wpłacono częściowo (grosze); „Do zapłaty” to brutto minus ta kwota. */
+  /** Wpłacono częściowo (grosze); „Do zapłaty” to kwota do zapłaty na fakturze minus ta kwota. */
   zaplacono?: number;
+  /**
+   * Do zapłaty na tej fakturze (grosze), gdy nie jest to całe brutto: faktura
+   * rozliczająca płaci resztę po zaliczkach (`payment_data.amountDue`), a jej
+   * `brutto` to pełne zamówienie (dane z bazy, `kwotaDoZaplatyRozliczenia`).
+   * Brak pola: do zapłaty jest całe brutto.
+   */
+  kwotaDoZaplaty?: number;
+  /**
+   * Faktura, do której ta jest korektą (`parent_invoice_id`, dane z bazy). Faktura z
+   * „dzieckiem” (korektą albo rozliczeniem) nie jest należnością: `naleznosciOtwarte`.
+   */
+  rodzicId?: string;
+  /** Zaliczki rozliczone tą fakturą (`advance_invoice_ids`, dane z bazy): zaliczka z rozliczeniem nie jest należnością. */
+  zaliczkiId?: string[];
 };
 
 export type MetodaPlatnosci = 'Przelew' | 'Gotówka' | 'Karta' | 'Płatność mobilna' | 'Kompensata' | 'Inna';

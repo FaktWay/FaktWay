@@ -10,6 +10,7 @@ import { MA_ADRES_STRONY, otworzStrone } from '@/komponenty/na-stronie';
 import { potwierdz } from '@/komponenty/potwierdz';
 import type { DostepKsiegowej, KsiegowaOdpowiedz } from '@/lib/api/kontrakt-wiecej';
 import { dataPelna } from '@/lib/format';
+import { kartaUrzedu, STOPKA_URZEDU } from '@/lib/urzad-skarbowy';
 import { dzienZnacznika, odmiana } from '@/lib/wiecej';
 import { useStanFaktur } from '@/stan/faktury';
 import { useOdczyt, type StanOdczytu } from '@/stan/odczyt';
@@ -34,16 +35,15 @@ const data = (iso: string | null) => {
  * Księgowa na prawdziwym koncie (M10e): urząd skarbowy, Co-Pilot z ostatnimi
  * paczkami i linki dla księgowej z `GET /ksiegowa`, do odczytu (tylko
  * właściciel, jak zakładka strony). Zmiany, nowy link i odebranie dostępu na
- * faktway.pl (M10c).
+ * faktway.pl (M10c). Firma bez urzędu skarbowego dostaje wiersz „Ustaw urząd
+ * na faktway.pl”: bez urzędu serwer odmawia czterech plików JPK (U14).
  */
 function EkranKsiegowejZBazy({ odczyt }: { odczyt: StanOdczytu<KsiegowaOdpowiedz> }) {
   return (
     <EkranOdczytu odczyt={odczyt} tytulBledu="Nie udało się wczytać karty Księgowa" szkielet="Wczytujemy dostęp dla księgowej">
       {(d) => (
         <>
-          <Sekcja naglowek="Urząd skarbowy firmy" stopka="Potrzebny do pliku JPK_FA.">
-            <Wiersz tytul={d.urzad ? (d.urzad.nazwa ?? d.urzad.kod) : 'Nie wybrano'} />
-          </Sekcja>
+          <SekcjaUrzedu urzad={d.urzad} poPowrocie={() => void odczyt.odswiez()} />
 
           <Sekcja
             naglowek="Co-Pilot"
@@ -99,6 +99,18 @@ function EkranKsiegowejZBazy({ odczyt }: { odczyt: StanOdczytu<KsiegowaOdpowiedz
   );
 }
 
+/** Urząd skarbowy firmy; bez urzędu wiersz akcji otwiera stronę, na której go ustawisz, a po powrocie karta wczytuje się od nowa. */
+function SekcjaUrzedu({ urzad, poPowrocie }: { urzad: KsiegowaOdpowiedz['urzad']; poPowrocie: () => void }) {
+  const karta = kartaUrzedu(urzad, MA_ADRES_STRONY);
+  const ustaw = karta.akcja;
+  return (
+    <Sekcja naglowek="Urząd skarbowy firmy" stopka={karta.stopka}>
+      <Wiersz tytul={karta.tytul} />
+      {ustaw ? <Wiersz tytul={ustaw.tytul} ikona="global-line" akcja onPress={() => otworzStrone(ustaw.sciezka, poPowrocie)} /> : null}
+    </Sekcja>
+  );
+}
+
 /**
  * Księgowa: odpowiednik `settings/accountant` (urząd skarbowy, Co-Pilot
  * z paczkami dla księgowej, udostępnione dostępy z linkiem).
@@ -117,7 +129,7 @@ function EkranKsiegowejPrzyklad() {
 
   return (
     <EkranListy keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
-      <Sekcja naglowek="Urząd skarbowy firmy" stopka="Potrzebny do pliku JPK_FA.">
+      <Sekcja naglowek="Urząd skarbowy firmy" stopka={STOPKA_URZEDU}>
         <PoleTekstowe etykieta="Urząd" wartosc={urzad} onZmiana={setUrzad} />
       </Sekcja>
 

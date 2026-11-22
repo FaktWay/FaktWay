@@ -7,6 +7,7 @@
 
 import type { KsefEnvironment } from '@/types/ksef';
 
+import { bodyWithinTimeout } from '@/lib/http/body-within-timeout';
 import { getTenantKsefCredentials } from '@/lib/supabase/admin-queries';
 import { requireMatchingKsefEnvironment } from './claim-environment';
 
@@ -129,6 +130,10 @@ export async function downloadUpoFromKsef(
     })();
   };
 
+  // LIM-05: zegar żądania UPO kasuje dopiero `finally` na końcu, po
+  // przeczytaniu treści odpowiedzi. Tam też czekamy na zapis pauzy po 429.
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let pauseWrite: Promise<unknown> | undefined;
   try {
     let auth;
     try {
@@ -190,12 +195,15 @@ export async function downloadUpoFromKsef(
     const baseUrl = getKsefBaseUrl(env);
     const upoEndpoint = `${baseUrl}/sessions/${encodeURIComponent(sessionReferenceNumber)}/invoices/ksef/${encodeURIComponent(ksefNumber)}/upo`;
 
+    // LIM-05: limit obejmuje żądanie i całą treść odpowiedzi (kody błędu albo
+    // XML UPO). KSeF, który wysłał nagłówki i stanął, kończy się po
+    // `timeoutMs` tym samym `TIMEOUT` co brak nagłówków (`catch` niżej),
+    // zamiast trzymać job UPO do 300 s (limit ciszy undici).
     const controller = new AbortController();
-    const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+    timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
 
-    let response: Response;
-    try {
-      response = await fetch(upoEndpoint, {
+    const response = bodyWithinTimeout(
+      await fetch(upoEndpoint, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${session.accessToken}`,
@@ -203,14 +211,13 @@ export async function downloadUpoFromKsef(
         },
         signal: controller.signal,
         redirect: 'error',
-      });
-    } finally {
-      clearTimeout(timeoutHandle);
-    }
+      }),
+      controller.signal,
+    );
 
     if (!response.ok) {
-      writeAudit(response.status, `HTTP ${response.status}`);
       if (response.status === 404) {
+        writeAudit(response.status, `HTTP ${response.status}`);
         return {
           success: false,
           error: 'UPO nie zostało jeszcze wygenerowane przez KSeF',
@@ -220,6 +227,7 @@ export async function downloadUpoFromKsef(
       }
 
       if (response.status === 401) {
+        writeAudit(response.status, `HTTP ${response.status}`);
         ksefSessionCache.invalidate(auth.nip, env);
         return {
           success: false,
@@ -236,7 +244,14 @@ export async function downloadUpoFromKsef(
         // niżej; UPO wraca z `upo-retry-stale`, gdy wpis ma ponad 24 h i pauza
         // minęła): zmiana jego klasyfikacji to sesja D1 planu „zero zgubionych
         // faktur” (decyzja sesji nadrzędnej L1a).
-        await recordKsefRateLimit(env, auth.nip, parseRetryAfterMs(response.headers.get('retry-after')));
+        // Pamięć procesu dostaje pauzę od razu (część synchroniczna), zapis
+        // w Redisie (do ok. 1 s) idzie równolegle z odczytem treści, a czeka
+        // na niego `finally`. Inaczej 429 tuż przed limitem kończyłoby się
+        // przerwaniem w trakcie zapisu, czyli `TIMEOUT` zamiast `HTTP_429`.
+        // `catch` tylko na wszelki wypadek (funkcja z umowy nie rzuca): bez niego
+        // odrzucenie w trakcie odczytu treści byłoby nieobsłużone.
+        pauseWrite = recordKsefRateLimit(env, auth.nip, parseRetryAfterMs(response.headers.get('retry-after')))
+          .catch(() => undefined);
       }
 
       // Treść odpowiedzi czytamy tylko po kody KSeF. Komunikat idzie do
@@ -244,6 +259,11 @@ export async function downloadUpoFromKsef(
       // `inngest_run_log`, Sentry po wyczerpaniu prób), więc treść nigdy:
       // może nieść dane kontrahenta (F-093-UPO).
       const codes = ksefErrorCodes(await response.text());
+      // Audyt po treści: jedna próba to jeden wiersz. Zawieszona treść (także
+      // przy 429, z pauzą zapisaną wyżej) daje tylko wiersz 408 z `catch`
+      // i `TIMEOUT` do ponowienia (na `main` ten sam wynik do ponowienia
+      // przychodził po 300 s); ponowienie trafia w zapisaną pauzę firmy.
+      writeAudit(response.status, `HTTP ${response.status}`);
       return {
         success: false,
         error: upoHttpErrorMessage(response.status, codes),
@@ -283,6 +303,10 @@ export async function downloadUpoFromKsef(
       error: `Błąd pobierania UPO: ${message}`,
       retryable: true,
     };
+  } finally {
+    clearTimeout(timeoutHandle);
+    // Wynik dopiero po zapisie pauzy: ponowienie w innym procesie ją widzi.
+    await pauseWrite;
   }
 }
 

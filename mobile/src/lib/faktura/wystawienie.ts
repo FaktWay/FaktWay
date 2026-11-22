@@ -61,10 +61,15 @@ export function stawkaTelefonu(stawka: string): StawkaVatTelefonu | null {
   return STAWKI.find((s) => s === stawka) ?? null;
 }
 
-/** Liczba z pola („1 500,5” → 1500.5) bez zaokrąglania: cena i ilość mogą mieć 4 miejsca po przecinku. */
+/**
+ * Liczba z pola („1 500,5” → 1500.5) bez zaokrąglania: cena i ilość mogą mieć 4 miejsca po przecinku.
+ * Puste pole, samo „-” i zapis spoza zakresu („1e999”, wklejony) to `NaN`: w JSON `Infinity` też
+ * staje się `null`, a serwer odrzuca taką treść jako błąd kontraktu (obchód U7).
+ */
 export function liczbaZPola(tekst: string): number {
   const t = tekst.replace(/\s/g, '').replace(',', '.');
-  return t ? Number(t) : NaN;
+  const liczba = t ? Number(t) : NaN;
+  return Number.isFinite(liczba) ? liczba : NaN;
 }
 
 /** RRRR-MM-DD plus dni (kalendarzowo, bez strefy). */
