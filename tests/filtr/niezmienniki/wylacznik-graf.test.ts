@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, normalize } from 'node:path';
+import { join, posix } from 'node:path';
 
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
@@ -8,14 +8,18 @@ import { describe, expect, it } from 'vitest';
  * NZ-WYL-01, uzupełnienie `wylacznik.test.ts` po drugim czytelniku #807
  * (tamten plik zostaje bez zmian). Globalny stop i brak flagi firmy
  * zatrzymują moduł księgowości wszędzie, więc:
- * 1. Graf importów zamiast listy plików: funkcja modułu (`lib/ksiegowosc/`),
+ * 1. Graf importów zamiast listy plików: funkcja modułu (`lib/ksiegowosc/`)
+ *    albo funkcja na tabelach modułu (`TABELE_MODULU`, także poza modułem),
  *    która czyta albo zapisuje dane (baza, sieć) i sama nie pyta
  *    o wyłącznik, przenosi to pytanie na tego, kto ją woła. Wejście
- *    aplikacji (strona, układ, trasa API, akcja serwera, zadanie w tle),
- *    które dochodzi do takiej funkcji, nie przechodząc przez wyłącznik,
- *    daje czerwień z nazwą pliku i funkcji. Nowa karta, cron, trasa
- *    telefonu czy powiadomienie z danymi modułu nie musi być na żadnej
- *    liście.
+ *    aplikacji (strona, układ, trasa API, akcja serwera, czyli także każdy
+ *    plik z `'use server'`, zadanie w tle z kodem na górze pliku), które
+ *    dochodzi do takiej funkcji, nie przechodząc przez pytanie o wyłącznik,
+ *    daje czerwień z drogą w komunikacie. Pytanie to strażnik albo pomocnik
+ *    werdyktu (funkcja bez własnej bazy, która tylko pyta); komponent albo
+ *    funkcja z danymi, która gdzieś pyta, nie chroni rodzeństwa. Nowa karta,
+ *    cron, trasa telefonu czy powiadomienie z danymi modułu nie musi być na
+ *    żadnej liście.
  * 2. Wejścia z `wylacznik.test.ts` czytane pełniej: `export { a }`,
  *    `export default X`, `export const GET = opakowanie(async () => …)`,
  *    import z aliasem, `import * as` z wywołaniem metody; każdy plik wejścia
@@ -26,7 +30,9 @@ import { describe, expect, it } from 'vitest';
  * stop na wołających. Jak w `wylacznik.test.ts` liczy się osiągalność
  * strażnika, nie kolejność: że wynik wyłącznika zatrzymuje działanie,
  * sprawdzają testy jednostkowe (`tests/unit/ksiegowosc-wylacznik.test.ts`)
- * i RLS.
+ * i RLS. Czego graf nie widzi: `await import(…)`, funkcje przekazane jako
+ * dane (`export const handlers = { GET }`), metody klasy (klasa to jedna
+ * jednostka) i przesłonięcie nazwy zmienną lokalną.
  */
 
 const KATALOG = process.cwd();
@@ -34,8 +40,16 @@ const WYLACZNIK = 'lib/ksiegowosc/wylacznik.ts';
 const STRAZE = new Set(['czyKsiegowoscWlaczona']);
 const MODUL = 'lib/ksiegowosc/';
 
-/** Wejścia aplikacji: pliki, których eksporty woła Next.js albo kolejka zadań. */
+/** Wejścia aplikacji: pliki, których eksporty woła Next.js albo kolejka zadań; do tego każdy plik z dyrektywą `'use server'`. */
 const WEJSCIE_APLIKACJI = [/^app\/.*\/(page|layout|template|default|route)\.tsx?$/, /^app\/actions\/.*\.ts$/, /^lib\/jobs\/(runners|handlers)\/.*\.ts$/];
+/** Tabele modułu: odczyt albo zapis poza `lib/ksiegowosc/` to też dane modułu (RLS tych tabel nie zna flagi firmy). */
+const TABELE_MODULU = new Set(['tax_profiles', 'ledger_manual_entries', 'tax_settlements', 'tax_notifications', 'jpk_submissions', 'ledger_inventory_counts']);
+/**
+ * Wejścia, które celowo czytają dane modułu bez wyłącznika (np. panel
+ * operatora, eksport RODO), z powodem. Dziś żadnego; nowy wpis to zmiana
+ * testu filtra, więc wymaga etykiety `zgoda:zmiana-filtra`.
+ */
+const WYJATKI_WEJSC: Readonly<Record<string, string>> = {};
 
 function pliki(katalog: string): string[] {
   const wynik: string[] = [];
@@ -47,7 +61,7 @@ function pliki(katalog: string): string[] {
     }
   };
   idz(katalog);
-  return wynik;
+  return wynik.sort();
 }
 
 interface Jednostka {
@@ -63,6 +77,10 @@ interface Jednostka {
   io: boolean;
   /** Tabele z `x.from('tabela')` wprost w tej jednostce. */
   tabele: string[];
+  /** `x.rpc(…)` albo `fetch(…)` wprost w tej jednostce. */
+  rpcLubSiec: boolean;
+  /** Zapis po `x.from(…)`: `.insert`, `.update`, `.upsert`, `.delete`. */
+  zapis: boolean;
 }
 
 interface Import {
@@ -77,21 +95,44 @@ interface Plik {
   /** Nazwa eksportu: nazwa lokalna albo przekazanie z innego modułu. */
   eksporty: Map<string, string | Import>;
   importy: Map<string, Import>;
+  /** Plik zaczyna się od dyrektywy `'use server'` (akcje serwera woła klient wprost). */
+  akcjeSerwera: boolean;
 }
 
 function modulZeSciezki(z: string, plik: string): string | null {
   if (z.startsWith('@/')) return z.slice(2);
-  if (z.startsWith('.')) return normalize(join(dirname(plik), z));
+  if (z.startsWith('.')) return posix.normalize(posix.join(posix.dirname(plik), z));
   return null;
 }
 
 function czytaj(sciezka: string): Plik {
   const tekst = readFileSync(join(KATALOG, sciezka), 'utf8');
   const zrodlo = ts.createSourceFile(sciezka, tekst, ts.ScriptTarget.Latest, true, sciezka.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
-  const p: Plik = { sciezka, jednostki: new Map(), eksporty: new Map(), importy: new Map() };
+  const pierwsza = zrodlo.statements.at(0);
+  const akcjeSerwera = pierwsza !== undefined && ts.isExpressionStatement(pierwsza) && ts.isStringLiteral(pierwsza.expression) && pierwsza.expression.text === 'use server';
+  const p: Plik = { sciezka, jednostki: new Map(), eksporty: new Map(), importy: new Map(), akcjeSerwera };
 
   const jednostka = (nazwa: string, wezel: ts.Node, funkcja: boolean) => {
-    const j: Jednostka = { plik: sciezka, nazwa, funkcja, nazwy: new Set(), metody: [], io: false, tabele: [] };
+    const j: Jednostka = { plik: sciezka, nazwa, funkcja, nazwy: new Set(), metody: [], io: false, tabele: [], rpcLubSiec: false, zapis: false };
+    /** Łańcuch wywołań zawiera `x.from(…)` (zapis do tabeli, nie np. `Map.delete`). */
+    const naFrom = (e: ts.Expression): boolean =>
+      ts.isCallExpression(e)
+        ? (ts.isPropertyAccessExpression(e.expression) && e.expression.name.text === 'from') || naFrom(e.expression)
+        : ts.isPropertyAccessExpression(e) || ts.isNonNullExpression(e) || ts.isParenthesizedExpression(e)
+          ? naFrom(e.expression)
+          : false;
+    /** Nazwa w pozycji deklaracji (klucz obiektu, atrybut JSX, parametr, zmienna, metoda) to nie odwołanie. */
+    const deklaracja = (w: ts.Identifier): boolean => {
+      const r = w.parent;
+      return (
+        ((ts.isPropertyAssignment(r) || ts.isJsxAttribute(r) || ts.isParameter(r) || ts.isVariableDeclaration(r) || ts.isMethodDeclaration(r) ||
+          ts.isPropertyDeclaration(r) || ts.isFunctionDeclaration(r) || ts.isFunctionExpression(r) || ts.isClassDeclaration(r) || ts.isEnumMember(r) ||
+          ts.isGetAccessorDeclaration(r) || ts.isSetAccessorDeclaration(r)) &&
+          r.name === w) ||
+        (ts.isBindingElement(r) && (r.name === w || r.propertyName === w)) ||
+        ((ts.isLabeledStatement(r) || ts.isBreakStatement(r) || ts.isContinueStatement(r)) && r.label === w)
+      );
+    };
     const idz = (w: ts.Node) => {
       if (ts.isTypeNode(w) || ts.isInterfaceDeclaration(w) || ts.isTypeAliasDeclaration(w)) return;
       if (ts.isPropertyAccessExpression(w)) {
@@ -102,8 +143,11 @@ function czytaj(sciezka: string): Plik {
       if (ts.isCallExpression(w)) {
         const c = w.expression;
         const pierwszy = w.arguments.at(0);
-        if (ts.isIdentifier(c) && c.text === 'fetch') j.io = true;
-        if (ts.isPropertyAccessExpression(c) && c.name.text === 'rpc') j.io = true;
+        if ((ts.isIdentifier(c) && c.text === 'fetch') || (ts.isPropertyAccessExpression(c) && c.name.text === 'rpc')) {
+          j.io = true;
+          j.rpcLubSiec = true;
+        }
+        if (ts.isPropertyAccessExpression(c) && ['insert', 'update', 'upsert', 'delete'].includes(c.name.text) && naFrom(c.expression)) j.zapis = true;
         // `client.from('tabela')`, `admin.storage.from(KOSZYK)`; bez `Array.from` i `Buffer.from`.
         const odbiorca = ts.isPropertyAccessExpression(c) ? c.expression : null;
         const globalny = odbiorca !== null && ts.isIdentifier(odbiorca) && /^[A-Z]/.test(odbiorca.text);
@@ -112,7 +156,7 @@ function czytaj(sciezka: string): Plik {
           j.tabele.push(ts.isStringLiteralLike(pierwszy) ? pierwszy.text : '?');
         }
       }
-      if (ts.isIdentifier(w)) j.nazwy.add(w.text);
+      if (ts.isIdentifier(w) && !deklaracja(w)) j.nazwy.add(w.text);
       ts.forEachChild(w, idz);
     };
     idz(wezel);
@@ -121,8 +165,10 @@ function czytaj(sciezka: string): Plik {
   };
   const eksportowany = (w: ts.Node) => !!ts.getModifiers(w as ts.HasModifiers)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
   const domyslny = (w: ts.Node) => !!ts.getModifiers(w as ts.HasModifiers)?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
-  const maFunkcje = (w: ts.Node): boolean =>
-    ts.isArrowFunction(w) || ts.isFunctionExpression(w) || ts.isClassExpression(w) || ts.isCallExpression(w) || ts.isIdentifier(w) || ts.forEachChild(w, (d) => (maFunkcje(d) ? true : undefined)) === true;
+  // Funkcja: wyrażenie funkcyjne gdziekolwiek w inicjatorze, a na wierzchu także opakowanie (`opakuj(async () => …)`) albo nazwa (`export const POST = handler`); `{ title: '…' }` to wartość.
+  const zawieraFunkcje = (w: ts.Node): boolean =>
+    ts.isArrowFunction(w) || ts.isFunctionExpression(w) || ts.isClassExpression(w) || ts.forEachChild(w, (d) => (zawieraFunkcje(d) ? true : undefined)) === true;
+  const maFunkcje = (w: ts.Node): boolean => ts.isCallExpression(w) || ts.isIdentifier(w) || zawieraFunkcje(w);
 
   let gora = 0;
   for (const w of zrodlo.statements) {
@@ -173,6 +219,8 @@ function czytaj(sciezka: string): Plik {
       continue;
     }
     if (ts.isInterfaceDeclaration(w) || ts.isTypeAliasDeclaration(w) || ts.isEnumDeclaration(w) || ts.isModuleDeclaration(w)) continue;
+    // Dyrektywy (`'use server'`, `'use client'`) nie są kodem.
+    if (ts.isExpressionStatement(w) && ts.isStringLiteral(w.expression)) continue;
     // Kod na górze pliku (np. rejestracja zadań) to osobna jednostka.
     jednostka(`<gora ${++gora}>`, w, true);
   }
@@ -252,33 +300,55 @@ const io = dopelnienie(
 /**
  * Odczyty samego wyłącznika w module: lista firm z flagą modułu, po której
  * crony pytają `czyKsiegowoscWlaczona` o każdą firmę osobno. Wolno im czytać
- * tylko `tenant_feature_flags` (sprawdza to test niżej).
+ * tylko `tenant_feature_flags` (bez RPC, sieci i zapisu; sprawdza to test niżej).
  */
 const ODCZYTY_WYLACZNIKA = new Set(['lib/ksiegowosc/powiadomienia.ts#firmyWPilotazu']);
-/** Dane modułu bez wyłącznika: funkcja modułu z bazą albo siecią, która sama nie pyta o wyłącznik. */
-const daneBezStrazy = new Set([...io].filter((j) => wModule(j) && !zeStraza.has(j) && !ODCZYTY_WYLACZNIKA.has(`${j.plik}#${j.nazwa}`)));
 const siega = (j: Jednostka, zbior: ReadonlySet<Jednostka>) => (wskazane.get(j) ?? []).some((c) => zbior.has(c));
 /**
- * Pytanie o wyłącznik: strażnik albo funkcja, która do niego prowadzi i sama
- * nie sięga po dane modułu (np. `zaplatyZWyciaguWlaczone`). Funkcja, która
- * pyta o wyłącznik tylko w jednym z wołanych komponentów, sama nie pyta:
- * pytanie musi być na drodze od wejścia do danych.
+ * Pytanie o wyłącznik: strażnik i pomocnicy werdyktu, czyli funkcje z małej
+ * litery (nie komponenty) bez własnej bazy i sieci, które wołają pytanie,
+ * a całą bazę i sieć mają tylko przez pytania (np. `zaplatyZWyciaguWlaczone`).
+ * Komponent albo funkcja z danymi, która gdzieś pyta, sama pytaniem nie jest:
+ * pytać musi jednostka na drodze od wejścia do danych.
  */
-const pytania = dopelnienie(
-  (j) => j.plik === WYLACZNIK && STRAZE.has(j.nazwa),
-  (j) => !siega(j, daneBezStrazy),
-);
+const pytania = new Set([...wskazane.keys()].filter((j) => j.plik === WYLACZNIK && STRAZE.has(j.nazwa)));
+for (let zmiana = true; zmiana; ) {
+  zmiana = false;
+  for (const [j, cele] of wskazane) {
+    if (pytania.has(j) || !/^[a-z]/.test(j.nazwa) || j.io) continue;
+    if (cele.some((c) => pytania.has(c)) && cele.every((c) => !io.has(c) || pytania.has(c))) {
+      pytania.add(j);
+      zmiana = true;
+    }
+  }
+}
 const pyta = (j: Jednostka) => pytania.has(j) || siega(j, pytania);
+const naTabelachModulu = (j: Jednostka) => j.tabele.some((t) => TABELE_MODULU.has(t));
+/**
+ * Dane modułu bez wyłącznika: funkcja modułu albo funkcja na tabelach modułu
+ * z własną bazą lub siecią (albo wołająca bazę spoza modułu), która nie pyta
+ * o wyłącznik, i funkcje modułu, które do niej dochodzą bez pytania.
+ */
+const daneBezStrazy = dopelnienie(
+  (j) =>
+    (wModule(j) || naTabelachModulu(j)) &&
+    !pyta(j) &&
+    !ODCZYTY_WYLACZNIKA.has(`${j.plik}#${j.nazwa}`) &&
+    (j.io || (wModule(j) && (wskazane.get(j) ?? []).some((c) => io.has(c) && !pytania.has(c) && !wModule(c) && c.plik !== WYLACZNIK))),
+  (j) => wModule(j) && !pyta(j),
+);
 const pozaModulem = (j: Jednostka) => !wModule(j) && j.plik !== WYLACZNIK;
-/** Poza modułem: droga do danych modułu bez wyłącznika, na której nikt nie pyta o wyłącznik. */
+/** Poza modułem: droga do danych modułu bez wyłącznika (albo same dane), na której nikt nie pyta o wyłącznik. */
 const zagrozone = dopelnienie(
-  (j) => pozaModulem(j) && !pyta(j) && siega(j, daneBezStrazy),
+  (j) => pozaModulem(j) && !pyta(j) && (siega(j, daneBezStrazy) || daneBezStrazy.has(j)),
   (j) => pozaModulem(j) && !pyta(j),
 );
-const wejscieAplikacji = (plik: string) => WEJSCIE_APLIKACJI.some((r) => r.test(plik));
+const wejscieAplikacji = (p: Plik) => p.akcjeSerwera || WEJSCIE_APLIKACJI.some((r) => r.test(p.sciezka));
 /** Eksporty pliku (własne, z importu i przekazane dalej) z jednostkami, do których prowadzą. */
 const eksportowane = (p: Plik) =>
-  [...p.eksporty.keys()].filter((n) => !n.startsWith('*')).flatMap((n) => eksport(p.sciezka.replace(/\.tsx?$/, ''), n).map((j) => [n, j] as const));
+  [...p.eksporty.entries()].flatMap(([n, c]) =>
+    (n.startsWith('*') && typeof c !== 'string' ? eksport(c.modul, '*') : eksport(p.sciezka.replace(/\.tsx?$/, ''), n)).map((j) => [n, j] as const),
+  );
 
 const opis = (j: Jednostka) => `${j.plik}#${j.nazwa}`;
 
@@ -307,6 +377,8 @@ describe('NZ-WYL-01: dane modułu księgowości tylko przez wyłącznik (graf im
     expect(ZRODLA.size).toBeGreaterThan(500);
     const nazwy = new Set([...daneBezStrazy].map(opis));
     for (const n of [
+      // Tabela modułu czytana poza `lib/ksiegowosc/`: o wyłącznik pyta `czytajPrzelewyPodatkowe`, które ją woła.
+      'lib/import/bank/podatki-dane.ts#czytajRozliczeniaZaplat',
       'lib/ksiegowosc/kpir-dane.ts#czytajKpir',
       'lib/ksiegowosc/ewidencja-dane.ts#czytajEwidencje',
       'lib/ksiegowosc/profil.ts#czytajWersjeProfilu',
@@ -322,6 +394,11 @@ describe('NZ-WYL-01: dane modułu księgowości tylko przez wyłącznik (graf im
     for (const n of ['lib/kalendarz/zbierz.ts#zbierzZdarzenia', 'lib/import/bank/podatki-dane.ts#czytajPrzelewyPodatkowe', 'components/przeplywy/finora-1do1/sloty.tsx#PierscienKarta', 'lib/api/mobile/ksiegowosc.ts#monthForMobile']) {
       expect(pytajace).toContain(n);
     }
+    // Pytania to strażnik i pomocnicy werdyktu, nie komponenty ani funkcje z danymi.
+    expect([...pytania].map(opis)).toEqual(
+      expect.arrayContaining(['lib/ksiegowosc/wylacznik.ts#czyKsiegowoscWlaczona', 'lib/import/bank/podatki-dane.ts#zaplatyZWyciaguWlaczone', 'lib/ksiegowosc/ten-miesiac-zapis.ts#wlaczony']),
+    );
+    expect([...pytania].filter((j) => /^[A-Z]/.test(j.nazwa) || j.io).map(opis)).toEqual([]);
     const uzycia = [...wskazane].filter(([j, cele]) => !wModule(j) && cele.some((c) => daneBezStrazy.has(c))).map(([j]) => opis(j));
     expect(uzycia).toEqual(expect.arrayContaining(['app/(dashboard)/reports/ewidencja/page.tsx#EwidencjaPage', 'lib/import/bank/podatki-dane.ts#czytajKontaPodatkowe']));
   });
@@ -330,15 +407,28 @@ describe('NZ-WYL-01: dane modułu księgowości tylko przez wyłącznik (graf im
     const j = [...wskazane.keys()].find((x) => opis(x) === nazwa);
     expect(j).toBeDefined();
     if (!j) return;
-    expect(j.tabele).toEqual(['tenant_feature_flags']);
+    expect([j.tabele, j.rpcLubSiec, j.zapis]).toEqual([['tenant_feature_flags'], false, false]);
     expect(siega(j, daneBezStrazy) || siega(j, io)).toBe(false);
   });
 
   it('każde wejście aplikacji, które dochodzi do danych modułu, przechodzi przez wyłącznik', () => {
+    // Eksporty wejść (także przekazane dalej z modułu) i kod na górze pliku (np. rejestracja zadań).
     const bez = [...ZRODLA.values()]
-      .filter((p) => wejscieAplikacji(p.sciezka))
-      .flatMap((p) => eksportowane(p).filter(([, j]) => zagrozone.has(j)).map(([n, j]) => `${p.sciezka}#${n}: ${droga(j)}`));
+      .filter(wejscieAplikacji)
+      .flatMap((p) => [...eksportowane(p), ...[...p.jednostki.values()].filter((j) => j.nazwa.startsWith('<gora')).map((j) => [j.nazwa, j] as const)].map(([n, j]) => [p, n, j] as const))
+      .filter(([p, n, j]) => (zagrozone.has(j) || daneBezStrazy.has(j)) && !(`${p.sciezka}#${n}` in WYJATKI_WEJSC))
+      .map(([p, n, j]) => `${p.sciezka}#${n}: ${droga(j)}`);
     expect(bez).toEqual([]);
+    expect([...ZRODLA.values()].filter((p) => p.akcjeSerwera).length).toBeGreaterThan(20);
+  });
+
+  it('wyjątki wejść wskazują istniejące wejścia i mają powód', () => {
+    for (const [wejscie, powod] of Object.entries(WYJATKI_WEJSC)) {
+      const [plik, nazwa] = wejscie.split('#');
+      const p = ZRODLA.get(plik ?? '');
+      expect(p && wejscieAplikacji(p) && p.eksporty.has(nazwa ?? '')).toBe(true);
+      expect(powod.length).toBeGreaterThan(20);
+    }
   });
 
   const WEJSCIA = [...ZRODLA.keys()]
