@@ -14,17 +14,54 @@ type Row = Record<string, unknown>;
 const tables: Record<string, Row[]> = { expenses: [] };
 const insertFail = { on: false };
 const ilikeCalls: Array<[string, string]> = [];
+const rpcCalls: Array<{ name: string; args: Row }> = [];
+
+/**
+ * Od 00127 rola authenticated nie ma INSERT na expenses (klient sesji nie może podrobić kosztu z KSeF),
+ * więc zapis idzie przez funkcję expense_create_manual (00212). Atrapa odtwarza jej skutek:
+ * źródło `manual` na sztywno, firma i osoba z sesji, pola odczytu puste.
+ */
+async function rpc(name: string, args: Row) {
+  rpcCalls.push({ name, args });
+  if (name !== 'expense_create_manual') return { data: null, error: { message: `nieznana funkcja ${name}` } };
+  if (insertFail.on) return { data: null, error: { message: 'boom' } };
+  const row: Row = {
+    id: `exp-${(tables.expenses ??= []).length + 1}`,
+    created_at: new Date().toISOString(),
+    tenant_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    created_by: 'user-1',
+    source: 'manual',
+    seller_name: args.p_seller_name,
+    seller_nip: args.p_seller_nip,
+    document_number: args.p_document_number,
+    document_type: args.p_document_type,
+    issue_date: args.p_issue_date,
+    net_amount: args.p_net_amount,
+    vat_amount: args.p_vat_amount,
+    gross_amount: args.p_gross_amount,
+    vat_deductible_amount: args.p_vat_deductible_amount,
+    kpir_column: args.p_kpir_column,
+    category_label: args.p_category_label,
+    categorization_method: 'manual',
+    notes: args.p_notes,
+    is_reviewed: true,
+    is_deductible: args.p_is_deductible,
+  };
+  tables.expenses!.push(row);
+  return { data: row.id, error: null };
+}
 
 function from(name: string) {
   const filters: Array<(r: Row) => boolean> = [];
-  let op: 'select' | 'insert' = 'select';
-  let payload: Row | null = null;
   let wantCount = false;
   let rangeArr: [number, number] | null = null;
   let lim: number | null = null;
   const q: Record<string, unknown> = {
     select: (_c?: string, opts?: { count?: string }) => ((wantCount = opts?.count === 'exact'), q),
-    insert: (row: Row) => ((op = 'insert'), (payload = row), q),
+    insert: (row: Row) => {
+      // 00127: REVOKE INSERT ON public.expenses FROM authenticated. Akcja nie ma prawa tu zapisywać.
+      throw Object.assign(new Error('permission denied for table expenses'), { code: '42501', row });
+    },
     eq: (k: string, v: unknown) => (filters.push((r) => r[k] === v), q),
     is: (k: string, v: unknown) => (filters.push((r) => (r[k] ?? null) === v), q),
     not: (k: string, op: string, v: unknown) => (op === 'is' && filters.push((r) => (r[k] ?? null) !== v), q),
@@ -46,15 +83,7 @@ function from(name: string) {
     order: () => q,
     range: (a: number, b: number) => ((rangeArr = [a, b]), q),
     limit: (n: number) => ((lim = n), q),
-    single: async () => {
-      if (op === 'insert') {
-        if (insertFail.on) return { data: null, error: { message: 'boom' } };
-        const row = { id: `exp-${(tables[name] ??= []).length + 1}`, created_at: new Date().toISOString(), ...payload };
-        tables[name]!.push(row);
-        return { data: { id: row.id }, error: null };
-      }
-      return { data: null, error: null };
-    },
+    single: async () => ({ data: null, error: null }),
     then: (ok: (v: unknown) => unknown, ko?: (e: unknown) => unknown) =>
       Promise.resolve(
         (() => {
@@ -75,7 +104,7 @@ vi.mock('@/lib/supabase/auth-context', () => ({
     if (check?.expectedTenantId && check.expectedTenantId !== 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') {
       throw new Error('Firma w formularzu jest inna niż aktywna');
     }
-    return { supabase: { from }, user: { id: 'user-1' }, tenantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', role: 'member' };
+    return { supabase: { from, rpc }, user: { id: 'user-1' }, tenantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', role: 'member' };
   }),
   ActionAuthError: class ActionAuthError extends Error {},
 }));
@@ -113,6 +142,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date(`${dzis}T10:00:00Z`));
   tables.expenses = [];
   ilikeCalls.length = 0;
+  rpcCalls.length = 0;
   insertFail.on = false;
   m.exempt = null;
   m.audit.mockReset();
@@ -190,6 +220,40 @@ describe('koszt wpisany ręcznie: zapis', () => {
         metadata: expect.objectContaining({ grossAmount: 100, kpirColumn: 'col_13', documentType: 'other' }),
       }),
     );
+  });
+});
+
+describe('koszt wpisany ręcznie: zapis przez funkcję bazy (00212), nie przez INSERT', () => {
+  it('woła expense_create_manual dokładnie raz, z polami z formularza i bez tenant_id, created_by i source', async () => {
+    const r = await createManualExpenseAction({ ...OK, documentType: 'invoice', sellerNip: '5260250274', documentNumber: 'FV9/2026', netAmount: 100, vatAmount: 23, grossAmount: 123, notes: '  uwaga ' }, TENANT);
+    expect(r).toEqual({ success: true, expenseId: 'exp-1', duplicate: false });
+    expect(rpcCalls).toHaveLength(1);
+    expect(rpcCalls[0]!.name).toBe('expense_create_manual');
+    expect(rpcCalls[0]!.args).toEqual({
+      p_seller_name: 'Urząd Miasta',
+      p_seller_nip: '5260250274',
+      p_document_type: 'invoice',
+      p_document_number: 'FV9/2026',
+      p_issue_date: '2026-11-10',
+      p_net_amount: 100,
+      p_vat_amount: 23,
+      p_gross_amount: 123,
+      p_vat_deductible_amount: 23,
+      p_kpir_column: 'col_13',
+      p_category_label: 'Pozostałe wydatki',
+      p_notes: 'uwaga',
+      p_is_deductible: true,
+    });
+    for (const zakazane of ['p_tenant_id', 'p_created_by', 'p_source']) expect(rpcCalls[0]!.args).not.toHaveProperty(zakazane);
+  });
+
+  it('błąd funkcji bazy po udanym zapisie: komunikat, bez drugiego wiersza i bez drugiego audytu', async () => {
+    const r = await createManualExpenseAction(OK, TENANT);
+    expect(r.success).toBe(true);
+    insertFail.on = true;
+    const zly = await createManualExpenseAction({ ...OK, sellerName: 'Inny' }, TENANT);
+    expect(zly.success).toBe(false);
+    expect(m.audit).toHaveBeenCalledTimes(1);
   });
 });
 

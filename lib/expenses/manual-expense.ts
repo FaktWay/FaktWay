@@ -5,11 +5,11 @@
  * klasyfikatora i bez AI).
  *
  * Co zapisujemy: wiersz `expenses` ze źródłem `manual` (wartość enumu od 00034),
- * osobą i firmą z sesji (RLS `expenses_insert_own_tenant`: firma aktywna i
- * `created_by = auth.uid()`), bez zdjęcia i bez zadania odczytu (`ocr_job_id`,
- * `source_file_*`, `ocr_extracted_data` puste). Strażnik pochodzenia (00123)
- * odrzuca tylko `ksef_inbox`, więc `manual` przechodzi, a migracja nie jest
- * potrzebna.
+ * osobą i firmą z sesji, bez zdjęcia i bez zadania odczytu (`ocr_job_id`,
+ * `source_file_*`, `ocr_extracted_data` puste). Od 00127 rola authenticated nie
+ * ma INSERT na `expenses`, więc zapis robi funkcja `expense_create_manual`
+ * (00212, SECURITY DEFINER): firma z `get_current_tenant_id()`, `created_by =
+ * auth.uid()`, `source = 'manual'` na sztywno i własna kontrola kształtu kwot.
  *
  * Kwoty: złote, każda z najwyżej dwoma miejscami po przecinku, netto + VAT = brutto w groszach
  * (`roundToCents`), bez kwot ujemnych. VAT do odliczenia liczy ta sama reguła co przy odczycie i w
@@ -20,7 +20,7 @@
  * jako faktura uproszczona) pochodzi tylko z odczytu dokumentu: ręcznie wpisuje
  * się fakturę, paragon albo inny dokument.
  *
- * Ponowienie: tabela nie ma klucza zapisu (bez migracji), więc bliźniak (ta sama
+ * Ponowienie: tabela nie ma klucza zapisu, więc bliźniak (ta sama
  * osoba, sprzedawca, numer, data i brutto w ciągu 2 minut) zwraca istniejący
  * koszt zamiast drugiego. Po 2 minutach ten sam koszt to świadomie nowy wpis.
  */
@@ -113,6 +113,14 @@ export function firstManualExpenseIssue(error: z.ZodError): string {
 
 type SessionDb = Awaited<ReturnType<typeof createClient>>;
 
+/** Funkcja 00212 jeszcze nie jest w wygenerowanych typach bazy (types/database.ts po wgraniu migracji). */
+interface ExpenseCreateRpc {
+  rpc(
+    name: 'expense_create_manual',
+    args: Record<string, string | number | boolean | null>,
+  ): PromiseLike<{ data: unknown; error: { message: string } | null }>;
+}
+
 export interface ManualExpenseContext {
   supabase: SessionDb;
   userId: string;
@@ -196,7 +204,22 @@ export async function createManualExpense(ctx: ManualExpenseContext, input: unkn
     notes: v.notes.trim() === '' ? null : v.notes.trim(),
     is_reviewed: true,
   };
-  const { data, error } = await supabase.from('expenses').insert(row).select('id').single();
-  if (error || !data) return { success: false, error: SAVE_FAILED };
-  return { success: true, expenseId: data.id, duplicate: false, row };
+  // Od 00127 klient sesji nie ma INSERT na expenses: zapis idzie funkcją 00212, która bierze firmę i osobę z sesji i wstawia source = 'manual'.
+  const { data, error } = await (supabase as unknown as ExpenseCreateRpc).rpc('expense_create_manual', {
+    p_seller_name: row.seller_name,
+    p_seller_nip: row.seller_nip ?? null,
+    p_document_type: v.documentType,
+    p_document_number: number,
+    p_issue_date: v.issueDate,
+    p_net_amount: v.netAmount,
+    p_vat_amount: v.vatAmount,
+    p_gross_amount: v.grossAmount,
+    p_vat_deductible_amount: row.vat_deductible_amount ?? 0,
+    p_kpir_column: v.kpirColumn,
+    p_category_label: v.categoryLabel,
+    p_notes: row.notes ?? null,
+    p_is_deductible: v.isDeductible,
+  });
+  if (error || typeof data !== 'string' || data === '') return { success: false, error: SAVE_FAILED };
+  return { success: true, expenseId: data, duplicate: false, row };
 }
