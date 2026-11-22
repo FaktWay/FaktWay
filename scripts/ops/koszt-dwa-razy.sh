@@ -8,6 +8,12 @@
 #   ./scripts/ops/koszt-dwa-razy.sh --lista-firm                     do tego lista firm z odmową (id firmy i liczby)
 #   ./scripts/ops/koszt-dwa-razy.sh --firma <uuid>                   liczby jednej firmy
 #   ./scripts/ops/koszt-dwa-razy.sh --firma <uuid> --szczegoly       grupy jednej firmy z NIP-em, numerem i kwotami
+#   ... --srodowisko test|demo|production                            środowisko KSeF zamiast odczytu z kontenera aplikacji
+#
+# Koszt powiązany z fakturą z KSeF liczy się tylko, gdy faktura jest ze
+# środowiska KSeF aplikacji, jak w odczytach aplikacji. Skrypt czyta KSEF_ENV
+# z kontenera aplikacji na $APP (prefiks $APP_PREFIX z infra.env); gdy się nie
+# uda, przerywa, a środowisko można podać --srodowisko.
 #
 # Domyślnie same liczby: firmy i grupy z odmową, wzory grup, pary źródeł, grupy
 # z odmową i różną kwotą (do sprawdzenia, mogą być fałszywą odmową) i firmy
@@ -24,15 +30,24 @@
 
 set -euo pipefail
 
-USAGE="Użycie: ./scripts/ops/koszt-dwa-razy.sh [--lista-firm] [--firma <uuid>] [--szczegoly]"
+USAGE="Użycie: ./scripts/ops/koszt-dwa-razy.sh [--lista-firm] [--firma <uuid>] [--szczegoly] [--srodowisko test|demo|production]"
 FIRMA=""
+FIRMA_PODANA=0
+SRODOWISKO=""
 LISTA=0
 SZCZEGOLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --firma)
-      FIRMA=${2:-}
-      shift 2 || { echo "$USAGE" >&2; exit 1; }
+      [ $# -ge 2 ] || { echo "$USAGE" >&2; exit 1; }
+      FIRMA=$2
+      FIRMA_PODANA=1
+      shift 2
+      ;;
+    --srodowisko)
+      [ $# -ge 2 ] || { echo "$USAGE" >&2; exit 1; }
+      SRODOWISKO=$2
+      shift 2
       ;;
     --lista-firm)
       LISTA=1
@@ -49,9 +64,14 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
-# Tylko znaki UUID trafiają dalej do powłoki zdalnej.
-if [ -n "$FIRMA" ] && ! [[ "$FIRMA" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+# Tylko znaki UUID trafiają dalej do powłoki zdalnej; pusta --firma to nie „wszystkie firmy”.
+if [ "$FIRMA_PODANA" = 1 ] && ! [[ "$FIRMA" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
   echo "Podaj id firmy (UUID małymi literami)." >&2
+  echo "$USAGE" >&2
+  exit 1
+fi
+if [ -n "$SRODOWISKO" ] && ! [[ "$SRODOWISKO" =~ ^(test|demo|production)$ ]]; then
+  echo "Środowisko KSeF to test, demo albo production." >&2
   echo "$USAGE" >&2
   exit 1
 fi
@@ -93,19 +113,37 @@ for v in K DB PGC; do
   fi
 done
 
-REMOTE=/tmp/koszt-dwa-razy.sql
-echo "Ten sam dokument kosztu dwa razy · $([ -n "$FIRMA" ] && echo "firma $FIRMA" || echo 'wszystkie firmy') · $([ "$SZCZEGOLY" = 1 ] && echo 'ze szczegółami' || echo 'same liczby') · tylko odczyt"
+SSH=(ssh -i "$K" -o ConnectTimeout=15 -o BatchMode=yes)
+
+if [ -z "$SRODOWISKO" ]; then
+  for v in APP APP_PREFIX; do
+    if [ -z "${!v:-}" ]; then
+      echo "Brak zmiennej $v w $ENV_FILE (potrzebna do odczytu KSEF_ENV aplikacji); środowisko można podać --srodowisko." >&2
+      exit 1
+    fi
+  done
+  SRODOWISKO=$("${SSH[@]}" "root@$APP" \
+    "C=\$(docker ps --format '{{.Names}}' | grep '^$APP_PREFIX' | head -1); \
+     [ -n \"\$C\" ] && docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' \"\$C\" | sed -n 's/^KSEF_ENV=//p'" || true)
+  if ! [[ "$SRODOWISKO" =~ ^(test|demo|production)$ ]]; then
+    echo "Nie udało się ustalić KSEF_ENV aplikacji (odczytano: '${SRODOWISKO:-brak}'); podaj --srodowisko. Przerywam." >&2
+    exit 1
+  fi
+fi
+
+REMOTE="/tmp/koszt-dwa-razy-$(date +%s)-$$.sql"
+if [ "$SZCZEGOLY" = 1 ]; then ZAKRES='ze szczegółami'; elif [ "$LISTA" = 1 ]; then ZAKRES='liczby i lista firm'; else ZAKRES='same liczby'; fi
+echo "Ten sam dokument kosztu dwa razy · $([ -n "$FIRMA" ] && echo "firma $FIRMA" || echo 'wszystkie firmy') · $ZAKRES · KSeF $SRODOWISKO · tylko odczyt"
 
 # Checkout z Windowsa ma CRLF, a wtedy psql nie rozpozna „\if :szczegoly\r”. Wysyłamy kopię z LF.
 SQL_FILE=$(mktemp)
 trap 'rm -f "$SQL_FILE"' EXIT
 tr -d '\r' < "$ROOT/scripts/ops/koszt-dwa-razy.sql" > "$SQL_FILE"
 
-SSH=(ssh -i "$K" -o ConnectTimeout=15 -o BatchMode=yes)
 scp -q -i "$K" -o ConnectTimeout=15 -o BatchMode=yes "$SQL_FILE" "root@$DB:$REMOTE"
 "${SSH[@]}" "root@$DB" \
   "docker cp $REMOTE $PGC:$REMOTE && \
    docker exec -e 'PGOPTIONS=-c statement_timeout=60s -c default_transaction_read_only=on' $PGC psql -U postgres -d postgres -X -q \
-     -v ON_ERROR_STOP=1 -v firma=$FIRMA -v lista=$LISTA -v szczegoly=$SZCZEGOLY \
+     -v ON_ERROR_STOP=1 -v firma=$FIRMA -v lista=$LISTA -v szczegoly=$SZCZEGOLY -v srodowisko=$SRODOWISKO \
      -f $REMOTE; \
    rc=\$?; rm -f $REMOTE; docker exec $PGC rm -f $REMOTE; exit \$rc"

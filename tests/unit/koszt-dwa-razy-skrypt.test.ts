@@ -9,9 +9,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
  * FZ-022: `scripts/ops/koszt-dwa-razy.sh` (zapytanie operatora o ten sam
  * dokument kosztu dwa razy) bez serwerów: atrapy `ssh` i `scp` zapisują, co
  * skrypt by wykonał. Pilnuje argumentów (szczegóły tylko dla jednej firmy,
- * UUID), transakcji tylko do odczytu (PGOPTIONS i `BEGIN READ ONLY` w pliku)
- * i tego, że plik SQL nie ma poleceń zapisu. Wynik SQL na prawdziwej bazie
- * sprawdza `tests/rls-koszt-dwa-razy-skrypt.test.ts`.
+ * UUID, środowisko KSeF), odczytu KSEF_ENV z kontenera aplikacji, transakcji
+ * tylko do odczytu (PGOPTIONS i `BEGIN READ ONLY` w pliku), tego, że plik SQL
+ * nie ma poleceń zapisu, i jednego odczytu kosztów w czterech zapytaniach.
+ * Wynik SQL na prawdziwej bazie sprawdza `tests/rls-koszt-dwa-razy-skrypt.test.ts`.
  */
 
 const ROOT = join(__dirname, '..', '..');
@@ -29,18 +30,22 @@ function atrapa(nazwa: string, tresc: string): void {
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'koszt-dwa-razy-'));
   mkdirSync(join(dir, 'bin'));
-  // ssh: zapis polecenia zdalnego; scp: kopia wysyłanego pliku (przedostatni argument).
-  atrapa('ssh', 'printf "%s\\n" "$*" >> "$FAKE_DIR/ssh.log"');
+  // ssh: zapis polecenia zdalnego, a na pytanie o KSEF_ENV aplikacji środowisko z FAKE_KSEF_ENV; scp: kopia wysyłanego pliku (przedostatni argument).
+  atrapa('ssh', 'printf "%s\\n" "$*" >> "$FAKE_DIR/ssh.log"; case "$*" in *KSEF_ENV*) printf "%s\\n" "${FAKE_KSEF_ENV-test}";; esac');
   atrapa('scp', 'cp "${@: -2:1}" "$FAKE_DIR/wyslany.sql"; printf "%s\\n" "$*" >> "$FAKE_DIR/scp.log"');
-  writeFileSync(join(dir, 'infra.env'), ['K=/nie/ma/klucza', 'DB=db.example.test', 'PGC=pgc-test'].join('\n'));
+  writeFileSync(join(dir, 'infra.env'), ['K=/nie/ma/klucza', 'DB=db.example.test', 'PGC=pgc-test', 'APP=app.example.test', 'APP_PREFIX=app-test'].join('\n'));
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 function uruchom(...args: string[]) {
+  return uruchomZ({}, ...args);
+}
+
+function uruchomZ(dodatkowe: Record<string, string>, ...args: string[]) {
   const r = spawnSync('bash', [SKRYPT, ...args], {
     encoding: 'utf8',
     timeout: 60_000,
-    env: { NODE_ENV: 'test', PATH: `${join(dir, 'bin')}:${process.env.PATH ?? ''}`, HOME: dir, FAKTFLOW_INFRA_ENV: join(dir, 'infra.env'), FAKE_DIR: dir },
+    env: { NODE_ENV: 'test', PATH: `${join(dir, 'bin')}:${process.env.PATH ?? ''}`, HOME: dir, FAKTFLOW_INFRA_ENV: join(dir, 'infra.env'), FAKE_DIR: dir, ...dodatkowe },
   });
   const ssh = existsSync(join(dir, 'ssh.log')) ? readFileSync(join(dir, 'ssh.log'), 'utf8') : '';
   return { status: r.status, stdout: r.stdout, stderr: r.stderr, ssh };
@@ -54,9 +59,29 @@ describe('scripts/ops/koszt-dwa-razy.sh', () => {
     const r = uruchom();
     expect(r.status, r.stderr).toBe(0);
     expect(r.ssh).toContain("docker exec -e 'PGOPTIONS=-c statement_timeout=60s -c default_transaction_read_only=on' pgc-test psql");
-    expect(r.ssh).toContain('-v ON_ERROR_STOP=1 -v firma= -v lista=0 -v szczegoly=0');
+    expect(r.ssh).toContain('-v ON_ERROR_STOP=1 -v firma= -v lista=0 -v szczegoly=0 -v srodowisko=test');
     expect(readFileSync(join(dir, 'wyslany.sql'), 'utf8')).toBe(SQL);
-    expect(r.stdout).toContain('wszystkie firmy · same liczby · tylko odczyt');
+    expect(r.stdout).toContain('wszystkie firmy · same liczby · KSeF test · tylko odczyt');
+    // Środowisko KSeF z kontenera aplikacji, zanim cokolwiek trafi do bazy.
+    const [pierwsze, ...reszta] = r.ssh.trim().split('\n');
+    expect(pierwsze).toContain('root@app.example.test');
+    expect(pierwsze).toContain("grep '^app-test'");
+    expect(pierwsze).toContain('KSEF_ENV');
+    expect(reszta.join('\n')).toContain('root@db.example.test');
+  });
+
+  it('--srodowisko zamiast odczytu z kontenera: bez połączenia z serwerem aplikacji', () => {
+    const r = uruchom('--srodowisko', 'production');
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.ssh).not.toContain('app.example.test');
+    expect(r.ssh).toContain('-v srodowisko=production');
+  });
+
+  it('nieznane KSEF_ENV aplikacji: przerwa przed bazą z prośbą o --srodowisko', () => {
+    const r = uruchomZ({ FAKE_KSEF_ENV: 'prod' });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('Nie udało się ustalić KSEF_ENV aplikacji');
+    expect(r.ssh).not.toContain('docker exec -e');
   });
 
   it('jedna firma ze szczegółami: UUID i szczegoly=1 trafiają do psql', () => {
@@ -69,12 +94,16 @@ describe('scripts/ops/koszt-dwa-razy.sh', () => {
     const r = uruchom('--lista-firm');
     expect(r.status, r.stderr).toBe(0);
     expect(r.ssh).toContain('-v firma= -v lista=1 -v szczegoly=0');
+    expect(r.stdout).toContain('wszystkie firmy · liczby i lista firm · KSeF test');
   });
 
   it.each([
     [['--szczegoly'], 'tylko dla jednej firmy'],
     [['--firma', 'FIRMA; rm -rf /'], 'UUID małymi literami'],
     [['--firma'], 'Użycie'],
+    [['--firma', ''], 'UUID małymi literami'],
+    [['--srodowisko', 'prod'], 'test, demo albo production'],
+    [['--srodowisko'], 'Użycie'],
     [['--wszystko'], 'Nieznana opcja'],
   ])('%j: odmowa przed połączeniem z serwerem', (args, komunikat) => {
     const r = uruchom(...args);
@@ -108,5 +137,13 @@ describe('scripts/ops/koszt-dwa-razy.sql tylko do odczytu', () => {
       expect(w.split(/\bFROM\b/)[0]).not.toMatch(/\b(nip|numer|gross_amount|seller_nip|document_number)\b/);
     }
     expect(poBloku).toContain("e.tenant_id::text = :'firma'");
+  });
+
+  it('cztery zapytania czytają koszty tak samo (środowisko KSeF, odstępy, paragon), poza warunkiem firmy w szczegółach', () => {
+    const odczyty = [...kod.matchAll(/WITH k AS \([\s\S]*?\n\),/g)].map((m) => m[0].replace("(:'firma' = '' OR e.tenant_id::text = :'firma')", "e.tenant_id::text = :'firma'"));
+    expect(odczyty).toHaveLength(4);
+    expect(new Set(odczyty).size).toBe(1);
+    expect(odczyty[0]).toContain("i.ksef_environment::text = :'srodowisko'");
+    expect(odczyty[0]).toContain('\\u00a0');
   });
 });

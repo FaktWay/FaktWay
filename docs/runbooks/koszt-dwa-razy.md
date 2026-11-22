@@ -38,29 +38,52 @@ dokumencie.
 
 Jedną linią (sesja z `.agents/infra.env`, tylko odczyt: `BEGIN READ ONLY`
 i transakcja tylko do odczytu w PGOPTIONS; logika w
-`scripts/ops/koszt-dwa-razy.sql`, ta sama reguła co odczyty aplikacji):
+`scripts/ops/koszt-dwa-razy.sql`, ta sama reguła i ten sam filtr środowiska
+KSeF co odczyty aplikacji):
 
 ```bash
 ./scripts/ops/koszt-dwa-razy.sh
 ```
 
-Domyślnie same liczby dla wszystkich firm: firmy i grupy z odmową, wzory grup
+Skrypt najpierw czyta `KSEF_ENV` z kontenera aplikacji (koszt z faktury
+z innego środowiska KSeF aplikacja pomija, skrypt też); gdy się nie uda,
+przerywa i prosi o `--srodowisko test|demo|production`.
+
+Domyślnie same liczby dla wszystkich firm: koszty przeczytane (gdy zero, skrypt
+nic nie przeczytał, a nie „brak dubli”), firmy i grupy z odmową, wzory grup
 (z KSeF i spoza KSeF, kopie spoza KSeF, same z KSeF, spoza KSeF z różnymi
-kwotami i kolumnami), pary źródeł, grupy z odmową i różną kwotą brutto (do
-sprawdzenia: mogą być fałszywą odmową) i firmy z odmową w okresie już
-złożonym. `--lista-firm` dopisuje id firm z odmową z liczbami (bez NIP-ów,
-numerów i kwot). Jedna firma: `--firma <uuid>`; jej grupy z NIP-em, numerem, kwotami
-i kosztami (id, źródło, data, brutto, kolumna, rodzaj): `--firma <uuid>
---szczegoly` (szczegóły tylko dla jednej firmy).
+kwotami i kolumnami), grupy z odmową i różną kwotą brutto (do sprawdzenia: mogą
+być fałszywą odmową), firmy z odmową w okresie już złożonym, miesiące z odmową
+i pary źródeł. Grupa to rok, tak jak w KPiR modułu i kartach kosztów; raport
+KPiR, eksport i JPK_V7M czytają miesiąc albo okres zadania, więc odmawiają
+tylko wtedy, gdy oba koszty są w tym samym okresie (liczba `miesiące z
+odmową`). `--lista-firm` dopisuje id firm z odmową z liczbami (bez NIP-ów,
+numerów i kwot). Jedna firma: `--firma <uuid>`; jej grupy z NIP-em, numerem
+i kosztami: `--firma <uuid> --szczegoly` (szczegóły tylko dla jednej firmy).
 
-Jak czytać grupę:
+Jak czytać szczegóły grupy (kolumny `nip`, `numer`, `rok`, `wzor`, `odmowa`,
+`koszty`):
 
-- `z_ksef` od 1 do `ile - 1`: dubel FZ-022 (kopia spoza KSeF); klient
-  wyłącza kopię;
-- `z_ksef` równe `ile`: dwa dokumenty z KSeF, odmowy nie ma;
-- bez kosztu z KSeF: dubel tylko przy tej samej kwocie brutto albo kolumnie
-  (paragony: ten sam dzień i kwota); pozostałe grupy to rozpisanie na
-  kolumny albo różne paragony i odmowy nie dają.
+- `wzor` „z KSeF i spoza KSeF”, `odmowa` t: dubel FZ-022 (kopia spoza KSeF);
+  klient wyłącza kopię;
+- „kopie spoza KSeF”, t: ten sam dokument dwa razy spoza KSeF (ta sama kwota
+  brutto albo kolumna; paragony: ten sam dzień i kwota);
+- „same z KSeF”, f: dwa dokumenty z KSeF (np. faktura i korekta), odmowy nie ma;
+- „spoza KSeF, różne kwoty i kolumny”, f: rozpisanie na kolumny albo różne
+  paragony, odmowy nie ma;
+- `koszty`: każdy koszt grupy jako id, źródło (`ksef`, `ocr_photo`, `manual`,
+  `import`), data, brutto, kolumna KPiR i rodzaj dokumentu.
+
+Różnice wobec aplikacji: skrypt nie odejmuje kosztów reprezentacji (odpadają
+tylko w KPiR modułu), a wielkie litery w numerze daje `upper()` według
+ustawień językowych bazy (przy kolacji „C” polskie litery zostają małe). „Okres już złożony” to co najmniej dwa koszty tej samej grupy
+z odmową w jednym okresie udanego eksportu KPiR albo JPK_V7M albo przyjętej
+wysyłki JPK na bramkę produkcyjną MF.
+
+Wynik `--lista-firm` i `--szczegoly` zostaje w terminalu operatora: nie
+wkleja się go do PR, dziennika, notatek ani na Telegram (repozytorium jest
+publiczne, a szczegóły mają NIP-y i numery dokumentów). Do zgłoszenia
+w Pomocy wystarczą id kosztów.
 
 Fałszywa odmowa (dwa różne dokumenty z tym samym NIP-em, numerem i rokiem,
 z których żaden nie jest kopią): zgłoszenie do zespołu z identyfikatorami
@@ -75,8 +98,8 @@ Bartosz: cofnięcie PR i nocne wdrożenie (`docs/runbooks/nocne-wdrozenie.md`).
 ## Okresy już złożone z dublem
 
 Przed tą zmianą KPiR (raport, eksport), karty i VAT modułu liczyły dubel dwa
-razy. Ile firm ma grupę z odmową w okresie z udanym eksportem KPiR albo
-JPK_V7M albo z przyjętą wysyłką JPK modułu, pokazuje ostatnia liczba skryptu
-(`firmy z odmową w okresie już złożonym`), a które to firmy: `--lista-firm`
+razy. Ile firm ma co najmniej dwa koszty grupy z odmową w okresie z udanym
+eksportem KPiR albo JPK_V7M albo z przyjętą wysyłką JPK modułu, pokazuje liczba
+`firmy z odmową w okresie już złożonym`, a które to firmy: `--lista-firm`
 (kolumna `okres_zlozony`). To firmy do kontaktu (korekta KPiR i JPK_V7M); kto
 i jak mówi o tym firmom, decyduje Bartosz.

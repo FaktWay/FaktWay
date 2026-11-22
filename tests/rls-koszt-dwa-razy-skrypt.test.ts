@@ -16,9 +16,12 @@ import { getRlsTestDatabaseUrl, getRlsTestEnvironment } from './helpers/rls-envi
  * na tych samych wierszach: koszt z KSeF i kopia spoza KSeF (także zdjęcie
  * z rodzajem `simplified_invoice`), kopie spoza KSeF (to samo brutto, ta sama
  * kolumna), paragony (dzień i brutto), dwa koszty z KSeF, rozpisanie na
- * kolumny, ten sam numer w innym roku i koszt poza KPiR. Bez firmy wynik ma
- * same liczby, szczegóły tylko dla jednej firmy, a plik nic nie zapisuje
- * (`BEGIN READ ONLY`).
+ * kolumny, ten sam numer w innym roku i koszt poza KPiR; do tego każda gałąź
+ * reguły osobno (kolumna, brutto, paragon z rodzajem z OCR, para paragonu
+ * i faktury), NIP z kreskami, twarda spacja w numerze, para przez dwa
+ * miesiące, koszt z faktury z innego środowiska KSeF niż aplikacja i okres
+ * już złożony. Bez firmy wynik ma same liczby, szczegóły tylko dla jednej
+ * firmy, a plik nic nie zapisuje (`BEGIN READ ONLY`).
  *
  * psql: `RLS_TEST_PSQL` (domyślnie `psql`; lokalnie np. `wsl -e psql`).
  */
@@ -69,15 +72,19 @@ async function userId(email: string): Promise<string> {
 }
 
 type Koszt = DokumentKosztu & { id: string; tenant_id: string; is_deductible: boolean; issue_date: string };
+/** Środowisko KSeF aplikacji w teście; koszt z faktury z innego środowiska aplikacja pomija (`filterExpensesForKsefEnvironment`). */
+const SRODOWISKO = 'test';
+const srodowiskoFaktury = new Map<string, string>();
 const wiersze: Koszt[] = [];
 
 /** Koszt z KSeF: faktura zakupu przyjęta w KSeF i koszt ze Skrzynki, jak zapisuje je runner. */
-async function zKsef(org: string, numer: string, data: string, brutto: number, nip = NIP): Promise<void> {
+async function zKsef(org: string, numer: string, data: string, brutto: number, nip = NIP, srodowisko = SRODOWISKO): Promise<void> {
   const invoiceId = nextId('1111');
+  srodowiskoFaktury.set(invoiceId, srodowisko);
   const invoice = await admin.from('invoices').insert({
     id: invoiceId, tenant_id: org, direction: 'incoming', origin: 'ksef_inbox', internal_number: numer,
     invoice_type: 'VAT', invoice_kind: 'regular', issue_date: data, seller_nip: nip, buyer_nip: '1234567890',
-    gross_total: brutto, net_total: brutto, vat_total: 0, currency: 'PLN', ksef_status: 'accepted', ksef_environment: 'test',
+    gross_total: brutto, net_total: brutto, vat_total: 0, currency: 'PLN', ksef_status: 'accepted', ksef_environment: srodowisko,
     ksef_number: `${nip}-${data.replace(/-/g, '')}-${String(counter).padStart(12, '0')}-00`, xml_storage_path: 'x.xml',
     fa3_data: { _source: 'inbox-metadata', _pendingFullFetch: false },
   });
@@ -101,6 +108,8 @@ async function koszt(org: string, numer: string, data: string, brutto: number, p
 
 async function sprzataj(): Promise<void> {
   for (const org of [ORG, ORG_B]) {
+    const ej = await admin.from('export_jobs').delete().eq('tenant_id', org);
+    if (ej.error) throw ej.error;
     const e = await admin.from('expenses').delete().eq('tenant_id', org);
     if (e.error) throw e.error;
     const i = await admin.from('invoices').delete().eq('tenant_id', org);
@@ -113,7 +122,7 @@ function uruchom(firma: string, szczegoly: boolean, lista = false): { status: nu
   const [cmd, ...prefix] = PSQL;
   const r = spawnSync(
     cmd!,
-    [...prefix, '-X', '-q', '-A', '-F', '|', '-P', 'footer=off', '-v', 'ON_ERROR_STOP=1', '-v', `firma=${firma}`, '-v', `lista=${lista ? 1 : 0}`, '-v', `szczegoly=${szczegoly ? 1 : 0}`, '-f', '-', databaseUrl],
+    [...prefix, '-X', '-q', '-A', '-F', '|', '-P', 'footer=off', '-v', 'ON_ERROR_STOP=1', '-v', `firma=${firma}`, '-v', `lista=${lista ? 1 : 0}`, '-v', `szczegoly=${szczegoly ? 1 : 0}`, '-v', `srodowisko=${SRODOWISKO}`, '-f', '-', databaseUrl],
     { input: SQL, encoding: 'utf8', env: { ...process.env, PGOPTIONS: '-c default_transaction_read_only=on' } },
   );
   if (r.error) throw r.error;
@@ -174,6 +183,36 @@ describe.skipIf(!hasDatabase)('FZ-022: zapytanie operatora koszt-dwa-razy.sql na
     // Kopia poza KPiR nie liczy się wcale.
     await zKsef(ORG, 'FV/10/2027', '2027-02-14', 99, NIP_B);
     await koszt(ORG, 'FV/10/2027', '2027-02-14', 99, { seller_nip: NIP_B, is_deductible: false });
+    // G11: dwie faktury spoza KSeF w tej samej kolumnie z różnym brutto: odmowa (kopia po kolumnie).
+    await koszt(ORG, 'FV/11/2027', '2027-03-01', 70);
+    await koszt(ORG, 'FV/11/2027', '2027-03-01', 80, { source: 'manual' });
+    // G12: to samo brutto w różnych kolumnach: odmowa (kopia po brutto).
+    await koszt(ORG, 'FV/12/2027', '2027-03-02', 45, { kpir_column: 'col_10' });
+    await koszt(ORG, 'FV/12/2027', '2027-03-02', 45, { kpir_column: 'col_11', source: 'manual' });
+    // G13: dwa paragony z tego samego dnia z różnym brutto: bez odmowy.
+    await koszt(ORG, '4713', '2027-03-03', 5, { document_type: 'receipt' });
+    await koszt(ORG, '4713', '2027-03-03', 6, { document_type: 'receipt' });
+    // G14: zdjęcie faktury uproszczonej (rodzaj tylko z OCR) i wpis ręczny z tym samym brutto z innego dnia: reguła paragonu, bez odmowy.
+    await koszt(ORG, 'UPR/14/2027', '2027-03-04', 20, { ocr_extracted_data: { document_type: 'simplified_invoice' } });
+    await koszt(ORG, 'UPR/14/2027', '2027-03-05', 20, { source: 'manual' });
+    // G15: NIP z prefiksem i kreskami to ten sam NIP: odmowa (kopia po brutto).
+    await koszt(ORG, 'FV/15/2027', '2027-03-06', 33, { seller_nip: 'PL 526-000-12-46' });
+    await koszt(ORG, 'FV/15/2027', '2027-03-06', 33, { source: 'manual' });
+    // G16: numer z twardą spacją (wklejony z PDF) to ten sam numer: odmowa.
+    await koszt(ORG, 'FV 16/2027', '2027-03-07', 44);
+    await koszt(ORG, 'FV\u00a016/2027', '2027-03-07', 44, { source: 'manual' });
+    // G17: z KSeF i zdjęcie z datą z poprzedniego miesiąca: odmowa w roku (KPiR modułu, karty), w żadnym miesiącu.
+    await zKsef(ORG, 'FV/17/2027', '2027-04-02', 77);
+    await koszt(ORG, 'FV/17/2027', '2027-03-31', 77);
+    // G18: koszt z faktury z innego środowiska KSeF niż aplikacja i zdjęcie: aplikacja widzi samo zdjęcie, bez grupy.
+    await zKsef(ORG, 'FV/18/2027', '2027-03-08', 88, NIP, 'production');
+    await koszt(ORG, 'FV/18/2027', '2027-03-08', 88);
+    // Okres już złożony: eksport KPiR za luty z dwoma kosztami G1 (i innych grup z odmową).
+    const eksport = await admin.from('export_jobs').insert({
+      tenant_id: ORG, format: 'kpir_excel', period_start: '2027-02-01', period_end: '2027-02-28', status: 'completed',
+      completed_at: '2027-03-02T10:00:00Z', include_issued: true, include_received: true,
+    });
+    if (eksport.error) throw new Error(`export_jobs: ${eksport.error.message}`);
     // Druga firma: jedna odmowa (z KSeF i ręczny).
     await zKsef(ORG_B, 'FV/1/2027', '2027-02-05', 123);
     await koszt(ORG_B, 'FV/1/2027', '2027-02-05', 123, { source: 'manual' });
@@ -191,7 +230,9 @@ describe.skipIf(!hasDatabase)('FZ-022: zapytanie operatora koszt-dwa-razy.sql na
       .sort();
 
     const grupy = new Map<string, Koszt[]>();
-    for (const w of wiersze.filter((x) => x.tenant_id === ORG && x.is_deductible)) {
+    // Jak aplikacja: koszt z faktury z innego środowiska KSeF wypada przed regułą.
+    const widoczne = wiersze.filter((x) => x.tenant_id === ORG && x.is_deductible && (!x.ksef_invoice_id || srodowiskoFaktury.get(x.ksef_invoice_id) === SRODOWISKO));
+    for (const w of widoczne) {
       const klucz = kluczDokumentuKosztu(w);
       if (klucz) grupy.set(klucz, [...(grupy.get(klucz) ?? []), w]);
     }
@@ -212,6 +253,13 @@ describe.skipIf(!hasDatabase)('FZ-022: zapytanie operatora koszt-dwa-razy.sql na
       '4711|2027|spoza KSeF, różne kwoty i kolumny|f',
       '4712|2027|kopie spoza KSeF|t',
       'UPR/2/2027|2027|z KSeF i spoza KSeF|t',
+      'FV/11/2027|2027|kopie spoza KSeF|t',
+      'FV/12/2027|2027|kopie spoza KSeF|t',
+      '4713|2027|spoza KSeF, różne kwoty i kolumny|f',
+      'UPR/14/2027|2027|spoza KSeF, różne kwoty i kolumny|f',
+      'FV/15/2027|2027|kopie spoza KSeF|t',
+      'FV16/2027|2027|kopie spoza KSeF|t',
+      'FV/17/2027|2027|z KSeF i spoza KSeF|t',
     ].sort());
   });
 
@@ -219,15 +267,22 @@ describe.skipIf(!hasDatabase)('FZ-022: zapytanie operatora koszt-dwa-razy.sql na
     const r = uruchom(ORG, false);
     expect(r.status, r.out).toBe(0);
     const l = liczby(r.out);
+    // Koszty z „Uwzględnij w KPiR” ze środowiska aplikacji: bez kopii poza KPiR i bez kosztu z faktury z innego środowiska.
+    const widoczne = wiersze.filter((x) => x.tenant_id === ORG && x.is_deductible && (!x.ksef_invoice_id || srodowiskoFaktury.get(x.ksef_invoice_id) === SRODOWISKO));
+    expect(l.get('koszty przeczytane (z „Uwzględnij w KPiR”, ze środowiska KSeF aplikacji)')).toBe(widoczne.length);
     expect(l.get('firmy z odmową')).toBe(1);
-    expect(l.get('grupy z odmową')).toBe(5);
-    expect(l.get('grupy z odmową: z KSeF i spoza KSeF')).toBe(3);
-    expect(l.get('grupy z odmową: kopie spoza KSeF')).toBe(2);
-    expect(l.get('grupy z odmową i różną kwotą brutto (do sprawdzenia: mogą być fałszywą odmową)')).toBe(1);
+    expect(l.get('grupy z odmową')).toBe(10);
+    expect(l.get('grupy z odmową: z KSeF i spoza KSeF')).toBe(4);
+    expect(l.get('grupy z odmową: kopie spoza KSeF')).toBe(6);
+    expect(l.get('grupy z odmową i różną kwotą brutto (do sprawdzenia: mogą być fałszywą odmową)')).toBe(2);
     expect(l.get('grupy bez odmowy: same z KSeF')).toBe(1);
-    expect(l.get('grupy bez odmowy: spoza KSeF, różne kwoty i kolumny')).toBe(2);
+    expect(l.get('grupy bez odmowy: spoza KSeF, różne kwoty i kolumny')).toBe(4);
+    // Luty (G1, G2, G3, G6, G8) i marzec (G11, G12, G15, G16); G17 rozdziela miesiące.
+    expect(l.get('miesiące z odmową (oba koszty w tym samym miesiącu: raport KPiR, eksport i JPK_V7M za miesiąc)')).toBe(2);
+    expect(l.get('firmy z odmową w co najmniej jednym miesiącu')).toBe(1);
+    expect(l.get('firmy z odmową w okresie już złożonym (dwa koszty grupy w eksporcie KPiR albo JPK_V7M albo w przyjętej wysyłce JPK)')).toBe(1);
     expect(sekcja(r.out, 'Pary źródeł').map(([zrodla, grup]) => `${zrodla}:${grup}`).sort()).toEqual(
-      ['ksef+ksef:1', 'ksef+ocr_photo:3', 'manual+ocr_photo:1', 'ocr_photo+ocr_photo:3'].sort(),
+      ['ksef+ksef:1', 'ksef+ocr_photo:4', 'manual+ocr_photo:6', 'ocr_photo+ocr_photo:4'].sort(),
     );
     expect(r.out).not.toContain(NIP);
     expect(r.out).not.toContain('FV/1/2027');
@@ -252,7 +307,7 @@ describe.skipIf(!hasDatabase)('FZ-022: zapytanie operatora koszt-dwa-razy.sql na
     const r = uruchom('', false, true);
     expect(r.status, r.out).toBe(0);
     const firmy = new Map(sekcja(r.out, 'Firmy z odmową').map(([firma, grup, doSprawdzenia, zlozony]) => [firma!, `${grup}|${doSprawdzenia}|${zlozony}`]));
-    expect(firmy.get(ORG)).toBe('5|1|f');
+    expect(firmy.get(ORG)).toBe('10|2|t');
     expect(firmy.get(ORG_B)).toBe('1|0|f');
     expect(r.out).not.toContain(NIP);
     expect(r.out).not.toContain('FV/1/2027');
@@ -261,7 +316,7 @@ describe.skipIf(!hasDatabase)('FZ-022: zapytanie operatora koszt-dwa-razy.sql na
   it('plik niczego nie zapisuje: zapis dopisany na końcu pliku pada w transakcji tylko do odczytu', () => {
     const [cmd, ...prefix] = PSQL;
     const zapis = SQL.replace(/ROLLBACK;\s*$/, `UPDATE public.expenses SET notes = 'x' WHERE tenant_id = '${ORG}';\nROLLBACK;\n`);
-    const r = spawnSync(cmd!, [...prefix, '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-v', `firma=${ORG}`, '-v', 'lista=0', '-v', 'szczegoly=0', '-f', '-', databaseUrl], {
+    const r = spawnSync(cmd!, [...prefix, '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-v', `firma=${ORG}`, '-v', 'lista=0', '-v', 'szczegoly=0', '-v', `srodowisko=${SRODOWISKO}`, '-f', '-', databaseUrl], {
       input: zapis,
       encoding: 'utf8',
     });
