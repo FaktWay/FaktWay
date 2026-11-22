@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
-import { cichoBlokuje, spisWyzwalaczy, spisZMigracji, wyjatki, type Spis } from '../sql/wyzwalacze';
+import { cichoBlokuje, spisWyzwalaczy, spisZMigracji, wolaFunkcje, wyjatki, type Spis } from '../sql/wyzwalacze';
 
 /**
  * NZ-SQL-01 (żelazny filtr, uzupełnienie po spisie luk z 16.11): wyzwalacze
@@ -15,23 +15,37 @@ import { cichoBlokuje, spisWyzwalaczy, spisZMigracji, wyjatki, type Spis } from 
  *    czyta każde polecenie o wyzwalaczach; to, czego nie umie, jest czerwone.
  *    Zgodność spisu z bazą po migracjach (te same wyzwalacze i ciała funkcji)
  *    sprawdza `tests/rls-spis-wyzwalaczy.test.ts`.
- * 2. Strażnik to funkcja wyzwalacza z `RAISE EXCEPTION` albo z cichym
- *    cofnięciem zmiany. Jednostką jest funkcja: wyzwalacze tej samej funkcji
- *    (np. osobno UPDATE i DELETE) liczą się razem. Strażnik ma test na bazie,
- *    gdy któryś `tests/rls-*.test.ts` sprawdza jego komunikat, HINT albo
- *    DETAIL: napis albo wyrażenie regularne, które do niego pasuje. Sam kod
- *    błędu nie wystarcza, bo 42501 daje też odmowa RLS i brak uprawnień, więc
- *    taki test nie odróżnia strażnika od polityki. Wzorzec pasujący do tekstów
- *    więcej niż trzech funkcji się nie liczy; pasujący do dwóch albo trzech
- *    liczy się, gdy plik testu wymienia tabelę tylko jednej z nich. Pojedyncze
- *    słowo albo nazwa techniczna liczy się tylko jako cały tekst.
+ * 2. Strażnik to funkcja wyzwalacza z wyjątkiem (każde `RAISE` poza poziomami
+ *    bez błędu i gołym `RAISE;`, także `ASSERT`) albo z cichym cofnięciem
+ *    zmiany. Jednostką jest funkcja: wyzwalacze tej samej funkcji (np. osobno
+ *    UPDATE i DELETE) liczą się razem. Strażnik ma test na bazie, gdy któryś
+ *    `tests/rls-*.test.ts` sprawdza jego komunikat, HINT albo DETAIL w
+ *    argumencie dopasowania `expect(…)` bez `.not` (napis, wyrażenie regularne
+ *    albo stała z napisem z góry pliku). Sam kod błędu nie wystarcza, bo 42501
+ *    daje też odmowa RLS i brak uprawnień, więc taki test nie odróżnia
+ *    strażnika od polityki. Wzorzec pasujący do tekstów więcej niż trzech
+ *    funkcji się nie liczy; pasujący do dwóch albo trzech liczy się, gdy plik
+ *    testu wymienia tabelę tylko jednej z nich. Fragment liczy się od 12 znaków
+ *    i dwóch słów; jedno słowo (także z polskimi literami) i nazwa techniczna
+ *    tylko jako cały tekst.
  * 3. `BEZ_KOMUNIKATU`: strażnicy bez takiego testu dziś. `kod`: test na bazie
- *    robi zabroniony zapis i sprawdza tylko kod błędu (plik musi istnieć
- *    i wymieniać tabelę). `brak`: żaden test nie próbuje zabronionego zapisu
- *    (FZ-024). Lista jest dokładna: strażnik z testem tekstu z niej schodzi,
- *    nowy strażnik bez testu nie przejdzie.
+ *    robi zabroniony zapis i sprawdza tylko kod błędu albo tylko to, że jest
+ *    błąd (plik musi istnieć i wymieniać tabelę). `brak`: żaden test nie
+ *    próbuje zabronionego zapisu albo zapis zatrzymuje wcześniej inny
+ *    strażnik (FZ-024). Lista jest dokładna: strażnik z testem tekstu z niej
+ *    schodzi. Zapadka: nazwy z list bez testu stoją w jednej linii
+ *    (`ZAPADKA_*`), więc nowy wpis to zmiana tej linii, a ta wymaga etykiety
+ *    `zgoda:zmiana-filtra`; zejście z listy jest wolne.
  * 4. `SKUTKI`: wyzwalacze bez wyjątku (znacznik czasu, audyt, wpłaty,
- *    numeracja, harmonogram) z testem na bazie albo powodem.
+ *    numeracja, harmonogram) z testem na bazie albo powodem; funkcja, która
+ *    woła inną funkcję z `public` (tam może być strażnik), tylko z testem.
+ *
+ * Ograniczenia (drugi czytelnik, 22.11): pokrycie liczy się na funkcję, nie
+ * na parę funkcja i tabela ani na każdą gałąź wyjątku; wpis `kod` sprawdza
+ * tylko, że plik testu wymienia tabelę; literał w bloku pomijanym w CI też się
+ * liczy; formy migracji, których spis nie czyta (np. `DO LANGUAGE`, DDL
+ * w bloku `DO`, `SET SCHEMA`), zatrzymuje dopiero test na bazie
+ * (`tests/rls-spis-wyzwalaczy.test.ts`).
  *
  * Mapowanie `kod` i `brak` z odczytu testów 17.11.2026 (który zapis, jaką
  * rolą, czy trafia w strażnika, a nie w RLS albo wcześniejszy wyzwalacz).
@@ -50,9 +64,8 @@ const BEZ_KOMUNIKATU: Record<string, BezKomunikatu> = {
     uwaga: 'klient: draft na queued, diagnostyka, treść failed (42501); INSERT z historią dostawy bez testu',
   },
   guard_invoice_pending_content: {
-    stan: 'kod',
-    test: 'rls-cykl-wyzwalacze.test.ts',
-    uwaga: 'ten sam zapis klienta blokuje najpierw guard_invoice_delivery_history (kolejność nazw), więc niepewne; INSERT nie-szkicu i edycja treści w queued bez testu',
+    stan: 'brak',
+    uwaga: 'zapis klienta z rls-cykl-wyzwalacze.test.ts zatrzymuje najpierw guard_invoice_delivery_history (kolejność nazw); INSERT nie-szkicu i edycja treści w queued bez testu',
   },
   guard_invoice_payment_evidence: {
     stan: 'kod',
@@ -119,6 +132,16 @@ const SKUTKI: Record<string, { test?: string; uwaga: string }> = {
   reopen_reviewed_financial_cases_for_payment: { uwaga: 'bez testu na bazie: ponowne otwarcie sprawy finansowej abonamentu po zmianie płatności Stripe' },
 };
 
+/**
+ * Zapadka list bez testu (drugi czytelnik, Z3): nazwy stoją w jednej linii,
+ * więc dopisanie strażnika bez testu albo skutku bez testu zmienia tę linię
+ * (etykieta `zgoda:zmiana-filtra`), a zejście z listy jest wolne.
+ */
+// prettier-ignore
+const ZAPADKA_BEZ_KOMUNIKATU = 'enforce_stripe_payment_subscription_tenant enforce_stripe_subscription_customer_tenant guard_accepted_ksef_invoice_line guard_admin_refund_financial_case guard_billing_invoice_financial_case guard_billing_invoice_identity guard_billing_invoice_line guard_cash_document_update guard_cash_register_update guard_expense_payment_columns guard_expense_provenance guard_historical_ksef_invoice_lines guard_invoice_correction_parent guard_invoice_delivery_history guard_invoice_ksef_environment guard_invoice_number_series_update guard_invoice_payment_evidence guard_invoice_pending_content guard_invoice_recurring_link guard_invoice_sales_quote_update guard_invoice_send_owner guard_ksef_collective_identifier guard_ksef_expense_provenance guard_ksef_offline_queue_environment guard_ksef_permission_grant guard_payment_import_update guard_payment_voided guard_pending_invoice_lines guard_roz_advance_single_settlement guard_stripe_payment_financial_refs guard_stripe_payment_vat_invoice_link guard_tenant_first_invoice_accepted_at guard_tenant_ksef_claim_fields guard_tenant_logo_storage_key guard_tenant_stripe_customer_id guard_upo_ksef_environment lock_stripe_subscription_tenant_for_checkout preserve_canceled_stripe_subscription preserve_stripe_payment_refund_status prevent_financial_case_review_mutation';
+// prettier-ignore
+const ZAPADKA_SKUTKI_BEZ_TESTU = 'handle_new_user reopen_reviewed_financial_cases_for_payment set_updated_at';
+
 // ─── Pokrycie: teksty strażników w testach na bazie ──────────────────────
 
 interface Straznik {
@@ -135,23 +158,49 @@ interface PlikTestu {
 
 type Literal = { napis: string } | { wzorzec: RegExp };
 
-const NAZWA_TECHNICZNA = /^[A-Za-z0-9_.]+$/;
+/** Dopasowania `expect`, których argumenty sprawdzają tekst (tytuły i opisy `expect(x, '…')` to nie sprawdzenie). */
+const DOPASOWANIA = new Set(['toMatch', 'toContain', 'toContainEqual', 'toBe', 'toEqual', 'toStrictEqual', 'toThrow', 'toThrowError', 'toMatchObject', 'toHaveProperty']);
 
-/** Nazwa testu (`it`, `test`, `describe` i ich odmiany) to opis, nie sprawdzenie. */
-function jestTytulem(wezel: ts.Node): boolean {
-  const rodzic = wezel.parent;
-  if (!rodzic || !ts.isCallExpression(rodzic) || rodzic.arguments[0] !== wezel) return false;
-  let wywolany: ts.Expression = rodzic.expression;
-  while (ts.isPropertyAccessExpression(wywolany) || ts.isCallExpression(wywolany)) wywolany = wywolany.expression;
-  return ts.isIdentifier(wywolany) && ['it', 'test', 'describe'].includes(wywolany.text);
+/** Czy wywołanie dopasowania stoi w łańcuchu `expect(…)` (także `.rejects`, `.resolves`, `expect.soft`) i czy ma w nim `.not`. */
+function lancuchExpect(wywolanie: ts.CallExpression): { expect: boolean; not: boolean } {
+  let not = false;
+  let w: ts.Expression = wywolanie.expression;
+  for (;;) {
+    if (ts.isPropertyAccessExpression(w)) {
+      if (w.name.text === 'not') not = true;
+      w = w.expression;
+    } else if (ts.isCallExpression(w)) {
+      const c = w.expression;
+      if (ts.isIdentifier(c) && c.text === 'expect') return { expect: true, not };
+      if (ts.isPropertyAccessExpression(c) && ts.isIdentifier(c.expression) && c.expression.text === 'expect') return { expect: true, not };
+      w = c;
+    } else if (ts.isNonNullExpression(w) || ts.isParenthesizedExpression(w) || ts.isAwaitExpression(w)) {
+      w = w.expression;
+    } else {
+      return { expect: false, not };
+    }
+  }
 }
 
-/** Napisy i wyrażenia regularne z pliku testu, bez nazw testów. */
+/**
+ * Napisy i wyrażenia regularne z argumentów dopasowań `expect` bez `.not`
+ * (także zagnieżdżone, np. `expect.stringMatching`); stała z napisem
+ * zadeklarowana na górze pliku (`const ODMOWA = '…'`) liczy się jak jej napis.
+ */
 function literaly(plik: PlikTestu): Literal[] {
   const wynik: Literal[] = [];
   const zrodlo = ts.createSourceFile(plik.plik, plik.kod, ts.ScriptTarget.Latest, true);
-  const odwiedz = (wezel: ts.Node): void => {
-    if (jestTytulem(wezel)) return;
+  const stale = new Map<string, ts.Node>();
+  for (const w of zrodlo.statements) {
+    if (!ts.isVariableStatement(w) || !(w.declarationList.flags & ts.NodeFlags.Const)) continue;
+    for (const d of w.declarationList.declarations) if (ts.isIdentifier(d.name) && d.initializer) stale.set(d.name.text, d.initializer);
+  }
+  const zbierz = (wezel: ts.Node): void => {
+    const nazwaWlasciwosci = ts.isPropertyAccessExpression(wezel.parent) && wezel.parent.name === wezel;
+    if (ts.isIdentifier(wezel) && !nazwaWlasciwosci) {
+      const stala = stale.get(wezel.text);
+      if (stala && (ts.isStringLiteralLike(stala) || stala.kind === ts.SyntaxKind.RegularExpressionLiteral)) zbierz(stala);
+    }
     if (ts.isStringLiteral(wezel) || ts.isNoSubstitutionTemplateLiteral(wezel)) wynik.push({ napis: wezel.text });
     else if (ts.isTemplateExpression(wezel)) {
       wynik.push({ napis: wezel.head.text });
@@ -165,25 +214,34 @@ function literaly(plik: PlikTestu): Literal[] {
         // Wzorzec, którego ten Node nie zbuduje, nie jest sprawdzeniem komunikatu strażnika.
       }
     }
+    ts.forEachChild(wezel, zbierz);
+  };
+  const odwiedz = (wezel: ts.Node): void => {
+    if (ts.isCallExpression(wezel) && ts.isPropertyAccessExpression(wezel.expression) && DOPASOWANIA.has(wezel.expression.name.text)) {
+      const l = lancuchExpect(wezel);
+      if (l.expect && !l.not) for (const a of wezel.arguments) zbierz(a);
+    }
     ts.forEachChild(wezel, odwiedz);
   };
   odwiedz(zrodlo);
   return wynik;
 }
 
+/** Część tekstu, która coś mówi: co najmniej 12 znaków i dwa słowa (jedno słowo, także z polskimi literami, liczy się tylko jako cały tekst). */
+const dwaSlowa = (t: string) => t.trim().length >= 12 && /\S\s+\S/.test(t.trim());
+
 /** Literał z testu sprawdza ten tekst strażnika. */
 function pasuje(literal: Literal, tekst: string): boolean {
-  const czesci = tekst.split('%').filter((c) => c.trim().length >= 12 && !NAZWA_TECHNICZNA.test(c.trim()));
+  const czesci = tekst.split('%').filter(dwaSlowa);
   if ('napis' in literal) {
     const n = literal.napis;
     if (n === tekst) return true;
-    if (n.length < 8 || NAZWA_TECHNICZNA.test(n)) return false;
+    if (!dwaSlowa(n)) return false;
     return tekst.replace(/%/g, '\u0000').includes(n) || czesci.some((c) => n.includes(c.trim()));
   }
   const w = literal.wzorzec;
-  if (NAZWA_TECHNICZNA.test(w.source)) return new RegExp(`^(?:${w.source})$`, w.flags).test(tekst);
-  if (w.source.length < 6) return false;
-  const bezEskejpow = w.source.replace(/\\(.)/g, '$1');
+  const bezEskejpow = w.source.replace(/\\s[+*]?/g, ' ').replace(/\\(.)/g, '$1');
+  if (!dwaSlowa(bezEskejpow)) return new RegExp(`^(?:${w.source})$`, w.flags).test(tekst);
   return w.test(tekst.replace(/%/g, 'X')) || czesci.some((c) => bezEskejpow.includes(c.trim()));
 }
 
@@ -211,7 +269,7 @@ function straznicy(spis: Spis): Straznik[] {
     const funkcja = spis.funkcje.get(w.funkcja);
     if (!funkcja) continue;
     const wy = wyjatki(funkcja.cialo);
-    if (wy.length === 0 && !cichoBlokuje(funkcja.cialo, w.kiedy)) continue;
+    if (wy.length === 0 && !cichoBlokuje(funkcja.cialo, w.kiedy, w.zdarzenia)) continue;
     const s = wynik.get(w.funkcja) ?? { funkcja: w.funkcja, tabele: [], teksty: [] };
     if (!s.tabele.includes(w.tabela.split('.')[1])) s.tabele.push(w.tabela.split('.')[1]);
     for (const x of wy) for (const t of [x.komunikat, x.podpowiedz, x.szczegoly]) if (t && !s.teksty.includes(t)) s.teksty.push(t);
@@ -284,6 +342,24 @@ describe('NZ-SQL-01: spis wyzwalaczy z migracji', () => {
     ]);
   });
 
+  it('inne postaci strażnika: RAISE bez EXCEPTION, warunek, SQLSTATE, ASSERT i ciche cofnięcie; komentarz, napis i poziom bez błędu się nie liczą', () => {
+    const cialo = (x: string) => `BEGIN ${x} RETURN NEW; END`;
+    expect(wyjatki(cialo("RAISE 'Bez poziomu %', NEW.id;"))).toEqual([{ komunikat: 'Bez poziomu %', kod: null, podpowiedz: null, szczegoly: null }]);
+    expect(wyjatki(cialo("RAISE check_violation USING MESSAGE = 'Warunek', HINT = 'h';"))).toEqual([{ komunikat: 'Warunek', kod: null, podpowiedz: 'h', szczegoly: null }]);
+    expect(wyjatki(cialo("RAISE SQLSTATE '42501' USING MESSAGE = 'Stan';"))).toEqual([{ komunikat: 'Stan', kod: '42501', podpowiedz: null, szczegoly: null }]);
+    expect(wyjatki(cialo("ASSERT NEW.x = 'a', 'Asercja';"))).toEqual([{ komunikat: 'Asercja', kod: 'P0004', podpowiedz: null, szczegoly: null }]);
+    expect(
+      wyjatki(cialo("RAISE NOTICE 'informacja'; RAISE WARNING 'ostrzezenie'; -- RAISE EXCEPTION 'w komentarzu';\n /* RAISE 'blok' */ PERFORM log('nie RAISE tutaj'); EXCEPTION WHEN others THEN RAISE;")),
+    ).toEqual([]);
+    expect(cichoBlokuje(cialo('NEW.status = OLD.status;'), 'BEFORE', 'UPDATE')).toBe(true);
+    expect(cichoBlokuje(cialo('IF NEW.status = OLD.status THEN RETURN NEW; END IF;'), 'BEFORE', 'UPDATE')).toBe(false);
+    expect(cichoBlokuje('BEGIN NEW := OLD; RETURN NEW; END', 'BEFORE', 'UPDATE')).toBe(true);
+    expect(cichoBlokuje('BEGIN RETURN OLD; END', 'BEFORE', 'UPDATE')).toBe(true);
+    expect(cichoBlokuje('BEGIN RETURN OLD; END', 'BEFORE', 'UPDATE OR DELETE')).toBe(false);
+    expect(cichoBlokuje('BEGIN RETURN OLD; END', 'AFTER', 'UPDATE')).toBe(false);
+    expect(wolaFunkcje('BEGIN PERFORM public.sprawdz(NEW, OLD); INSERT INTO public.audit_logs (a) VALUES (1); RETURN NEW; END')).toEqual(['sprawdz']);
+  });
+
   it('nieczytelne polecenia o wyzwalaczach są na liście nierozpoznanych', () => {
     const spis = spisZMigracji([
       {
@@ -330,6 +406,27 @@ describe('NZ-SQL-01: strażnicy mają test na bazie', () => {
     });
   });
 
+  it('słowo bez spacji, także z polskimi literami, szablon, dopasowanie z .not i napis poza dopasowaniem się nie liczą; stała z pliku tak', () => {
+    const s = (funkcja: string, tabela: string, ...teksty: string[]): Straznik => ({ funkcja, tabele: [tabela], teksty });
+    const lista = [
+      s('w', 'archives', 'Archiwum może zmienić tylko właściciel firmy'),
+      s('x', 'audit_logs', 'audit_logs is append-only (% blocked)'),
+      s('y', 'invoices', 'faktura % jest wycofana'),
+      s('z', 'notes', 'Note special data is written once'),
+    ];
+    const wynik = pokrycie(lista, [
+      { plik: 'slowo.test.ts', kod: "from('archives'); expect(rola).toBe('właściciel');" },
+      { plik: 'lacznik.test.ts', kod: "from('audit_logs'); expect(e.message).toContain('append-only');" },
+      { plik: 'szablon.test.ts', kod: "from('invoices'); expect(e.message).toContain(`faktura ${numer}`);" },
+      { plik: 'not.test.ts', kod: "from('archives'); expect(e.message).not.toMatch(/tylko właściciel firmy/);" },
+      { plik: 'opis.test.ts', kod: "from('archives'); expect(e, 'Archiwum może zmienić tylko właściciel firmy').toBeNull();" },
+      { plik: 'poza.test.ts', kod: "from('archives'); const blad = 'Archiwum może zmienić tylko właściciel firmy'; log(blad);" },
+      { plik: 'stala.test.ts', kod: "const RAZ = 'written once';\nfrom('notes'); expect(e.message).toContain(RAZ);" },
+      { plik: 'dlugi.test.ts', kod: "from('audit_logs'); await expect(zapis()).rejects.toThrow('audit_logs is append-only');" },
+    ]);
+    expect(Object.fromEntries([...wynik].map(([f, p]) => [f, [...p].sort()]))).toEqual({ x: ['dlugi.test.ts'], z: ['stala.test.ts'] });
+  });
+
   it('każdy strażnik ma test tekstu albo dokładny wpis w BEZ_KOMUNIKATU', () => {
     const bledy: string[] = [];
     for (const s of STRAZNICY) {
@@ -346,6 +443,13 @@ describe('NZ-SQL-01: strażnicy mają test na bazie', () => {
     const funkcje = new Set(STRAZNICY.map((s) => bezSchematu(s.funkcja)));
     for (const nazwa of Object.keys(BEZ_KOMUNIKATU)) if (!funkcje.has(nazwa)) bledy.push(`${nazwa}: nie ma takiego strażnika, usuń wpis z BEZ_KOMUNIKATU`);
     expect(bledy).toEqual([]);
+  });
+
+  it('zapadka: listy bez testu nie rosną bez etykiety zgoda:zmiana-filtra', () => {
+    const zapadka = new Set(ZAPADKA_BEZ_KOMUNIKATU.split(' '));
+    expect(Object.keys(BEZ_KOMUNIKATU).filter((n) => !zapadka.has(n))).toEqual([]);
+    const skutki = new Set(ZAPADKA_SKUTKI_BEZ_TESTU.split(' '));
+    expect(Object.entries(SKUTKI).filter(([n, w]) => !w.test && !skutki.has(n)).map(([n]) => n)).toEqual([]);
   });
 
   it('wpisy kod wskazują istniejący test na bazie, który wymienia tabelę strażnika', () => {
@@ -373,7 +477,7 @@ describe('NZ-SQL-01: wyzwalacze bez wyjątku', () => {
     const funkcje = new Map<string, Set<string>>();
     for (const w of SPIS.wyzwalacze) {
       const f = SPIS.funkcje.get(w.funkcja);
-      if (!f || wyjatki(f.cialo).length > 0 || cichoBlokuje(f.cialo, w.kiedy)) continue;
+      if (!f || wyjatki(f.cialo).length > 0 || cichoBlokuje(f.cialo, w.kiedy, w.zdarzenia)) continue;
       const nazwa = bezSchematu(w.funkcja);
       if (!funkcje.has(nazwa)) funkcje.set(nazwa, new Set());
       funkcje.get(nazwa)!.add(w.tabela.split('.')[1]);
@@ -385,7 +489,12 @@ describe('NZ-SQL-01: wyzwalacze bez wyjątku', () => {
         bledy.push(`${nazwa} (${[...tabele].join(', ')}): dopisz do SKUTKI test na bazie albo powód`);
         continue;
       }
-      if (!wpis.test) continue;
+      const f = SPIS.funkcje.get(`public.${nazwa}`);
+      const wolane = f ? wolaFunkcje(f.cialo) : [];
+      if (!wpis.test) {
+        if (wolane.length > 0) bledy.push(`${nazwa}: woła ${wolane.join(', ')} (tam może być strażnik), więc w SKUTKI potrzebny test na bazie, nie sam powód`);
+        continue;
+      }
       const plik = PLIKI_TESTOW.find((p) => p.plik === wpis.test);
       if (!plik) bledy.push(`${nazwa}: nie ma tests/${wpis.test}`);
       else if (![...tabele].some((t) => plik.kod.includes(`'${t}'`))) bledy.push(`${nazwa}: ${wpis.test} nie wymienia tabeli ${[...tabele].join(', ')}`);

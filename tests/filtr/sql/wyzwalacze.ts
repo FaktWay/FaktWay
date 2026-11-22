@@ -320,16 +320,56 @@ export function spisWyzwalaczy(katalog = join(process.cwd(), 'supabase/migration
   return spisZMigracji(pliki.map((plik) => ({ plik, sql: readFileSync(join(katalog, plik), 'utf8') })));
 }
 
+/** Ciało funkcji bez komentarzy (`--` do końca linii, `/* … *\/`); napisy zostają, także z `--` w środku. */
+export function bezKomentarzy(cialo: string): string {
+  let wynik = '';
+  let i = 0;
+  while (i < cialo.length) {
+    if (cialo[i] === "'") {
+      let j = i + 1;
+      while (j < cialo.length && !(cialo[j] === "'" && cialo[j + 1] !== "'")) j += cialo[j] === "'" ? 2 : 1;
+      wynik += cialo.slice(i, j + 1);
+      i = j + 1;
+    } else if (cialo.startsWith('--', i)) {
+      while (i < cialo.length && cialo[i] !== '\n') i += 1;
+    } else if (cialo.startsWith('/*', i)) {
+      const koniec = cialo.indexOf('*/', i + 2);
+      wynik += ' ';
+      i = koniec < 0 ? cialo.length : koniec + 2;
+    } else {
+      wynik += cialo[i];
+      i += 1;
+    }
+  }
+  return wynik;
+}
+
+/** Poziomy `RAISE`, które nie przerywają zapisu. */
+const BEZ_BLEDU = /^\s*(?:DEBUG|LOG|INFO|NOTICE|WARNING)\b/i;
+
 /**
- * `RAISE EXCEPTION` w ciele funkcji: komunikat (pierwszy napis albo `MESSAGE =`)
- * i `ERRCODE`. Średnik w napisie nie kończy polecenia.
+ * Wyjątki w ciele funkcji: każde `RAISE` poza poziomami bez błędu i gołym
+ * `RAISE;` (ponowienie w obsłudze wyjątku), także bez `EXCEPTION` (to poziom
+ * domyślny), z nazwą warunku albo `SQLSTATE`, oraz `ASSERT`. Komunikat to
+ * pierwszy napis albo `MESSAGE =`, kod to `ERRCODE` albo `SQLSTATE`.
+ * Średnik w napisie nie kończy polecenia; komentarze się nie liczą.
  */
-export function wyjatki(cialo: string): Wyjatek[] {
+export function wyjatki(cialoZKomentarzami: string): Wyjatek[] {
+  const cialo = bezKomentarzy(cialoZKomentarzami);
+  // Słowa kluczowe szukane poza napisami (te same pozycje), napisy czytane z ciała.
+  const maska = bezTresci(cialo);
   const wynik: Wyjatek[] = [];
-  const re = /\bRAISE\s+EXCEPTION\b/gi;
+  const re = /\b(RAISE|ASSERT)\b/gi;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(cialo))) {
+  while ((m = re.exec(maska))) {
     let i = m.index + m[0].length;
+    const asercja = m[1].toUpperCase() === 'ASSERT';
+    if (!asercja) {
+      const reszta = maska.slice(i);
+      if (/^\s*;/.test(reszta) || BEZ_BLEDU.test(reszta)) continue;
+      const poziom = /^\s*EXCEPTION\b/i.exec(reszta);
+      if (poziom) i += poziom[0].length;
+    }
     let przed = '';
     const napisy: Array<{ wartosc: string; przed: string }> = [];
     while (i < cialo.length && cialo[i] !== ';') {
@@ -354,20 +394,48 @@ export function wyjatki(cialo: string): Wyjatek[] {
       przed += "''";
       i = j + 1;
     }
+    if (asercja) {
+      // `ASSERT warunek, 'komunikat'`: komunikat to ostatni napis po przecinku.
+      const ostatni = napisy.at(-1);
+      wynik.push({ komunikat: ostatni && /,\s*$/.test(ostatni.przed) ? ostatni.wartosc : null, kod: 'P0004', podpowiedz: null, szczegoly: null });
+      continue;
+    }
     const opcja = (nazwaOpcji: string) =>
       napisy.find((x) => new RegExp(String.raw`\b${nazwaOpcji}\s*=\s*$`, 'i').test(x.przed))?.wartosc ?? null;
-    const zMessage = opcja('MESSAGE');
-    const pierwszy = napisy[0] && !/=\s*$/.test(napisy[0].przed) ? napisy[0].wartosc : null;
-    wynik.push({ komunikat: zMessage ?? pierwszy, kod: opcja('ERRCODE'), podpowiedz: opcja('HINT'), szczegoly: opcja('DETAIL') });
+    const sqlstate = napisy[0] !== undefined && /^\s*SQLSTATE\s*$/i.test(napisy[0].przed);
+    const pierwszy = napisy[0] && !sqlstate && !/=\s*$/.test(napisy[0].przed) ? napisy[0].wartosc : null;
+    wynik.push({
+      komunikat: opcja('MESSAGE') ?? pierwszy,
+      kod: opcja('ERRCODE') ?? (sqlstate ? napisy[0].wartosc : null),
+      podpowiedz: opcja('HINT'),
+      szczegoly: opcja('DETAIL'),
+    });
   }
   return wynik;
 }
 
 /**
- * Funkcja cicho cofa albo pomija zmianę (bez wyjątku): `NEW.x := OLD.x`
- * albo `RETURN NULL` w wyzwalaczu BEFORE. Takiej dziś nie ma; gdyby powstała,
- * test filtra traktuje ją jak strażnika bez komunikatu.
+ * Funkcja cicho cofa albo pomija zmianę (bez wyjątku): przypisanie starej
+ * wartości (`NEW.x := OLD.x`, `NEW.x = OLD.x`, `NEW := OLD` na początku
+ * polecenia), `RETURN NULL` w wyzwalaczu BEFORE albo `RETURN OLD` w BEFORE
+ * UPDATE bez DELETE (przy DELETE `RETURN OLD` przepuszcza usunięcie). Takiej
+ * dziś nie ma; gdyby powstała, test filtra traktuje ją jak strażnika bez
+ * komunikatu.
  */
-export function cichoBlokuje(cialo: string, kiedy: string): boolean {
-  return /\bNEW\.\w+\s*:=\s*OLD\.\w+/i.test(cialo) || (kiedy === 'BEFORE' && /\bRETURN\s+NULL\b/i.test(cialo));
+export function cichoBlokuje(cialoZKomentarzami: string, kiedy: string, zdarzenia = ''): boolean {
+  const cialo = bezTresci(bezKomentarzy(cialoZKomentarzami));
+  const przypisanie = /(?:^|;|\bTHEN\b|\bELSE\b|\bBEGIN\b|\bLOOP\b)\s*NEW(?:\.\w+)?\s*:?=\s*OLD(?:\.\w+)?\s*;/im;
+  if (/\bNEW\.\w+\s*:=\s*OLD\.\w+/i.test(cialo) || przypisanie.test(cialo)) return true;
+  if (kiedy !== 'BEFORE') return false;
+  if (/\bRETURN\s+NULL\b/i.test(cialo)) return true;
+  return /\bUPDATE\b/i.test(zdarzenia) && !/\bDELETE\b/i.test(zdarzenia) && /\bRETURN\s+OLD\b/i.test(cialo);
+}
+
+/**
+ * Funkcja woła inną funkcję z `public` (`PERFORM public.f(…)`, `SELECT
+ * public.f(…)`, `x := public.f(…)`): strażnik może być w tamtej funkcji.
+ */
+export function wolaFunkcje(cialoZKomentarzami: string): string[] {
+  const cialo = bezTresci(bezKomentarzy(cialoZKomentarzami));
+  return [...new Set([...cialo.matchAll(/(?:\bPERFORM|\bSELECT|:=|\bRETURN)\s+(?:\(\s*)?public\.(\w+)\s*\(/gi)].map((x) => x[1].toLowerCase()))];
 }
