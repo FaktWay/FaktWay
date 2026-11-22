@@ -105,6 +105,8 @@ const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
  * - zwykła FP (typ dokumentu FP w JPK_V7M), o ile paragon jest z miesiąca
  *   wcześniejszego niż wystawienie faktury (`receiptInvoiceRow`: paragon
  *   z miesiąca wystawienia albo nieznana data sprzedaży to odmowa JPK_V7M).
+ * Stawka „oo” (odwrotne obciążenie) wstrzymuje tylko JPK_V7M: JPK_FA ją wykazuje
+ * (`JpkV7mReverseChargeNotSupportedError` w generatorze JPK_V7M).
  * Reszta (TP, procedury, podmiot upoważniony, P_22, P_23, marża, kod GTU spoza
  * listy, nieczytelne adnotacje i daty, korekta, zaliczka, ROZ) wstrzymuje oba pliki.
  */
@@ -152,8 +154,8 @@ export function contentHeldReasonItems(inv: ParsedInvoice, content: ImportConten
     });
   }
   // Stawka „oo” (odwrotne obciążenie) to stawka FaktWay, ale JPK_V7M jej nie wykazuje (`JpkV7mReverseChargeNotSupportedError`).
-  // Dopisywana tylko tam, gdzie ostrzeżenie i tak jest (sama „oo” bez oznaczeń nie dostaje dziś ostrzeżenia: osobne ustalenie).
-  if (items.length > 0 && inv.lines.some((l) => l.vatRate.trim().toLowerCase() === 'oo')) {
+  // Powód osobny także przy samej „oo” bez innych oznaczeń (JPK_FA takiej faktury powstaje, JPK_V7M nie).
+  if (inv.lines.some((l) => l.vatRate.trim().toLowerCase() === 'oo')) {
     items.push({ text: 'stawka „oo” (odwrotne obciążenie): FaktWay nie wykazuje jej w JPK_V7M', files: ['JPK_V7M'] });
   }
   return items;
