@@ -2,7 +2,6 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
 import {
-  dzienPrzychodu,
   kluczKursu,
   przeliczNaPln,
   sumyOkresu,
@@ -44,18 +43,21 @@ import { opcje } from '../generatory/ustawienia';
  * - NZ-KPIR-02: kolumna kosztu z kategorii (col_10 do col_13 to K_10 do K_13,
  *   koszt B+R z col_15 albo col_16 to K_13 z zapisem w K_16);
  * - NZ-PIT-08: FP i FS z zapłaconych wersji składek (`zaplatyFunduszuPracy`),
- *   także z dopłatami, nigdy z części odliczanej od dochodu; FZ-027 (`.fails`):
- *   wersja, która przesuwa kwotę z FP do części bez FP, daje koszt i
- *   odliczenie z tych samych pieniędzy;
+ *   także z dopłatami, nadpłatą i powrotem do kwoty, nigdy z części
+ *   odliczanej od dochodu; FZ-027 (dwa `.fails`): wersja, która zmienia
+ *   podział tej samej kwoty między FP i część bez FP, daje koszt i odliczenie
+ *   z tych samych pieniędzy albo FP w odliczeniu;
  * - NZ-KPIR-03: dokument z dniem spoza roku nie wchodzi do księgi ani do
  *   braków, a dwanaście miesięcy to cała księga;
  * - NZ-KPIR-04: ten sam przychód i ten sam dzień w KPiR i w ewidencji także
  *   dla korekty, zaliczki, rozliczenia z zaliczkami i faktury w walucie
- *   (wspólny kurs). Faktura w walucie z kilkoma stawkami różni się o grosze
- *   zaokrągleń: ewidencja przelicza osobno każdą stawkę, KPiR całość. Dzień
- *   należy do jednej księgi, więc klient tej różnicy nie widzi;
- * - NZ-WSP-02 przy progu najmu: kolejność nie zmienia ewidencji, a ponad
- *   próg idzie dokładnie nadwyżka przychodu z najmu od początku roku.
+ *   (wspólny kurs), z dniem z reguły art. 14 ust. 1c ustawy o PIT liczonym
+ *   w teście osobno. Faktura w walucie z kilkoma stawkami różni się o grosze
+ *   zaokrągleń (FZ-028, INFO): ewidencja przelicza osobno każdą stawkę, KPiR
+ *   całość. Dzień należy do jednej księgi, więc klient tej różnicy nie widzi;
+ * - NZ-WSP-02 przy progu najmu: kolejność nie zmienia ewidencji w żadnym
+ *   miesiącu, a ponad próg do końca każdego miesiąca idzie dokładnie nadwyżka
+ *   przychodu z najmu od 1 stycznia.
  * Na prawdziwych `zbudujEwidencje` i `zbudujKpir`, rok 2026.
  */
 
@@ -67,6 +69,9 @@ const dzienRoku = fc.integer({ min: 0, max: 364 }).map((d) => odDnia(Date.UTC(RO
 const dzienSzeroko = fc.integer({ min: 0, max: 484 }).map((d) => odDnia(Date.UTC(ROK - 1, 10, 1), d));
 const wstecz = (d: string, dni: number) => odDnia(Date.parse(`${d}T00:00:00Z`), -dni);
 const wRoku = (d: string) => d.startsWith(`${ROK}-`);
+/** Dzień przychodu wprost z reguły: dzień sprzedaży, najpóźniej wystawienie (art. 14 ust. 1c ustawy o PIT); korekta w dniu wystawienia. */
+const dzienZReguly = (f: FakturaEwidencji) =>
+  f.rodzaj === 'korekta' || !f.dataSprzedazy || f.dataSprzedazy >= f.dataWystawienia ? f.dataWystawienia : f.dataSprzedazy;
 const ZERO: Readonly<Record<KolumnaKpir, number>> = { k7: 0, k8: 0, k10: 0, k11: 0, k12: 0, k13: 0 };
 
 const ryczalt = (pb: number, z: Partial<WersjaProfilu> = {}) => [profil({ forma: 'ryczalt', stawkaDomyslna: pb, validFrom: `${ROK}-01-01`, ...z })];
@@ -249,14 +254,13 @@ describe('niezmienniki ksiąg (F5), uzupełnienie: stawki, kolumny, FP, rok, rod
             expect([w.zaMiesiac, w.data]).toEqual([z?.okres, z?.zaplaconeO]);
             expect(w.fpGr).toBeGreaterThan(0);
           }
-          const odl = odliczenia(zaplaty);
           for (const okres of new Set(zaplaty.map((z) => z.okres))) {
             const wersje = zaplaty.filter((z) => z.okres === okres);
             const ostatnia = wersje[wersje.length - 1];
             const fpOkresu = fp.filter((w) => w.zaMiesiac === okres).reduce((s, w) => s + w.fpGr, 0);
             // Razem tyle FP, ile ma ostatnia wersja; część bez FP (odliczana od dochodu) nigdy nie jest kosztem.
             expect(fpOkresu).toBe(ostatnia.kwotaGr - ostatnia.spoleczneBezFpGr);
-            const odlOkresu = odl.filter((_, i) => zaplaty[i].okres === okres).reduce((s, o) => s + o.spoleczneBezFpGr, 0);
+            const odlOkresu = odliczenia(wersje).reduce((s, o) => s + o.spoleczneBezFpGr, 0);
             expect(fpOkresu + odlOkresu).toBe(ostatnia.kwotaGr);
           }
           // W KPiR: wiersz kolumny 13 w dniu zapłaty z roku księgi, nic poza tym (kolejność wierszy księgi jest inna, więc po id).
@@ -271,16 +275,73 @@ describe('niezmienniki ksiąg (F5), uzupełnienie: stawki, kolumny, FP, rok, rod
     );
   });
 
-  it.fails('NZ-PIT-08: nowa wersja z mniejszym FP nie zostawia w kosztach FP, które odliczenie liczy już jako składki (FZ-027)', () => {
-    // Zapłata spoza wyliczenia za grudzień 2025 z częścią bez FP równą zero (pomyłka), potem wersja z kwotą z DRA.
-    const zaplaty: ZaplaconeSkladki[] = [
+  // Nadpłata i powrót: wersja najwyższa (kwota, część bez FP i FP naraz) i niższe od niej w dowolnej kolejności.
+  const nadplataArb = fc
+    .record({
+      bezFp: fc.integer({ min: 0, max: 200_000 }),
+      fp: fc.integer({ min: 0, max: 20_000 }),
+      nizsze: fc.array(fc.record({ b: fc.integer({ min: 0, max: 100 }), f: fc.integer({ min: 0, max: 100 }) }), { maxLength: 3 }),
+      gdzie: fc.nat(),
+    })
+    .map(({ bezFp, fp, nizsze, gdzie }) => {
+      const czesci = nizsze.map((x) => ({ b: Math.floor((bezFp * x.b) / 100), f: Math.floor((fp * x.f) / 100) }));
+      czesci.splice(gdzie % (czesci.length + 1), 0, { b: bezFp, f: fp });
+      return czesci.map((c, i): ZaplaconeSkladki => ({ id: `v${i + 1}`, okres: `${ROK}-03`, wersja: i + 1, kwotaGr: c.b + c.f, spoleczneBezFpGr: c.b, zaplaconeO: odDnia(Date.UTC(ROK, 3, 1), 7 * i) }));
+    });
+
+  it('NZ-PIT-08: przy nadpłacie i powrocie liczy się wersja najwyższa: odliczenie to jej część bez FP, FP jej reszta', () => {
+    fc.assert(
+      fc.property(nadplataArb, (wersje) => {
+        const maxK = Math.max(...wersje.map((v) => v.kwotaGr));
+        const maxB = Math.max(...wersje.map((v) => v.spoleczneBezFpGr));
+        const odl = odliczenia(wersje);
+        expect([odl.reduce((s, o) => s + o.kwotaGr, 0), odl.reduce((s, o) => s + o.spoleczneBezFpGr, 0)]).toEqual([maxK, maxB]);
+        // Wersja pośrednia, która zwiększa część bez FP bardziej niż kwotę, to FZ-027.
+        let k = 0;
+        let b = 0;
+        let przesuniecie = false;
+        for (const v of wersje) {
+          if (Math.max(0, v.spoleczneBezFpGr - b) > Math.max(0, v.kwotaGr - k)) przesuniecie = true;
+          k = Math.max(k, v.kwotaGr);
+          b = Math.max(b, v.spoleczneBezFpGr);
+        }
+        if (!przesuniecie) expect(zaplatyFunduszuPracy(wersje).reduce((s, w) => s + w.fpGr, 0)).toBe(maxK - maxB);
+      }),
+      opcje(),
+    );
+    // 1800 zł, potem 500 zł (preferencyjny ZUS, nadpłata), potem znów 1800 zł: FP 150 zł raz, odliczenie 1650 zł raz.
+    const powrot: ZaplaconeSkladki[] = [
+      { id: 'v1', okres: `${ROK}-03`, wersja: 1, kwotaGr: 180_000, spoleczneBezFpGr: 165_000, zaplaconeO: `${ROK}-04-10` },
+      { id: 'v2', okres: `${ROK}-03`, wersja: 2, kwotaGr: 50_000, spoleczneBezFpGr: 50_000, zaplaconeO: `${ROK}-04-20` },
+      { id: 'v3', okres: `${ROK}-03`, wersja: 3, kwotaGr: 180_000, spoleczneBezFpGr: 165_000, zaplaconeO: `${ROK}-05-05` },
+    ];
+    expect(zaplatyFunduszuPracy(powrot).map((w) => [w.id, w.fpGr])).toEqual([['v1', 15_000]]);
+    expect(odliczenia(powrot).reduce((s, o) => s + o.spoleczneBezFpGr, 0)).toBe(165_000);
+  });
+
+  /** FP w kolumnie 13 i odliczenie składek za grudzień 2025 albo brak w księdze z nazwą okresu. */
+  const podzialGrudnia = (zaplaty: ZaplaconeSkladki[]) => {
+    const k = kpir({ zaplatyFp: zaplatyFunduszuPracy(zaplaty) });
+    if (k.braki.some((b) => b.dokument === 'Składki ZUS za 12/2025')) return 'brak';
+    return [sumyKpir(k.wiersze).kolumny.k13, odliczenia(zaplaty).reduce((s, o) => s + o.spoleczneBezFpGr, 0)];
+  };
+
+  it.fails('NZ-PIT-08: wersja, która przesuwa kwotę z FP do części bez FP, daje FP i odliczenie z ostatniej wersji albo brak (FZ-027)', () => {
+    // Zapłata spoza wyliczenia z częścią bez FP równą zero (pomyłka), potem wersja z kwotą z DRA; dziś 1000 zł kosztu i 900 zł odliczenia z 1000 zł.
+    const w = podzialGrudnia([
       { id: 'v1', okres: '2025-12', wersja: 1, kwotaGr: 100_000, spoleczneBezFpGr: 0, zaplaconeO: '2026-01-10' },
       { id: 'v2', okres: '2025-12', wersja: 2, kwotaGr: 100_000, spoleczneBezFpGr: 90_000, zaplaconeO: '2026-01-20' },
-    ];
-    const fp = zaplatyFunduszuPracy(zaplaty).reduce((s, w) => s + w.fpGr, 0);
-    const odl = odliczenia(zaplaty).reduce((s, o) => s + o.spoleczneBezFpGr, 0);
-    // Dziś koszt FP 1000 zł i odliczenie 900 zł z 1000 zł zapłaty.
-    expect(fp + odl).toBe(100_000);
+    ]);
+    if (w !== 'brak') expect(w).toEqual([10_000, 90_000]);
+  });
+
+  it.fails('NZ-PIT-08: wersja, która przesuwa kwotę z części bez FP do FP, daje FP i odliczenie z ostatniej wersji albo brak (FZ-027)', () => {
+    // Odwrotnie: część bez FP równa całej kwocie (pomyłka), potem 900 zł; dziś FP nie ma w kolumnie 13, a odliczenie 1000 zł zawiera FP.
+    const w = podzialGrudnia([
+      { id: 'v1', okres: '2025-12', wersja: 1, kwotaGr: 100_000, spoleczneBezFpGr: 100_000, zaplaconeO: '2026-01-10' },
+      { id: 'v2', okres: '2025-12', wersja: 2, kwotaGr: 100_000, spoleczneBezFpGr: 90_000, zaplaconeO: '2026-01-20' },
+    ]);
+    if (w !== 'brak') expect(w).toEqual([10_000, 90_000]);
   });
 
   // NZ-KPIR-03: dni od listopada roku poprzedniego do lutego następnego.
@@ -305,13 +366,14 @@ describe('niezmienniki ksiąg (F5), uzupełnienie: stawki, kolumny, FP, rok, rod
         const k = kpir(w);
         expect(k.wiersze.every((r) => wRoku(r.data))).toBe(true);
         expect(k.braki.every((b) => wRoku(b.dzien))).toBe(true);
-        for (const f of w.faktury) expect(wierszeFaktury(k.wiersze, f).map((r) => r.data)).toEqual(wRoku(dzienPrzychodu(f)) ? [dzienPrzychodu(f)] : []);
+        for (const f of w.faktury) expect(wierszeFaktury(k.wiersze, f).map((r) => r.data)).toEqual(wRoku(dzienZReguly(f)) ? [dzienZReguly(f)] : []);
         for (const c of w.koszty) {
           const wRokuKosztu = wRoku(c.data) ? 1 : 0;
           expect([wierszeFaktury(k.wiersze, c).length, brakiDokumentu(k.braki, c.dowod).length]).toEqual(c.kolumnaAplikacji === null ? [0, wRokuKosztu] : [wRokuKosztu, 0]);
         }
         for (const x of [...w.wpisy, ...w.zaplatyFp]) expect(wierszeFaktury(k.wiersze, x)).toHaveLength(wRoku(x.data) ? 1 : 0);
 
+        // Granice okresu w `wierszeKpirOkresu` i `brakiKpirOkresu`: pierwszy i ostatni dzień każdego miesiąca.
         const miesiace = Array.from({ length: 12 }, (_, i) => miesiac(i + 1));
         const wiersze = miesiace.flatMap(([od, doDnia]) => wierszeKpirOkresu(k, od, doDnia));
         expect(sumyKpir(wiersze)).toEqual(sumyKpir(k.wiersze));
@@ -354,8 +416,8 @@ describe('niezmienniki ksiąg (F5), uzupełnienie: stawki, kolumny, FP, rok, rod
           waluta: x.eur ? 'EUR' : 'PLN',
           pozycje: x.stawki?.map(([pb, gr]) => ({ nettoGr: gr, stawkaRyczaltu: pb / 100 })) ?? null,
         });
-        const klucz = kluczKursu('EUR', dzienPrzychodu(f));
-        if (x.eur && !kursy.has(klucz)) kursy.set(klucz, x.bezKursu === 0 ? { znaleziony: false } : { znaleziony: true, mid: x.mid / 10_000, tabela: `${i}/A/NBP/${ROK}`, dataTabeli: dzienPrzychodu(f) });
+        const klucz = kluczKursu('EUR', dzienZReguly(f));
+        if (x.eur && !kursy.has(klucz)) kursy.set(klucz, x.bezKursu === 0 ? { znaleziony: false } : { znaleziony: true, mid: x.mid / 10_000, tabela: `${i}/A/NBP/${ROK}`, dataTabeli: dzienZReguly(f) });
         return f;
       });
       return { faktury, kursy };
@@ -368,7 +430,8 @@ describe('niezmienniki ksiąg (F5), uzupełnienie: stawki, kolumny, FP, rok, rod
         const e = ewidencja({ faktury, kursy, wersje: ryczalt(pb) });
         const roznicaWMiesiacu = new Map<string, number>();
         for (const f of faktury) {
-          const dzien = dzienPrzychodu(f);
+          // Dzień z reguły, nie z `dzienPrzychodu` silników: test łapie i rozejście ksiąg, i złą regułę wspólną.
+          const dzien = dzienZReguly(f);
           const kwota = f.rodzaj === 'rozliczenie' ? f.nettoGr - f.rozliczoneZaliczkiGr : f.nettoGr;
           const wk = wierszeFaktury(k.wiersze, f);
           const we = wierszeFaktury(e.wiersze, f);
@@ -442,7 +505,7 @@ describe('niezmienniki ksiąg (F5), uzupełnienie: stawki, kolumny, FP, rok, rod
       .map((xs) => xs.map((x, i) => wpisReczny(i, x.d, x.gr, x.pb))),
   });
 
-  it('NZ-WSP-02: przy progu najmu kolejność nie zmienia ewidencji, a ponad próg idzie nadwyżka przychodu z najmu od początku roku', () => {
+  it('NZ-WSP-02: przy progu najmu kolejność nie zmienia ewidencji w żadnym miesiącu, a ponad próg do końca miesiąca idzie nadwyżka przychodu z najmu od 1 stycznia', () => {
     const wersje = ryczalt(NAJEM.stawkaNajmuPb, { najem: true });
     fc.assert(
       fc.property(
@@ -451,10 +514,23 @@ describe('niezmienniki ksiąg (F5), uzupełnienie: stawki, kolumny, FP, rok, rod
           const najem: ProgNajmu = { progGr: n.progGr, ...NAJEM };
           const a = ewidencja({ faktury: n.faktury, wpisy: n.wpisy, wersje, najem });
           const b = ewidencja({ faktury: faktury2, wpisy: wpisy2, wersje, najem });
-          const stawki = (e: Ewidencja) => [...sumyOkresu(e.wiersze).stawki].sort((x, y) => x[0] - y[0]);
-          expect(stawki(b)).toEqual(stawki(a));
+          const stawki = (e: Ewidencja, od: string, doDnia: string) => [...sumyOkresu(wierszeOkresu(e, od, doDnia)).stawki].sort((x, y) => x[0] - y[0]);
           expect(b.braki).toEqual(a.braki);
           expect(a.braki).toEqual([]);
+          // Przychód z najmu z dniem: faktury (stawka profilu to stawka najmu) i wpisy ze stawką najmu.
+          const zNajmuDni = [
+            ...n.faktury.map((f) => [dzienZReguly(f), f.nettoGr] as const),
+            ...n.wpisy.filter((w) => w.stawkaPb === NAJEM.stawkaNajmuPb).map((w) => [w.dataPrzychodu, w.kwotaGr] as const),
+          ];
+          let ponadDotad = 0;
+          for (let m = 1; m <= 12; m++) {
+            const [od, doDnia] = miesiac(m);
+            expect(stawki(b, od, doDnia)).toEqual(stawki(a, od, doDnia));
+            // Ponad próg do końca miesiąca idzie nadwyżka przychodu z najmu od 1 stycznia do końca miesiąca; w miesiącu jej przyrost.
+            const ponadDoKonca = Math.max(0, zNajmuDni.filter(([d]) => d <= doDnia).reduce((x, [, gr]) => x + gr, 0) - n.progGr);
+            expect(sumyOkresu(wierszeOkresu(a, od, doDnia)).stawki.get(NAJEM.stawkaPonadProgPb) ?? 0).toBe(ponadDoKonca - ponadDotad);
+            ponadDotad = ponadDoKonca;
+          }
           const zNajmu = n.faktury.reduce((s, f) => s + f.nettoGr, 0) + n.wpisy.filter((w) => w.stawkaPb === NAJEM.stawkaNajmuPb).reduce((s, w) => s + w.kwotaGr, 0);
           const s = sumyOkresu(a.wiersze).stawki;
           const ponad = s.get(NAJEM.stawkaPonadProgPb) ?? 0;
