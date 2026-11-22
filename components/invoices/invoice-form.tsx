@@ -5,8 +5,13 @@ import { useRouter } from 'next/navigation';
 import { useForm, useFieldArray, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
-import { invoiceFormSchema, type InvoiceFormValues } from '@/lib/schemas/invoice-form';
-import { calculateInvoiceTotals } from '@/lib/xml/invoice-calculator';
+import {
+  invoiceFormSchema,
+  lineItemSchema,
+  unitPriceGrossSchema,
+  type InvoiceFormValues,
+} from '@/lib/schemas/invoice-form';
+import { calculateInvoiceTotals, GROSS_PRICES_UNTAXED_RATES } from '@/lib/xml/invoice-calculator';
 import {
   saveAndSendInvoiceAction,
   saveDraftAction,
@@ -188,6 +193,9 @@ export function InvoiceForm({
       buyerVatUe: '',
       buyerCountryCode: '',
       lines: [newLine],
+      // Plan cen brutto, PR (b): ceny netto domyślnie, jak dotąd; podkład z faktury
+      // w cenach brutto (`initialValues`) przestawia to niżej.
+      pricesGross: false,
       paymentMethod: paymentDefaults.paymentMethod,
       paymentDueDate: paymentDefaults.paymentDueDate,
       bankAccount: '',
@@ -225,6 +233,9 @@ export function InvoiceForm({
   // Krok 2.8: autozapis kopii roboczej. Faktura cykliczna i proforma mają
   // własną drogę zapisu (bez szkicu), więc tam autozapisu nie ma.
   const autosave = useFormAutosave({ form, tenantId, enabled: !recurringMode && !salesQuoteId });
+  // Plan cen brutto, PR (b): ceny brutto ustawiła faktura do paragonu, nie klient
+  // (odznaczenie paragonu może je wtedy cofnąć).
+  const cenyBruttoOdParagonu = useRef(false);
   const [restoreOffer, setRestoreOffer] = useState<LoadedAutosave | null>(restoredDraft);
   const restoreAutosave = () => {
     if (!restoreOffer) return;
@@ -233,6 +244,9 @@ export function InvoiceForm({
       form.setValue(name as keyof InvoiceFormValues, value as never);
     }
     if (Array.isArray(lines) && lines.length > 0 && lines.every((l) => typeof l === 'object' && l !== null)) replace(lines);
+    // Metoda cen z kopii; kopia sprzed cen brutto (bez metody) była w cenach netto.
+    form.setValue('pricesGross', rest.pricesGross === true);
+    cenyBruttoOdParagonu.current = false;
     // Kolejne autozapisy nadpisują tę samą kopię, a zapis faktury niesie jej klucz.
     form.setValue('numberRequestKey', restoreOffer.requestKey);
     setRestoreOffer(null);
@@ -256,6 +270,8 @@ export function InvoiceForm({
   const buyerCountryCode = useWatch({ control: form.control, name: 'buyerCountryCode' }) ?? '';
   const buyerKind: BuyerKind = buyerIsEu ? 'eu' : buyerIsConsumer ? 'consumer' : 'pl';
   const receiptInvoice = useWatch({ control: form.control, name: 'receiptInvoice' }) === true;
+  // Plan cen brutto, PR (b): ceny netto albo brutto dla całej faktury (jedna metoda na fakturę).
+  const pricesGross = useWatch({ control: form.control, name: 'pricesGross' }) === true;
   const issueDateWatch = useWatch({ control: form.control, name: 'issueDate' }) ?? today;
 
   // Krok 2.5: zmiana serii albo daty wystawienia podpowiada numer z tej serii,
@@ -276,11 +292,49 @@ export function InvoiceForm({
   // pory zmieniła ją tylko data paragonu: zwykła faktura nie może po cichu
   // zostać z datą sprzedaży z paragonu (P_6).
   const saleDateBeforeReceipt = useRef<string | null>(null);
+
+  // Plan cen brutto, PR (b): zmiana metody cen całej faktury. Ceny nie są
+  // przeliczane: każda metoda ma swoje pole, a powrót pokazuje wpisaną cenę.
+  // Pole metody, której nie widać, nie może zatrzymać zapisu, więc
+  // nieprawidłowa cena netto wraca do 0, a nieprawidłowa cena brutto do pustego pola.
+  const ustawCenyBrutto = (gross: boolean) => {
+    (form.getValues('lines') ?? []).forEach((l, i) => {
+      if (gross && !lineItemSchema.shape.unitPriceNet.safeParse(l?.unitPriceNet).success) {
+        form.setValue(`lines.${i}.unitPriceNet`, 0);
+      }
+      if (!gross && l?.unitPriceGross !== undefined && !unitPriceGrossSchema.safeParse(l.unitPriceGross).success) {
+        form.setValue(`lines.${i}.unitPriceGross`, undefined);
+      }
+    });
+    form.setValue('pricesGross', gross, { shouldDirty: true });
+    if (form.formState.isSubmitted) void form.trigger();
+  };
+  const onPricesGrossChange = (gross: boolean) => {
+    cenyBruttoOdParagonu.current = false;
+    ustawCenyBrutto(gross);
+  };
+
   const onReceiptInvoiceChange = (checked: boolean) => {
+    const lines = form.getValues('lines') ?? [];
     if (checked) {
       saleDateBeforeReceipt.current = form.getValues('saleDate') ?? '';
+      // Paragon ma kwoty brutto, a kasa liczy PTU od sumy brutto stawki, więc faktura
+      // do paragonu domyślnie idzie w cenach brutto. Tylko przy pozycjach bez ceny netto
+      // i bez stawki bez podatku: wpisanych cen nie przestawiamy.
+      const bezCen = lines.every(
+        (l) => !(Number(l?.unitPriceNet) > 0) && !(l?.vatRate !== undefined && GROSS_PRICES_UNTAXED_RATES.has(l.vatRate)),
+      );
+      if (bezCen && form.getValues('pricesGross') !== true) {
+        ustawCenyBrutto(true);
+        cenyBruttoOdParagonu.current = true;
+      }
       return;
     }
+    // Odznaczenie FP: ceny netto wracają, jeśli przestawił je paragon, a ceny brutto nikt nie wpisał.
+    if (cenyBruttoOdParagonu.current && lines.every((l) => l?.unitPriceGross === undefined)) {
+      ustawCenyBrutto(false);
+    }
+    cenyBruttoOdParagonu.current = false;
     const before = saleDateBeforeReceipt.current;
     saleDateBeforeReceipt.current = null;
     const receiptDate = form.getValues('receiptDate');
@@ -292,7 +346,7 @@ export function InvoiceForm({
     form.setValue('saleDate', value, { shouldValidate: form.formState.isSubmitted });
 
   // Ta sama tablica idzie do sum i do `InvoiceTotals` (rozbicie VAT na stawki).
-  const lineItems = toLineItems(watchedLines);
+  const lineItems = toLineItems(watchedLines, pricesGross);
 
   const totals = calculateInvoiceTotals(lineItems);
   const splitPayment = useWatch({ control: form.control, name: 'splitPayment' });
@@ -325,6 +379,9 @@ export function InvoiceForm({
     form.setValue('buyerEmail', v.buyerEmail);
     form.setValue('paymentMethod', v.paymentMethod);
     if (v.bankAccount) form.setValue('bankAccount', v.bankAccount);
+    // Faktura-podkład w cenach brutto wraca w cenach brutto, z ceną brutto pozycji (N1).
+    form.setValue('pricesGross', v.pricesGross === true);
+    cenyBruttoOdParagonu.current = false;
     replace(v.lines);
     setPrefillUzyty(true);
     toast.success(`Wypełniłem na podstawie faktury dla ${prefill.contractorName}`);
@@ -370,8 +427,9 @@ export function InvoiceForm({
       // Puste pole ceny jest blokowane przez walidację Zod. Cena 0.00 zł jest
       // dozwolona (faktura bezpłatna jest legalna), ale wymaga świadomego
       // potwierdzenia, żeby user nie wysłał przypadkiem faktury na 0 zł.
+      // Przy cenach brutto liczy się cena brutto pozycji (plan cen brutto, PR (b)).
       const hasZeroPriceLine = (values.lines ?? []).some(
-        (l) => Number(l.unitPriceNet) === 0,
+        (l) => Number(values.pricesGross === true ? l.unitPriceGross : l.unitPriceNet) === 0,
       );
       if (hasZeroPriceLine) {
         const proceed =
@@ -531,11 +589,13 @@ export function InvoiceForm({
           <LineItemsSection
             form={form}
             fields={fields}
-            watchedLines={watchedLines}
             linesDesktopLayout={linesDesktopLayout}
             remove={remove}
             onAddLine={() => append(newLine)}
             vatExempt={vatExempt}
+            pricesGross={pricesGross}
+            onPricesGrossChange={onPricesGrossChange}
+            lineItems={lineItems}
           />
 
           <Separator />

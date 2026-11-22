@@ -14,6 +14,7 @@ import {
   saveRegularDraft,
   type RegularIssueResult,
 } from '@/lib/invoices/issue-regular';
+import { documentGrossPrices } from '@/lib/invoices/document-lines';
 import { isGtuCode, isPkwiuCode } from '@/lib/invoices/line-codes';
 import { addressCountryForKodUE, parseVatUe } from '@/lib/invoices/vat-ue';
 import { RECURRING_DRAFT_REFUSED_MESSAGE } from '@/lib/invoices/recurring/issue';
@@ -147,6 +148,7 @@ export interface PrefillFromLastInvoice {
     | 'buyerAddressLine2'
     | 'buyerEmail'
     | 'lines'
+    | 'pricesGross'
     | 'paymentMethod'
     | 'bankAccount'
   >;
@@ -220,15 +222,31 @@ async function prefillCore(
   const kodyPozycji = new Map(
     (Array.isArray(faktura.lines) ? faktura.lines : []).map((l) => [l.ordinal, l] as const),
   );
-  const lines = (pozycje ?? [])
+  // Plan cen brutto, PR (b), uwaga N1: pozycja w cenach brutto ma w bazie pustą
+  // cenę netto (NULL), a cenę brutto w dokumencie (`documentGrossPrices`: faktura
+  // FaktWay w cenach brutto albo plik importu z P_9B, F12-E4). Taka faktura wraca
+  // w cenach brutto z ceną brutto pozycji. Brak ceny nigdy nie staje się ceną
+  // 0 zł: pozycja bez ceny netto w fakturze, której nie da się wypełnić w cenach
+  // brutto (np. import z pozycjami netto i brutto), to brak podkładu.
+  const wiersze = pozycje ?? [];
+  const cenyBrutto = documentGrossPrices(row.fa3_data as Parameters<typeof documentGrossPrices>[0]);
+  const brutto =
+    faktura.pricesGross === true ||
+    (wiersze.length > 0 && wiersze.every((poz) => poz.unit_price_net == null && cenyBrutto.has(Number(poz.ordinal))));
+  if (!brutto && wiersze.some((poz) => poz.unit_price_net == null)) return null;
+  const lines = wiersze
     .map((poz) => {
       const kody = kodyPozycji.get(Number(poz.ordinal));
       const pkwiuCode = typeof kody?.pkwiuCode === 'string' ? kody.pkwiuCode.trim() : '';
+      const cenaBrutto = cenyBrutto.get(Number(poz.ordinal));
       return {
         name: String(poz.name ?? ''),
         unit: String(poz.unit ?? 'szt'),
         quantity: Number(poz.quantity) || 0,
-        unitPriceNet: Number(poz.unit_price_net) || 0,
+        // Przy cenach brutto cena netto nie wchodzi do faktury; pozycja bez ceny brutto
+        // w dokumencie wraca z pustym polem ceny („Podaj cenę brutto pozycji”), nie z 0 zł.
+        unitPriceNet: brutto ? 0 : Number(poz.unit_price_net) || 0,
+        ...(brutto && cenaBrutto !== undefined ? { unitPriceGross: cenaBrutto } : {}),
         vatRate: String(poz.vat_rate ?? '23'),
         ...(isPkwiuCode(pkwiuCode) ? { pkwiuCode } : {}),
         ...(isGtuCode(kody?.gtuCode) ? { gtuCode: kody.gtuCode } : {}),
@@ -266,6 +284,8 @@ async function prefillCore(
       buyerAddressLine2: buyer.address?.addressLine2 ?? '',
       buyerEmail: buyer.email ?? '',
       lines: lines as InvoiceFormValues['lines'],
+      // Klucz tylko przy cenach brutto: podkład z faktury w cenach netto jak dotąd.
+      ...(brutto ? { pricesGross: true } : {}),
       // „mobile” ma tylko faktura za abonament opłacony BLIK-iem; formularz tej formy nie zna.
       paymentMethod: faktura.payment?.method === 'mobile' ? 'other' : faktura.payment?.method ?? 'transfer',
       bankAccount: faktura.payment?.bankAccount ?? '',

@@ -6,7 +6,7 @@ import { sprawdzFa3 } from '@/lib/bezpieczniki/fa3';
 import { buildInvoiceFromForm, draftLineRows } from '@/lib/invoices/build-from-form';
 import { invoiceFormSchema, type InvoiceFormValues } from '@/lib/schemas/invoice-form';
 import { generateFA3Xml } from '@/lib/xml/fa3-generator';
-import { calculateInvoiceTotals, summarizeVatPerRate, validateInvoice } from '@/lib/xml/invoice-calculator';
+import { calculateInvoiceTotals, finalizeInvoice, summarizeVatPerRate, validateInvoice } from '@/lib/xml/invoice-calculator';
 import { validateFA3 } from '@/lib/xml/validator';
 import type { InvoiceLineItem } from '@/types/invoice';
 
@@ -211,7 +211,7 @@ describe('podgląd sum w formularzu liczy tak samo jak serwer', () => {
     expect(calculateInvoiceTotals(toLineItems(lines, true))).toEqual({ netTotal: 2.44, vatTotal: 0.56, grossTotal: 3 });
   });
 
-  it('losowe pozycje: podgląd (pozycje, stawki, sumy) = faktura z serwera, a VAT każdej stawki = KP od sumy brutto stawki (wyrocznia na liczbach całkowitych)', () => {
+  it('losowe pozycje: podgląd (pozycje, stawki, sumy) = faktura z serwera = finalizeInvoice w cenach brutto (#835), a VAT każdej stawki = KP od sumy brutto stawki (wyrocznia na liczbach całkowitych)', () => {
     // Ilość w tysięcznych częściach i cena w groszach: wyrocznia liczy brutto pozycji
     // i VAT stawki na liczbach całkowitych (połówka od zera, art. 106e ust. 7 i 11).
     const pozycjaArb = fc.record({
@@ -228,6 +228,13 @@ describe('podgląd sum w formularzu liczy tak samo jak serwer', () => {
         }));
         const invoice = zbuduj(wartosci({ lines }));
         const podglad = toLineItems(lines, true);
+        const zLiczenia = finalizeInvoice({
+          internalNumber: invoice.internalNumber, type: 'VAT', issueDate: invoice.issueDate, seller: invoice.seller, buyer: invoice.buyer,
+          payment: { currency: 'PLN', dueDate: invoice.payment.dueDate, method: 'transfer' }, pricesGross: true,
+          lines: lines.map((l, i) => ({ ordinal: i + 1, name: l.name, unit: l.unit, quantity: l.quantity, unitPriceNet: 0, unitPriceGross: l.unitPriceGross, vatRate: l.vatRate })),
+        });
+        expect(invoice.lines.map(kwoty)).toEqual(zLiczenia.lines.map(kwoty));
+        expect([invoice.netTotal, invoice.vatTotal, invoice.grossTotal]).toEqual([zLiczenia.netTotal, zLiczenia.vatTotal, zLiczenia.grossTotal]);
         expect(podglad.map(kwoty)).toEqual(invoice.lines.map(kwoty));
         expect(calculateInvoiceTotals(podglad)).toEqual({ netTotal: invoice.netTotal, vatTotal: invoice.vatTotal, grossTotal: invoice.grossTotal });
         expect(summarizeVatPerRate(podglad)).toEqual(summarizeVatPerRate(invoice.lines));

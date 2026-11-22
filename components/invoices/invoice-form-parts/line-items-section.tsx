@@ -9,38 +9,63 @@ import { Label } from '@/components/ui/label';
 import { formatPlMoney } from '@/lib/format/pl';
 import type { InvoiceFormValues } from '@/lib/schemas/invoice-form';
 import { cn } from '@/lib/utils';
-import { calculateLineItem } from '@/lib/xml/invoice-calculator';
+import type { InvoiceLineItem } from '@/types/invoice';
 
 import { FieldErrorText, fieldErrorProps } from './field-error-text';
 import { labelClass, LINE_GRID, vatSelectClass } from './constants';
 import { LineCodesFields } from './line-codes-fields';
 import { ProductNameInput } from './product-name-input';
 
+/** Kwoty pozycji, której podgląd jeszcze nie policzył (pozycja dodana w tym renderze). */
+const BRAK_KWOT = { netAmount: 0, vatAmount: 0, grossAmount: 0 } as const;
+
 /**
  * Sekcja „Pozycje”: wiersze siatki od 1360 px albo karty
- * (`useLinesDesktopLayout`), dodawanie i usuwanie pozycji. Sumy liczy
- * formularz (`toLineItems`) i pokazuje pod sekcją. Pole nazwy podpowiada
- * produkty z katalogu (`ProductNameInput`, krok 2.6, część 2a); PKWiU
- * pozycji pod wierszem albo w karcie (`LineCodesFields`, część 2b-1).
+ * (`useLinesDesktopLayout`), dodawanie i usuwanie pozycji. Kwoty pozycji
+ * i sumy liczy formularz (`toLineItems`, te same pozycje co `InvoiceTotals`
+ * pod sekcją). Pole nazwy podpowiada produkty z katalogu (`ProductNameInput`,
+ * krok 2.6, część 2a); PKWiU pozycji pod wierszem albo w karcie
+ * (`LineCodesFields`, część 2b-1).
+ *
+ * Plan cen brutto, PR (b): wybór „Ceny netto / Ceny brutto” dla całej faktury
+ * w nagłówku sekcji (D1: dodane pole z istniejących komponentów, natywna lista
+ * jak stawka VAT). Przy cenach brutto pole ceny pozycji to cena brutto, a kwoty
+ * pozycji (brutto i netto z podziału VAT stawki) są te same, co zapisze faktura.
  */
 export function LineItemsSection({
   form,
   fields,
-  watchedLines,
   linesDesktopLayout,
   remove,
   onAddLine,
   vatExempt = false,
+  lineItems,
+  pricesGross = false,
+  onPricesGrossChange,
 }: {
   form: UseFormReturn<InvoiceFormValues>;
   fields: FieldArrayWithId<InvoiceFormValues, 'lines', 'id'>[];
-  watchedLines: InvoiceFormValues['lines'] | undefined;
   linesDesktopLayout: boolean;
   remove: (index: number) => void;
   onAddLine: () => void;
   /** Firma zwolniona z VAT: podpowiedź z katalogu nie zastępuje „zw” stawką z podatkiem. */
   vatExempt?: boolean;
+  /** Pozycje policzone przez formularz (`toLineItems`), po jednej na pole; z nich kwoty pozycji. */
+  lineItems: InvoiceLineItem[];
+  /** Ceny brutto dla całej faktury (plan cen brutto, PR (b)). */
+  pricesGross?: boolean;
+  /** Zmiana metody cen; formularz pilnuje pól ukrytej metody (`ustawCenyBrutto`). */
+  onPricesGrossChange: (gross: boolean) => void;
 }) {
+  const cena = pricesGross ? 'Cena brutto' : 'Cena netto';
+  /** Pole ceny pozycji według metody: netto jako liczba (jak dotąd), brutto z pustym polem jako brak. */
+  const poleCeny = (index: number) =>
+    pricesGross
+      ? form.register(`lines.${index}.unitPriceGross`, {
+          setValueAs: (v: unknown) => (v === '' || v === undefined || v === null ? undefined : Number(v)),
+        })
+      : form.register(`lines.${index}.unitPriceNet`, { valueAsNumber: true });
+  const kwotyPozycji = (index: number) => lineItems[index] ?? BRAK_KWOT;
   /** Błąd stawki pozycji — np. „np. II” bez nabywcy z UE (AUD-70). */
   const bladStawki = (index: number): string | undefined =>
     form.formState.errors.lines?.[index]?.vatRate?.message;
@@ -48,7 +73,23 @@ export function LineItemsSection({
   // POZYCJE (Finora: `invoice-line-items.tsx`) — wiersze siatki vs karty
   // wg `linesDesktopLayout` (od 1360 px, `LINES_LAYOUT_MEDIA`).
   return (
-    <DocumentSection title="Pozycje" testId="sekcja-pozycje" description="Towary i usługi na fakturze">
+    <DocumentSection
+      title="Pozycje"
+      testId="sekcja-pozycje"
+      description="Towary i usługi na fakturze"
+      action={
+        <select
+          id="prices-mode"
+          aria-label="Ceny w pozycjach"
+          className={cn(vatSelectClass, 'w-auto')}
+          value={pricesGross ? 'brutto' : 'netto'}
+          onChange={(e) => onPricesGrossChange(e.target.value === 'brutto')}
+        >
+          <option value="netto">Ceny netto</option>
+          <option value="brutto">Ceny brutto</option>
+        </select>
+      }
+    >
       {/* Tylko jeden wariant layoutu naraz — patrz `linesDesktopLayout` powyżej. */}
       {linesDesktopLayout ? (
         <div className="-mx-1 overflow-x-auto px-1">
@@ -57,18 +98,13 @@ export function LineItemsSection({
               <span>Nazwa</span>
               <span>J.m.</span>
               <span>Ilość</span>
-              <span>Cena netto</span>
+              <span>{cena}</span>
               <span>VAT</span>
               <span className="text-right">Brutto</span>
               <span />
             </div>
             {fields.map((field, index) => {
-              const w = watchedLines?.[index];
-              const calc = calculateLineItem({
-                quantity: Number(w?.quantity) || 0,
-                unitPriceNet: Number(w?.unitPriceNet) || 0,
-                vatRate: w?.vatRate ?? '23',
-              });
+              const calc = kwotyPozycji(index);
               return (
                 <div key={field.id} className="space-y-1">
                   <div className={cn(LINE_GRID, 'items-start')}>
@@ -88,14 +124,13 @@ export function LineItemsSection({
                       })}
                     />
                     <Input
+                      key={cena}
                       type="number"
                       step="0.01"
                       inputMode="decimal"
-                      aria-label={`Cena netto pozycji ${index + 1}`}
+                      aria-label={`${cena} pozycji ${index + 1}`}
                       className="text-right tabular-nums"
-                      {...form.register(`lines.${index}.unitPriceNet`, {
-                        valueAsNumber: true,
-                      })}
+                      {...poleCeny(index)}
                     />
                     <select
                       className={vatSelectClass}
@@ -146,12 +181,7 @@ export function LineItemsSection({
       ) : (
         <div className="space-y-3">
           {fields.map((field, index) => {
-            const w = watchedLines?.[index];
-            const calc = calculateLineItem({
-              quantity: Number(w?.quantity) || 0,
-              unitPriceNet: Number(w?.unitPriceNet) || 0,
-              vatRate: w?.vatRate ?? '23',
-            });
+            const calc = kwotyPozycji(index);
             return (
               <div key={field.id} className="border-border space-y-3 border p-4">
                 <div className="flex items-center justify-between">
@@ -208,16 +238,15 @@ export function LineItemsSection({
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label htmlFor={`line-${index}-unit-price`} className={labelClass}>Cena netto (zł)</Label>
+                    <Label htmlFor={`line-${index}-unit-price`} className={labelClass}>{cena} (zł)</Label>
                     <Input
+                      key={cena}
                       id={`line-${index}-unit-price`}
                       type="number"
                       step="0.01"
                       inputMode="decimal"
                       className="text-right tabular-nums"
-                      {...form.register(`lines.${index}.unitPriceNet`, {
-                        valueAsNumber: true,
-                      })}
+                      {...poleCeny(index)}
                     />
                   </div>
                   <div>
