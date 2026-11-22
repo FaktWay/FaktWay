@@ -8,6 +8,7 @@ import {
   PKWIU_PATTERN_MESSAGE,
 } from '@/lib/invoices/line-codes';
 import { vatRateEnum } from '@/lib/schemas/invoice-form';
+import { GROSS_PRICES_UNTAXED_RATES } from '@/lib/xml/invoice-calculator';
 import type { GtuCode } from '@/types/invoice';
 
 /**
@@ -15,6 +16,14 @@ import type { GtuCode } from '@/types/invoice';
  * na tabeli `products` (00013, unikalny klucz nazwa + jednostka z 00186).
  * Jeden schemat dla formularza (klient) i akcji zapisu (serwer): AGENTS.md,
  * „Formularze”. Granice jak w bazie: cena NUMERIC(15,2), reszta tekst.
+ *
+ * Cena brutto produktu (plan cen brutto, PR (d), kolumna `default_price_gross`
+ * z 00213) obok ceny netto: faktura w cenach netto bierze cenę netto, faktura
+ * w cenach brutto cenę brutto (art. 106e ust. 8 ustawy o VAT: cena jednostkowa
+ * brutto zamiast netto). Katalog żadnej z nich nie wylicza z drugiej. Cenę
+ * brutto pokazuje i zapisuje tylko włączony wyłącznik `grossPricesEnabled`
+ * (#884): ekran przy wyłączonym nie wysyła pola, a pole, które nie przyszło,
+ * zostawia zapisaną cenę brutto (`undefined` w danych po walidacji).
  */
 
 /** Stawki VAT jak w formularzu faktury: ta sama lista (`vatRateEnum`), nie nowa. */
@@ -45,7 +54,7 @@ export const PRODUCT_LIMITS = {
   unit: 30,
   pkwiu: PKWIU_MAX_LENGTH,
   description: 2000,
-  /** Największa kwota netto: 12 cyfr przed przecinkiem (NUMERIC(15,2) ma zapas). */
+  /** Największa cena netto i brutto: 12 cyfr przed przecinkiem (NUMERIC(15,2) ma zapas). */
   priceMax: 999_999_999_999.99,
 } as const;
 
@@ -58,6 +67,7 @@ export function parseProductPrice(raw: string | number): number | null {
 }
 
 const PRICE_ERROR = 'Podaj cenę netto, na przykład 1250,00 (najwyżej dwa miejsca po przecinku, bez minusa).';
+const GROSS_PRICE_ERROR = 'Podaj cenę brutto, na przykład 1537,50 (najwyżej dwa miejsca po przecinku, bez minusa).';
 
 const priceSchema = z
   .union([z.number(), z.string(), z.null()])
@@ -71,6 +81,36 @@ const priceSchema = z
     }
     return value;
   });
+
+/**
+ * Cena brutto: puste pole to `null` (bez ceny brutto), pole, które nie przyszło,
+ * to `undefined` (zapisana cena brutto bez zmian), reszta jak cena netto.
+ */
+const grossPriceSchema = z
+  .union([z.number(), z.string(), z.null()])
+  .optional()
+  .transform((raw, ctx) => {
+    if (raw === undefined) return undefined;
+    if (raw === null || (typeof raw === 'string' && raw.trim() === '')) return null;
+    const value = parseProductPrice(raw);
+    if (value === null) {
+      ctx.addIssue({ code: 'custom', message: GROSS_PRICE_ERROR });
+      return z.NEVER;
+    }
+    return value;
+  });
+
+/** Stawka bez podatku a cena brutto: faktura w cenach brutto takiej pozycji nie przyjmie (#880). */
+export function untaxedGrossPriceMessage(rate: ProductVatRate): string {
+  return `Stawka „${PRODUCT_VAT_RATE_LABELS[rate]}” nie ma podatku, a faktura w cenach brutto jej nie obsługuje. Zostaw cenę brutto pustą albo wybierz stawkę 23%, 8%, 5% lub 0%.`;
+}
+
+/** Odmowa zapisu ceny brutto produktu przy wyłączonym wyłączniku `grossPricesEnabled`. */
+export const PRODUCT_GROSS_PRICES_OFF =
+  'Ceny brutto nie są jeszcze dostępne w FaktWay, więc produktu z ceną brutto nie zapisaliśmy. Usuń cenę brutto i zapisz produkt z ceną netto.';
+/** Błąd odczytu wyłącznika: „nie wiem” to nie „tak”. */
+export const PRODUCT_GROSS_PRICES_UNKNOWN =
+  'Nie udało się sprawdzić, czy ceny brutto są dostępne, więc produktu nie zapisaliśmy. Spróbuj ponownie za chwilę.';
 
 /** Pole opcjonalne z walidacją: puste to null. */
 function optional(max: number, label: string, pattern?: RegExp, patternMessage?: string) {
@@ -105,6 +145,7 @@ export const productFormSchema = z
       .min(1, 'Podaj jednostkę, na przykład szt. albo godz.')
       .max(PRODUCT_LIMITS.unit, `Jednostka: najwyżej ${PRODUCT_LIMITS.unit} znaków.`),
     priceNet: priceSchema,
+    priceGross: grossPriceSchema,
     vatRate: vatRateEnum,
     // Format PKWiU nie jest tu zgadywany: tylko znaki (cyfry i kropki) i długość.
     pkwiu: optional(PRODUCT_LIMITS.pkwiu, 'PKWiU', PKWIU_PATTERN, PKWIU_PATTERN_MESSAGE),
@@ -122,10 +163,16 @@ export const productFormSchema = z
       }),
     description: optional(PRODUCT_LIMITS.description, 'Opis'),
   })
+  .superRefine((d, ctx) => {
+    if (d.priceGross !== null && d.priceGross !== undefined && GROSS_PRICES_UNTAXED_RATES.has(d.vatRate)) {
+      ctx.addIssue({ code: 'custom', path: ['priceGross'], message: untaxedGrossPriceMessage(d.vatRate) });
+    }
+  })
   .transform((d) => ({
     name: d.name,
     unit: d.unit,
     defaultPriceNet: d.priceNet,
+    defaultPriceGross: d.priceGross,
     defaultVatRate: d.vatRate,
     pkwiuCode: d.pkwiu,
     gtuCode: d.gtu,
@@ -143,6 +190,8 @@ export interface ProductListItem {
   name: string;
   unit: string;
   defaultPriceNet: number | null;
+  /** Cena brutto z katalogu (00213); brak to `null`, nigdy 0. */
+  defaultPriceGross: number | null;
   defaultVatRate: string;
   pkwiuCode: string | null;
   gtuCode: string | null;
@@ -163,6 +212,8 @@ export interface ProductSuggestion {
   name: string;
   unit: string;
   priceNet: number | null;
+  /** Cena brutto z katalogu (00213) dla faktury w cenach brutto; brak to `null`. */
+  priceGross: number | null;
   /** Stawka spoza listy formularza (np. z dawnego importu) to `null`: pozycja zostaje przy swojej. */
   vatRate: ProductVatRate | null;
   /** PKWiU z katalogu (krok 2.6, część 2b-1); niepoprawny albo brak to `null`. */

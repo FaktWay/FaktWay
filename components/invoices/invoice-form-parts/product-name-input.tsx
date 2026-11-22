@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
-import type { UseFormReturn } from 'react-hook-form';
+import { useWatch, type UseFormReturn } from 'react-hook-form';
 
 import { suggestProductsAction } from '@/app/actions/produkty';
 import { Input } from '@/components/ui/input';
@@ -20,11 +20,20 @@ const DEBOUNCE_MS = 250;
 
 const UNAVAILABLE = 'Podpowiedzi z katalogu są chwilowo niedostępne, nazwę wpiszesz ręcznie.';
 
-/** Druga linia podpowiedzi: jednostka, cena netto i stawka, jeśli produkt je ma. */
-function details(p: ProductSuggestion): string {
+/** Produkt bez ceny brutto w fakturze w cenach brutto (plan cen brutto, PR (d)). */
+const NO_GROSS_PRICE = 'Produkt nie ma w katalogu ceny brutto, więc cenę brutto pozycji wpiszesz albo sprawdzisz w polu ceny.';
+
+/**
+ * Druga linia podpowiedzi: jednostka, cena i stawka, jeśli produkt je ma. Cena
+ * według metody faktury: w cenach brutto cena brutto z katalogu, inaczej netto.
+ */
+function details(p: ProductSuggestion, pricesGross: boolean): string {
+  const price = pricesGross
+    ? p.priceGross !== null ? `${formatPlMoney(p.priceGross)} zł brutto` : null
+    : p.priceNet !== null ? `${formatPlMoney(p.priceNet)} zł netto` : null;
   return [
     p.unit,
-    p.priceNet !== null ? `${formatPlMoney(p.priceNet)} zł netto` : null,
+    price,
     p.vatRate ? `VAT ${PRODUCT_VAT_RATE_LABELS[p.vatRate]}` : null,
   ]
     .filter(Boolean)
@@ -61,6 +70,13 @@ function countText(n: number): string {
  * Lista stoi w układzie pod polem, nie nad nim, bo wiersze siatki pozycji
  * leżą w kontenerze z przewijaniem w bok, który ucinałby warstwę nad treścią.
  * Starsza odpowiedź katalogu nie nadpisuje nowszej (licznik zapytań).
+ *
+ * Faktura w cenach brutto (plan cen brutto, PR (d)): wybór wstawia cenę brutto
+ * produktu z katalogu (00213) do pola ceny brutto pozycji. Produkt bez ceny
+ * brutto nie wstawia tam niczego (brak, nie 0 i nie cena netto), cofa cenę
+ * brutto wstawioną wcześniej z katalogu (jak PKWiU i GTU) i mówi, że cenę
+ * trzeba wpisać; cena wpisana ręcznie zostaje. Faktura w cenach netto bierze
+ * cenę netto jak dotąd, bez ceny brutto w pozycji.
  */
 export function ProductNameInput({
   form,
@@ -90,6 +106,9 @@ export function ProductNameInput({
   const catalogPkwiu = useRef<string | null>(null);
   /** GTU wstawione z katalogu do tej pozycji (do cofnięcia przy produkcie bez GTU). */
   const catalogGtu = useRef<string | null>(null);
+  /** Cena brutto wstawiona z katalogu do tej pozycji (do cofnięcia przy produkcie bez ceny brutto). */
+  const catalogGross = useRef<number | null>(null);
+  const pricesGross = useWatch({ control: form.control, name: 'pricesGross' }) === true;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(
@@ -155,6 +174,19 @@ export function ProductNameInput({
     form.setValue(`lines.${index}.name`, p.name, opts);
     form.setValue(`lines.${index}.unit`, p.unit, opts);
     if (p.priceNet !== null) form.setValue(`lines.${index}.unitPriceNet`, p.priceNet, opts);
+    let grossNote: string | null = null;
+    if (form.getValues('pricesGross') === true) {
+      if (p.priceGross !== null) {
+        form.setValue(`lines.${index}.unitPriceGross`, p.priceGross, opts);
+        catalogGross.current = p.priceGross;
+      } else {
+        if (catalogGross.current !== null && form.getValues(`lines.${index}.unitPriceGross`) === catalogGross.current) {
+          form.setValue(`lines.${index}.unitPriceGross`, undefined, opts);
+        }
+        catalogGross.current = null;
+        grossNote = NO_GROSS_PRICE;
+      }
+    }
     const keepExemptRate = vatExempt && p.vatRate !== null && TAXED_VAT_RATES.includes(p.vatRate);
     if (p.vatRate && !keepExemptRate) form.setValue(`lines.${index}.vatRate`, p.vatRate, opts);
     // Krok 2.6, część 2b-1: PKWiU z katalogu, gdy produkt je ma. Produkt bez
@@ -184,8 +216,9 @@ export function ProductNameInput({
     setItems([]);
     close();
     const exemptNote = keepExemptRate ? exemptRateText(p) : null;
-    setNote(exemptNote);
-    setStatus(exemptNote ? `Wstawiono z katalogu: ${p.name}. ${exemptNote}` : `Wstawiono z katalogu: ${p.name}.`);
+    const noteText = [exemptNote, grossNote].filter(Boolean).join(' ') || null;
+    setNote(noteText);
+    setStatus(noteText ? `Wstawiono z katalogu: ${p.name}. ${noteText}` : `Wstawiono z katalogu: ${p.name}.`);
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -261,7 +294,7 @@ export function ProductNameInput({
               onClick={() => choose(p)}
             >
               <span className="block truncate">{p.name}</span>
-              <span className="text-muted-foreground block truncate text-xs">{details(p)}</span>
+              <span className="text-muted-foreground block truncate text-xs">{details(p, pricesGross)}</span>
             </li>
           ))}
         </ul>
