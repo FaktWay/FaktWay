@@ -34,8 +34,10 @@ import { cichoBlokuje, spisWyzwalaczy, spisZMigracji, wolaFunkcje, wyjatki, type
  *    próbuje zabronionego zapisu albo zapis zatrzymuje wcześniej inny
  *    strażnik (FZ-024). Lista jest dokładna: strażnik z testem tekstu z niej
  *    schodzi. Zapadka: nazwy z list bez testu stoją w jednej linii
- *    (`ZAPADKA_*`), więc nowy wpis to zmiana tej linii, a ta wymaga etykiety
- *    `zgoda:zmiana-filtra`; zejście z listy jest wolne.
+ *    (`ZAPADKA_*`) i muszą się zgadzać z listami co do nazwy, więc nowy wpis
+ *    nie przejdzie jako sama dopisana linia: zmiana linii zapadki (jak każda
+ *    zmieniona albo usunięta linia w `tests/filtr`) wymaga etykiety
+ *    `zgoda:zmiana-filtra`.
  * 4. `SKUTKI`: wyzwalacze bez wyjątku (znacznik czasu, audyt, wpłaty,
  *    numeracja, harmonogram) z testem na bazie albo powodem; funkcja, która
  *    woła inną funkcję z `public` (tam może być strażnik), tylko z testem.
@@ -133,9 +135,11 @@ const SKUTKI: Record<string, { test?: string; uwaga: string }> = {
 };
 
 /**
- * Zapadka list bez testu (drugi czytelnik, Z3): nazwy stoją w jednej linii,
- * więc dopisanie strażnika bez testu albo skutku bez testu zmienia tę linię
- * (etykieta `zgoda:zmiana-filtra`), a zejście z listy jest wolne.
+ * Zapadka list bez testu (drugi czytelnik, Z3 i Z10): nazwy stoją w jednej
+ * linii i muszą się zgadzać z listami, więc dopisanie strażnika albo skutku
+ * bez testu zmienia tę linię (etykieta `zgoda:zmiana-filtra`). Zejście
+ * z listy też ją zmienia, ale usunięcie wpisu z listy i tak wymaga tej
+ * etykiety (usunięta linia w `tests/filtr`).
  */
 // prettier-ignore
 const ZAPADKA_BEZ_KOMUNIKATU = 'enforce_stripe_payment_subscription_tenant enforce_stripe_subscription_customer_tenant guard_accepted_ksef_invoice_line guard_admin_refund_financial_case guard_billing_invoice_financial_case guard_billing_invoice_identity guard_billing_invoice_line guard_cash_document_update guard_cash_register_update guard_expense_payment_columns guard_expense_provenance guard_historical_ksef_invoice_lines guard_invoice_correction_parent guard_invoice_delivery_history guard_invoice_ksef_environment guard_invoice_number_series_update guard_invoice_payment_evidence guard_invoice_pending_content guard_invoice_recurring_link guard_invoice_sales_quote_update guard_invoice_send_owner guard_ksef_collective_identifier guard_ksef_expense_provenance guard_ksef_offline_queue_environment guard_ksef_permission_grant guard_payment_import_update guard_payment_voided guard_pending_invoice_lines guard_roz_advance_single_settlement guard_stripe_payment_financial_refs guard_stripe_payment_vat_invoice_link guard_tenant_first_invoice_accepted_at guard_tenant_ksef_claim_fields guard_tenant_logo_storage_key guard_tenant_stripe_customer_id guard_upo_ksef_environment lock_stripe_subscription_tenant_for_checkout preserve_canceled_stripe_subscription preserve_stripe_payment_refund_status prevent_financial_case_review_mutation';
@@ -445,11 +449,10 @@ describe('NZ-SQL-01: strażnicy mają test na bazie', () => {
     expect(bledy).toEqual([]);
   });
 
-  it('zapadka: listy bez testu nie rosną bez etykiety zgoda:zmiana-filtra', () => {
-    const zapadka = new Set(ZAPADKA_BEZ_KOMUNIKATU.split(' '));
-    expect(Object.keys(BEZ_KOMUNIKATU).filter((n) => !zapadka.has(n))).toEqual([]);
-    const skutki = new Set(ZAPADKA_SKUTKI_BEZ_TESTU.split(' '));
-    expect(Object.entries(SKUTKI).filter(([n, w]) => !w.test && !skutki.has(n)).map(([n]) => n)).toEqual([]);
+  it('zapadka: listy bez testu zgadzają się z linią zapadki, więc nie rosną bez etykiety zgoda:zmiana-filtra', () => {
+    const posortowane = (xs: Iterable<string>) => [...xs].sort();
+    expect(posortowane(Object.keys(BEZ_KOMUNIKATU))).toEqual(posortowane(ZAPADKA_BEZ_KOMUNIKATU.split(' ')));
+    expect(posortowane(Object.entries(SKUTKI).filter(([, w]) => !w.test).map(([n]) => n))).toEqual(posortowane(ZAPADKA_SKUTKI_BEZ_TESTU.split(' ')));
   });
 
   it('wpisy kod wskazują istniejący test na bazie, który wymienia tabelę strażnika', () => {
