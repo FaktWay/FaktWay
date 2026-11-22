@@ -146,10 +146,30 @@ export function liczbaZnakow(n: number): string {
  * (`assertFa3TextLimits`). Ta sama klasa daje ten sam kod XSD_INVALID.
  */
 export class InvoiceXmlSchemaError extends Error {
-  constructor(public readonly errors: string[]) {
+  /**
+   * @param errors  tekst dla operatora (log, audyt, dziennik prób); od walidatora XSD to surowy tekst libxml
+   * @param customer opis dla klienta (`last_error*` na fakturze, strona i telefon); bez niego wysyłka pokazuje
+   *                 ogólne zdanie, nigdy surowy `errors` (U3)
+   */
+  constructor(public readonly errors: string[], public readonly customer?: Fa3CustomerIssue) {
     super(`XML FA(3) jest niezgodny ze schematem XSD:\n${errors.map((e) => `  ${e}`).join('\n')}`);
     this.name = 'InvoiceXmlSchemaError';
   }
+}
+
+/** Początek każdego zdania dla klienta: plik nie przeszedł sprawdzenia lokalnie, więc do KSeF nie poszedł. */
+export const FA3_ISSUE_LEAD = 'Faktura nie trafiła do KSeF.';
+
+/**
+ * Błąd schematu opisany dla klienta (U3): zdanie do `invoices.last_error`,
+ * nazwa pola po polsku do `last_error_field` (`null`, gdy nie wiadomo, które
+ * pole) i podpowiedź do `last_error_suggestion`. Strona i telefon czytają te
+ * same kolumny. Nazwy pól z pliku XML: `lib/xml/fa3-pola.ts`.
+ */
+export interface Fa3CustomerIssue {
+  readonly message: string;
+  readonly field: string | null;
+  readonly suggestion: string;
 }
 
 // ─── Sprawdzanie tekstu przed budową XML ────────────────────────────────────
@@ -196,7 +216,18 @@ export function fa3TextProblems(checks: readonly Fa3TextCheck[]): string[] {
 /** Odmowa przed budową XML: ten sam błąd co z walidatora XSD, ale z nazwami pól. */
 export function assertFa3TextLimits(checks: readonly Fa3TextCheck[]): void {
   const problems = fa3TextProblems(checks);
-  if (problems.length > 0) throw new InvoiceXmlSchemaError(problems);
+  if (problems.length > 0) throw new InvoiceXmlSchemaError(problems, textLimitIssue(problems));
+}
+
+/** Te komunikaty już mają nazwy pól (U3): klient dostaje je jak są, w tym samym zdaniu co inne błędy schematu. */
+function textLimitIssue(problems: readonly string[]): Fa3CustomerIssue {
+  const shown = problems.slice(0, 3).join('; ');
+  const more = problems.length > 3 ? ` (razem uwag: ${problems.length})` : '';
+  return {
+    message: `${FA3_ISSUE_LEAD} ${shown}${more}.`,
+    field: null,
+    suggestion: 'Popraw wskazane pola.',
+  };
 }
 
 interface Fa3Party {
@@ -218,8 +249,8 @@ interface Fa3Line {
   readonly ordinal?: number;
   readonly name?: string | null;
   readonly unit?: string | null;
-  /** Kod, który generator wstawia jako GTIN, CN albo PKWiU. */
-  readonly classificationCode?: string | null;
+  /** PKWiU pozycji (jawny typ, krok 2.6, część 2b), w pliku jako `PKWiU`. */
+  readonly pkwiuCode?: string | null;
 }
 
 const LINE_NAME_PREVIEW = 30;
@@ -236,9 +267,8 @@ function lineLabel(line: Fa3Line, index: number): string {
 }
 
 /**
- * Nazwa (P_7), jednostka (P_8A) i kod klasyfikacji pozycji. Kod GTIN
- * (8–14 cyfr) i CN (4–10 cyfr) zawsze mieści się w swojej granicy, a każdy
- * inny generator wstawia jako PKWiU, więc kod sprawdzamy granicą PKWiU.
+ * Nazwa (P_7), jednostka (P_8A) i PKWiU pozycji (granica `TZnakowy50`).
+ * Generatory piszą kod pozycji tylko jako PKWiU (krok 2.6, część 2b-3).
  */
 export function fa3LineChecks(lines: readonly Fa3Line[]): Fa3TextCheck[] {
   return lines.flatMap((line, index) => {
@@ -246,7 +276,7 @@ export function fa3LineChecks(lines: readonly Fa3Line[]): Fa3TextCheck[] {
     return [
       { label: `${label}, nazwa`, value: line.name, limit: FA3_TEXT_LIMITS.p7 },
       { label: `${label}, jednostka miary`, value: line.unit, limit: FA3_TEXT_LIMITS.p8a },
-      { label: `${label}, kod PKWiU`, value: line.classificationCode, limit: FA3_TEXT_LIMITS.pkwiu },
+      { label: `${label}, kod PKWiU`, value: line.pkwiuCode, limit: FA3_TEXT_LIMITS.pkwiu },
     ];
   });
 }

@@ -49,6 +49,7 @@ function faktura(pozycje: Pozycja[]): InvoiceInput {
   };
 }
 
+const NOW = new Date('2026-11-17T10:00:00Z');
 const pole = (xml: string, nazwa: string) => [...xml.matchAll(new RegExp(`<${nazwa}>([^<]*)</${nazwa}>`, 'g'))].map((m) => m[1]!);
 const PROCENT: Record<Stawka, number> = { '23': 23, '8': 8, '5': 5, '0': 0 };
 /** VAT od brutto w groszach całkowitych, połówka od zera (art. 106e ust. 7 i 11), niezależnie od kalkulatora. */
@@ -80,7 +81,7 @@ describe('faktura w cenach brutto: P_9B i P_11A, VAT od sumy brutto stawki', () 
     expect(invoice).toMatchObject({ netTotal: 2.44, vatTotal: 0.56, grossTotal: 3 });
   });
 
-  it('faktura do paragonu w dwóch stawkach: VAT każdej stawki od jej sumy brutto, jak PTU na paragonie', async () => {
+  it('dwie stawki jak na paragonie z kasy (bez danych paragonu): VAT każdej stawki od jej sumy brutto, jak PTU', async () => {
     const { xml } = await plik([
       { name: 'Obiad', quantity: 2, unitPriceGross: 20.99, vatRate: '8' },
       { name: 'Deser', quantity: 1, unitPriceGross: 12.5, vatRate: '8' },
@@ -93,6 +94,37 @@ describe('faktura w cenach brutto: P_9B i P_11A, VAT od sumy brutto stawki', () 
     expect(pole(xml, 'P_15')).toEqual(['70.95']);
   });
 
+  it('prawdziwa faktura do paragonu (FP) w cenach brutto: dane paragonu, FP = 1, P_9B i P_11A, VAT od sumy stawki; XSD i strażnik', async () => {
+    const invoice = finalizeInvoice({
+      ...faktura([
+        { name: 'Rower', quantity: 2, unitPriceGross: 249.99, vatRate: '23' },
+        { name: 'Książka', quantity: 1, unitPriceGross: 12.5, vatRate: '5' },
+      ]),
+      saleDate: '2026-11-10',
+      receipt: { receiptNumber: '000123', receiptDate: '2026-11-10', cashRegisterNumber: 'ABC1234567890', buyerNipOnReceipt: true },
+      payment: { currency: 'PLN', dueDate: '2026-11-17', method: 'cash' },
+    });
+    expect(validateInvoice(invoice, NOW)).toEqual([]);
+    const xml = generateFA3Xml(invoice, { generatedAt: NOW });
+    expect((await validateFA3(xml)).errors.map((b) => b.message)).toEqual([]);
+    expect(sprawdzFa3(xml)).toEqual([]);
+    expect(xml).toContain('<RodzajFaktury>VAT</RodzajFaktury><FP>1</FP>');
+    expect(pole(xml, 'P_9B')).toEqual(['249.9900', '12.5000']);
+    expect(pole(xml, 'P_11A')).toEqual(['499.98', '12.50']);
+    // 23 %: KP = 499,98 × 23 / 123 = 93,49; 5 %: KP = 12,50 × 5 / 105 = 0,60.
+    expect([pole(xml, 'P_13_1'), pole(xml, 'P_14_1'), pole(xml, 'P_13_3'), pole(xml, 'P_14_3'), pole(xml, 'P_15')])
+      .toEqual([['406.49'], ['93.49'], ['11.90'], ['0.60'], ['512.48']]);
+    expect(pole(xml, 'P_11')).toEqual([]);
+  });
+
+  it('ilość × cena brutto dokładnie, do grosza (art. 106e ust. 11): 6,75 × 4216,86 = 28 463,81 brutto, 2,5 × 3,33 = 8,33', async () => {
+    const { xml } = await plik([
+      { name: 'Montaż', quantity: 6.75, unitPriceGross: 4216.86, vatRate: '23' },
+      { name: 'Usługa', quantity: 2.5, unitPriceGross: 3.33, vatRate: '8' },
+    ]);
+    expect(pole(xml, 'P_11A')).toEqual(['28463.81', '8.33']);
+  });
+
   it('faktura w cenach netto bez zmian: P_9A i P_11, bez P_9B i P_11A', async () => {
     const input: InvoiceInput = { ...faktura([]), pricesGross: undefined, lines: [{ ordinal: 1, name: 'Usługa', unit: 'usł.', quantity: 1, unitPriceNet: 17.07, vatRate: '23' }] };
     const invoice = finalizeInvoice(input);
@@ -103,18 +135,21 @@ describe('faktura w cenach brutto: P_9B i P_11A, VAT od sumy brutto stawki', () 
 });
 
 describe('niezmiennik faktury w cenach brutto', () => {
+  // Ilość w tysięcznych częściach i cena w groszach: wyrocznia liczy brutto pozycji na liczbach
+  // całkowitych (połówka grosza w górę, art. 106e ust. 11), bez wyłączeń i bez poprawki epsilon.
   const pozycjaArb = fc.record({
     name: fc.constantFrom('Kawa', 'Obiad', 'Usługa', 'Towar'),
-    quantity: fc.oneof(fc.integer({ min: 1, max: 20 }), fc.integer({ min: 1, max: 9_999 }).map((n) => n / 1000)),
-    unitPriceGross: fc.integer({ min: 1, max: 500_000 }).map((g) => g / 100),
+    iloscTys: fc.oneof(fc.integer({ min: 1, max: 20 }).map((n) => n * 1000), fc.integer({ min: 1, max: 9_999 })),
+    cenaGr: fc.integer({ min: 1, max: 500_000 }),
     vatRate: fc.constantFrom<Stawka>('23', '8', '5', '0'),
   });
 
   it('każda stawka: P_14 = VAT od sumy P_11A, P_13 = suma P_11A − P_14; P_15 = suma P_11A; VAT pozycji sumuje się do stawki i różni od udziału o mniej niż grosz; XSD i strażnik', async () => {
     await fc.assert(
-      fc.asyncProperty(fc.array(pozycjaArb, { minLength: 1, maxLength: 6 }), async (pozycje) => {
+      fc.asyncProperty(fc.array(pozycjaArb, { minLength: 1, maxLength: 6 }), async (losowe) => {
+        const pozycje: Pozycja[] = losowe.map((p) => ({ name: p.name, quantity: p.iloscTys / 1000, unitPriceGross: p.cenaGr / 100, vatRate: p.vatRate }));
         const { invoice, xml } = await plik(pozycje);
-        const bruttoGr = pozycje.map((p) => Math.round(Math.round(p.quantity * p.unitPriceGross * 100 + 1e-7)));
+        const bruttoGr = losowe.map((p) => Math.floor((2 * p.iloscTys * p.cenaGr + 1000) / 2000));
         expect(pole(xml, 'P_11A').map((v) => Math.round(Number(v) * 100))).toEqual(bruttoGr);
         const POLA: Record<Stawka, [string, string | null]> = { '23': ['P_13_1', 'P_14_1'], '8': ['P_13_2', 'P_14_2'], '5': ['P_13_3', 'P_14_3'], '0': ['P_13_6_1', null] };
         let razem = 0;
@@ -160,6 +195,37 @@ describe('bramka wysyłki (validateInvoice) dla faktury w cenach brutto', () => 
     };
     const bledy = validateInvoice(zlaFaktura, new Date('2026-11-17T10:00:00Z'));
     expect(bledy.join(' ')).toMatch(/Stawka 23%: VAT pozycji \(0\.57\) nie wynika z sumy brutto stawki \(3\); powinien być 0\.56 \(art\. 106e ust\. 7/);
+  });
+
+  it('pozycja bez ceny brutto (wejście z samą ceną netto): cena nie staje się 0 zł, bramka odmawia z numerem pozycji, pliku nie ma', () => {
+    const wejscie = faktura(trzyKawy());
+    const invoice = finalizeInvoice({
+      ...wejscie,
+      lines: [{ ordinal: 1, name: 'Usługa', unit: 'szt.', quantity: 1, unitPriceNet: 1000, vatRate: '23' }, ...wejscie.lines.slice(1)],
+    });
+    expect(invoice.lines[0]).not.toHaveProperty('unitPriceGross');
+    expect(validateInvoice(invoice, NOW)).toEqual(expect.arrayContaining([
+      'Pozycja 1: faktura w cenach brutto wymaga ceny brutto pozycji (nieujemnej).',
+    ]));
+    expect(() => generateFA3Xml(invoice, { generatedAt: NOW })).toThrow(/Pozycja 1: faktura w cenach brutto wymaga ceny brutto/);
+    expect(() => generateFA3Xml(invoice, { generatedAt: NOW, validate: false })).toThrow(/pozycja 1 faktury w cenach brutto nie ma ceny brutto/);
+  });
+
+  it('VAT pozycji poza jej udziałem w VAT stawki (0,57 / −0,01 / 0 przy sumie stawki 0,56): odmowa z numerem pozycji', () => {
+    const invoice = finalizeInvoice(faktura(trzyKawy()));
+    const podzial = [0.57, -0.01, 0];
+    const zla = {
+      ...invoice,
+      lines: invoice.lines.map((l, i) => ({ ...l, vatAmount: podzial[i]!, netAmount: Math.round((l.grossAmount - podzial[i]!) * 100) / 100 })),
+    };
+    const bledy = validateInvoice(zla, NOW);
+    expect(bledy).toEqual(expect.arrayContaining([
+      'Pozycja 1: VAT (0.57) to nie udział pozycji w VAT stawki: od brutto 1 przy 23% wychodzi 0.18 albo 0.19.',
+      'Pozycja 2: VAT (-0.01) to nie udział pozycji w VAT stawki: od brutto 1 przy 23% wychodzi 0.18 albo 0.19.',
+      'Pozycja 3: VAT (0) to nie udział pozycji w VAT stawki: od brutto 1 przy 23% wychodzi 0.18 albo 0.19.',
+    ]));
+    // Suma stawki się zgadza (0,56), więc odmawia tylko kontrola udziału pozycji.
+    expect(bledy.some((b) => b.startsWith('Stawka 23%'))).toBe(false);
   });
 
   it('pozycja bez ceny brutto albo z brutto innym niż ilość × cena brutto: odmowa z numerem pozycji', () => {

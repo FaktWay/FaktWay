@@ -15,6 +15,7 @@ import { documentAllowsVatDeduction } from '@/lib/expenses/vat-deduction-documen
 import { formatIsoDatePl } from '@/lib/format/iso-date';
 import { GTU_CODES, isGtuCode } from '@/lib/invoices/line-codes';
 import { parseVatUe } from '@/lib/invoices/vat-ue';
+import { correctionLinePairs, renamedAfter } from '@/lib/ksef/fa3-correction-generator';
 import type { GtuCode } from '@/types/invoice';
 
 import type { ExportExpense } from './data-fetcher';
@@ -24,6 +25,7 @@ import {
   JPK_DOCUMENT_REFUSAL_PREFIX,
   JpkDocumentNotSupportedError,
   type JpkInvoice,
+  type JpkInvoiceLine,
 } from './jpk-fa-generator';
 import { roundToCents } from '@/lib/xml/invoice-calculator';
 
@@ -115,25 +117,66 @@ export class JpkV7mReceiptSaleInPeriodError extends JpkDocumentNotSupportedError
 }
 
 /**
- * Korekta faktury, której pozycje mają oznaczenie GTU (krok 2.6, część 2b-2).
+ * Dlaczego FaktWay nie oznaczy korekty kodami GTU (krok 2.6, część 2b-3):
+ * nie zna oznaczeń pozycji, których korekta dotyczy; korekta dopisuje pozycję
+ * (bez pola GTU) do faktury z GTU; korekta kwotowa w stawce z różnymi
+ * oznaczeniami pozycji.
+ */
+export type JpkV7mGtuCorrectionRefusal = 'nieznana-pozycja' | 'pozycja-dopisana' | 'kwotowa';
+
+function rateLabel(rate: string | undefined): string {
+  if (rate && /^\d+$/.test(rate)) return `${rate}%`;
+  return `„${rate === 'np_ii' ? 'np II' : (rate ?? '')}”`;
+}
+
+/**
+ * Korekta, której oznaczeń GTU FaktWay nie zna (krok 2.6, części 2b-2 i 2b-3).
  * Fakturę korygującą oznacza się kodem GTU, gdy dotyczy towaru albo usługi
  * z tym oznaczeniem, a korektę samych pozycji bez GTU zostawia się bez
  * oznaczenia (§ 10 ust. 3 rozporządzenia MFiR z 15.10.2019; MF, „Pytania
  * i odpowiedzi JPK_VAT z deklaracją”, oznaczenia GTU, pyt. 8). Korekta
- * w FaktWay nie zapisuje GTU pozycji (część 2b-3), więc FaktWay nie wie,
- * które oznaczenie się należy: odmowa z wyjściem zamiast zgadywania, w pliku
- * i w rozliczeniu modułu VAT (wspólne `aggregateSales`).
+ * FaktWay niesie kody pozycji faktury korygowanej (część 2b-3), więc odmowa
+ * z wyjściem zostaje tylko tam, gdzie FaktWay nie wie, których pozycji korekta
+ * dotyczy albo jakie mają oznaczenie (`gtuOfCorrection`): w pliku i w
+ * rozliczeniu modułu VAT (wspólne `aggregateSales`).
  */
 export class JpkV7mGtuCorrectionNotSupportedError extends JpkDocumentNotSupportedError {
-  constructor(invoiceNumber: string, ksefNumber: string | undefined, correctedNumber: string | undefined, codes: readonly string[]) {
+  constructor(
+    invoiceNumber: string,
+    ksefNumber: string | undefined,
+    correctedNumber: string | undefined,
+    codes: readonly string[],
+    readonly refusal: JpkV7mGtuCorrectionRefusal = 'nieznana-pozycja',
+    rate?: string,
+  ) {
     super(invoiceNumber, ksefNumber, 'to korekta faktury z oznaczeniem GTU w pozycjach.');
-    this.message =
-      `${JPK_DOCUMENT_REFUSAL_PREFIX} faktura ${invoiceNumber}${ksefNumber ? ` (KSeF ${ksefNumber})` : ''} jest korektą ` +
-      `${correctedNumber ? `faktury ${correctedNumber}` : 'faktury'}, która ma w pozycjach oznaczenie GTU (${codes.join(', ')}). ` +
+    const head = `${JPK_DOCUMENT_REFUSAL_PREFIX} faktura ${invoiceNumber}${ksefNumber ? ` (KSeF ${ksefNumber})` : ''} jest `;
+    const faktura = correctedNumber ? `faktury ${correctedNumber}` : 'faktury';
+    const zasada =
       'W JPK_V7M korektę oznacza się kodem GTU, gdy dotyczy towaru albo usługi z tym oznaczeniem, a korektę samych pozycji ' +
-      'bez GTU zostawia się bez oznaczenia. Korekta w FaktWay nie zapisuje GTU pozycji, więc FaktWay nie wie, które oznaczenie ' +
-      'się należy, i plik nie powstał. JPK_V7M za ten miesiąc trzeba przygotować poza FaktWay, np. z księgową ' +
-      '(KPiR i CSV z FaktWay działają).';
+      'bez GTU zostawia się bez oznaczenia. ';
+    const wyjscie = 'JPK_V7M za ten miesiąc trzeba przygotować poza FaktWay, np. z księgową (KPiR i CSV z FaktWay działają).';
+    const kody = codes.join(', ');
+    if (refusal === 'kwotowa') {
+      this.message =
+        `${head}korektą kwotową ${faktura} w stawce ${rateLabel(rate)}, a pozycje tej faktury w tej stawce mają różne ` +
+        `oznaczenia GTU albo tylko część z nich je ma (${kody}). ${zasada}` +
+        'Korekta kwotowa nie wskazuje pozycji, więc FaktWay nie wie, które oznaczenie się należy, i plik nie powstał. ' +
+        `${wyjscie} Kolejną korektę takiej faktury wystaw jako korektę pozycji („przed / po”): wtedy FaktWay oznaczy ją ` +
+        'kodami GTU zmienionych pozycji.';
+    } else if (refusal === 'pozycja-dopisana') {
+      this.message =
+        `${head}korektą ${faktura}, która ma w pozycjach oznaczenie GTU (${kody}), i dopisuje pozycję albo zmienia nazwę ` +
+        `pozycji. ${zasada}` +
+        'Pozycja dopisana albo o zmienionej nazwie nie ma w FaktWay pola GTU, więc FaktWay nie wie, czy korekta dotyczy ' +
+        `towaru albo usługi z GTU, i plik nie powstał. ${wyjscie}`;
+    } else {
+      this.message =
+        `${head}korektą ${faktura}, która ma w pozycjach oznaczenie GTU (${kody}). ${zasada}` +
+        'FaktWay nie zna oznaczeń GTU pozycji, których ta korekta dotyczy (korekta wystawiona przed zapisem kodów pozycji ' +
+        'w korektach, pozycja dopisana wcześniejszą korektą albo faktura z importu, której oznaczenia FaktWay zna tylko ' +
+        `dla całej faktury), więc nie wie, które oznaczenie się należy, i plik nie powstał. ${wyjscie}`;
+    }
     this.name = 'JpkV7mGtuCorrectionNotSupportedError';
   }
 }
@@ -168,21 +211,85 @@ function receiptInvoiceRow(inv: JpkInvoice): boolean {
  * (MF: oznaczeniu GTU podlegają też faktury FP). Źródła: pozycje faktury
  * FaktWay (`gtuCode` z formularza albo katalogu, to samo co `GTU` w FA(3))
  * i oznaczenia z pliku KSeF faktury z importu (`ksefMarkers.gtu`; kod spoza
- * listy odmawia wcześniej, w `amountsOf`). Korekta faktury z GTU: odmowa
- * (`JpkV7mGtuCorrectionNotSupportedError`).
+ * listy odmawia wcześniej, w `amountsOf`). Korekta: `gtuOfCorrection`.
  */
 function gtuOfRow(inv: JpkInvoice): GtuCode[] {
+  if (inv.invoiceType === 'correction') return gtuOfCorrection(inv);
   const fromLines = inv.lines.flatMap((l) => (l.gtuCode ? [l.gtuCode] : []));
   const fromFile = inv.ksefMarkers?.gtu ?? [];
-  if (inv.invoiceType === 'correction') {
-    const codes = [...new Set([...(inv.correctedInvoiceGtu ?? []), ...fromLines, ...fromFile])];
-    if (codes.length > 0) {
-      throw new JpkV7mGtuCorrectionNotSupportedError(inv.invoiceNumber, inv.ksefNumber, inv.correctedInvoiceNumber, codes);
-    }
-    return [];
-  }
   const present = new Set<string>([...fromLines, ...fromFile].filter(isGtuCode));
   return GTU_CODES.filter((code) => present.has(code));
+}
+
+/** Oznaczenie pozycji stanu przed korekty: kod, „bez GTU” albo nieznane. */
+type CorrectionLineGtu = GtuCode | 'bez' | 'nieznane';
+
+/**
+ * Oznaczenia GTU wiersza korekty FaktWay (krok 2.6, część 2b-3; RP-JPK-GTU-01):
+ * kody pozycji, których korekta dotyczy (MF, pyt. 8: korekta pozycji z GTU
+ * dostaje ich kod, korekta samych pozycji bez GTU żadnego), każdy raz,
+ * w kolejności XSD:
+ * - anulowanie dotyczy wszystkich pozycji stanu przed;
+ * - „przed/po”: pozycji zmienionych i usuniętych, para jak w pliku FA(3) KOR
+ *   (`correctionLinePairs`), więc wiersz ma te kody GTU, które są w pliku;
+ * - kwotowa: pozycji w stawce korekty, gdy wszystkie mają to samo oznaczenie
+ *   albo żadna go nie ma.
+ * Kod pozycji stanu przed pochodzi z dokumentu faktury korygowanej (koperta).
+ * Pozycja bez kodu to „bez GTU” tylko wtedy, gdy faktura korygowana ma pozycje
+ * o tej nazwie i żadna nie ma GTU; inaczej FaktWay oznaczenia nie zna (korekta
+ * sprzed zapisu kodów, pozycja dopisana wcześniejszą korektą, import). Faktura
+ * korygowana bez GTU: korekta bez oznaczeń, jak dotąd. Odmowa z wyjściem
+ * (`JpkV7mGtuCorrectionNotSupportedError`), gdy korekta dotyczy pozycji
+ * o nieznanym oznaczeniu, dopisuje pozycję do faktury z GTU albo zmienia nazwę
+ * jej pozycji (para po kolejności, `renamedAfter`) albo jest kwotowa w stawce
+ * z różnymi oznaczeniami albo w stawce bez pozycji stanu przed.
+ */
+function gtuOfCorrection(inv: JpkInvoice): GtuCode[] {
+  const corrected = inv.correctedInvoiceGtu ?? [];
+  const fromFile = inv.ksefMarkers?.gtu ?? [];
+  const refuse = (codes: readonly string[], reason?: JpkV7mGtuCorrectionRefusal, rate?: string) =>
+    new JpkV7mGtuCorrectionNotSupportedError(inv.invoiceNumber, inv.ksefNumber, inv.correctedInvoiceNumber, codes, reason, rate);
+  // Własnych oznaczeń z pliku korekta FaktWay nie ma; gdyby były, FaktWay ich nie rozpozna.
+  if (fromFile.length > 0) throw refuse([...new Set([...corrected, ...fromFile])]);
+  if (corrected.length === 0) return [];
+
+  const source = inv.correctionGtuSource;
+  const before = source?.linesBefore;
+  if (!source || !before) throw refuse(corrected);
+  const parentLines = inv.correctedInvoiceLines ?? [];
+  const lineGtu = (line: JpkInvoiceLine): CorrectionLineGtu => {
+    if (line.gtuCode) return line.gtuCode;
+    const sameName = parentLines.filter((p) => p.name === line.name);
+    return sameName.length > 0 && sameName.every((p) => !p.gtuCode) ? 'bez' : 'nieznane';
+  };
+  const codesOf = (lines: readonly JpkInvoiceLine[]): GtuCode[] => {
+    const marks = lines.map(lineGtu);
+    if (marks.includes('nieznane')) throw refuse(corrected);
+    return GTU_CODES.filter((code) => marks.includes(code));
+  };
+
+  if (source.correctionType === 'cancellation') return codesOf(before);
+  if (source.correctionType === 'before_after') {
+    const after = source.linesAfter;
+    if (!after) throw refuse(corrected);
+    const { pairOf, usedAfter, unchanged } = correctionLinePairs(before, after);
+    // Pozycja dopisana i pozycja ze zmienioną nazwą (para po kolejności) nie mają w FaktWay kodów.
+    const renamed = renamedAfter(before, after, pairOf);
+    if (after.some((_line, ai) => !usedAfter.has(ai) || renamed.has(ai))) throw refuse(corrected, 'pozycja-dopisana');
+    return codesOf(before.filter((_line, bi) => !unchanged.has(bi)));
+  }
+  // Korekta kwotowa: stawka z jej pozycji (jedna, `resolveAmountChangeVatRate`).
+  const rates = new Set(inv.lines.map((l) => l.vatRate));
+  if (rates.size !== 1) throw refuse(corrected);
+  const [rate] = [...rates];
+  const inRate = before.filter((l) => l.vatRate === rate);
+  // Stawka bez pozycji w stanie przed (koperta sprzed F12-D2, nieświeży stan przed):
+  // FaktWay nie wie, których pozycji korekta dotyczy, więc nie oznacza jej bez GTU.
+  if (inRate.length === 0) throw refuse(corrected);
+  const codes = codesOf(inRate);
+  if (codes.length === 0) return [];
+  if (codes.length === 1 && inRate.every((l) => l.gtuCode === codes[0])) return codes;
+  throw refuse(codes, 'kwotowa', rate);
 }
 
 /** Sumy netto/VAT wg stawki — w groszach, bez zaokrągleń pośrednich. */
@@ -247,8 +354,8 @@ function aggregateSales(invoices: readonly JpkInvoice[]): RateBucket {
       // Ta sama kolejność dodawania co przed krokiem 1.2 (kwoty float, potem zaokrąglenie).
       addRowAmounts(b, inv);
     }
-    // Krok 2.6, część 2b-2: oznaczenia GTU nie zmieniają kwot, ale odmowa
-    // korekty faktury z GTU obowiązuje też rozliczenie w module VAT.
+    // Krok 2.6, części 2b-2 i 2b-3: oznaczenia GTU nie zmieniają kwot, ale
+    // odmowa przy korekcie (`gtuOfCorrection`) obowiązuje też rozliczenie w module VAT.
     gtuOfRow(inv);
   }
   return b;
@@ -448,7 +555,8 @@ function counterpartyId(inv: JpkInvoice): { country?: string; number: string } {
  * z typem dokumentu FP poza PodatekNalezny i deklaracją (`receiptInvoiceRow`),
  * a FP z paragonem z miesiąca pliku to odmowa (raportów z kasy, RO, FaktWay nie
  * wykazuje). Oznaczenia GTU pozycji: GTU_01..GTU_13 w wierszu faktury
- * (`gtuOfRow`, krok 2.6, część 2b-2), korekta faktury z GTU to odmowa. Pola
+ * (`gtuOfRow`, krok 2.6, część 2b-2), w wierszu korekty kody pozycji, których
+ * dotyczy (`gtuOfCorrection`, część 2b-3). Pola
  * specjalne (WDT, eksport, import usług, środki trwałe, ulgi, procedury, RO,
  * WEW) — do rozszerzenia.
  */

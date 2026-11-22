@@ -29,12 +29,16 @@ export default function EkranKsefIPolaczenia() {
 
 /**
  * KSeF na prawdziwym koncie (M10b): stan połączenia jak plakietka strony
- * (liczy serwer: „połączono” tylko z dowodem w środowisku aplikacji). Pliki
- * certyfikatu (.crt, .key i hasło) wgrywa się na faktway.pl (decyzja M10b:
- * kreator strony sprawdza 2FA, rolę i pliki w KSeF; wgrywanie plików z telefonu poza M10).
+ * (liczy serwer: „połączono” tylko z dowodem w środowisku aplikacji). Od M10c
+ * (część 2b) właściciel z włączonym 2FA wgrywa pliki certyfikatu z telefonu
+ * (`ksef-certyfikat`), bez 2FA najpierw je włącza (`dwa-etapy`); wgranie na
+ * faktway.pl zostaje jako druga droga.
  */
 function EkranKsefZBazy({ ustawienia }: { ustawienia: StanUstawien }) {
-  const rola = useKontoFirmy()?.firma?.rola;
+  const konto = useKontoFirmy();
+  const router = useRouter();
+  const rola = konto?.firma?.rola;
+  const dwaEtapy = konto?.konto?.dwaEtapy.wlaczone;
   const { dane } = ustawienia;
   if (!dane) {
     return (
@@ -57,7 +61,7 @@ function EkranKsefZBazy({ ustawienia }: { ustawienia: StanUstawien }) {
       ? 'Certyfikat wgrany, ale trzeba go potwierdzić ponownie'
       : 'Podłącz KSeF, aby móc wysyłać faktury';
   const wlasciciel = rola === 'owner';
-  const akcja = polaczono ? 'Odnów certyfikat na faktway.pl' : ksef.stan === 'do_potwierdzenia' ? 'Wgraj certyfikat ponownie na faktway.pl' : 'Podłącz KSeF na faktway.pl';
+  const akcja = polaczono ? 'Odnów certyfikat' : ksef.stan === 'do_potwierdzenia' ? 'Wgraj certyfikat ponownie' : 'Podłącz KSeF';
   return (
     <EkranListy onOdswiez={ustawienia.odswiez}>
       <NaglowekKwoty podpis="Połączenie z KSeF" wartosc={NAZWA_STANU_KSEF[ksef.stan]} styl="title1" status={opis} statusKolor={polaczono ? 'sukces' : 'ostrzezenie'} />
@@ -68,10 +72,14 @@ function EkranKsefZBazy({ ustawienia }: { ustawienia: StanUstawien }) {
       <Sekcja
         stopka={
           wlasciciel
-            ? 'Pliki certyfikatu (.crt i .key) i hasło do klucza wgrasz na faktway.pl. Do tego potrzebna jest weryfikacja dwuetapowa.'
-            : 'Certyfikat KSeF podłącza właściciel firmy na faktway.pl.'
+            ? dwaEtapy
+              ? 'Pliki certyfikatu (.crt i .key) i hasło do klucza wgrasz tu albo na faktway.pl. Wgranie sprawdzamy w KSeF.'
+              : 'Do wgrania certyfikatu potrzebna jest weryfikacja dwuetapowa. Włączysz ją w kilka chwil.'
+            : 'Certyfikat KSeF podłącza właściciel firmy.'
         }>
-        {wlasciciel && MA_ADRES_STRONY ? <Wiersz tytul={akcja} ikona="global-line" akcja onPress={() => otworzStrone('/settings/ksef', () => void ustawienia.odswiez())} /> : null}
+        {wlasciciel && dwaEtapy === false ? <Wiersz tytul="Włącz weryfikację dwuetapową" ikona="shield-keyhole-line" strzalka onPress={() => router.push('/wiecej/ustawienia/dwa-etapy')} /> : null}
+        {wlasciciel && dwaEtapy ? <Wiersz tytul={akcja} ikona="upload2-line" strzalka onPress={() => router.push('/wiecej/ustawienia/ksef-certyfikat')} /> : null}
+        {wlasciciel && MA_ADRES_STRONY ? <Wiersz tytul="Wgraj na faktway.pl" ikona="global-line" akcja onPress={() => otworzStrone('/settings/ksef', () => void ustawienia.odswiez())} /> : null}
       </Sekcja>
       {polaczono && MA_ADRES_STRONY ? (
         <Sekcja naglowek="Historia faktur z KSeF" stopka="Po podłączeniu FaktWay sam pobiera historię faktur z KSeF.">

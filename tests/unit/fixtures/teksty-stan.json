@@ -503,10 +503,6 @@
     "myslniki": 1,
     "plakietki": 0
   },
-  "lib/import/fa3-content.ts": {
-    "myslniki": 1,
-    "plakietki": 0
-  },
   "lib/import/fa3-parser.ts": {
     "myslniki": 3,
     "plakietki": 0
@@ -516,7 +512,7 @@
     "plakietki": 0
   },
   "lib/import/imported-invoice-row.ts": {
-    "myslniki": 8,
+    "myslniki": 6,
     "plakietki": 0
   },
   "lib/import/jpk-fa-parser.ts": {

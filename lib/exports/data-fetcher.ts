@@ -22,8 +22,8 @@ import type { Database, Json } from '@/types/database';
 import type { JpkFaInputData, JpkInvoice, JpkInvoiceLine } from './jpk-fa-generator';
 import { jpkAnnotationsFromJson, type Fa3Markers } from '@/lib/xml/fa3-annotations';
 import type { KsefLineFields } from '@/lib/import/fa3-line-amounts';
-import { calculateLineItem } from '@/lib/xml/invoice-calculator';
-import type { VatRate } from '@/types/invoice';
+import { correctionStateAmounts, lineAmounts } from '@/lib/invoices/calculator';
+import type { InvoiceLine } from '@/types/invoice-types';
 
 type InvoiceRow = Database['public']['Tables']['invoices']['Row'];
 type LineItemRow = Database['public']['Tables']['invoice_line_items']['Row'];
@@ -342,6 +342,22 @@ async function mapRowsToJpkInvoices(
 interface ParentInvoice {
   number: string;
   gtu: string[];
+  /** Pozycje dokumentu faktury z oznaczeniem GTU albo bez (krok 2.6, część 2b-3). */
+  lines: NonNullable<JpkInvoice['correctedInvoiceLines']>;
+}
+
+/**
+ * Pozycje dokumentu faktury (`fa3_data.lines`): nazwa i oznaczenie GTU tak,
+ * jak są zapisane (bez spacji na brzegach, także kod spoza listy). Faktura
+ * z importu nie ma `fa3_data.lines` (oznaczenia z pliku są dla całej faktury).
+ */
+function gtuLinesOfFa3(fa3: unknown): NonNullable<JpkInvoice['correctedInvoiceLines']> {
+  if (!isRecordJson(fa3) || !Array.isArray(fa3.lines)) return [];
+  return fa3.lines.flatMap((l) => {
+    if (!isRecordJson(l) || typeof l.name !== 'string') return [];
+    const gtu = typeof l.gtuCode === 'string' ? l.gtuCode.trim() : '';
+    return [{ name: l.name, ...(gtu ? { gtuCode: gtu } : {}) }];
+  });
 }
 
 /**
@@ -396,7 +412,11 @@ async function fetchParentInvoices(
     }
     for (const p of data) {
       if (!batch.includes(p.id)) throw new Error('Linked invoice not found in organization');
-      map.set(p.id, { number: p.internal_number ?? p.ksef_number ?? '', gtu: gtuMarkingsOfFa3(p.fa3_data) });
+      map.set(p.id, {
+        number: p.internal_number ?? p.ksef_number ?? '',
+        gtu: gtuMarkingsOfFa3(p.fa3_data),
+        lines: gtuLinesOfFa3(p.fa3_data),
+      });
     }
   }
   // A parent UUID is writable invoice data, not proof of ownership.
@@ -510,10 +530,12 @@ function mapInvoiceRow(
 
   let correctedNumber: string | undefined;
   let correctedGtu: string[] = [];
+  let correctedLines: NonNullable<JpkInvoice['correctedInvoiceLines']> = [];
   if (row.invoice_kind === 'correction' && row.parent_invoice_id) {
     const parent = parentById.get(row.parent_invoice_id);
     correctedNumber = parent?.number;
     correctedGtu = parent?.gtu ?? [];
+    correctedLines = parent?.lines ?? [];
   }
 
   // C5c: faktura z importu KSeF — pola pozycji z pliku (P_9B / P_11A…) dla JPK_FA.
@@ -548,7 +570,9 @@ function mapInvoiceRow(
     correctedInvoiceNumber: correctedNumber,
     correctionReason: row.correction_reason ?? undefined,
     ...(correctedGtu.length ? { correctedInvoiceGtu: correctedGtu } : {}),
+    ...(correctedLines.length ? { correctedInvoiceLines: correctedLines } : {}),
     ...correctionStatesFields(row),
+    ...correctionGtuSourceFields(row),
     ksefNumber: row.ksef_number ?? undefined,
     annotations: annotationsFromFa3(row.fa3_data),
     ...contentFlags,
@@ -564,39 +588,103 @@ function mapInvoiceRow(
  */
 function correctionStatesFields(row: InvoiceRow): Pick<JpkInvoice, 'correctionStates' | 'correctionStatesMissing'> {
   if (row.invoice_kind !== 'correction' || row.correction_type !== 'before_after') return {};
-  const data = row.special_data && typeof row.special_data === 'object' && !Array.isArray(row.special_data)
-    ? (row.special_data as Record<string, unknown>).correctionData
-    : undefined;
-  const envelope = data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : undefined;
-  const before = correctionStateLines(envelope?.linesBefore);
-  const after = correctionStateLines(envelope?.linesAfter);
-  return before && after ? { correctionStates: { before, after } } : { correctionStatesMissing: true };
+  const envelope = correctionEnvelope(row);
+  const states = correctionStatesOf(envelope?.linesBefore, envelope?.linesAfter);
+  return states ? { correctionStates: states } : { correctionStatesMissing: true };
 }
 
-/** Pozycje stanu korekty z koperty: kwoty z kalkulatora faktury, jak w generatorze FA(3) KOR. */
-function correctionStateLines(raw: unknown): JpkInvoiceLine[] | null {
+/** Koperta korekty FaktWay (`special_data.correctionData`, A4b) albo `undefined`. */
+function correctionEnvelope(row: InvoiceRow): Record<string, unknown> | undefined {
+  const data = isRecordJson(row.special_data) ? row.special_data.correctionData : undefined;
+  return isRecordJson(data) ? data : undefined;
+}
+
+/**
+ * Krok 2.6, część 2b-3: rodzaj korekty i jej stany z koperty, z oznaczeniami
+ * GTU pozycji (koperta niesie kody pozycji faktury korygowanej), do oznaczeń GTU
+ * wiersza korekty w JPK_V7M (`gtuOfCorrection`). Brak albo nieczytelna koperta:
+ * stan `null`, czyli FaktWay nie wie, których pozycji korekta dotyczy.
+ */
+function correctionGtuSourceFields(row: InvoiceRow): Pick<JpkInvoice, 'correctionGtuSource'> {
+  if (row.invoice_kind !== 'correction') return {};
+  const type = row.correction_type;
+  if (type !== 'cancellation' && type !== 'before_after' && type !== 'amount_change') return {};
+  const envelope = correctionEnvelope(row);
+  const before = envelopeLines(envelope?.linesBefore);
+  const states = type === 'before_after' ? correctionStatesOf(envelope?.linesBefore, envelope?.linesAfter) : null;
+  return {
+    correctionGtuSource: {
+      correctionType: type,
+      linesBefore: states?.before ?? (before ? jpkLines(before, before.map(lineAmounts)) : null),
+      linesAfter: type === 'before_after' ? states?.after ?? null : null,
+    },
+  };
+}
+
+/** Pozycja stanu korekty z koperty z numerem pozycji (`ordinal` albo kolejność). */
+type EnvelopeLine = InvoiceLine & { position: number };
+
+/**
+ * Pozycje stanu korekty z koperty (z kwotami z zapisu stanu przed,
+ * `recordedAmounts`, i ceną brutto pozycji od brutto) albo `null`, gdy koperta
+ * ich nie ma albo są nieczytelne.
+ */
+function envelopeLines(raw: unknown): EnvelopeLine[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
-  const lines: JpkInvoiceLine[] = [];
+  const lines: EnvelopeLine[] = [];
   for (const [i, item] of raw.entries()) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
-    const o = item as Record<string, unknown>;
-    const quantity = Number(o.quantity);
-    const unitPriceNet = Number(o.unitPriceNet);
-    const vatRate = String(o.vatRate ?? '');
+    if (!isRecordJson(item)) return null;
+    const quantity = Number(item.quantity);
+    const unitPriceNet = Number(item.unitPriceNet);
+    const vatRate = String(item.vatRate ?? '');
     if (!Number.isFinite(quantity) || !Number.isFinite(unitPriceNet) || !vatRate) return null;
-    const { netAmount, vatAmount } = calculateLineItem({ quantity, unitPriceNet, vatRate: vatRate as VatRate });
+    const recorded = isRecordJson(item.recordedAmounts) ? item.recordedAmounts : undefined;
+    const recordedAmounts = recorded && [recorded.netAmount, recorded.vatAmount, recorded.grossAmount].every((v) => typeof v === 'number' && Number.isFinite(v))
+      ? { netAmount: recorded.netAmount as number, vatAmount: recorded.vatAmount as number, grossAmount: recorded.grossAmount as number }
+      : undefined;
     lines.push({
-      position: typeof o.ordinal === 'number' ? o.ordinal : i + 1,
-      name: typeof o.name === 'string' ? o.name : '',
-      unit: typeof o.unit === 'string' ? o.unit : 'szt.',
+      position: typeof item.ordinal === 'number' ? item.ordinal : i + 1,
+      name: typeof item.name === 'string' ? item.name : '',
+      unit: typeof item.unit === 'string' ? item.unit : 'szt.',
       quantity,
       unitPriceNet,
-      netAmount,
-      vatRate,
-      vatAmount,
+      vatRate: vatRate as InvoiceLine['vatRate'],
+      ...(recordedAmounts ? { recordedAmounts } : {}),
+      // Faktura liczona od brutto w kopercie bez kwot zapisu: kwoty od ceny brutto, jak w pliku FA(3) KOR.
+      ...(typeof item.unitPriceGross === 'number' && item.unitPriceGross > 0 ? { unitPriceGross: item.unitPriceGross } : {}),
+      // Krok 2.6, część 2b-3: GTU pozycji faktury korygowanej z koperty (tylko kod z listy).
+      ...(isGtuCode(item.gtuCode) ? { gtuCode: item.gtuCode } : {}),
     });
   }
   return lines;
+}
+
+function jpkLines(lines: EnvelopeLine[], amounts: ReadonlyArray<{ netAmount: number; vatAmount: number }>): JpkInvoiceLine[] {
+  return lines.map((line, i) => ({
+    position: line.position,
+    name: line.name,
+    unit: line.unit,
+    quantity: line.quantity,
+    unitPriceNet: line.unitPriceNet,
+    netAmount: amounts[i]!.netAmount,
+    vatRate: line.vatRate,
+    vatAmount: amounts[i]!.vatAmount,
+    ...(isGtuCode(line.gtuCode) ? { gtuCode: line.gtuCode } : {}),
+  }));
+}
+
+/**
+ * Stany korekty „przed/po” z koperty z kwotami jak w pliku FA(3) KOR
+ * (`correctionStateAmounts`): stan przed z kwot zapisu faktury korygowanej,
+ * pozycja bez zmian z tymi samymi kwotami w stanie po. Koperta sprzed zapisu
+ * kwot (bez `recordedAmounts`) liczy stan przed od ilości × ceny.
+ */
+function correctionStatesOf(rawBefore: unknown, rawAfter: unknown): { before: JpkInvoiceLine[]; after: JpkInvoiceLine[] } | null {
+  const before = envelopeLines(rawBefore);
+  const after = envelopeLines(rawAfter);
+  if (!before || !after) return null;
+  const amounts = correctionStateAmounts(before, after);
+  return { before: jpkLines(before, amounts.before), after: jpkLines(after, amounts.after) };
 }
 
 /** Adnotacje z `fa3_data.annotations` (#60, #75, #79; C5b: import KSeF) — JPK_FA: P_16–P_19C. */

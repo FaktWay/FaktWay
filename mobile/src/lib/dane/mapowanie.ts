@@ -23,6 +23,8 @@ export const KOLUMNY_FAKTURY = [
   'id, internal_number, invoice_kind, issue_date, sale_date, payment_due_date',
   'ksef_status, ksef_number, net_total, vat_total, gross_total, currency',
   'payment_status, paid_amount, buyer_nip, is_b2c, buyer_id_type, buyer_data, seller_data, payment_data, notes',
+  // Faktura z „dzieckiem” (korektą, rozliczeniem) nie jest należnością (U42, `naleznosciOtwarte`).
+  'parent_invoice_id, advance_invoice_ids',
   'last_error, last_error_field, last_error_suggestion, created_at',
   `invoice_line_items(${KOLUMNY_POZYCJI})`,
 ].join(', ');
@@ -71,6 +73,9 @@ export type WierszFaktury = {
   seller_data?: unknown;
   payment_data?: unknown;
   notes?: string | null;
+  /** Korekta wskazuje fakturę pierwotną, rozliczenie (ROZ) rozliczane zaliczki: dziecko wyklucza rodzica z należności. */
+  parent_invoice_id?: string | null;
+  advance_invoice_ids?: string[] | null;
   last_error?: string | null;
   last_error_field?: string | null;
   last_error_suggestion?: string | null;
@@ -109,6 +114,38 @@ export function grosze(wartosc: unknown): number {
 function liczba(wartosc: unknown): number {
   const n = typeof wartosc === 'number' ? wartosc : Number(wartosc);
   return Number.isFinite(n) ? n : 0;
+}
+
+/** Liczba skończona z wartości JSON (liczba albo niepusty tekst liczbowy); reszta to `null`. Jak `toFiniteNumber` strony (`lib/invoices/amount-due.ts`). */
+function liczbaSkonczona(wartosc: unknown): number | null {
+  if (typeof wartosc === 'number') return Number.isFinite(wartosc) ? wartosc : null;
+  if (typeof wartosc === 'string' && wartosc.trim().length > 0) {
+    const n = Number(wartosc);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/**
+ * Do zapłaty na fakturze rozliczającej (ROZ, `invoice_kind = 'final'`), w
+ * groszach; `undefined` dla każdej innej faktury (płaci całe brutto).
+ *
+ * ROZ ma w `gross_total` PEŁNE zamówienie, a nabywca płaci tylko resztę po
+ * zaliczkach, zapisaną przy wystawieniu w `payment_data.amountDue`
+ * (art. 106f ust. 3; RP-FA-ROZ-01: P_15 to kwota pozostała do zapłaty). Kopia
+ * `amountDueOf` strony (`lib/invoices/amount-due.ts`, ta sama reguła w bazie:
+ * wyzwalacz i widok z migracji 00145; zgodność sprawdza
+ * `tests/unit/mobile-dane-mapowanie.test.ts`): `min(amountDue, gross_total)`,
+ * gdy `amountDue` jest liczbą >= 0; nieliczbowe, ujemne albo brak to `undefined`,
+ * czyli reguła od pełnego brutto (bezpieczniej zbyt długo gonić opłaconą fakturę
+ * niż przestać gonić zaległą).
+ */
+export function kwotaDoZaplatyRozliczenia(w: Pick<WierszFaktury, 'invoice_kind' | 'gross_total' | 'payment_data'>): number | undefined {
+  if (w.invoice_kind !== 'final') return undefined;
+  const platnosc = obiekt(w.payment_data);
+  const amountDue = platnosc ? liczbaSkonczona(platnosc.amountDue) : null;
+  if (amountDue === null || amountDue < 0) return undefined;
+  return Math.min(grosze(amountDue), grosze(w.gross_total));
 }
 
 function tekst(wartosc: unknown): string {
@@ -203,6 +240,8 @@ export function fakturaZBazy(w: WierszFaktury): Faktura {
     ? { nazwa: tekst(sprzedawca.name), nip: tekst(sprzedawca.nip) || undefined, adres: adres(sprzedawca.address) }
     : undefined;
   const komunikat = tekst(w.last_error);
+  const doZaplatyRozliczenia = kwotaDoZaplatyRozliczenia(w);
+  const zaliczki = (Array.isArray(w.advance_invoice_ids) ? w.advance_invoice_ids : []).filter((id): id is string => typeof id === 'string' && id.trim() !== '');
   return {
     id: w.id,
     numer: tekst(w.internal_number) || 'Bez numeru',
@@ -235,6 +274,9 @@ export function fakturaZBazy(w: WierszFaktury): Faktura {
     emailKontrahenta: tekst(nabywca?.email) || undefined,
     dataSprzedazy: tekst(w.sale_date) || undefined,
     zaplacono: !zaplacona && zaplacono > 0 ? zaplacono : undefined,
+    ...(doZaplatyRozliczenia === undefined ? {} : { kwotaDoZaplaty: doZaplatyRozliczenia }),
+    ...(tekst(w.parent_invoice_id) ? { rodzicId: tekst(w.parent_invoice_id) } : {}),
+    ...(zaliczki.length > 0 ? { zaliczkiId: zaliczki } : {}),
   };
 }
 

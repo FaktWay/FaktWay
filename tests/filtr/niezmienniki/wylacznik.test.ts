@@ -22,6 +22,11 @@ const MODULY = ['lib/ksiegowosc/ten-miesiac-zapis.ts', 'lib/api/mobile/ksiegowos
 // M10d: plik JPK_V7M (`pobierzJpkV7m`) i API VAT telefonu same pytają o wyłącznik; akcja strony i trasy telefonu wołają je z importu.
 // Kolejność: `vat-plik` przed `ksiegowosc-vat`, które z niego korzysta.
 MODULY.push('lib/ksiegowosc/vat-plik.ts', 'lib/api/mobile/ksiegowosc-vat.ts');
+// M10d część 2: pliki JPK_EWP i JPK_PKPIR (`pobierzJpkEwp`, `pobierzJpkPkpir`) same pytają o wyłącznik.
+MODULY.push('lib/ksiegowosc/ewidencja-pliki.ts', 'lib/api/mobile/ksiegowosc-ksiegi.ts');
+// Raport KPiR i eksport (`raport-kpir`, `eksport` poza katalogiem `ksiegowosc`) na stronie też nie są za wyłącznikiem modułu.
+// M10d część 3: zapisy ksiąg (`dodajWpisReczny`, `dodajWpisKpir`, `dodajSpis`, usunięcia) same pytają o wyłącznik; trasy telefonu wołają je z importu.
+MODULY.push('lib/ksiegowosc/ewidencja-zapis.ts', 'lib/api/mobile/ksiegowosc-zapisy.ts');
 
 function pliki(katalog: string, wzorzec: RegExp): string[] {
   const wynik: string[] = [];

@@ -7,6 +7,7 @@ import type { DziennikOdpowiedz, ZespolOdpowiedz } from '@/lib/api/mobile/kontra
 import { MobileUpstreamError, mobileError, mobileJson } from '@/lib/api/mobile/responses';
 import { auditActionLabel, auditResourceLabel } from '@/lib/audit/labels';
 import { formatWarsawDateTime } from '@/lib/format/warsaw-date';
+import { ZESPOL_CZLONKOWIE_KOLUMNY, ZESPOL_PROSBY_KOLUMNY } from '@/lib/organizations/zespol-zapytania';
 
 /**
  * Karty Więcej bez kwot (plan aplikacji mobilnej, M10e): Dziennik zdarzeń
@@ -65,7 +66,7 @@ export async function teamForMobile(caller: MobileCaller): Promise<NextResponse>
   const [czlonkowie, zaproszenia, prosby] = await Promise.all([
     caller.db
       .from('memberships')
-      .select('id, user_id, role, status, joined_at, users!inner(name)')
+      .select(ZESPOL_CZLONKOWIE_KOLUMNY)
       .eq('organization_id', tenantId)
       .order('joined_at', { ascending: true }),
     caller.db
@@ -77,7 +78,7 @@ export async function teamForMobile(caller: MobileCaller): Promise<NextResponse>
       .order('invited_at', { ascending: false }),
     caller.db
       .from('organization_join_requests')
-      .select('id, requested_by_user_id, message, created_at, users!inner(name)')
+      .select(ZESPOL_PROSBY_KOLUMNY)
       .eq('organization_id', tenantId)
       .eq('status', 'pending')
       .order('created_at', { ascending: false }),

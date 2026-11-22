@@ -10,9 +10,10 @@ import { PrzyciskPaska } from '@/komponenty/przycisk-paska';
 import { StanPusty } from '@/komponenty/stan-pusty';
 import { SzkieletListy } from '@/komponenty/szkielet';
 import type { UstawieniaOdpowiedz } from '@/lib/api/kontrakt';
-import type { BladApi } from '@/lib/api/bledy';
+import { bladTelefonu, type BladApi } from '@/lib/api/bledy';
 import { PODSTAWY_ZWOLNIENIA_VAT, type ZmianaFirmyZadanie } from '@/lib/api/kontrakt-ustawienia';
 import { dzienWarszawa } from '@/lib/dane/mapowanie';
+import { INNA_PODSTAWA as INNA, podstawaZwolnienia } from '@/lib/ustawienia/zwolnienie-vat';
 import { useKontoFirmy } from '@/stan/dane';
 import { useUstawienia } from '@/stan/ustawienia';
 import { useOchronaZmian, useZapisUstawien, type ZapisUstawien } from '@/stan/ustawienia-zapis';
@@ -20,7 +21,6 @@ import { MARGINES, ODSTEP } from '@/wyglad/odstepy';
 
 type Co = 'dane' | 'rachunek' | 'vat' | 'rozpoczecie';
 const TYTUL: Record<Co, string> = { dane: 'Dane firmy', rachunek: 'Rachunek do faktur', vat: 'Podatek VAT', rozpoczecie: 'Data rozpoczęcia' };
-const INNA = 'inna';
 const OPCJE_ZWOLNIENIA = [
   ...PODSTAWY_ZWOLNIENIA_VAT.map((p) => ({ wartosc: p.podstawa as string, etykieta: p.etykieta as string })),
   { wartosc: INNA, etykieta: 'Inna podstawa (np. zwolnienie przedmiotowe z art. 43)' },
@@ -37,7 +37,9 @@ const czysty = (t: string) => t.trim().replace(/\s+/g, ' ');
  * numer rachunku, data nie z przyszłości, podstawa zwolnienia) i rolę
  * (właściciel albo administrator) sprawdza serwer; jego zdanie stoi pod polem.
  * VAT to dwie zmiany strony (zwolnienie, metoda kasowa), wysyłane po kolei,
- * tylko te, które się zmieniły.
+ * tylko te, które się zmieniły. Pusta podstawa znaczy dla serwera „czynny
+ * podatnik VAT”, więc przy włączonym zwolnieniu i pustej „Innej podstawie”
+ * telefon niczego nie wysyła i prosi o podstawę (`podstawaZwolnienia`, U19).
  */
 export default function EkranZmianyFirmy() {
   const { co: param } = useLocalSearchParams<{ co?: string }>();
@@ -95,22 +97,36 @@ function Formularz({ co, firma, zapis, firmaEkranu }: { co: Co; firma: Firma; za
   const [blad, setBlad] = useState<BladApi>();
   const [trwa, setTrwa] = useState(false);
 
-  const podstawa = zwolniona ? (wybor === INNA ? inna : wybor) : '';
+  const wynikPodstawy = podstawaZwolnienia({ zwolniona, wybor, inna });
+  const podstawa = wynikPodstawy.ok ? wynikPodstawy.podstawa : '';
+  /** Włączone zwolnienie bez podstawy: nie jest zmianą do wysłania (serwer odczytałby ją jako zdjęcie zwolnienia), ale też nie jest „bez zmian”. */
+  const brakPodstawy = co === 'vat' && !wynikPodstawy.ok;
   const zmiany: ZmianaFirmyZadanie[] = [];
   if (co === 'dane' && (czysty(nazwa) !== firma.nazwa || czysty(adres1) !== firma.adres.linia1 || czysty(adres2) !== firma.adres.linia2)) {
     zmiany.push({ zmiana: 'dane', nazwa, adres1, adres2 });
   }
   if (co === 'rachunek' && rachunekTekst.replace(/\s/g, '') !== (firma.rachunek ?? '').replace(/\s/g, '')) zmiany.push({ zmiana: 'rachunek', rachunek: rachunekTekst });
   if (co === 'rozpoczecie' && data !== firma.rozpoczecie) zmiany.push({ zmiana: 'rozpoczecie', data: data ?? '' });
-  if (co === 'vat' && czysty(podstawa) !== (firma.zwolnienie ?? '')) zmiany.push({ zmiana: 'zwolnienie', podstawa });
+  if (co === 'vat' && wynikPodstawy.ok && czysty(podstawa) !== (firma.zwolnienie ?? '')) zmiany.push({ zmiana: 'zwolnienie', podstawa });
   if (co === 'vat' && kasowa !== firma.metodaKasowa) zmiany.push({ zmiana: 'metodaKasowa', wlaczona: kasowa });
 
-  const ochrona = useOchronaZmian(zmiany.length > 0);
+  const ochrona = useOchronaZmian(zmiany.length > 0 || brakPodstawy);
   /** Pola z miejscem na zdanie serwera; reszta odmów (także daty, bez pola tekstowego) stoi nad przyciskiem. */
   const polaNaEkranie: string[] = { dane: ['nazwa', 'adres1', 'adres2'], rachunek: ['rachunek'], rozpoczecie: [], vat: zwolniona && wybor === INNA ? ['podstawa'] : [] }[co];
   const bladPola = (pole: string) => (blad?.pole === pole ? blad.komunikat : undefined);
 
+  /** Zdanie pod polem „Inna podstawa” dotyczyło poprzedniej wartości: znika z jej zmianą (inaczej zostałoby w stopce, gdy pole zniknie). */
+  const poZmianiePodstawy = () => {
+    if (blad?.pole === 'podstawa') setBlad(undefined);
+  };
+
   const zapisz = async () => {
+    // Przed „bez zmian”: arkusz nie zamyka się po cichu, a zwolnienie nie jest zdejmowane pustym tekstem (U19).
+    if (!wynikPodstawy.ok && co === 'vat') {
+      setBlad({ ...bladTelefonu('odmowa', wynikPodstawy.komunikat), pole: 'podstawa' });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
     if (zmiany.length === 0) {
       router.back();
       return;
@@ -165,10 +181,36 @@ function Formularz({ co, firma, zapis, firmaEkranu }: { co: Co; firma: Firma; za
       {co === 'vat' ? (
         <>
           <Sekcja stopka="Zmienia treść każdej kolejnej faktury wysyłanej do KSeF.">
-            <PolePrzelacznik etykieta="Moja firma jest zwolniona z VAT" wartosc={zwolniona} onZmiana={setZwolniona} />
-            {zwolniona ? <PoleWyboru etykieta="Podstawa prawna zwolnienia" wartosc={wybor} opcje={OPCJE_ZWOLNIENIA} onZmiana={setWybor} /> : null}
+            <PolePrzelacznik
+              etykieta="Moja firma jest zwolniona z VAT"
+              wartosc={zwolniona}
+              onZmiana={(w) => {
+                setZwolniona(w);
+                poZmianiePodstawy();
+              }}
+            />
+            {zwolniona ? (
+              <PoleWyboru
+                etykieta="Podstawa prawna zwolnienia"
+                wartosc={wybor}
+                opcje={OPCJE_ZWOLNIENIA}
+                onZmiana={(w) => {
+                  setWybor(w);
+                  poZmianiePodstawy();
+                }}
+              />
+            ) : null}
             {zwolniona && wybor === INNA ? (
-              <PoleTekstowe etykieta="Inna podstawa prawna" wartosc={inna} onZmiana={setInna} podpowiedz="np. art. 43 ust. 1 pkt 29 lit. c ustawy o VAT" blad={bladPola('podstawa')} />
+              <PoleTekstowe
+                etykieta="Inna podstawa prawna"
+                wartosc={inna}
+                onZmiana={(t) => {
+                  setInna(t);
+                  poZmianiePodstawy();
+                }}
+                podpowiedz="np. art. 43 ust. 1 pkt 29 lit. c ustawy o VAT"
+                blad={bladPola('podstawa')}
+              />
             ) : null}
           </Sekcja>
           <Sekcja stopka="Na fakturach pojawią się wtedy wymagane wyrazy „metoda kasowa”. Nie dotyczy firm zwolnionych z VAT.">

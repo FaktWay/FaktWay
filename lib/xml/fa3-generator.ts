@@ -565,22 +565,11 @@ function buildFaWiersz(
   wiersz.ele('P_7').txt(requireText(line.name, `line[${line.ordinal}].name`));
 
   // Klasyfikacja z jawnym typem (krok 2.6, część 2b-1): PKWiU z formularza
-  // albo katalogu idzie jako PKWiU, bez zgadywania po długości.
+  // albo katalogu idzie jako PKWiU, bez zgadywania po długości. Dawne
+  // zgadywanie GTIN i CN (`classificationCode`) usunięte w części 2b-3, razem
+  // z fakturą rozliczającą i korektą.
   if (line.pkwiuCode) {
     wiersz.ele('PKWiU').txt(line.pkwiuCode);
-  } else if (line.classificationCode) {
-    // Dawna ścieżka bez typu (zgadywanie po długości): GTIN dla 8-14 cyfr,
-    // CN dla 4-7 cyfr (8-10 cyfr bierze już GTIN), PKWiU dla reszty. Zwykła
-    // faktura z formularza jej nie używa; do usunięcia razem z fakturą
-    // rozliczającą i korektą (część 2b-3).
-    if (/^\d{8,14}$/.test(line.classificationCode)) {
-      wiersz.ele('GTIN').txt(line.classificationCode);
-    } else if (/^\d{4,10}$/.test(line.classificationCode)) {
-      // CN jest numeryczny, 8 cyfr – ale XSD akceptuje tns:TZnakowy50.
-      wiersz.ele('CN').txt(line.classificationCode);
-    } else {
-      wiersz.ele('PKWiU').txt(line.classificationCode);
-    }
   }
 
   // P_8A (jednostka) i P_8B (ilość) muszą być po klasyfikacji.
@@ -591,7 +580,12 @@ function buildFaWiersz(
     // Art. 106e ust. 8: zamiast ceny i wartości netto cena jednostkowa brutto
     // i wartość sprzedaży brutto (XSD: P_9B i P_11A „w przypadku zastosowania
     // art. 106e ust. 7 i 8”). Sumy stawek (P_13_x, P_14_x) z podziału VAT stawki.
-    wiersz.ele('P_9B').txt(formatDecimal(line.unitPriceGross ?? 0, 4));
+    // Bez ceny brutto nie ma pliku (bramka `validateInvoice` odmawia wcześniej z numerem
+    // pozycji); tu ostatnia linia obrony przy `validate: false`, zamiast ceny 0 zł.
+    if (line.unitPriceGross === undefined || !Number.isFinite(line.unitPriceGross)) {
+      throw new Error(`FA(3): pozycja ${line.ordinal} faktury w cenach brutto nie ma ceny brutto.`);
+    }
+    wiersz.ele('P_9B').txt(formatDecimal(line.unitPriceGross, 4));
     wiersz.ele('P_11A').txt(formatDecimal(line.grossAmount));
   } else {
     wiersz.ele('P_9A').txt(formatDecimal(line.unitPriceNet, 4));
