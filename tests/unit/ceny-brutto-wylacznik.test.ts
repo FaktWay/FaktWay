@@ -155,7 +155,11 @@ describe('odmowa', () => {
     }
     for (const tekst of teksty) expect(tekst).toContain('FaktWay');
     expect(PODKLAD_BEZ_CENY_NETTO).toMatch(/wpisz je w cenach netto\.$/);
-    for (const etap of ETAPY) expect(tekstOdmowyCenBrutto(etap, 'wylaczone')).toMatch(/Wystaw fakturę (od nowa )?w cenach netto/);
+    for (const etap of ['zapis', 'wysylka'] as const) expect(tekstOdmowyCenBrutto(etap, 'wylaczone')).toMatch(/Wystaw fakturę (od nowa )?w cenach netto/);
+    // „Wyślij ponownie”: plik z wcześniejszej próby mógł już dotrzeć do KSeF, więc wyjście to pomoc FaktWay,
+    // a nie wystawienie od nowa (druga faktura w KSeF); zmienione świadomie po uwadze do #884.
+    expect(tekstOdmowyCenBrutto('ponowienie', 'wylaczone')).toMatch(/Nie wystawiaj jej od nowa, zanim sprawdzimy, czy KSeF jej nie przyjął: napisz do nas/);
+    expect(tekstOdmowyCenBrutto('ponowienie', 'wylaczone')).not.toMatch(/Wystaw fakturę/);
     expect(CENY_BRUTTO_WYLACZONE).toMatch(/Wystaw fakturę od nowa w cenach netto\.$/);
   });
 });

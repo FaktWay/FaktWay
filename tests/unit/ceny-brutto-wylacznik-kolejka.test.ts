@@ -25,7 +25,9 @@ const ID = '33333333-3333-4333-8333-333333333333';
 const USER = '55555555-5555-4555-8555-555555555555';
 const NIP = '5260001246';
 const WYLACZONE_SZKIC = 'Faktura w cenach brutto nie jest jeszcze dostępna w FaktWay, więc tego szkicu nie wysłaliśmy do KSeF. Wystaw fakturę od nowa w cenach netto, a szkic usuń.';
-const WYLACZONE_PONOWIENIE = 'Faktura w cenach brutto nie jest jeszcze dostępna w FaktWay, więc tej wysyłki nie wykonaliśmy i faktura zostaje z błędem wysyłki. Wystaw fakturę od nowa w cenach netto.';
+// „Wyślij ponownie” dotyczy faktury z błędem wysyłki, której plik mógł już dotrzeć do KSeF (np. przerwa po wysłaniu):
+// wystawienie jej od nowa mogłoby dać drugą fakturę w KSeF, więc wyjście prowadzi do pomocy FaktWay (uwaga do #884).
+const WYLACZONE_PONOWIENIE = 'Faktura w cenach brutto nie jest jeszcze dostępna w FaktWay, więc tej wysyłki nie wykonaliśmy i faktura zostaje z błędem wysyłki. Nie wystawiaj jej od nowa, zanim sprawdzimy, czy KSeF jej nie przyjął: napisz do nas, a sprawdzimy to i powiemy, co dalej.';
 const NIEZNANE_SZKIC = 'Nie udało się sprawdzić, czy faktura w cenach brutto jest dostępna w FaktWay, więc tego szkicu nie wysłaliśmy do KSeF. Spróbuj ponownie za chwilę.';
 
 const st = vi.hoisted(() => ({
