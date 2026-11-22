@@ -273,7 +273,8 @@
         "lib/invoices/line-codes.ts",
         "lib/ksef/special-invoice-data.ts",
         "lib/ksef/xml-generated-at.ts",
-        "lib/invoices/receipt-invoice.ts"
+        "lib/invoices/receipt-invoice.ts",
+        "lib/invoices/order-reference.ts"
       ]
     },
     {
