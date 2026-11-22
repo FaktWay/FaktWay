@@ -276,7 +276,8 @@ describe('uwagi drugiego czytelnika (31a9e96c)', () => {
       }
     }
     expect(sprawdzone).toBeGreaterThan(700_000);
-  });
+    // Ponad 700 000 sprawdzeń: w CI ok. 7 s, więcej niż domyślne 5 s (jak #872 dla fa3-fawiersz-klasyfikacja-xsd).
+  }, 600_000);
 
   it('pozycja z importu z ceną brutto z pliku (P_9B) waliduje się jak dotąd: kwoty od netto, bez zmiany wzoru', () => {
     const line = { ordinal: 1, name: 'Usługa', unit: 'usł.', quantity: 1, unitPriceNet: 17.07, unitPriceGross: 20.99, vatRate: '23' as const, netAmount: 17.07, vatAmount: 3.93, grossAmount: 21 };
