@@ -232,5 +232,8 @@ describe('niezmiennik: PKWiU pozycji ROZ i KOR', () => {
       }),
       { numRuns: 30 },
     );
-  });
+    // 30 przebiegów po dwa pliki przez walidator XSD: w części Vitest na CI to bywa ponad
+    // domyślne 5 s („Test timed out in 5000ms” na main 240aee97 i ba79d18d, grupy kolejki #820,
+    // #838). Limit jak w pozostałych testach XSD (`tests/filtr/xsd/*`: 600_000).
+  }, 600_000);
 });

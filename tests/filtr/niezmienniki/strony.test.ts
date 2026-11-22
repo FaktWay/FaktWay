@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 
 import fc from 'fast-check';
 import ts from 'typescript';
@@ -273,11 +273,12 @@ const FZ_018 = [
   'lib/exports/jpk-fa-readiness.ts#unsupportedDocumentReason:invoices',
 ];
 
+/** Ścieżki względne zawsze z `/` (`posix.join`), także na Windowsie: klucze `OGRANICZONE` i `FZ_018` są napisami z `/`. */
 function pliki(katalog: string): string[] {
   const wynik: string[] = [];
   const idz = (k: string) => {
     for (const n of readdirSync(join(KATALOG, k))) {
-      const s = join(k, n);
+      const s = posix.join(k, n);
       if (statSync(join(KATALOG, s)).isDirectory()) idz(s);
       else if (/\.tsx?$/.test(n) && !/\.test\.tsx?$/.test(n)) wynik.push(s);
     }

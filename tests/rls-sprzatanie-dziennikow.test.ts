@@ -240,7 +240,7 @@ describe.skipIf(!hasDatabase)('sprzątanie dzienników paczkami (00157, DB-01, D
       );
 
       const viaRest = await admin.from('audit_logs').delete().eq('id', young!.id);
-      expect(viaRest.error?.message).toContain('append-only');
+      expect(viaRest.error?.message).toContain('audit_logs is append-only');
 
       const sameTx = await rolledBack(async (tx) => {
         await tx.executeSql('SET LOCAL ROLE service_role');
@@ -250,13 +250,13 @@ describe.skipIf(!hasDatabase)('sprzątanie dzienników paczkami (00157, DB-01, D
         expect(flag[0]?.v).not.toBe('true');
         await tx.executeSql('DELETE FROM public.audit_logs WHERE id = $1::uuid', [young!.id]);
       });
-      expect(String((sameTx.error as Error | undefined)?.message)).toContain('append-only');
+      expect(String((sameTx.error as Error | undefined)?.message)).toContain('audit_logs is append-only');
 
       const update = await rolledBack(async (tx) => {
         await tx.executeSql('SELECT public.purge_audit_logs_batch(12, 10)');
         await tx.executeSql("UPDATE public.audit_logs SET action = 'zmienione' WHERE id = $1::uuid", [young!.id]);
       });
-      expect(String((update.error as Error | undefined)?.message)).toContain('append-only');
+      expect(String((update.error as Error | undefined)?.message)).toContain('audit_logs is append-only');
 
       // Flaga ustawiona wcześniej przez wołającego (np. anonimizacja RODO) wraca po paczce.
       const kept = await rolledBack(async (tx) => {

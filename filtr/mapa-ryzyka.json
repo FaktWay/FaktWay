@@ -273,7 +273,8 @@
         "lib/invoices/line-codes.ts",
         "lib/ksef/special-invoice-data.ts",
         "lib/ksef/xml-generated-at.ts",
-        "lib/invoices/receipt-invoice.ts"
+        "lib/invoices/receipt-invoice.ts",
+        "lib/invoices/order-reference.ts"
       ]
     },
     {
@@ -1038,7 +1039,8 @@
       "poziom": "R1",
       "opis": "SQL: pochodzenie kosztów i prawo do odliczenia (expenses.is_deductible).",
       "sciezki": [
-        "supabase/migrations/{00034,00123,00127,00128,00175,00177,00196,00206}_*.sql"
+        "supabase/migrations/{00034,00123,00127,00128,00175,00177,00196,00206}_*.sql",
+        "supabase/migrations/00212_*.sql"
       ]
     },
     {

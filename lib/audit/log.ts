@@ -61,6 +61,8 @@ export type AuditAction =
   | 'tenant.ksef_nip_ownership_claimed'
   // Wątek przy koszcie (00192): prośba o dokument i jej załatwienie; metadane niosą identyfikator
   // wpisu i rolę, bez treści. Zapisuje baza (RPC `expense_comment_add`, `expense_document_request_resolve`).
+  // Koszt wpisany ręcznie (krok 3.8, część 1): numer, rodzaj dokumentu, kwota i kolumna KPiR w metadanych.
+  | 'expense.created_manually'
   | 'expense.document_requested'
   | 'expense.document_request_resolved'
   | 'expense.foreign_currency_reviewed'
