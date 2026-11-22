@@ -113,6 +113,19 @@ Skrypt zapisuje wiersz flagi (`INSERT … ON CONFLICT (flag) DO UPDATE`,
 z `updated_by` i notatką) i pokazuje stan po zmianie. Bez `--tak` tylko
 pokazuje stan.
 
+## Jak wyłączyć
+
+Przed `./scripts/ops/ceny-brutto.sh wylacz --tak` sprawdź drugą tabelę
+`./scripts/ops/ceny-brutto.sh stan` (faktury w cenach brutto według stanu
+wysyłki). Faktury `failed` i `sending` najpierw uzgodnij („Sprawdź ponownie”,
+uzgodnienie nic nie wysyła i działa także przy wyłączonym). Po wyłączeniu
+„Wyślij ponownie” takiej faktury dostaje odmowę, a plik z wcześniejszej próby
+mógł już dotrzeć do KSeF (np. przerwa po wysłaniu). Dlatego tekst odmowy
+prosi klienta, żeby nie wystawiał faktury od nowa i napisał do pomocy.
+Operator wtedy uzgadnia fakturę tak samo: przy numerze KSeF faktura jest
+przyjęta, a bez numeru i bez otwartej wysyłki klient wystawia ją od nowa
+w cenach netto.
+
 ## Jak sprawdzić po włączeniu
 
 1. `./scripts/ops/ceny-brutto.sh stan` pokazuje
