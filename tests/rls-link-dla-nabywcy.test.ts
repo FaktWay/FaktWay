@@ -389,6 +389,24 @@ describe.skipIf(!hasDatabase)('00179: link do faktury dla nabywcy na prawdziwym 
       expect(invoice.lines).toEqual([expect.objectContaining({ ordinal: 1, pkwiu_code: null, gtu_code: null })]);
     });
 
+    it('00211: faktura w cenach brutto: pozycja niesie cenę brutto z dokumentu (unit_price_gross); w cenach netto pole puste', async () => {
+      const { id } = await faktura({
+        fa3_data: {
+          internalNumber: 'FV/179/brutto', type: 'VAT', annotations: { splitPayment: 2 }, pricesGross: true,
+          lines: [{ ordinal: 1, name: 'Usługa testowa', unitPriceGross: 615, grossAmount: 1230 }],
+        },
+      });
+      const link = await linkSerwisowy(id);
+      const invoice = (await widok(link.hash))!.invoice as Record<string, unknown>;
+      expect(invoice.lines).toEqual([expect.objectContaining({ ordinal: 1, unit_price_gross: 615 })]);
+      expect(JSON.stringify(invoice)).not.toContain('pricesGross');
+
+      const netto = await faktura();
+      const linkNetto = await linkSerwisowy(netto.id);
+      const invoiceNetto = (await widok(linkNetto.hash))!.invoice as Record<string, unknown>;
+      expect(invoiceNetto.lines).toEqual([expect.objectContaining({ ordinal: 1, unit_price_gross: null })]);
+    });
+
     it('licznik otwarć rośnie tylko przy p_count_open = true', async () => {
       const { id } = await faktura();
       const link = await linkSerwisowy(id);

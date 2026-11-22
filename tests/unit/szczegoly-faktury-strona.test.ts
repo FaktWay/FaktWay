@@ -934,3 +934,35 @@ describe('2.6 cz. 2b-3c: PKWiU i GTU pozycji w szczegółach faktury', () => {
     expect(initial.lines[1]).not.toHaveProperty('gtu_code');
   });
 });
+
+describe('ceny brutto (c): cena brutto pozycji w szczegółach faktury', () => {
+  const GROSS_ID = '33333333-3333-4333-8333-333333333391';
+  const wiersz = (ordinal: number, name: string, net: number, vat: number) => ({
+    ordinal, name, unit: 'szt.', quantity: 1, unit_price_net: null, vat_rate: '23', net_amount: net, vat_amount: vat, gross_amount: 1,
+  });
+
+  it('faktura w cenach brutto: pozycje niosą cenę brutto z dokumentu (fa3_data.lines), cena netto pusta jak w bazie', async () => {
+    st.db!.tables.invoices!.push(invoiceRow(GROSS_ID, {
+      fa3_data: {
+        internalNumber: 'FV/1/10/2026', type: 'VAT', issueDate: TODAY, seller, buyer, pricesGross: true,
+        lines: [1, 2, 3].map((ordinal) => ({ ordinal, name: `Pozycja ${ordinal}`, unit: 'szt.', quantity: 1, unitPriceNet: 0, unitPriceGross: 1, vatRate: '23' })),
+      },
+      invoice_line_items: [wiersz(1, 'Pozycja 1', 0.82, 0.18), wiersz(2, 'Pozycja 2', 0.81, 0.19), wiersz(3, 'Pozycja 3', 0.81, 0.19)],
+    }));
+    const initial = await loadInitial(GROSS_ID);
+    expect(initial.lines.map((l) => [l.ordinal, l.unit_price_net, l.unit_price_gross ?? null])).toEqual([
+      [1, null, 1],
+      [2, null, 1],
+      [3, null, 1],
+    ]);
+  });
+
+  it('faktura w cenach netto: bez ceny brutto pozycji (widok jak dotąd)', async () => {
+    const NET_ID = '33333333-3333-4333-8333-333333333392';
+    st.db!.tables.invoices!.push(invoiceRow(NET_ID, {
+      invoice_line_items: [{ ordinal: 1, name: 'Usługa', unit: 'szt.', quantity: 1, unit_price_net: 100, vat_rate: '23', net_amount: 100, vat_amount: 23, gross_amount: 123 }],
+    }));
+    const initial = await loadInitial(NET_ID);
+    expect(initial.lines[0]).not.toHaveProperty('unit_price_gross');
+  });
+});

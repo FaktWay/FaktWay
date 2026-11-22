@@ -797,6 +797,7 @@ function linesFromFa3Data(fa3: Json | null): JpkInvoiceLine[] {
   if (!fa3 || typeof fa3 !== 'object' || Array.isArray(fa3)) return [];
   const rawLines = (fa3 as Record<string, unknown>).lines;
   if (!Array.isArray(rawLines)) return [];
+  const pricesGross = (fa3 as Record<string, unknown>).pricesGross === true;
 
   const out: JpkInvoiceLine[] = [];
   for (let i = 0; i < rawLines.length; i++) {
@@ -828,6 +829,11 @@ function linesFromFa3Data(fa3: Json | null): JpkInvoiceLine[] {
       // Krok 2.6, część 2b-2: GTU pozycji z dokumentu faktury (JPK_V7M, `gtuOfRow`).
       // Kod spoza listy nie przeszedłby XSD FA(3), więc przyjęta faktura go nie ma.
       ...(isGtuCode(o.gtuCode) ? { gtuCode: o.gtuCode } : {}),
+      // Faktura FaktWay w cenach brutto: JPK_FA podaje to, co faktura (P_9B, P_11A
+      // zamiast netto, art. 106e ust. 8), jak wiersz importu od brutto (C5c).
+      ...(pricesGross && typeof o.unitPriceGross === 'number' && typeof o.grossAmount === 'number'
+        ? { ksefFields: { P_8B: Number(o.quantity) || 0, P_9B: o.unitPriceGross, P_11A: o.grossAmount } }
+        : {}),
     });
   }
   return out;
