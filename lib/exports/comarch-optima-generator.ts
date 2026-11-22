@@ -170,6 +170,9 @@ function normalizeVatRateOptima(rate: string): string {
 }
 
 function calculateVatAmount(line: JpkInvoiceLine): number {
+  // Zapisany VAT pozycji (faktura w bazie) ma pierwszeństwo: eksport pokazuje kwotę z faktury,
+  // także starej, liczonej przed FZ-023; od netto liczymy tylko, gdy zapisu nie ma.
+  if (typeof line.vatAmount === 'number' && Number.isFinite(line.vatAmount)) return line.vatAmount;
   const r = line.vatRate.trim().toLowerCase();
   const rateMap: Record<string, number> = { '23': 23, '8': 8, '5': 5, '0': 0 };
   const rate = rateMap[r] ?? 0;

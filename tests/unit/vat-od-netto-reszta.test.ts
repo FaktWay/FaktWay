@@ -170,6 +170,20 @@ describe('Comarch Optima: VAT pozycji', () => {
     expect(/<WartoscVAT>([^<]*)<\/WartoscVAT>/.exec(pozycja)?.[1]).toBe('4.02');
     expect(/<WartoscBrutto>([^<]*)<\/WartoscBrutto>/.exec(pozycja)?.[1]).toBe('84.32');
   });
+
+  it('pozycja z zapisanym VAT (stara faktura z 4,01): eksport pokazuje kwotę z faktury, nie liczy od nowa', () => {
+    const stara = jpkFaktura({
+      vatTotal: 4.01, grossTotal: 84.31,
+      lines: [{ position: 1, name: 'Usługa', unit: 'usł.', quantity: 1, unitPriceNet: 80.3, netAmount: 80.3, vatAmount: 4.01, vatRate: '5' }],
+    });
+    const xml = generateComarchOptimaXml({
+      issuer: { nip: '5260001246', name: 'ACME sp. z o.o.', taxOfficeCode: '1433' } as never,
+      periodStart: '2026-11-01', periodEnd: '2026-11-30', issuedInvoices: [stara], receivedInvoices: [],
+    });
+    const pozycja = xml.slice(xml.indexOf('<Pozycja '));
+    expect(/<WartoscVAT>([^<]*)<\/WartoscVAT>/.exec(pozycja)?.[1]).toBe('4.01');
+    expect(/<WartoscBrutto>([^<]*)<\/WartoscBrutto>/.exec(pozycja)?.[1]).toBe('84.31');
+  });
 });
 
 describe('import: VAT z netto, gdy pliku go nie ma (legacyLineAmounts)', () => {
