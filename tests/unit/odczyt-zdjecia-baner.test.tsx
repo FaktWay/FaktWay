@@ -95,14 +95,15 @@ describe('pasek odczytu zdjęcia po udostępnieniu z telefonu', () => {
     expect(m.status.mock.calls.length).toBe(razy);
   });
 
-  it('nie udało się: droga wyjścia, która istnieje dziś (wyraźniejsze zdjęcie w Kosztach), bez obietnicy archiwum', async () => {
+  it('nie udało się: wyraźniejsze zdjęcie w Kosztach albo koszt wpisany ręcznie (formularz z kroku 3.8), bez obietnicy archiwum', async () => {
     m.status.mockResolvedValue(zadanie('failed', { error_message: 'x' }));
     await pokaz();
     expect(tekst()).toMatch(/Nie udało się odczytać/i);
-    // Na Kosztach nie ma ręcznego formularza (jest zdjęcie z aparatu i z galerii): droga wyjścia musi być prawdziwa.
+    // Obie drogi wyjścia są prawdziwe: zdjęcie w Kosztach i formularz kosztu bez zdjęcia (#834,
+    // `/expenses/new`). Do 22.11 formularza nie było, więc pasek nie mógł go obiecywać.
     expect(tekst()).toMatch(/Zrób wyraźniejsze zdjęcie/i);
-    expect(tekst()).not.toMatch(/ręcznie/i);
     expect(host.querySelector('a[href="/expenses"]')).not.toBeNull();
+    expect(host.querySelector('a[href="/expenses/new"]')?.textContent).toMatch(/wpisz koszt ręcznie/i);
     expect(status()?.getAttribute('role')).toBe('alert');
     expect(tekst()).not.toContain('x');
   });
@@ -170,6 +171,18 @@ describe('pasek odczytu zdjęcia po udostępnieniu z telefonu', () => {
     await pokaz();
     expect(tekst()).toMatch(wzorzec);
     expect(m.status).not.toHaveBeenCalled();
+  });
+
+  it('nie udało się przyjąć zdjęcia („blad”): także koszt wpisany ręcznie (`/expenses/new`); bez zdjęcia („brak-zdjecia”) jak dotąd', async () => {
+    m.param = 'blad';
+    await pokaz();
+    expect(host.querySelector('a[href="/expenses"]')).not.toBeNull();
+    expect(host.querySelector('a[href="/expenses/new"]')?.textContent).toMatch(/wpisz koszt ręcznie/i);
+    act(() => root.unmount());
+    root = createRoot(host);
+    m.param = 'brak-zdjecia';
+    await pokaz();
+    expect(host.querySelector('a[href="/expenses/new"]')).toBeNull();
   });
 
   it('„Zamknij” chowa pasek i usuwa z adresu tylko parametr paragon', async () => {
