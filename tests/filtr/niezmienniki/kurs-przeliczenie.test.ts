@@ -124,13 +124,13 @@ describe('NZ-KURS-03: kwota razy kurs do groszy jedną funkcją, bez błędu flo
     expect(przeliczNaPln(10_000_000_000, 0.00024123)).toBe(wzorzec(10_000_000_000, '0.00024123'));
   });
 
-  it.fails('FZ-019: OCR kosztu w walucie, 0,75 EUR po 4,3000 to 3,23 zł', () => {
+  it('FZ-019: OCR kosztu w walucie, 0,75 EUR po 4,3000 to 3,23 zł', () => {
     const tabela = { currency: 'EUR', mid: 4.3, tableNo: '1/A/NBP/2026', effectiveDate: '2026-03-09' };
     const wynik = costInPln({ currency: 'EUR', net_amount: 0.75, vat_amount: 0, gross_amount: 0.75 }, '2026-03-10', { found: true, rate: tabela, gapDays: 1 });
     expect(wynik).toMatchObject({ kind: 'pln', net: 3.23, gross: 3.23 });
   });
 
-  it.fails('FZ-019: próg OSS, sprzedaż 0,75 EUR po 4,3000 liczy się jako 3,23 zł', () => {
+  it('FZ-019: próg OSS, sprzedaż 0,75 EUR po 4,3000 liczy się jako 3,23 zł', () => {
     const wynik = licznikOss(
       [{ id: 'a', issueDate: '2026-03-10', net: 0.75, kind: 'regular', currency: 'EUR', rateToPln: 4.3, countryCode: 'DE', isB2c: true, buyerNip: null, vatUe: null }],
       { year: 2026 },
@@ -248,7 +248,7 @@ describe('NZ-KURS-03: przeliczenia waluty po nazwie kursu stoją w przeliczNaPln
     expect(policzone((k) => !FZ_019.includes(k))).toEqual(Object.fromEntries(Object.entries(DOZWOLONE).map(([k, v]) => [k, v.ile])));
   });
 
-  it.fails('FZ-019: OCR kosztu (costInPln) i próg OSS (netPln) przeliczają sami, na liczbach zmiennoprzecinkowych', () => {
+  it('FZ-019: OCR kosztu (costInPln) i próg OSS (netPln) przeliczają sami, na liczbach zmiennoprzecinkowych', () => {
     expect(policzone((k) => FZ_019.includes(k))).toEqual({});
   });
 });
