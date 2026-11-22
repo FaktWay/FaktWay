@@ -259,7 +259,7 @@ describe('bramka wysyłki: stawki bez podatku w fakturze w cenach brutto (zw, oo
    * Art. 106e ust. 7 i 8: cena brutto zamiast netto, gdy podatek liczy się od wartości brutto. Przy
    * stawkach bez podatku (zwolnienie, odwrotne obciążenie, „nie podlega”) wzoru nie ma do czego
    * zastosować, a czy plik może wtedy mieć `P_9B` i `P_11A`, rozstrzyga księgowa (RP-FA-BRUTTO-01).
-   * Do tego czasu odmowa z wyjściem: faktura w cenach netto (cena netto = cena brutto, bo podatku nie ma).
+   * Do tego czasu odmowa z wyjściem: faktura w cenach netto.
    */
   it.each([
     ['zw', 'zw'],
@@ -272,7 +272,7 @@ describe('bramka wysyłki: stawki bez podatku w fakturze w cenach brutto (zw, oo
       { name: 'Usługa', quantity: 1, unitPriceGross: 100, vatRate: stawka as unknown as Stawka },
     ]));
     expect(validateInvoice(invoice, NOW)).toEqual(expect.arrayContaining([
-      `Pozycja 2: stawka „${etykieta}” nie ma podatku, więc faktura w cenach brutto jej nie obsługuje. Wystaw fakturę w cenach netto: przy tej stawce cena netto to cena brutto.`,
+      `Pozycja 2: stawka „${etykieta}” nie ma podatku, więc faktura w cenach brutto jej nie obsługuje. Wystaw fakturę w cenach netto.`,
     ]));
   });
 

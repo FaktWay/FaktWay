@@ -711,7 +711,7 @@ export function validateInvoice(invoice: Invoice, now: Date = new Date()): strin
       } else if (GROSS_PRICES_UNTAXED_RATES.has(line.vatRate)) {
         errors.push(
           `Pozycja ${line.ordinal}: stawka „${ZERO_VAT_RATE_LABELS[line.vatRate] ?? line.vatRate}” nie ma podatku, więc faktura w cenach brutto jej nie obsługuje. ` +
-            'Wystaw fakturę w cenach netto: przy tej stawce cena netto to cena brutto.',
+            'Wystaw fakturę w cenach netto.',
         );
       } else {
         // VAT pozycji to jej udział w VAT stawki (brutto × stawka / (100 + stawka)) w dół albo
