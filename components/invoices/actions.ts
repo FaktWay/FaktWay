@@ -14,6 +14,8 @@ import {
   saveRegularDraft,
   type RegularIssueResult,
 } from '@/lib/invoices/issue-regular';
+import { CENY_BRUTTO_PODKLAD, czyFakturaWCenachBrutto, PODKLAD_BEZ_CENY_NETTO } from '@/lib/invoices/ceny-brutto-wylacznik';
+import { documentGrossPrices } from '@/lib/invoices/document-lines';
 import { isGtuCode, isPkwiuCode } from '@/lib/invoices/line-codes';
 import { addressCountryForKodUE, parseVatUe } from '@/lib/invoices/vat-ue';
 import { RECURRING_DRAFT_REFUSED_MESSAGE } from '@/lib/invoices/recurring/issue';
@@ -136,6 +138,13 @@ export async function saveAndSendInvoiceAction(
 /** Wartości do wstrzyknięcia w formularz — bez numeru i bez dat. */
 export interface PrefillFromLastInvoice {
   contractorName: string;
+  /**
+   * Wyłącznik cen brutto (N6, RP-FA-BRUTTO-01): faktura-wzór ma ceny brutto
+   * (faktura FaktWay w cenach brutto albo import z `P_9B`), więc pozycje bez
+   * ceny netto w dokumencie wracają z pustą ceną. Tekst do komunikatu nad
+   * formularzem; brak klucza = ceny jak we wzorze.
+   */
+  priceNotice?: string;
   values: Pick<
     InvoiceFormValues,
     | 'buyerNip'
@@ -190,7 +199,11 @@ export async function prefillFromLastInvoiceAction(): Promise<PrefillFromLastInv
     .maybeSingle();
 
   if (!ostatnia) return null;
-  return prefillCore(supabase, ostatnia);
+  const core = await prefillCore(supabase, ostatnia);
+  // N6: baner niczego nie mówi o cenach, więc nie podsuwa podkładu z pustymi
+  // cenami (faktura w cenach brutto); taki podkład daje tylko „Duplikuj”
+  // i „Wystaw teraz”, z komunikatem nad formularzem.
+  return core?.priceNotice ? null : core;
 }
 
 /**
@@ -220,15 +233,23 @@ async function prefillCore(
   const kodyPozycji = new Map(
     (Array.isArray(faktura.lines) ? faktura.lines : []).map((l) => [l.ordinal, l] as const),
   );
+  // Wyłącznik cen brutto (N6, RP-FA-BRUTTO-01): podkład z dokumentu w cenach
+  // brutto jest w cenach netto, a pozycja bez ceny netto w dokumencie (faktura
+  // FaktWay z `pricesGross`, import z `P_9B` z pustą ceną netto) wraca z pustym
+  // polem ceny, nigdy z 0 zł. Formularz w main nie ma metody brutto, więc tak
+  // jest przy obu stanach wyłącznika; podkład w cenach brutto przy włączonym
+  // (`cenyBruttoDostepne`) dokłada formularz cen brutto (PR (b)).
+  const cenyBrutto = czyFakturaWCenachBrutto(faktura);
   const lines = (pozycje ?? [])
     .map((poz) => {
       const kody = kodyPozycji.get(Number(poz.ordinal));
       const pkwiuCode = typeof kody?.pkwiuCode === 'string' ? kody.pkwiuCode.trim() : '';
+      const bezCeny = cenyBrutto || poz.unit_price_net == null;
       return {
         name: String(poz.name ?? ''),
         unit: String(poz.unit ?? 'szt'),
         quantity: Number(poz.quantity) || 0,
-        unitPriceNet: Number(poz.unit_price_net) || 0,
+        ...(bezCeny ? {} : { unitPriceNet: Number(poz.unit_price_net) || 0 }),
         vatRate: String(poz.vat_rate ?? '23'),
         ...(isPkwiuCode(pkwiuCode) ? { pkwiuCode } : {}),
         ...(isGtuCode(kody?.gtuCode) ? { gtuCode: kody.gtuCode } : {}),
@@ -239,6 +260,12 @@ async function prefillCore(
   // Faktura bez czytelnych pozycji nie jest podkładem, tylko pułapką:
   // klient kliknąłby „Wypełnij" i dostał pusty formularz z samym nabywcą.
   if (lines.length === 0) return null;
+  // Komunikat, gdy w podkładzie została pozycja z pustą ceną; „ceny brutto” tylko,
+  // gdy dokument je ma (`pricesGross` albo cena brutto przy każdej pozycji bez netto).
+  const bezCen = lines.some((l) => !('unitPriceNet' in l));
+  const cenyBruttoWDokumencie = documentGrossPrices(row.fa3_data as Parameters<typeof documentGrossPrices>[0]);
+  const zCenBrutto =
+    cenyBrutto || (pozycje ?? []).every((poz) => poz.unit_price_net != null || cenyBruttoWDokumencie.has(Number(poz.ordinal)));
 
   // AUD-70: nabywca z UE wraca jako firma z UE — sam pusty NIP zostawiłby
   // formularz z błędem „NIP firmy”, a numer VAT-UE przepadłby po drodze.
@@ -258,6 +285,7 @@ async function prefillCore(
 
   return {
     contractorName: buyer.name,
+    ...(bezCen ? { priceNotice: zCenBrutto ? CENY_BRUTTO_PODKLAD : PODKLAD_BEZ_CENY_NETTO } : {}),
     values: {
       buyerNip: !nabywcaUe && 'nip' in buyer && buyer.nip ? buyer.nip : '',
       ...nabywcaUe,
@@ -287,6 +315,8 @@ const MAX_PAYMENT_DAYS = 365;
 export interface PrefillFromInvoice {
   invoiceId: string;
   contractorName: string;
+  /** Jak w `PrefillFromLastInvoice`: faktura-wzór w cenach brutto, pozycje bez ceny netto mają puste pole ceny. */
+  priceNotice?: string;
   /** Numer faktury, z której wypełniamy — do podpisu „na podstawie FV …”. */
   sourceNumber: string | null;
   values: PrefillFromLastInvoice['values'] &
@@ -382,6 +412,7 @@ export async function prefillFromInvoiceAction(invoiceId: string): Promise<Prefi
   return {
     invoiceId: wzor.id,
     contractorName: core.contractorName,
+    ...(core.priceNotice ? { priceNotice: core.priceNotice } : {}),
     sourceNumber: wzor.internal_number ?? null,
     values: {
       ...core.values,
