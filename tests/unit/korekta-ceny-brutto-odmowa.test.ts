@@ -136,6 +136,7 @@ describe('korekta faktury w cenach brutto: odmowa z nazwą przyczyny i wyjściem
     fakturaWCenachBrutto({ lines: LINIE_FAKTURY }, 0.81);
     db.tables.invoice_line_items![2]!.unit_price_net = 0.82;
     const ctx = await getCorrectionParentContextAction(PARENT);
-    if (!ctx.success) expect(ctx.error).not.toMatch(/w cenach brutto/);
+    expect(ctx.success).toBe(true);
+    if (ctx.success) expect(ctx.linesBefore.map((l) => l.unitPriceNet)).toEqual([0.81, 0.81, 0.82]);
   });
 });
