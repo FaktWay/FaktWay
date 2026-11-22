@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/nextjs';
 
 import { getNote } from '@/lib/noty/baza';
 import { notePdfFilename, notePdfInput, renderNotePdf } from '@/lib/noty/pdf';
+import { loadCompanyPdfLogo } from '@/lib/pdf/logo-odczyt';
 import { resolveApiUserAndActiveOrg } from '@/lib/supabase/auth-context';
 import { createClient } from '@/lib/supabase/server';
 
@@ -32,7 +33,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     if (!input) {
       return NextResponse.json({ error: 'Najpierw wystaw notę. Szkic nie ma numeru ani PDF.' }, { status: 409 });
     }
-    const pdf = await renderNotePdf(input);
+    // Logo firmy z ustawień (krok 2.2); bez pliku albo przy błędzie PDF bez logo.
+    const { logo } = await loadCompanyPdfLogo(ctx.tenantId);
+    const pdf = await renderNotePdf(input, { logo });
     return new NextResponse(new Uint8Array(pdf), {
       status: 200,
       headers: {
