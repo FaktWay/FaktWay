@@ -553,6 +553,17 @@ function vatFromNetGrosze(netGrosze: number, ratePct: number): number {
 }
 
 /**
+ * VAT od netto w złotych do grosza (art. 106e ust. 1 pkt 14 i ust. 11): netto × stawka / 100,
+ * od 0,5 grosza w górę (symetrycznie dla kwot ujemnych), liczony na groszach całkowitych.
+ * Dla kwot z miejscami do grosza; `roundToCents(netto × stawka)` na liczbach zmiennoprzecinkowych
+ * zaokrągla część połówek w dół (5 % od 80,30 zł = 4,015 dawało 4,01, a 23 % od 35,50 zł
+ * w zapisie `netto × stawka / 100` dawało 8,16). Bez zera ze znakiem.
+ */
+export function vatFromNetCents(net: number, ratePct: number): number {
+  return groszeToZloty(vatFromNetGrosze(toGrosze(net), ratePct)) + 0;
+}
+
+/**
  * Czy zapisane kwoty pozycji wynikają z ilości × ceny netto i VAT od netto,
  * każda kwota do grosza (art. 106e ust. 11), z połówką grosza zaokrągloną
  * w dowolną stronę. Dawne liczenie (do naprawy ilość × cena) zaokrąglało

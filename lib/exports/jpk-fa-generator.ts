@@ -33,7 +33,7 @@ import {
   type Fa3Markers,
   type MarginScheme,
 } from '@/lib/xml/fa3-annotations';
-import { differenceSummaries, roundToCents, summarizeVatPerRate } from '@/lib/xml/invoice-calculator';
+import { differenceSummaries, roundToCents, summarizeVatPerRate, vatFromNetCents } from '@/lib/xml/invoice-calculator';
 import { SUPPORT_EMAIL } from '@/lib/site';
 import type { GtuCode, InvoiceLineItem, VatRate } from '@/types/invoice';
 
@@ -488,13 +488,13 @@ export function importedLinesMismatch(inv: Pick<JpkInvoice, 'importedFromKsef' |
   const sum = inv.lines.reduce((s, l) => s + (Number.isFinite(l.netAmount) ? l.netAmount : 0), 0);
   if (Math.abs(roundToCents(sum) - roundToCents(inv.netTotal)) > 0.01 * Math.max(1, inv.lines.length) + 0.01) return true;
   // C5c: VAT pozycji = VAT faktury co do grosza (JPK P_14_x i V7M K_20 z pozycji), liczony jak w `toLineItem`.
-  const vat = inv.lines.reduce((s, l) => s + (l.vatAmount ?? roundToCents(l.netAmount * linePct(l.vatRate))), 0);
+  const vat = inv.lines.reduce((s, l) => s + (l.vatAmount ?? vatFromNetCents(l.netAmount, linePct(l.vatRate))), 0);
   return Math.abs(roundToCents(vat) - roundToCents(inv.vatTotal)) >= 0.005;
 }
 
 function linePct(vatRate: string): number {
   const rate = vatRate.trim().toLowerCase();
-  return rate === '23' || rate === '8' || rate === '5' ? Number(rate) / 100 : 0;
+  return rate === '23' || rate === '8' || rate === '5' ? Number(rate) : 0;
 }
 
 /** Jedyną przeszkodą w pliku bez oznaczenia FP jest sama FP (`JpkFaReceiptInvoiceNotSupportedError`). */
@@ -616,8 +616,8 @@ export function amountsOf(inv: JpkInvoice, options: AmountsOptions = {}): Invoic
 function toLineItem(line: JpkInvoiceLine, inv: JpkInvoice): InvoiceLineItem {
   const rate = line.vatRate.trim().toLowerCase();
   if (!Object.prototype.hasOwnProperty.call(RATE_FIELDS, rate)) throw unsupportedRate(inv, line.vatRate.trim());
-  const pct = rate === '23' || rate === '8' || rate === '5' ? Number(rate) / 100 : 0;
-  const vat = line.vatAmount ?? roundToCents(line.netAmount * pct);
+  const pct = linePct(rate);
+  const vat = line.vatAmount ?? vatFromNetCents(line.netAmount, pct);
   return {
     ordinal: line.position,
     name: line.name,
