@@ -1552,12 +1552,40 @@ maszynerię filtra albo wiedzę, Bartosz nadaje etykietę po ostatnim pushu.
 
 | 14.11.2026 | F10 (część 7a): NZ-TRESC-01 na tekstach przypomnień | #750 | w `main` (#755) | `tests/filtr/niezmienniki/tresci.test.ts`: przypomnienia o terminie i o wyliczonym miesiącu bez słów z listy roboczej i bez długich myślników, losowe rozliczenia, kwoty i terminy; mutant „zapłać” złapany |
 
-| 14.11.2026 | F10 (część 7b): NZ-TRESC-02, podpis kwot | #757 | otwarty | `tests/filtr/niezmienniki/podpis-kwot.test.ts`: podpis „według Twoich danych i stawek na {rok}” (w styczniu z rokiem składkowym zdrowotnej) w pushu, dzwonku i mailu przypomnień, na karcie „Odłóż na podatek”, na stronie „Ten miesiąc” i w telefonie; naprawa FZ-013, jedna funkcja podpisu w `lib/ksiegowosc/przelew.ts` |
+| 14.11.2026 | F10 (część 7b): NZ-TRESC-02, podpis kwot | #757 | w `main` (`9aa2377d`, 15.11) | `tests/filtr/niezmienniki/podpis-kwot.test.ts`: podpis „według Twoich danych i stawek na {rok}” (w styczniu z rokiem składkowym zdrowotnej) w pushu, dzwonku i mailu przypomnień, na karcie „Odłóż na podatek”, na stronie „Ten miesiąc” i w telefonie; naprawa FZ-013, jedna funkcja podpisu w `lib/ksiegowosc/przelew.ts` |
 
-| 14.11.2026 | F10 (część 7c): NZ-TRESC-04, braki silnika „Ten miesiąc” | #759 | otwarty | `tests/filtr/niezmienniki/braki.test.ts`: przegląd deterministyczny `tenMiesiac` (każda liczba parametrów osobno, etapy ZUS z każdą datą, ewidencja i KPiR w wariantach) i braków parametrów D7: brak pozycji z nazwą i skutkiem, brak miesiąca z nazwą, bez trybu rozkazującego; naprawa FZ-014 (pięć komunikatów ryczałtu i ZUS), 22 mutanty czerwone |
+| 14.11.2026 | F10 (część 7c): NZ-TRESC-04, braki silnika „Ten miesiąc” | #759 | w `main` (`492ae9c8`, 15.11) | `tests/filtr/niezmienniki/braki.test.ts`: przegląd deterministyczny `tenMiesiac` (każda liczba parametrów osobno, etapy ZUS z każdą datą, ewidencja i KPiR w wariantach) i braków parametrów D7: brak pozycji z nazwą i skutkiem, brak miesiąca z nazwą, bez trybu rozkazującego; naprawa FZ-014 (pięć komunikatów ryczałtu i ZUS), 22 mutanty czerwone |
 
-| 14.11.2026 | Pytania do prawnika o retencję (FZ-006, FZ-010) i ustalenia FZ-013 do FZ-015 | #761 | otwarty | decyzja Bartosza 14.11: pytania 19 (okres przechowywania faktur: regulamin, polityka prywatności, program) i 20 (faktura-wzór cyklu) w `docs/ksiegowosc/PYTANIA-DO-PRAWNIKA.md`; w `docs/filtr/USTALENIA.md` stan „pytanie do prawnika” przy FZ-006 i FZ-010, nowe FZ-013 (#757), FZ-014 (#759), FZ-015 (tryb rozkazujący w warstwie danych i w telefonie) i FZ-016 (strażnik cyklu KSeF nie da usunąć wysłanej faktury zadaniu retencji) |
+| 14.11.2026 | Pytania do prawnika o retencję (FZ-006, FZ-010) i ustalenia FZ-013 do FZ-015 | #761 | w `main` (`e7d824a1`, 15.11) | decyzja Bartosza 14.11: pytania 19 (okres przechowywania faktur: regulamin, polityka prywatności, program) i 20 (faktura-wzór cyklu) w `docs/ksiegowosc/PYTANIA-DO-PRAWNIKA.md`; w `docs/filtr/USTALENIA.md` stan „pytanie do prawnika” przy FZ-006 i FZ-010, nowe FZ-013 (#757), FZ-014 (#759), FZ-015 (tryb rozkazujący w warstwie danych i w telefonie) i FZ-016 (strażnik cyklu KSeF nie da usunąć wysłanej faktury zadaniu retencji) |
 
-| 14.11.2026 | Naprawy retencji FZ-005, FZ-009, FZ-011 | #767 | otwarty | #767: plan przed usunięciem plików (korekta, koszt, import płatności, strażnik KSeF), korekta przed oryginałem, test na bazie czerwony przed naprawą (job RLS). FZ-009 i FZ-011 naprawione w `main` przez `dce95263` (plan skalowania 3000, sesja 30, test `archiwum-oznaczenie`); #763 i #764 zamknięte jako zastąpione |
+| 14.11.2026 | Naprawy retencji FZ-005, FZ-009, FZ-011 | #767 | w `main` (`8a7e5340`, 15.11) | #767: plan przed usunięciem plików (korekta, koszt, import płatności, strażnik KSeF), korekta przed oryginałem, test na bazie czerwony przed naprawą (job RLS). FZ-009 i FZ-011 naprawione w `main` przez `dce95263` (plan skalowania 3000, sesja 30, test `archiwum-oznaczenie`); #763 i #764 zamknięte jako zastąpione |
 
-**Następny krok:** F10 część 7d: braki z warstwy danych (VAT, KPiR roku poprzedniego, dokumenty ewidencji i KPiR) i FZ-015; NZ-TRESC-03 (FLO, `lib/flo/tax-topic.ts`). FZ-006 i FZ-010 czekają na opinię prawnika (pytania 19 i 20), FZ-008 robi sesja planu, FZ-016 i faktury trzymane przez koszt idą do prawnika (pytanie 21; rekomendacja koordynatora: bez zmian w kodzie, skutki ok. 2034-2036). Czekają na decyzję Bartosza: reguły rejestru dla FA3-03 i FA3-04 (`zgoda:wiedza-prawna`), przejście FA(3) na blokadę po dwóch tygodniach (D-F7). F14, F16-F18 wymagają decyzji albo kont (A11).
+| 16.11.2026 | F10 (część 7d): braki z warstwy danych, FZ-015 | #806 | w `main` (`d9b3d3e5`) | `tests/filtr/niezmienniki/braki-dane.test.ts`: komunikaty braków z warstwy danych (VAT, KPiR roku poprzedniego, dokumenty ewidencji i KPiR) nazywają brak i skutek, bez trybu rozkazującego; FZ-015 naprawione (sprawdzone 22.11, plik:linia w `docs/filtr/USTALENIA.md`) |
+
+| 16.11.2026 | F5 (uzupełnienie): niezmienniki ksiąg | #805 | w `main` (`5ac50345`) | `tests/filtr/niezmienniki/ksiegi.test.ts`: NZ-WSP-02, NZ-EWP-01, NZ-KPIR-02/03/04 i NZ-PIT-08 na losowych danych; uwagi drugiego czytelnika domyka #876 (22.11) |
+
+| 16.11.2026 | Spis luk niezmienników B4.2 | (bez PR) | notatka koordynatora | 45 niezmienników bez identyfikatora w `tests/filtr`: 23 pokryte testami jednostkowymi, 19 częściowo, 1 bez testu, 2 czekają na decyzję (`luki-niezmiennikow-2026-11-16.md` w notatkach koordynatora); z listy powstały #807, #817, #819, #823, #827 i #877 |
+
+| 16.11.2026 | NZ-WYL-01: wejścia modułu pytają o wyłącznik | #807 | w `main` (`2a50e87b`) | test strukturalny na drzewie składni (`wylacznik.test.ts`); luki listy wejść i postaci eksportu domyka #878 (22.11) |
+
+| 16.11.2026 | NZ-ROZL-04: kwoty modułu tylko przez bramkę D7 | #817 | w `main` (`e94e2706`) | `bramka-d7.test.ts`: kanały kwot (strona, push, mail, dzwonek, „Odłóż na podatek”, telefon) biorą je z `czytajTenMiesiac` |
+
+| 17.11.2026 | NZ-WSP-08: odczyt stronami daje te same sumy | #819 | w `main` (`6445349b`) | `strony.test.ts` (strony 999, 1000, 1001 i 2500, 13 przypadków); FZ-017 (WYS) i FZ-018 (ŚR) otwarte |
+
+| 17.11.2026 | NZ-KURS-03: kwota razy kurs jedną funkcją | #823 | w `main` (`9900df2d`) | `kurs-przeliczenie.test.ts`; FZ-019 (WYS: `costInPln` i `netPln` na liczbach zmiennoprzecinkowych) i FZ-020 (WYS: kurs z ośmioma miejscami) otwarte |
+
+| 17.11.2026 | NZ-FA-11: PDF kontra XML tej samej faktury | #827 | w `main` (`cbb3e0a1`) | `roznicowe/pdf-xml.test.ts` (faktura z pięcioma stawkami i 300 losowych); FZ-021 (NISK) otwarte |
+
+| 17.11.2026 | FZ-022: ten sam dokument kosztu dwa razy (odczyt) | #839 | otwarty: czeka na `zgoda:wiedza-prawna` i skrypt na produkcji | odmowa okresu z numerem, datą, źródłami i wyjściem (RP-KOSZT-01), skrypt operatora `scripts/ops/koszt-dwa-razy.sh`; zapis jednego kosztu czeka na decyzję Bartosza (warianty A, B, C, rekomendacja A) |
+
+| 22.11.2026 | Rejestr: FZ-022 do FZ-026 | #873 | w `main` (`f5e2eb9d`) | numery przed naprawami #839, #842 i NZ-SQL-01; FZ-025 (ŚR) i FZ-026 (WYS) od drugiego czytelnika #842 |
+
+| 22.11.2026 | NZ-SQL-01: strażnicy w wyzwalaczach mają test na bazie | #877 | otwarty | spis wyzwalaczy z migracji (92 wyzwalacze, 57 strażników), pokrycie komunikatów w testach na bazie z zapadką list i zgodność spisu z bazą (job RLS); FZ-024 (NISK): 24 strażników bez testu zabronionego zapisu, 16 z samym kodem błędu |
+
+| 22.11.2026 | F5: uzupełnienie testów ksiąg po #805 | #876 | otwarty | stawki wierszy, kolumny kosztów, FP z zapłaconych wersji, dokumenty spoza roku, korekta, zaliczka, rozliczenie i waluta w obu księgach, próg najmu miesiąc po miesiącu; FZ-027 (WYS: FP i odliczenie z tych samych pieniędzy), FZ-028 (INFO: grosze zaokrągleń w walucie) |
+
+| 22.11.2026 | NZ-WYL-01: graf importów po #807 | #878 | otwarty | każde wejście aplikacji, które dochodzi do danych modułu, pyta o pełny wyłącznik (`czyKsiegowoscWlaczona`); wszystkie postaci eksportu i importu |
+
+| 22.11.2026 | Dziennik i stany FZ-013 do FZ-015 | #879 | otwarty | FZ-013, FZ-014 i FZ-015 naprawione w `main`, sprawdził drugi czytelnik (plik:linia w `docs/filtr/USTALENIA.md`); raport końcowy dla Bartosza w notatkach koordynatora |
+
+**Następny krok:** naprawy z rejestru, po jednej gałęzi od `main` według protokołu, od najwyższej wagi: FZ-027 (WYS, FP i odliczenie), FZ-019 i FZ-020 (WYS, przeliczenia walut), FZ-017 (WYS, odczyt stronami), dalej FZ-018 i FZ-021; FZ-023, FZ-025 i FZ-026 robi sesja planu kompletnej aplikacji (#842). Testy na bazie dla strażników z FZ-024 paczkami po obszarach (najpierw cykl KSeF i pozycje faktur). Czekają na decyzję Bartosza (raport końcowy 22.11): zapis jednego kosztu przy FZ-022 (A, B, C), przejście FA(3) na blokadę ok. 29.11 (D-F7), reguły FA3-03 i FA3-04 (`zgoda:wiedza-prawna`), NZ-FA-07 (ostrzeżenie po 15. dniu miesiąca po sprzedaży), F14, F16-F18 (A11); FZ-006, FZ-010 i FZ-016 czekają na prawnika (pytania 19-21).
