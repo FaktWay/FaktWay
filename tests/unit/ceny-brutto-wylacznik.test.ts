@@ -47,6 +47,7 @@ import {
   czyFakturaWCenachBrutto,
   FLAGA_CEN_BRUTTO,
   odmowaCenBrutto,
+  PODKLAD_BEZ_CENY_NETTO,
   tekstOdmowyCenBrutto,
   type EtapOdmowyCenBrutto,
 } from '@/lib/invoices/ceny-brutto-wylacznik';
@@ -132,12 +133,13 @@ describe('odmowa', () => {
       ...ETAPY.flatMap((etap) => [tekstOdmowyCenBrutto(etap, 'wylaczone'), tekstOdmowyCenBrutto(etap, 'nieznany')]),
     ];
     const zakazane = /(?<![\p{L}])(?:zapłać\p{L}*|musisz|musicie|powinieneś|powinnaś|powinniście|należy|zalecamy|radzimy|wybierz\p{L}*|opłaca się|lepiej|najkorzystniej\p{L}*|oszczędzisz|zaoszczędzisz)(?![\p{L}])/iu;
-    for (const tekst of teksty) {
-      expect(tekst).toContain('FaktWay');
+    for (const tekst of [...teksty, PODKLAD_BEZ_CENY_NETTO]) {
       expect(tekst).not.toMatch(/[—–]/);
       expect(tekst).not.toMatch(zakazane);
       expect(tekst).not.toMatch(/FaktFlow/);
     }
+    for (const tekst of teksty) expect(tekst).toContain('FaktWay');
+    expect(PODKLAD_BEZ_CENY_NETTO).toMatch(/wpisz je w cenach netto\.$/);
     for (const etap of ETAPY) expect(tekstOdmowyCenBrutto(etap, 'wylaczone')).toMatch(/Wystaw fakturę (od nowa )?w cenach netto/);
     expect(CENY_BRUTTO_WYLACZONE).toMatch(/Wystaw fakturę od nowa w cenach netto\.$/);
   });

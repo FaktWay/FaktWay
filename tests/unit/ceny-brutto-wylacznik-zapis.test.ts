@@ -32,6 +32,7 @@ const REC = '66666666-6666-4666-8666-666666666666';
 const BRUTTO_ZAPIS = 'Faktura w cenach brutto nie jest jeszcze dostępna w FaktWay, więc faktury nie zapisaliśmy. Wystaw fakturę w cenach netto.';
 const BRUTTO_ZAPIS_NIEZNANE = 'Nie udało się sprawdzić, czy faktura w cenach brutto jest dostępna w FaktWay, więc faktury nie zapisaliśmy. Spróbuj ponownie za chwilę.';
 const PODKLAD = 'Faktura, z której wypełniliśmy formularz, ma ceny brutto, a faktury w cenach brutto FaktWay jeszcze nie wystawia. Ceny tych pozycji zostawiliśmy puste: wpisz je w cenach netto.';
+const BEZ_CENY_NETTO = 'Faktura, z której wypełniliśmy formularz, ma pozycje bez ceny netto. Ceny tych pozycji zostawiliśmy puste: wpisz je w cenach netto.';
 
 const st = vi.hoisted(() => ({
   auth: vi.fn(),
@@ -333,6 +334,14 @@ describe.each([
     expect(podklad?.values.lines[0]).toMatchObject({ name: 'Kanapka', unitPriceNet: 19.4352 });
     expect(podklad?.values.lines[1]).not.toHaveProperty('unitPriceNet');
     expect(podklad?.priceNotice).toBe(PODKLAD);
+  });
+
+  it('import bez ceny netto i bez ceny brutto (bez P_9A i P_9B): pusta cena i komunikat bez słowa o cenach brutto', async () => {
+    zrodloImportP9B();
+    (st.zrodlo!.fa3_data as Record<string, unknown>).ksefLineFields = [];
+    const podklad = await prefillFromInvoiceAction(st.zrodlo!.id as string);
+    expect(pozycjeBezCeny(podklad!.values.lines as unknown as Array<Record<string, unknown>>)).toBe(2);
+    expect(podklad?.priceNotice).toBe(BEZ_CENY_NETTO);
   });
 
   it('baner „Wypełnij z ostatniej faktury” nie podsuwa podkładu z faktury w cenach brutto', async () => {

@@ -48,6 +48,10 @@ export const CENY_BRUTTO_WYLACZONE =
 export const CENY_BRUTTO_PODKLAD =
   'Faktura, z której wypełniliśmy formularz, ma ceny brutto, a faktury w cenach brutto FaktWay jeszcze nie wystawia. Ceny tych pozycji zostawiliśmy puste: wpisz je w cenach netto.';
 
+/** Podkład z dokumentu z pozycją bez ceny netto i bez ceny brutto (np. import bez `P_9A` i `P_9B`): też pusta cena, nigdy 0 zł. */
+export const PODKLAD_BEZ_CENY_NETTO =
+  'Faktura, z której wypełniliśmy formularz, ma pozycje bez ceny netto. Ceny tych pozycji zostawiliśmy puste: wpisz je w cenach netto.';
+
 /** Gdzie pada odmowa; od tego zależy, co się stało z fakturą. */
 export type EtapOdmowyCenBrutto = 'zapis' | 'wysylka' | 'ponowienie';
 

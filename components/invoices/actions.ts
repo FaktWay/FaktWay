@@ -14,7 +14,8 @@ import {
   saveRegularDraft,
   type RegularIssueResult,
 } from '@/lib/invoices/issue-regular';
-import { CENY_BRUTTO_PODKLAD, czyFakturaWCenachBrutto } from '@/lib/invoices/ceny-brutto-wylacznik';
+import { CENY_BRUTTO_PODKLAD, czyFakturaWCenachBrutto, PODKLAD_BEZ_CENY_NETTO } from '@/lib/invoices/ceny-brutto-wylacznik';
+import { documentGrossPrices } from '@/lib/invoices/document-lines';
 import { isGtuCode, isPkwiuCode } from '@/lib/invoices/line-codes';
 import { addressCountryForKodUE, parseVatUe } from '@/lib/invoices/vat-ue';
 import { RECURRING_DRAFT_REFUSED_MESSAGE } from '@/lib/invoices/recurring/issue';
@@ -259,7 +260,12 @@ async function prefillCore(
   // Faktura bez czytelnych pozycji nie jest podkładem, tylko pułapką:
   // klient kliknąłby „Wypełnij" i dostał pusty formularz z samym nabywcą.
   if (lines.length === 0) return null;
+  // Komunikat, gdy w podkładzie została pozycja z pustą ceną; „ceny brutto” tylko,
+  // gdy dokument je ma (`pricesGross` albo cena brutto przy każdej pozycji bez netto).
   const bezCen = lines.some((l) => !('unitPriceNet' in l));
+  const cenyBruttoWDokumencie = documentGrossPrices(row.fa3_data as Parameters<typeof documentGrossPrices>[0]);
+  const zCenBrutto =
+    cenyBrutto || (pozycje ?? []).every((poz) => poz.unit_price_net != null || cenyBruttoWDokumencie.has(Number(poz.ordinal)));
 
   // AUD-70: nabywca z UE wraca jako firma z UE — sam pusty NIP zostawiłby
   // formularz z błędem „NIP firmy”, a numer VAT-UE przepadłby po drodze.
@@ -279,7 +285,7 @@ async function prefillCore(
 
   return {
     contractorName: buyer.name,
-    ...(bezCen ? { priceNotice: CENY_BRUTTO_PODKLAD } : {}),
+    ...(bezCen ? { priceNotice: zCenBrutto ? CENY_BRUTTO_PODKLAD : PODKLAD_BEZ_CENY_NETTO } : {}),
     values: {
       buyerNip: !nabywcaUe && 'nip' in buyer && buyer.nip ? buyer.nip : '',
       ...nabywcaUe,
