@@ -51,6 +51,8 @@ import type {
   ZeroVatAmountChangeRate,
 } from '@/types/invoice-types';
 import { loadParentAnnotations } from '@/lib/invoices/correction-annotations';
+import { lineCodesOf } from '@/lib/invoices/line-codes';
+import { withCodesFromBefore } from '@/lib/ksef/fa3-correction-generator';
 import { correctionSpecialData, specialDataInsertError } from '@/lib/invoices/special-data';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -234,16 +236,50 @@ function sellerDataFromParty(sp: SellerParty): SellerData {
   };
 }
 
+/**
+ * PKWiU i GTU pozycji z dokumentu faktury (`fa3_data.lines`, po numerze
+ * pozycji): `invoice_line_items` nie ma kolumn kodów (krok 2.6, część 2b-3).
+ * Dokument korekty „przed/po” trzyma stan po korekcie z kodami
+ * (`linesToStoredItems`), więc łańcuch korekt też je ma. Faktura z importu nie
+ * ma `fa3_data.lines`: pozycje bez kodów, jak dotąd.
+ */
+async function fetchDocumentLineCodes(
+  supabase: SupabaseClient,
+  invoiceId: string,
+  label: string,
+): Promise<Map<number, ReturnType<typeof lineCodesOf>>> {
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('id, document_lines:fa3_data->lines')
+    .eq('id', invoiceId)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`Nie odczytaliśmy kodów pozycji faktury ${label} (PKWiU, GTU), więc korekty nie przygotujemy w aplikacji. Spróbuj ponownie za chwilę. ${CORRECTION_HELP_STEP}`);
+  }
+  const lines = (data as { document_lines?: unknown } | null)?.document_lines;
+  const codes = new Map<number, ReturnType<typeof lineCodesOf>>();
+  if (!Array.isArray(lines)) return codes;
+  for (const line of lines) {
+    if (!line || typeof line !== 'object' || Array.isArray(line)) continue;
+    const ordinal = (line as { ordinal?: unknown }).ordinal;
+    if (typeof ordinal === 'number' && !codes.has(ordinal)) codes.set(ordinal, lineCodesOf(line as Record<string, unknown>));
+  }
+  return codes;
+}
+
 async function fetchParentInvoiceLines(
   supabase: SupabaseClient,
   invoiceId: string,
   label: string,
 ): Promise<CorrectionLineSchema[]> {
-  const { data, error } = await supabase
-    .from('invoice_line_items')
-    .select('name, unit, quantity, unit_price_net, vat_rate')
-    .eq('invoice_id', invoiceId)
-    .order('ordinal', { ascending: true });
+  const [{ data, error }, codes] = await Promise.all([
+    supabase
+      .from('invoice_line_items')
+      .select('ordinal, name, unit, quantity, unit_price_net, vat_rate')
+      .eq('invoice_id', invoiceId)
+      .order('ordinal', { ascending: true }),
+    fetchDocumentLineCodes(supabase, invoiceId, label),
+  ]);
 
   if (error || !data?.length) {
     throw new Error(`Faktura ${label} nie ma odczytanych pozycji, więc korekty nie przygotujemy w aplikacji. Spróbuj ponownie za chwilę. ${CORRECTION_HELP_STEP}`);
@@ -262,6 +298,8 @@ async function fetchParentInvoiceLines(
       quantity: Number(row.quantity),
       unitPriceNet: Number(row.unit_price_net),
       vatRate: vatRateFromDbForCorrectionLine(row.vat_rate, label),
+      // Krok 2.6, część 2b-3: kody tej pozycji z dokumentu faktury.
+      ...(typeof row.ordinal === 'number' ? codes.get(row.ordinal) : undefined),
     });
     if (!parsed.success) {
       throw new Error(`Faktura ${label} ma pozycję, której korekta w aplikacji nie przyjmie (np. pusta nazwa lub jednostka). ${CORRECTION_HELP_STEP}`);
@@ -319,6 +357,8 @@ function linesToStoredItems(correctionData: CorrectionInvoiceData): InvoiceLineI
         netAmount: calc.netAmount,
         vatAmount: calc.vatAmount,
         grossAmount: calc.grossAmount,
+        // Krok 2.6, część 2b-3: kody pozycji faktury w dokumencie korekty.
+        ...lineCodesOf(line),
       };
     });
   }
@@ -359,6 +399,9 @@ function linesToStoredItems(correctionData: CorrectionInvoiceData): InvoiceLineI
       unitPriceNet: line.unitPriceNet,
       vatRate: line.vatRate,
       ...calc,
+      // Krok 2.6, część 2b-3: stan po z kodami pary „przed” (`withCodesFromBefore`);
+      // kolejna korekta bierze z tego dokumentu swój „stan przed”.
+      ...lineCodesOf(line),
     };
   });
 }
@@ -808,9 +851,16 @@ async function normalizePayload(
     }
   }
 
+  // Krok 2.6, część 2b-3: kody pozycji „po” nadaje serwer z pary „przed” (z dokumentu
+  // faktury), a pozycja dopisana ich nie ma; kody z żądania się nie liczą.
+  const linesAfter = parsed.data.linesAfter
+    ? withCodesFromBefore(linesBefore ?? [], parsed.data.linesAfter)
+    : parsed.data.linesAfter;
+
   const normalized: CorrectionInvoiceSchemaIn = {
     ...parsed.data,
     linesBefore,
+    linesAfter: linesAfter as CorrectionInvoiceSchemaIn['linesAfter'],
     amountChange,
     buyer: authoritativeBuyer,
     parentInvoiceNumber: parentNumber,
