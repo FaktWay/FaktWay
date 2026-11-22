@@ -126,6 +126,13 @@ describe('FZ-025: akcja korekty kwotowej (prawdziwa ścieżka na bazie w pamięc
       TENANT,
     );
     expect(r.success).toBe(false);
+    // Odmowa z drogą wyjścia (uwaga do #881): kwoty, które przejdą. 80,30 × 5 % = 4,015, do grosza 4,02
+    // (art. 106e ust. 11), brutto 80,30 + 4,02 = 84,32; wpisana kwota 4,01 też jest w zdaniu.
+    const blad = r.success ? '' : r.error;
+    expect(blad).toMatch(/FV 1\/11\/2026 liczy VAT od netto/);
+    expect(blad).toContain('4,01 zł');
+    expect(blad).toMatch(/zmiana VAT to 4,02 zł, a zmiana brutto 84,32 zł/);
+    expect(blad).toMatch(/„Zmiana VAT” i „Zmiana brutto”/);
   });
 });
 
