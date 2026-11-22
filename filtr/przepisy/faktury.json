@@ -342,7 +342,9 @@
         "lib/xml/invoice-calculator.ts#validateInvoice",
         "lib/xml/invoice-calculator.ts#vatFromGrossGrosze",
         "lib/xml/fa3-generator.ts#generateFA3Xml",
-        "lib/xml/invoice-calculator.ts#multiplyToGrosze"
+        "lib/xml/invoice-calculator.ts#multiplyToGrosze",
+        "lib/bezpieczniki/fa3.ts#sprawdzFa3",
+        "lib/ksef/duplicate-original-gate.ts#evaluateOriginalGate"
       ],
       "testy": [
         "tests/unit/faktura-ceny-brutto.test.ts > trzy pozycje po 1,00 zł brutto przy 23 %",
@@ -354,7 +356,12 @@
         "tests/unit/faktura-ceny-brutto.test.ts > pozycja ze stawką spoza listy",
         "tests/unit/faktura-ceny-brutto.test.ts > prawdziwa faktura do paragonu (FP) w cenach brutto",
         "tests/unit/faktura-ceny-brutto.test.ts > pozycja bez ceny brutto (wejście z samą ceną netto)",
-        "tests/unit/faktura-ceny-brutto.test.ts > VAT pozycji poza jej udziałem w VAT stawki"
+        "tests/unit/faktura-ceny-brutto.test.ts > VAT pozycji poza jej udziałem w VAT stawki",
+        "tests/unit/faktura-ceny-brutto.test.ts > pozycja ze stawką %s: odmowa z numerem pozycji i wyjściem",
+        "tests/unit/faktura-ceny-brutto.test.ts > stawka 0 % w cenach brutto przechodzi",
+        "tests/unit/bezpieczniki-fa3.test.ts > P_13_1 o złotówkę więcej, P_14_1 o złotówkę mniej",
+        "tests/unit/bezpieczniki-fa3.test.ts > P_11A pozycji o grosz inne",
+        "tests/unit/zapis-oryginalu-brama.test.ts > importable, bez problemów, reguły ORIGINAL_GATE_RULES"
       ],
       "parametry": [],
       "niezmienniki": [],
@@ -364,14 +371,15 @@
         "opis": "brak przykładu urzędowego (poziom 4) i podpisu księgowej (poziom 3): wzór art. 106e ust. 7 i 11 sprawdza niezależna wyrocznia na liczbach całkowitych w tests/unit/faktura-ceny-brutto.test.ts; treść przepisu ze strony branżowej ksiegowosc.infor.pl („Ustawa o VAT tekst jednolity, Dział XI”, stan prawny na 1.02.2022), nie z tekstu jednolitego Dz.U. 2026 poz. 1263 (tylko PDF); opisy pól P_9B, P_11A, P_11Vat w schemacie FA(3) Ministerstwa Finansów",
         "sprawdzono": "2026-11-17"
       },
-      "interpretacja": "Jedna metoda na fakturę (Invoice.pricesGross): pozycja ma ilość, cenę jednostkową brutto (P_9B) i stawkę; wartość brutto pozycji = ilość × cena brutto do grosza, liczona dokładnie na liczbach całkowitych (multiplyToGrosze, P_11A). W każdej stawce WB = suma P_11A, KP = WB × SP / (100 + SP) do grosza, połówka od zera (vatFromGrossGrosze), netto stawki = WB − KP; P_13_x = netto stawki, P_14_x = KP, P_15 = suma WB. VAT stawki dzielony na pozycje tym samym podziałem największej reszty co import faktur od brutto i netto (C5c, allocateLargestRemainder): netto i VAT pozycji służą JPK i KPiR, na fakturze ich nie ma (bez P_9A, P_11 i P_11Vat). VAT od sumy stawki zgadza się z PTU paragonu z kasy (faktura do paragonu). Bramka wysyłki (validateInvoice) sprawdza brutto pozycji z ceny brutto, VAT pozycji jako jej udział w VAT stawki (brutto × SP / (100 + SP)) w dół albo w górę i VAT każdej stawki od jej sumy brutto, z kwotą, która powinna być. Pozycja bez ceny brutto zostaje bez niej (cena nie staje się 0 zł): bramka odmawia z numerem pozycji, a generator FA(3) nie tworzy pliku. Faktura za abonament (lib/billing/self-invoice.ts, VAT od brutto przy P_9A i P_11) tej reguły nie używa do odpowiedzi księgowej. Formularz, katalog, PDF i JPK_FA faktury w cenach brutto: kolejne PR (ceny-brutto-plan).",
+      "interpretacja": "Jedna metoda na fakturę (Invoice.pricesGross): pozycja ma ilość, cenę jednostkową brutto (P_9B) i stawkę; wartość brutto pozycji = ilość × cena brutto do grosza, liczona dokładnie na liczbach całkowitych (multiplyToGrosze, P_11A). W każdej stawce WB = suma P_11A, KP = WB × SP / (100 + SP) do grosza, połówka od zera (vatFromGrossGrosze), netto stawki = WB − KP; P_13_x = netto stawki, P_14_x = KP, P_15 = suma WB. VAT stawki dzielony na pozycje tym samym podziałem największej reszty co import faktur od brutto i netto (C5c, allocateLargestRemainder): netto i VAT pozycji służą JPK i KPiR, na fakturze ich nie ma (bez P_9A, P_11 i P_11Vat). VAT od sumy stawki zgadza się z PTU paragonu z kasy (faktura do paragonu). Bramka wysyłki (validateInvoice) sprawdza brutto pozycji z ceny brutto, VAT pozycji jako jej udział w VAT stawki (brutto × SP / (100 + SP)) w dół albo w górę i VAT każdej stawki od jej sumy brutto, z kwotą, która powinna być. Pozycja bez ceny brutto zostaje bez niej (cena nie staje się 0 zł): bramka odmawia z numerem pozycji, a generator FA(3) nie tworzy pliku. Stawki bez podatku (zw, oo, np, np II) w cenach brutto: bramka odmawia z numerem pozycji i wyjściem (faktura w cenach netto, cena netto = cena brutto), do odpowiedzi księgowej; stawka 0 % zostaje (podatek od brutto 0 zł). Strażnik FA(3) (FILTR-RT-FA3-02 i 03) sprawdza fakturę w cenach brutto: suma P_11A pozycji stawki = P_13_x + P_14_x, P_14_x w granicy zaokrąglenia od P_13_x; brama oryginału z oznaczeniem FaktWay uznaje plik z P_9B i P_11A w każdej pozycji (bez P_9A, P_11, P_11Vat) za plik generatora FaktWay (reguły bramy 2). Faktura za abonament (lib/billing/self-invoice.ts, VAT od brutto przy P_9A i P_11) tej reguły nie używa do odpowiedzi księgowej. Formularz, katalog, PDF i JPK_FA faktury w cenach brutto: kolejne PR (ceny-brutto-plan).",
       "do_rozstrzygniecia": {
         "kto": "księgowa",
-        "pytanie": "Faktura w cenach brutto (art. 106e ust. 7 i 8): czy plik ma mieć same P_9B i P_11A (cena i wartość brutto zamiast netto), czy także P_9A i P_11 z wyliczonym netto? Czy VAT liczyć od sumy brutto stawki (ust. 7, zgodnie z paragonem z kasy), czy przy pozycjach (ust. 10, P_11Vat)? Ta sama odpowiedź rozstrzyga kształt faktury za abonament (dziś P_9A i P_11 przy VAT od brutto). Do pytania: w schemacie FA(3) opisy P_9A i P_11 dają je jako opcjonalne tylko w przypadkach z art. 106e ust. 2, 3 i 5 pkt 3 (bez ust. 7 i 8), więc nie wiadomo, czy plik w cenach brutto może ich nie mieć. JPK_FA: P_9B ma typ TKwotowy (2 miejsca po przecinku), więc cena brutto z 3 albo 4 miejscami zaokrągli się w JPK, a WartoscWierszyFaktur liczy tylko P_11, więc dla faktury w cenach brutto (bez P_11) wychodzi 0,00; tak samo przy imporcie faktur od brutto (C5c). Jak wykazać taką fakturę w JPK_FA?",
+        "pytanie": "Faktura w cenach brutto (art. 106e ust. 7 i 8): czy plik ma mieć same P_9B i P_11A (cena i wartość brutto zamiast netto), czy także P_9A i P_11 z wyliczonym netto? Czy VAT liczyć od sumy brutto stawki (ust. 7, zgodnie z paragonem z kasy), czy przy pozycjach (ust. 10, P_11Vat)? Ta sama odpowiedź rozstrzyga kształt faktury za abonament (dziś P_9A i P_11 przy VAT od brutto). Do pytania: w schemacie FA(3) opisy P_9A i P_11 dają je jako opcjonalne tylko w przypadkach z art. 106e ust. 2, 3 i 5 pkt 3 (bez ust. 7 i 8), więc nie wiadomo, czy plik w cenach brutto może ich nie mieć. JPK_FA: P_9B ma typ TKwotowy (2 miejsca po przecinku), więc cena brutto z 3 albo 4 miejscami zaokrągli się w JPK, a WartoscWierszyFaktur liczy tylko P_11, więc dla faktury w cenach brutto (bez P_11) wychodzi 0,00; tak samo przy imporcie faktur od brutto (C5c). Jak wykazać taką fakturę w JPK_FA? Czy cenę brutto (P_9B, P_11A) wolno podać w pozycji ze stawką bez podatku: zwolnionej (zw), z odwrotnym obciążeniem (oo) albo niepodlegającej opodatkowaniu w kraju (np, np II)? Dziś FaktWay takiej faktury nie wystawia (odmowa z wyjściem: ceny netto).",
         "przypadki": [
           "trzy pozycje po 1,00 zł brutto przy 23 %: VAT od sumy brutto stawki 0,56 (KP = 3,00 × 23 / 123), przy pozycjach 3 × 0,19 = 0,57; netto 2,44",
           "dwie stawki jak na paragonie z kasy: 8 % WB 54,48 (2 × 20,99 + 12,50), KP 4,04, netto 50,44; 23 % WB 16,47 (3 × 5,49), KP 3,08, netto 13,39; P_15 70,95",
-          "faktura do paragonu (FP) w cenach brutto: 23 % WB 499,98 (2 × 249,99), KP 93,49, netto 406,49; 5 % WB 12,50, KP 0,60, netto 11,90; P_15 512,48"
+          "faktura do paragonu (FP) w cenach brutto: 23 % WB 499,98 (2 × 249,99), KP 93,49, netto 406,49; 5 % WB 12,50, KP 0,60, netto 11,90; P_15 512,48",
+          "faktura w cenach brutto z pozycją zw 100,00 zł (bez podatku): dziś odmowa, wyjście faktura w cenach netto 100,00 zł"
         ]
       },
       "sprawdzil": {

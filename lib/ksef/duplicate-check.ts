@@ -52,7 +52,9 @@ export type DuplicateDecisionVia = 'client' | 'operator';
 // z 00156 czyta ją w ofercie i blokadzie.
 
 /** Wersja reguł bramy w chwili oceny (`importGate.rules`) — informacyjnie: zmiana bramy to inny `kind` albo inne `problems` (5.3 krok 4). */
-export const ORIGINAL_GATE_RULES = 1;
+// 2: plik faktury w cenach brutto z generatora FaktWay (P_9B i P_11A w każdej pozycji, bez P_9A, P_11
+// i P_11Vat) nie jest problemem `gross-prices` ani `line-fields` (ceny brutto (a), RP-FA-BRUTTO-01).
+export const ORIGINAL_GATE_RULES = 2;
 
 /**
  * Problemy bramy pochodzenia w kolejności reguł 5.2 (1 `currency` i 2 `parse`

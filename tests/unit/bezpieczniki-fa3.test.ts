@@ -204,3 +204,52 @@ describe('strażnik FA(3): podatek od brutto i faktura zaliczkowa (FA3-03)', () 
     expect(kody(zle)).toEqual([KODY_FA3.podatek]);
   });
 });
+
+describe('strażnik FA(3): faktura w cenach brutto (P_9B i P_11A bez P_11, RP-FA-BRUTTO-01)', () => {
+  /**
+   * Ceny brutto (a): 23 % WB 16,47 (3 × 5,49), KP 3,08, netto 13,39; 8 % WB 54,48 (2 × 20,99 + 12,50),
+   * KP 4,04, netto 50,44; P_15 70,95. Bez P_11 strażnik wyłączał kontrole 02 i 03, więc plik
+   * z sumami stawek przesuniętymi o złotówkę przechodził bez alarmu.
+   */
+  function xmlBrutto(): string {
+    const invoice = finalizeInvoice({
+      ...faktura([]),
+      pricesGross: true,
+      lines: [
+        { ordinal: 1, name: 'Kawa', unit: 'szt.', quantity: 3, unitPriceNet: 0, unitPriceGross: 5.49, vatRate: '23' },
+        { ordinal: 2, name: 'Obiad', unit: 'szt.', quantity: 2, unitPriceNet: 0, unitPriceGross: 20.99, vatRate: '8' },
+        { ordinal: 3, name: 'Deser', unit: 'szt.', quantity: 1, unitPriceNet: 0, unitPriceGross: 12.5, vatRate: '8' },
+      ],
+    });
+    return generateFA3Xml(invoice, { generatedAt: new Date('2026-11-09T10:00:00Z') });
+  }
+  const zl = (delta: number) => (s: string) => (Math.round(Number(s) * 100) + delta * 100) / 100 + '';
+
+  it('plik z generatora: sumy stawek jak w zadaniu, bez alarmu, zgodny z XSD', async () => {
+    const xml = xmlBrutto();
+    expect(xml).not.toContain('<P_11>');
+    expect([...xml.matchAll(/<P_1[34]_[12]>([^<]+)</g)].map((m) => m[1])).toEqual(['13.39', '3.08', '50.44', '4.04']);
+    expect(sprawdzFa3(xml)).toEqual([]);
+    expect((await validateFA3(xml)).errors).toEqual([]);
+  });
+
+  it('P_13_1 o złotówkę więcej, P_14_1 o złotówkę mniej (P_15 i suma brutto stawki bez zmian): FILTR-RT-FA3-03', () => {
+    const xml = zmien(zmien(xmlBrutto(), 'P_13_1', zl(1)), 'P_14_1', zl(-1));
+    expect(kody(xml)).toEqual([KODY_FA3.podatek]);
+  });
+
+  it('P_13_1 i P_15 przesunięte razem: suma stawki nie zgadza się z sumą P_11A pozycji (FILTR-RT-FA3-02)', () => {
+    const xml = zmien(zmien(xmlBrutto(), 'P_13_1', plusGrosz), 'P_15', plusGrosz);
+    expect(kody(xml)).toEqual([KODY_FA3.pozycje]);
+  });
+
+  it('P_11A pozycji o grosz inne: FILTR-RT-FA3-02', () => {
+    expect(kody(zmien(xmlBrutto(), 'P_11A', plusGrosz))).toEqual([KODY_FA3.pozycje]);
+  });
+
+  it('VAT 8 % liczony stawką 23 % (P_13_2 + P_14_2 i P_15 bez zmian): FILTR-RT-FA3-03', () => {
+    // 54,48 × 23 / 123 = 10,19 zamiast 4,04; netto 44,29 zamiast 50,44.
+    const xml = zmien(zmien(xmlBrutto(), 'P_13_2', () => '44.29'), 'P_14_2', () => '10.19');
+    expect(kody(xml)).toEqual([KODY_FA3.podatek]);
+  });
+});

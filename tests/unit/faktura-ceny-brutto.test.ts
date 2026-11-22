@@ -253,3 +253,31 @@ describe('bramka wysyłki: nieznana stawka w fakturze w cenach brutto', () => {
     ]));
   });
 });
+
+describe('bramka wysyłki: stawki bez podatku w fakturze w cenach brutto (zw, oo, np, np II)', () => {
+  /**
+   * Art. 106e ust. 7 i 8: cena brutto zamiast netto, gdy podatek liczy się od wartości brutto. Przy
+   * stawkach bez podatku (zwolnienie, odwrotne obciążenie, „nie podlega”) wzoru nie ma do czego
+   * zastosować, a czy plik może wtedy mieć `P_9B` i `P_11A`, rozstrzyga księgowa (RP-FA-BRUTTO-01).
+   * Do tego czasu odmowa z wyjściem: faktura w cenach netto (cena netto = cena brutto, bo podatku nie ma).
+   */
+  it.each([
+    ['zw', 'zw'],
+    ['oo', 'oo'],
+    ['np', 'np'],
+    ['np_ii', 'np II'],
+  ])('pozycja ze stawką %s: odmowa z numerem pozycji i wyjściem (ceny netto)', (stawka, etykieta) => {
+    const invoice = finalizeInvoice(faktura([
+      { name: 'Kawa', quantity: 1, unitPriceGross: 10, vatRate: '23' },
+      { name: 'Usługa', quantity: 1, unitPriceGross: 100, vatRate: stawka as unknown as Stawka },
+    ]));
+    expect(validateInvoice(invoice, NOW)).toEqual(expect.arrayContaining([
+      `Pozycja 2: stawka „${etykieta}” nie ma podatku, więc faktura w cenach brutto jej nie obsługuje. Wystaw fakturę w cenach netto: przy tej stawce cena netto to cena brutto.`,
+    ]));
+  });
+
+  it('stawka 0 % w cenach brutto przechodzi (podatek od brutto 0 zł)', () => {
+    const invoice = finalizeInvoice(faktura([{ name: 'Książka', quantity: 2, unitPriceGross: 30, vatRate: '0' }]));
+    expect(validateInvoice(invoice, NOW)).toEqual([]);
+  });
+});
