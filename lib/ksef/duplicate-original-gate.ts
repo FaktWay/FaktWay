@@ -188,12 +188,19 @@ function collectProblems(
     found.add('buyer-id');
   }
   if (parsed.lines.length === 0) found.add('no-lines');
-  if (lineKsef.some((k) => k.P_9B !== undefined || k.P_11A !== undefined)) found.add('gross-prices');
+  // Faktura w cenach brutto z generatora FaktWay (`Invoice.pricesGross`, art. 106e ust. 8): każda pozycja ma
+  // P_9B i P_11A, żadna P_9A, P_11 ani P_11Vat. Inny kształt z cenami brutto (pozycje brutto i netto w jednym
+  // pliku, P_9B obok P_9A, P_11Vat) to plik, którego generator FaktWay nie pisze.
+  const grossPricedByGenerator =
+    lineKsef.length > 0 &&
+    lineKsef.every(
+      (k) => k.P_9B !== undefined && k.P_11A !== undefined && k.P_9A === undefined && k.P_11 === undefined && k.P_11Vat === undefined,
+    );
+  if (!grossPricedByGenerator && lineKsef.some((k) => k.P_9B !== undefined || k.P_11A !== undefined)) found.add('gross-prices');
   if (
     parsed.lines.some(
       (line, i) =>
-        lineKsef[i]!.P_9A === undefined ||
-        lineKsef[i]!.P_11 === undefined ||
+        (!grossPricedByGenerator && (lineKsef[i]!.P_9A === undefined || lineKsef[i]!.P_11 === undefined)) ||
         line.p12 === undefined ||
         lineKsef[i]!.P_10 !== undefined ||
         lineKsef[i]!.P_11Vat !== undefined ||
