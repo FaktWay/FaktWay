@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 
 import fc from 'fast-check';
 import ts from 'typescript';
@@ -151,12 +151,13 @@ const DOZWOLONE: Readonly<Record<string, { ile: number; powod: string }>> = {
 /** Przeliczenia ze znaleziska FZ-019 (otwarte), pilnowane przez `.fails` niżej. */
 const FZ_019 = ['lib/ocr/currency.ts#costInPln', 'lib/oss/prog.ts#netPln'];
 
+/** Ścieżki względne zawsze z `/` (`posix.join`), także na Windowsie: klucze `DOZWOLONE` i `FZ_019` są napisami z `/`. */
 function pliki(katalog: string): string[] {
   const wynik: string[] = [];
   const idz = (k: string) => {
     for (const n of readdirSync(join(KATALOG, k))) {
       if (n === 'node_modules' || n.startsWith('.')) continue;
-      const s = join(k, n);
+      const s = posix.join(k, n);
       if (statSync(join(KATALOG, s)).isDirectory()) idz(s);
       else if (/\.tsx?$/.test(n) && !/\.test\.tsx?$/.test(n)) wynik.push(s);
     }
