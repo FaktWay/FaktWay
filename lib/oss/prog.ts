@@ -95,7 +95,7 @@ function konsumentZUe(s: SprzedazDlaOss): boolean {
 function netPln(s: SprzedazDlaOss): number | null {
   const currency = (s.currency ?? '').trim().toUpperCase();
   if (currency === 'PLN') return s.net;
-  if (currency === '' || s.rateToPln === null || !(s.rateToPln > 0)) return null;
+  if (currency === '' || s.rateToPln === null || !Number.isFinite(s.rateToPln) || !(s.rateToPln > 0) || !Number.isFinite(s.net)) return null;
   // Kwota razy kurs jedną funkcją na groszach (`przeliczNaPln`, NZ-KURS-03, FZ-019).
   return przeliczNaPln(toGrosze(s.net), s.rateToPln) / 100;
 }
