@@ -85,6 +85,11 @@ const SCENARIUSZE: Scenariusz[] = [
   { nazwa: 'procedura w pozycjach', inv: parsed({}, { procedures: ['TT_D'] }) },
   { nazwa: 'FP i TP', inv: parsed({ saleDate: '2026-10-20' }, { fp: true, tp: true }) },
   { nazwa: 'GTU i TP', inv: parsed({}, { gtu: ['GTU_12'], tp: true }) },
+  { nazwa: 'sama stawka oo (JPK_V7M odmawia, JPK_FA powstaje)', inv: parsed(OO) },
+  { nazwa: 'stawka oo obok stawki 23 (JPK_V7M odmawia)', inv: parsed({ lines: [
+    { position: 1, name: 'A', unit: 'szt.', quantity: 1, unitPriceNet: 50, vatRate: '23', netAmount: 50 },
+    { position: 2, name: 'B', unit: 'szt.', quantity: 1, unitPriceNet: 50, vatRate: 'oo', netAmount: 50 },
+  ], totals: { netTotal: 100, vatTotal: 11.5, grossTotal: 111.5 } }) },
   { nazwa: 'stawka oo z poprawnym GTU (JPK_V7M odmawia stawki oo)', inv: parsed(OO, { gtu: ['GTU_12'] }) },
   { nazwa: 'stawka oo z FP, paragon z wcześniejszego miesiąca', inv: parsed({ ...OO, saleDate: '2026-10-20' }, { fp: true }) },
   { nazwa: 'FP z poprawnym GTU i różnymi datami sprzedaży pozycji', inv: parsed({ lines: [
@@ -123,12 +128,40 @@ describe('ostrzeżenie importu: GTU i FP mówią to, co robią generatory', () =
     }
   });
 
-  it('sama stawka oo bez oznaczeń: JPK_V7M odmawia, a import nie ostrzega (osobne ustalenie, zachowanie bez zmian)', () => {
+  it('sama stawka oo: JPK_V7M odmawia, JPK_FA powstaje (generatory), a ostrzeżenie nazywa tylko JPK_V7M i fakturę', () => {
     const inv = parsed(OO);
     const { content, amounts } = importedInvoiceContent(inv);
     const jpk = jpkInvoice(inv, content.saleDate);
     expect(throws(() => summarizeJpkV7m({ issuedInvoices: [jpk], expenses: [] }))).toBe(true);
-    expect(heldDocumentWarning(inv, inv.invoiceNumber, undefined, 'outgoing', 'accepted', content, amounts)).toBeNull();
+    expect(throws(() => amountsOf(jpk))).toBe(false);
+    const tekst = heldDocumentWarning(inv, inv.invoiceNumber, undefined, 'outgoing', 'accepted', content, amounts);
+    expect(tekst).toContain(NUMBER);
+    expect(tekst).toContain('JPK_V7M za 2026-11 nie powstanie');
+    expect(tekst).not.toContain('JPK_FA');
+  });
+
+  it('stawka oo na dokumencie, który nie jest sprzedażą przyjętą w KSeF (odebrany, szkic): bez ostrzeżenia, jak dotąd', () => {
+    const inv = parsed(OO);
+    const { content, amounts } = importedInvoiceContent(inv);
+    expect(heldDocumentWarning(inv, NUMBER, undefined, 'incoming', 'accepted', content, amounts)).toBeNull();
+    expect(heldDocumentWarning(inv, NUMBER, undefined, 'outgoing', 'draft', content, amounts)).toBeNull();
+  });
+
+  it('ostrzeżenia o stawce spoza FaktWay i o rodzaju dokumentu bez długich myślników (każde zdanie z tych powodów)', () => {
+    const nieznana = parsed({ lines: [{ position: 1, name: 'U', unit: 'szt.', quantity: 1, unitPriceNet: 100, vatRate: '17', netAmount: 100 }] });
+    const korekta = parsed({ invoiceType: 'correction' });
+    const przypadki: Array<[string, ParsedInvoice, 'outgoing' | 'incoming', string]> = [
+      ['sprzedaż przyjęta, stawka spoza FaktWay', nieznana, 'outgoing', 'accepted'],
+      ['szkic, stawka spoza FaktWay', nieznana, 'outgoing', 'draft'],
+      ['zakup przyjęty, stawka spoza FaktWay', nieznana, 'incoming', 'accepted'],
+      ['sprzedaż przyjęta, korekta', korekta, 'outgoing', 'accepted'],
+    ];
+    for (const [opis, inv, kierunek, status] of przypadki) {
+      const { content, amounts } = importedInvoiceContent(inv);
+      const tekst = heldDocumentWarning(inv, inv.invoiceNumber, undefined, kierunek, status, content, amounts);
+      expect(tekst, opis).not.toBeNull();
+      expect(tekst, opis).not.toMatch(/—|–/);
+    }
   });
 
   it('FP z nieczytelnymi datami sprzedaży: tekst nie przypisuje paragonowi miesiąca wystawienia', () => {
