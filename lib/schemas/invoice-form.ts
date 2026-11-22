@@ -20,6 +20,7 @@ import {
   xsdLength,
 } from '@/lib/xml/fa3-limits';
 
+import { czyFakturaWCenachBrutto, tekstOdmowyCenBrutto } from '@/lib/invoices/ceny-brutto-wylacznik-wspolne';
 import {
   normalizeCashRegisterNumber,
   receiptInvoiceIssues,
@@ -441,7 +442,7 @@ export const invoiceFormSchema = z
   // brutto, a stawka bez podatku (zw, oo, np, np II) dostaje przy polu stawki to
   // samo zdanie co w bramce wysyłki (`validateInvoice`), z wyjściem: ceny netto.
   .superRefine((d, ctx) => {
-    if (d.pricesGross !== true) return;
+    if (!czyFakturaWCenachBrutto(d)) return;
     d.lines.forEach((l, i) => {
       if (l.unitPriceGross === undefined) {
         ctx.addIssue({ code: 'custom', message: GROSS_PRICE_REQUIRED_MESSAGE, path: ['lines', i, 'unitPriceGross'] });
@@ -625,3 +626,29 @@ export const invoiceFormSchema = z
   });
 
 export type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
+
+/** Schemat formularza zwykłej faktury przy danym stanie wyłącznika cen brutto. */
+export interface InvoiceFormSchemaOptions {
+  /**
+   * Wyłącznik faktury w cenach brutto (RP-FA-BRUTTO-01, B4.0 zasada 2): wynik
+   * `cenyBruttoDostepne()` z serwera strony formularza. Przy `false` faktura
+   * w cenach brutto dostaje odmowę z wyjściem (ceny netto), tym samym zdaniem co
+   * odmowa zapisu (`insertInvoiceAndLines`).
+   */
+  cenyBrutto: boolean;
+}
+
+/**
+ * `invoiceFormSchema` (wspólny dla klienta i serwera, przyjmuje ceny brutto)
+ * z wyłącznikiem cen brutto. Schemat nie czyta bazy: formularz dostaje stan
+ * wyłącznika ze strony, a zapis na serwerze i tak sprawdza go sam
+ * (`insertInvoiceAndLines`, `lib/invoices/ceny-brutto-wylacznik.ts`).
+ */
+export function invoiceFormSchemaFor({ cenyBrutto }: InvoiceFormSchemaOptions): typeof invoiceFormSchema {
+  if (cenyBrutto) return invoiceFormSchema;
+  return invoiceFormSchema.superRefine((d, ctx) => {
+    if (czyFakturaWCenachBrutto(d)) {
+      ctx.addIssue({ code: 'custom', message: tekstOdmowyCenBrutto('zapis', 'wylaczone'), path: ['pricesGross'] });
+    }
+  });
+}

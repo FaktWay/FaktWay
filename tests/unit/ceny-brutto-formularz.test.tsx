@@ -35,6 +35,11 @@ import type { InvoiceFormValues } from '@/lib/schemas/invoice-form';
  * paragon ma kwoty brutto. Autozapis (#814), ustawienia domyślne (#818)
  * i „Wypełnij z ostatniej faktury” niosą metodę i ceny brutto.
  *
+ * Wszystko to tylko przy włączonym wyłączniku cen brutto (`grossPricesAvailable`
+ * ze strony, `cenyBruttoDostepne()`); przy wyłączonym formularz jest jak dotąd:
+ * bez wyboru metody, FP w cenach netto, podkład i kopia robocza w cenach netto
+ * (blok na końcu pliku).
+ *
  * Prawdziwy `InvoiceForm` w jsdom; atrapy: akcje serwera, wyszukiwarka
  * nabywcy, katalog produktów, nawigacja.
  */
@@ -86,9 +91,10 @@ const POCZATEK: Partial<InvoiceFormValues> = {
   lines: ['Kawa', 'Herbata', 'Woda'].map((name) => ({ name, unit: 'szt.', quantity: 1, unitPriceNet: 0, vatRate: '23' as const })),
 };
 
+/** Formularz przy włączonym wyłączniku cen brutto (testy stanu wyłączonego podają `grossPricesAvailable: false`). */
 async function pokaz(props: Partial<Parameters<typeof InvoiceForm>[0]> = {}) {
   await act(async () => {
-    root.render(<InvoiceForm tenantId={TENANT} initialValues={POCZATEK} {...props} />);
+    root.render(<InvoiceForm tenantId={TENANT} initialValues={POCZATEK} grossPricesAvailable {...props} />);
   });
 }
 
@@ -316,5 +322,69 @@ describe('podkład, ustawienia domyślne i autozapis niosą metodę i ceny brutt
     await klik('Przywróć');
     expect(metoda()?.value).toBe('netto');
     expect(cena(0)?.value).toBe('250');
+  });
+});
+
+describe('wyłącznik cen brutto wyłączony: formularz jak dotąd, w cenach netto', () => {
+  const WYLACZONY = { grossPricesAvailable: false } as const;
+  const kopiaBrutto = {
+    requestKey: '33333333-3333-4333-8333-333333333333',
+    savedAt: '2026-11-17T07:30:00.000Z',
+    values: {
+      pricesGross: true,
+      lines: [{ name: 'Kawa', unit: 'szt.', quantity: 1, unitPriceNet: 4.07, unitPriceGross: 5, vatRate: '23' }],
+    } as Partial<InvoiceFormValues>,
+  };
+
+  it('bez wyboru metody cen i z polem „Cena netto”; domyślnie formularz też go nie pokazuje', async () => {
+    await pokaz(WYLACZONY);
+    expect(metoda()).toBeNull();
+    expect(etykietaCeny(0)).toBe('Cena netto (zł)');
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<InvoiceForm tenantId={TENANT} initialValues={POCZATEK} />);
+    });
+    expect(metoda()).toBeNull();
+  });
+
+  it('faktura do paragonu przy pustych cenach zostaje w cenach netto (pole ceny netto przed i po odznaczeniu)', async () => {
+    await pokaz(WYLACZONY);
+    await przelaczParagon();
+    expect(container.querySelector<HTMLInputElement>('#receipt-invoice')?.checked).toBe(true);
+    expect(metoda()).toBeNull();
+    expect(etykietaCeny(0)).toBe('Cena netto (zł)');
+    await przelaczParagon();
+    expect(etykietaCeny(0)).toBe('Cena netto (zł)');
+  });
+
+  it('podkład, „Wypełnij” i kopia robocza w cenach brutto zostają w cenach netto', async () => {
+    await pokaz({ ...WYLACZONY, initialValues: { ...POCZATEK, pricesGross: true, lines: [{ name: 'Obiad', unit: 'szt.', quantity: 2, unitPriceNet: 0, unitPriceGross: 20.99, vatRate: '8' }] } });
+    expect(etykietaCeny(0)).toBe('Cena netto (zł)');
+    act(() => root.unmount());
+    root = createRoot(container);
+    const prefill = {
+      contractorName: 'Klient sp. z o.o.',
+      values: {
+        buyerNip: '5252241585', buyerName: 'Klient sp. z o.o.', buyerAddressLine1: 'ul. Klienta 10', buyerAddressLine2: '02-001 Warszawa',
+        buyerEmail: '', paymentMethod: 'transfer', bankAccount: 'PL61109010140000071219812874',
+        pricesGross: true,
+        lines: [{ name: 'Obiad', unit: 'szt.', quantity: 2, unitPriceNet: 0, unitPriceGross: 20.99, vatRate: '8' }],
+      },
+    } as PrefillFromLastInvoice;
+    await pokaz({ ...WYLACZONY, initialValues: null, prefill });
+    await klik('Wypełnij →');
+    expect(etykietaCeny(0)).toBe('Cena netto (zł)');
+    act(() => root.unmount());
+    root = createRoot(container);
+    // Kopia robocza w cenach brutto (zapisana przy włączonym wyłączniku): po „Przywróć” ceny netto z kopii.
+    await pokaz({ ...WYLACZONY, restoredDraft: kopiaBrutto });
+    await klik('Przywróć');
+    expect(metoda()).toBeNull();
+    expect(etykietaCeny(0)).toBe('Cena netto (zł)');
+    expect(cena(0)?.value).toBe('4.07');
+    const values = await zapiszSzkic();
+    expect(values?.pricesGross).toBe(false);
+    expect(values?.lines[0]?.unitPriceNet).toBe(4.07);
   });
 });

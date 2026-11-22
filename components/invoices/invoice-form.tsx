@@ -1,12 +1,13 @@
 'use client';
 
-import { useRef, useState, useTransition } from 'react';
+import { useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm, useFieldArray, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
+import { czyFakturaWCenachBrutto } from '@/lib/invoices/ceny-brutto-wylacznik-wspolne';
 import {
-  invoiceFormSchema,
+  invoiceFormSchemaFor,
   lineItemSchema,
   unitPriceGrossSchema,
   type InvoiceFormValues,
@@ -74,6 +75,7 @@ export function InvoiceForm({
   salesQuoteId = null,
   salesQuoteSeq = null,
   restoredDraft = null,
+  grossPricesAvailable = false,
 }: {
   /**
    * Firma, dla której strona wyrenderowała formularz (UX-01). Zapis odsyła ją
@@ -131,6 +133,15 @@ export function InvoiceForm({
    * którą strona proponuje przywrócić. Tylko przy pustym formularzu.
    */
   restoredDraft?: LoadedAutosave | null;
+  /**
+   * Plan cen brutto, PR (b): wyłącznik faktury w cenach brutto
+   * (`cenyBruttoDostepne()` na serwerze strony; domyślnie wyłączony). Przy
+   * `false` formularz nie ma wyboru „Ceny brutto”, faktura do paragonu nie
+   * przechodzi na ceny brutto, a podkład i kopia robocza zostają w cenach
+   * netto; schemat odmawia faktury w cenach brutto, a zapis na serwerze
+   * sprawdza wyłącznik sam.
+   */
+  grossPricesAvailable?: boolean;
 }) {
   const newLine: InvoiceFormValues['lines'][number] = vatExempt
     ? { ...defaultLine, vatRate: 'zw' }
@@ -172,8 +183,10 @@ export function InvoiceForm({
   const numberDefaults = numberingDefaults(numbering);
   const [numberRequestKey] = useState(() => crypto.randomUUID());
 
+  // Ten sam schemat co serwer, z wyłącznikiem cen brutto (stan z serwera strony, stały przez życie formularza).
+  const schema = useMemo(() => invoiceFormSchemaFor({ cenyBrutto: grossPricesAvailable }), [grossPricesAvailable]);
   const form = useForm<InvoiceFormValues>({
-    resolver: zodResolver(invoiceFormSchema),
+    resolver: zodResolver(schema),
     // Fokus po nieudanym zapisie bierze blok błędów (A-05), z odnośnikami do pól.
     shouldFocusError: false,
     defaultValues: {
@@ -193,9 +206,6 @@ export function InvoiceForm({
       buyerVatUe: '',
       buyerCountryCode: '',
       lines: [newLine],
-      // Plan cen brutto, PR (b): ceny netto domyślnie, jak dotąd; podkład z faktury
-      // w cenach brutto (`initialValues`) przestawia to niżej.
-      pricesGross: false,
       paymentMethod: paymentDefaults.paymentMethod,
       paymentDueDate: paymentDefaults.paymentDueDate,
       bankAccount: '',
@@ -220,6 +230,9 @@ export function InvoiceForm({
       ...(recurringInvoiceId ? { recurringInvoiceId } : {}),
       ...(recurringInvoiceId && recurringPeriod ? { recurringPeriod } : {}),
       ...(salesQuoteId && salesQuoteSeq ? { salesQuoteId, salesQuoteSeq } : {}),
+      // Plan cen brutto, PR (b): ceny netto domyślnie, jak dotąd; ceny brutto tylko z podkładu
+      // w cenach brutto i przy włączonym wyłączniku (bez niego zawsze ceny netto).
+      pricesGross: grossPricesAvailable && czyFakturaWCenachBrutto(initialValues),
     },
   });
   /** Tryb „Wystaw teraz” z faktury cyklicznej — bez szkicu (C2). */
@@ -244,8 +257,9 @@ export function InvoiceForm({
       form.setValue(name as keyof InvoiceFormValues, value as never);
     }
     if (Array.isArray(lines) && lines.length > 0 && lines.every((l) => typeof l === 'object' && l !== null)) replace(lines);
-    // Metoda cen z kopii; kopia sprzed cen brutto (bez metody) była w cenach netto.
-    form.setValue('pricesGross', rest.pricesGross === true);
+    // Metoda cen z kopii; kopia sprzed cen brutto (bez metody) była w cenach netto,
+    // a bez wyłącznika cen brutto formularz zostaje w cenach netto.
+    form.setValue('pricesGross', grossPricesAvailable && czyFakturaWCenachBrutto(rest));
     cenyBruttoOdParagonu.current = false;
     // Kolejne autozapisy nadpisują tę samą kopię, a zapis faktury niesie jej klucz.
     form.setValue('numberRequestKey', restoreOffer.requestKey);
@@ -321,10 +335,11 @@ export function InvoiceForm({
       // Paragon ma kwoty brutto, a kasa liczy PTU od sumy brutto stawki, więc faktura
       // do paragonu domyślnie idzie w cenach brutto. Tylko przy pozycjach bez ceny netto
       // i bez stawki bez podatku: wpisanych cen nie przestawiamy.
+      // Bez wyłącznika cen brutto faktura do paragonu zostaje w cenach netto.
       const bezCen = lines.every(
         (l) => !(Number(l?.unitPriceNet) > 0) && !(l?.vatRate !== undefined && GROSS_PRICES_UNTAXED_RATES.has(l.vatRate)),
       );
-      if (bezCen && form.getValues('pricesGross') !== true) {
+      if (grossPricesAvailable && bezCen && form.getValues('pricesGross') !== true) {
         ustawCenyBrutto(true);
         cenyBruttoOdParagonu.current = true;
       }
@@ -379,8 +394,9 @@ export function InvoiceForm({
     form.setValue('buyerEmail', v.buyerEmail);
     form.setValue('paymentMethod', v.paymentMethod);
     if (v.bankAccount) form.setValue('bankAccount', v.bankAccount);
-    // Faktura-podkład w cenach brutto wraca w cenach brutto, z ceną brutto pozycji (N1).
-    form.setValue('pricesGross', v.pricesGross === true);
+    // Faktura-podkład w cenach brutto wraca w cenach brutto, z ceną brutto pozycji (N1);
+    // bez wyłącznika cen brutto podkład jest w cenach netto (serwer daje go wtedy bez cen brutto).
+    form.setValue('pricesGross', grossPricesAvailable && czyFakturaWCenachBrutto(v));
     cenyBruttoOdParagonu.current = false;
     replace(v.lines);
     setPrefillUzyty(true);
@@ -429,7 +445,7 @@ export function InvoiceForm({
       // potwierdzenia, żeby user nie wysłał przypadkiem faktury na 0 zł.
       // Przy cenach brutto liczy się cena brutto pozycji (plan cen brutto, PR (b)).
       const hasZeroPriceLine = (values.lines ?? []).some(
-        (l) => Number(values.pricesGross === true ? l.unitPriceGross : l.unitPriceNet) === 0,
+        (l) => Number(czyFakturaWCenachBrutto(values) ? l.unitPriceGross : l.unitPriceNet) === 0,
       );
       if (hasZeroPriceLine) {
         const proceed =
@@ -594,6 +610,7 @@ export function InvoiceForm({
             onAddLine={() => append(newLine)}
             vatExempt={vatExempt}
             pricesGross={pricesGross}
+            pricesModeAvailable={grossPricesAvailable}
             onPricesGrossChange={onPricesGrossChange}
             lineItems={lineItems}
           />

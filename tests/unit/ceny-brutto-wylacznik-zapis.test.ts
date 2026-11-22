@@ -14,10 +14,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  *
  * Podkład (N6 z przeglądu formularza (b)): „Duplikuj”, „Wystaw teraz” i baner
  * „Wypełnij” z dokumentu w cenach brutto (faktura FaktWay z `pricesGross` albo
- * import z `P_9B`, gdzie pozycja nie ma ceny netto) dają podkład w cenach netto
- * bez cen tych pozycji (puste pole, nigdy 0 zł) z komunikatem. Formularz w main
- * nie ma metody brutto, więc przy obu stanach wyłącznika podkład jest taki sam;
- * gałąź „włączony” (podkład w cenach brutto) dokłada formularz cen brutto (b).
+ * import z `P_9B`, gdzie pozycja nie ma ceny netto) przy wyłączonym wyłączniku
+ * dają podkład w cenach netto bez cen tych pozycji (puste pole, nigdy 0 zł)
+ * z komunikatem. Przy włączonym formularz cen brutto (b) ma metodę „Ceny
+ * brutto”, więc taki dokument wraca w cenach brutto (osobny blok niżej).
  *
  * Prawdziwe: akcje strony (`saveDraftAction`, `saveAndSendInvoiceAction`,
  * `prefillFromInvoiceAction`, `prefillFromLastInvoiceAction`), schemat
@@ -300,7 +300,8 @@ const pozycjeBezCeny = (lines: ReadonlyArray<Record<string, unknown>>) => lines.
 describe.each([
   ['wyłączony (brak wiersza flagi)', undefined],
   ['wyłączony (false)', false],
-  ['włączony', true],
+  // `cenyBruttoDostepne`: błąd odczytu to „nie” (podkład w cenach netto, bez cen brutto).
+  ['nieczytelny (błąd odczytu)', 'blad'],
 ] as const)('podkład z faktury w cenach brutto, wyłącznik %s', (_nazwa, flaga) => {
   beforeEach(() => {
     st.flaga = flaga;
@@ -357,5 +358,79 @@ describe.each([
     expect(podklad?.values.lines.map((l) => l.unitPriceNet)).toEqual([19.4352, 0]);
     expect(podklad).not.toHaveProperty('priceNotice');
     await expect(prefillFromLastInvoiceAction()).resolves.toMatchObject({ contractorName: 'Klient Sp. z o.o.' });
+  });
+});
+
+/**
+ * Wyłącznik włączony: oczekiwania zmienione świadomie przez formularz cen brutto
+ * (PR (b)). Formularz ma wtedy metodę „Ceny brutto”, więc dokument w cenach brutto
+ * (faktura FaktWay z `pricesGross` albo import, w którym każda pozycja bez ceny
+ * netto ma `P_9B`) wraca w cenach brutto: metoda `pricesGross`, cena brutto
+ * pozycji z dokumentu, cena netto 0 tylko jako pole niewidocznej metody, bez
+ * komunikatu, a baner „Wypełnij” go podsuwa. Dokument, którego nie da się
+ * wypełnić w cenach brutto (pozycje mieszane, pozycja bez żadnej ceny), zostaje
+ * jak przy wyłączonym (ceny netto, pusta cena, komunikat), ale komunikat nie
+ * mówi, że FaktWay nie wystawia faktur w cenach brutto, bo przy włączonym wystawia.
+ */
+describe('podkład z faktury w cenach brutto, wyłącznik włączony (formularz cen brutto (b))', () => {
+  beforeEach(() => {
+    st.flaga = true;
+  });
+
+  it('„Duplikuj” faktury FaktWay w cenach brutto: metoda i ceny brutto z dokumentu, bez komunikatu', async () => {
+    zrodloBrutto();
+    const podklad = await prefillFromInvoiceAction(st.zrodlo!.id as string);
+    expect(podklad?.values.pricesGross).toBe(true);
+    expect(podklad?.values.lines.map((l) => ({ ...l }))).toEqual([
+      { name: 'Kanapka', unit: 'szt.', quantity: 2, unitPriceNet: 0, unitPriceGross: 20.99, vatRate: '8' },
+      { name: 'Sok', unit: 'szt.', quantity: 3, unitPriceNet: 0, unitPriceGross: 5.49, vatRate: '23' },
+    ]);
+    expect(podklad).not.toHaveProperty('priceNotice');
+    expect(podklad?.values).toMatchObject({ buyerNip: '5252241585', buyerName: 'Klient Sp. z o.o.', paymentMethod: 'transfer' });
+    expect(st.odczytyFlag).toEqual(['grossPricesEnabled']);
+  });
+
+  it('import z P_9B (cena netto NULL w każdej pozycji): podkład w cenach brutto z ceną z pliku', async () => {
+    zrodloImportP9B();
+    const podklad = await prefillFromInvoiceAction(st.zrodlo!.id as string);
+    expect(podklad?.values.pricesGross).toBe(true);
+    expect(podklad?.values.lines.map((l) => l.unitPriceGross)).toEqual([20.99, 5.49]);
+    expect(podklad).not.toHaveProperty('priceNotice');
+  });
+
+  it('pozycje mieszane (część z ceną netto): ceny netto, pusta cena pozycji bez ceny netto, komunikat o braku ceny netto', async () => {
+    zrodloImportP9B();
+    st.pozycje[0] = { ...st.pozycje[0], unit_price_net: '19.4352' };
+    const podklad = await prefillFromInvoiceAction(st.zrodlo!.id as string);
+    expect(podklad?.values).not.toHaveProperty('pricesGross');
+    expect(podklad?.values.lines[0]).toMatchObject({ name: 'Kanapka', unitPriceNet: 19.4352 });
+    expect(podklad?.values.lines[1]).not.toHaveProperty('unitPriceNet');
+    expect(podklad?.priceNotice).toBe(BEZ_CENY_NETTO);
+  });
+
+  it('import bez ceny netto i bez ceny brutto (bez P_9A i P_9B): pusta cena, komunikat bez słowa o cenach brutto, bez odczytu flagi', async () => {
+    zrodloImportP9B();
+    (st.zrodlo!.fa3_data as Record<string, unknown>).ksefLineFields = [];
+    const podklad = await prefillFromInvoiceAction(st.zrodlo!.id as string);
+    expect(pozycjeBezCeny(podklad!.values.lines as unknown as Array<Record<string, unknown>>)).toBe(2);
+    expect(podklad?.priceNotice).toBe(BEZ_CENY_NETTO);
+    expect(st.odczytyFlag).toEqual([]);
+  });
+
+  it('baner „Wypełnij z ostatniej faktury” podsuwa fakturę w cenach brutto w cenach brutto', async () => {
+    zrodloBrutto();
+    await expect(prefillFromLastInvoiceAction()).resolves.toMatchObject({
+      values: { pricesGross: true, lines: [{ unitPriceGross: 20.99 }, { unitPriceGross: 5.49 }] },
+    });
+  });
+
+  it('faktura w cenach netto: ceny jak dotąd, bez komunikatu i bez odczytu flagi', async () => {
+    zrodloBrutto();
+    delete (st.zrodlo!.fa3_data as Record<string, unknown>).pricesGross;
+    st.pozycje = st.pozycje.map((p, i) => ({ ...p, unit_price_net: i === 0 ? '19.4352' : '0.0000' }));
+    const podklad = await prefillFromInvoiceAction(st.zrodlo!.id as string);
+    expect(podklad?.values.lines.map((l) => l.unitPriceNet)).toEqual([19.4352, 0]);
+    expect(podklad).not.toHaveProperty('priceNotice');
+    expect(st.odczytyFlag).toEqual([]);
   });
 });

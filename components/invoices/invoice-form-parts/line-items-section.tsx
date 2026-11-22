@@ -29,8 +29,9 @@ const BRAK_KWOT = { netAmount: 0, vatAmount: 0, grossAmount: 0 } as const;
  *
  * Plan cen brutto, PR (b): wybór „Ceny netto / Ceny brutto” dla całej faktury
  * w nagłówku sekcji (D1: dodane pole z istniejących komponentów, natywna lista
- * jak stawka VAT). Przy cenach brutto pole ceny pozycji to cena brutto, a kwoty
- * pozycji (brutto i netto z podziału VAT stawki) są te same, co zapisze faktura.
+ * jak stawka VAT), tylko przy włączonym wyłączniku cen brutto. Przy cenach
+ * brutto pole ceny pozycji to cena brutto, a kwoty pozycji (brutto i netto
+ * z podziału VAT stawki) są te same, co zapisze faktura.
  */
 export function LineItemsSection({
   form,
@@ -41,6 +42,7 @@ export function LineItemsSection({
   vatExempt = false,
   lineItems,
   pricesGross = false,
+  pricesModeAvailable = false,
   onPricesGrossChange,
 }: {
   form: UseFormReturn<InvoiceFormValues>;
@@ -54,6 +56,8 @@ export function LineItemsSection({
   lineItems: InvoiceLineItem[];
   /** Ceny brutto dla całej faktury (plan cen brutto, PR (b)). */
   pricesGross?: boolean;
+  /** Wyłącznik cen brutto włączony: jest wybór metody cen. Bez niego sekcja jak dotąd (ceny netto). */
+  pricesModeAvailable?: boolean;
   /** Zmiana metody cen; formularz pilnuje pól ukrytej metody (`ustawCenyBrutto`). */
   onPricesGrossChange: (gross: boolean) => void;
 }) {
@@ -78,16 +82,18 @@ export function LineItemsSection({
       testId="sekcja-pozycje"
       description="Towary i usługi na fakturze"
       action={
-        <select
-          id="prices-mode"
-          aria-label="Ceny w pozycjach"
-          className={cn(vatSelectClass, 'w-auto')}
-          value={pricesGross ? 'brutto' : 'netto'}
-          onChange={(e) => onPricesGrossChange(e.target.value === 'brutto')}
-        >
-          <option value="netto">Ceny netto</option>
-          <option value="brutto">Ceny brutto</option>
-        </select>
+        pricesModeAvailable ? (
+          <select
+            id="prices-mode"
+            aria-label="Ceny w pozycjach"
+            className={cn(vatSelectClass, 'w-auto')}
+            value={pricesGross ? 'brutto' : 'netto'}
+            onChange={(e) => onPricesGrossChange(e.target.value === 'brutto')}
+          >
+            <option value="netto">Ceny netto</option>
+            <option value="brutto">Ceny brutto</option>
+          </select>
+        ) : undefined
       }
     >
       {/* Tylko jeden wariant layoutu naraz — patrz `linesDesktopLayout` powyżej. */}

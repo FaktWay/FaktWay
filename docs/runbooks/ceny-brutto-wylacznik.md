@@ -45,7 +45,17 @@ Podkład z innej faktury („Duplikuj”, „Wystaw teraz”) z dokumentu w cena
 brutto (faktura FaktWay w cenach brutto albo import z `P_9B` bez ceny netto)
 jest w cenach netto: pozycje bez ceny netto w dokumencie mają puste pole ceny,
 nigdy 0 zł, a nad formularzem jest komunikat. Baner „Wypełnij z ostatniej
-faktury” takiego podkładu nie podsuwa.
+faktury” takiego podkładu nie podsuwa. Formularz faktury (PR (b)) nie ma
+wtedy wyboru „Ceny brutto”, faktura do paragonu zostaje w cenach netto,
+a schemat formularza odmawia faktury w cenach brutto z tym samym tekstem co
+zapis.
+
+Przy włączonym formularz ma wybór „Ceny netto / Ceny brutto” w sekcji
+„Pozycje”, faktura do paragonu przy pozycjach bez ceny netto przechodzi na
+ceny brutto, a podkład z dokumentu w cenach brutto (faktura z `pricesGross`
+albo każda pozycja bez ceny netto z `P_9B`) wraca w cenach brutto z ceną
+brutto z dokumentu, także w banerze „Wypełnij”. Dokument z pozycjami w cenach
+netto i w cenach brutto zostaje w cenach netto z pustą ceną i komunikatem.
 
 Bez zmian przy wyłączonym:
 

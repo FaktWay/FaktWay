@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { toLineItems } from '@/components/invoices/invoice-form-parts/calculations';
 import { sprawdzFa3 } from '@/lib/bezpieczniki/fa3';
 import { buildInvoiceFromForm, draftLineRows } from '@/lib/invoices/build-from-form';
-import { invoiceFormSchema, type InvoiceFormValues } from '@/lib/schemas/invoice-form';
+import { tekstOdmowyCenBrutto } from '@/lib/invoices/ceny-brutto-wylacznik-wspolne';
+import { invoiceFormSchema, invoiceFormSchemaFor, type InvoiceFormValues } from '@/lib/schemas/invoice-form';
 import { generateFA3Xml } from '@/lib/xml/fa3-generator';
 import { calculateInvoiceTotals, finalizeInvoice, summarizeVatPerRate, validateInvoice } from '@/lib/xml/invoice-calculator';
 import { validateFA3 } from '@/lib/xml/validator';
@@ -249,5 +250,30 @@ describe('podgląd sum w formularzu liczy tak samo jak serwer', () => {
       }),
       opcje(60),
     );
+  });
+});
+
+describe('wyłącznik cen brutto w schemacie formularza (invoiceFormSchemaFor)', () => {
+  const bledyPrzy = (cenyBrutto: boolean, values: unknown) => {
+    const r = invoiceFormSchemaFor({ cenyBrutto }).safeParse(values);
+    return r.success ? [] : r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
+  };
+  const netto = () => wartosci({ pricesGross: false, lines: [{ name: 'Usługa', unit: 'usł.', quantity: 1, unitPriceNet: 17.07, vatRate: '23' }] });
+
+  it('wyłączony: faktura w cenach brutto dostaje odmowę z wyjściem, tym samym zdaniem co odmowa zapisu na serwerze', () => {
+    const tekst = 'Faktura w cenach brutto nie jest jeszcze dostępna w FaktWay, więc faktury nie zapisaliśmy. Wystaw fakturę w cenach netto.';
+    expect(bledyPrzy(false, wartosci())).toEqual([`pricesGross: ${tekst}`]);
+    expect(tekstOdmowyCenBrutto('zapis', 'wylaczone')).toBe(tekst);
+  });
+
+  it('wyłączony: faktura w cenach netto przechodzi jak dotąd, także z ukrytą ceną brutto', () => {
+    expect(bledyPrzy(false, netto())).toEqual([]);
+    expect(bledyPrzy(false, { ...netto(), pricesGross: undefined, lines: [{ ...netto().lines[0]!, unitPriceGross: 21 }] })).toEqual([]);
+  });
+
+  it('włączony: ten sam schemat co invoiceFormSchema (ceny brutto i ceny netto przechodzą)', () => {
+    expect(invoiceFormSchemaFor({ cenyBrutto: true })).toBe(invoiceFormSchema);
+    expect(bledyPrzy(true, wartosci())).toEqual([]);
+    expect(bledyPrzy(true, netto())).toEqual([]);
   });
 });
