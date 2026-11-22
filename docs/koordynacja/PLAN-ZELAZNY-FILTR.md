@@ -1586,6 +1586,6 @@ maszynerię filtra albo wiedzę, Bartosz nadaje etykietę po ostatnim pushu.
 
 | 22.11.2026 | NZ-WYL-01: graf importów po #807 | #878 | otwarty | każde wejście aplikacji, które dochodzi do danych modułu, pyta o pełny wyłącznik (`czyKsiegowoscWlaczona`); wszystkie postaci eksportu i importu |
 
-| 22.11.2026 | Dziennik i stany FZ-013 do FZ-015 | ten PR | otwarty | FZ-013, FZ-014 i FZ-015 naprawione w `main`, sprawdził drugi czytelnik (plik:linia w `docs/filtr/USTALENIA.md`); raport końcowy dla Bartosza w notatkach koordynatora |
+| 22.11.2026 | Dziennik i stany FZ-013 do FZ-015 | #879 | otwarty | FZ-013, FZ-014 i FZ-015 naprawione w `main`, sprawdził drugi czytelnik (plik:linia w `docs/filtr/USTALENIA.md`); raport końcowy dla Bartosza w notatkach koordynatora |
 
 **Następny krok:** naprawy z rejestru, po jednej gałęzi od `main` według protokołu, od najwyższej wagi: FZ-027 (WYS, FP i odliczenie), FZ-019 i FZ-020 (WYS, przeliczenia walut), FZ-017 (WYS, odczyt stronami), dalej FZ-018 i FZ-021; FZ-023, FZ-025 i FZ-026 robi sesja planu kompletnej aplikacji (#842). Testy na bazie dla strażników z FZ-024 paczkami po obszarach (najpierw cykl KSeF i pozycje faktur). Czekają na decyzję Bartosza (raport końcowy 22.11): zapis jednego kosztu przy FZ-022 (A, B, C), przejście FA(3) na blokadę ok. 29.11 (D-F7), reguły FA3-03 i FA3-04 (`zgoda:wiedza-prawna`), NZ-FA-07 (ostrzeżenie po 15. dniu miesiąca po sprzedaży), F14, F16-F18 (A11); FZ-006, FZ-010 i FZ-016 czekają na prawnika (pytania 19-21).
