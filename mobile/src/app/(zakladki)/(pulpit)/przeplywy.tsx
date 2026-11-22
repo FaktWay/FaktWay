@@ -22,7 +22,7 @@ import { bezDlugichMyslnikow } from '@/lib/api/bledy';
 import type { PrzeplywyOdpowiedz } from '@/lib/api/kontrakt-wiecej';
 import { grosze } from '@/lib/dane/mapowanie';
 import { dzienZnacznika } from '@/lib/wiecej';
-import { dataKrotka, kwota, kwotaKrotka, zmiana } from '@/lib/format';
+import { dataKrotka, kwota, kwotaKrotka, zmiana, znakZmiany } from '@/lib/format';
 import { doZaplaty, kiedyTermin } from '@/lib/status-faktury';
 import { type Kolory } from '@/wyglad/kolory';
 import { IKONY_PASKA } from '@/wyglad/ikony-paska';
@@ -42,6 +42,9 @@ const KOLOR_STATUSU: Record<Operacja['status'], keyof Kolory> = {
   'Do akceptacji': 'ostrzezenie',
   'Z KSeF': 'etykietaDrugorzedna',
 };
+
+/** Kolor zmiany wpływów wobec poprzedniego miesiąca ze znaku widocznego w napisie (`znakZmiany`): „0%” jest neutralne. */
+const ZNAK_ZMIANY_KOLOR: Record<-1 | 0 | 1, keyof Kolory> = { [-1]: 'blad', 0: 'etykietaDrugorzedna', 1: 'sukces' };
 
 const KATEGORIE = ['Wszystkie', 'Sprzedaż', 'Usługi', 'Biuro', 'Paliwo', 'Telefon'] as const;
 const STATUSY = ['Wszystkie', 'Opłacona', 'Korekta', 'Zatwierdzony', 'Do akceptacji', 'Z KSeF'] as const;
@@ -154,7 +157,7 @@ function EkranPrzeplywowZBazy({ odczyt }: { odczyt: StanOdczytu<PrzeplywyOdpowie
                       podpis: 'Wpłynęło w tym miesiącu',
                       wartosc: dane.miesiac.dane.wplywy.liczba > 0 ? zlKrotko(dane.miesiac.dane.wplywy.kwota) : 'Brak wpłat',
                       ...(dane.miesiac.dane.wplywy.zmianaPct !== null
-                        ? { opis: `${zmiana(dane.miesiac.dane.wplywy.zmianaPct)} wobec poprzedniego miesiąca`, opisKolor: dane.miesiac.dane.wplywy.zmianaPct < 0 ? ('blad' as const) : ('sukces' as const) }
+                        ? { opis: `${zmiana(dane.miesiac.dane.wplywy.zmianaPct)} wobec poprzedniego miesiąca`, opisKolor: ZNAK_ZMIANY_KOLOR[znakZmiany(dane.miesiac.dane.wplywy.zmianaPct)] }
                         : {}),
                     },
                     {

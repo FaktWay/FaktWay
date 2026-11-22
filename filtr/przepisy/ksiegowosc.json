@@ -358,7 +358,7 @@
     },
     {
       "id": "RP-JPK-GTU-01",
-      "regula": "Oznaczenia GTU w JPK_V7M: wiersz ewidencji sprzedaży faktury ma GTU_01-GTU_13 równe 1 dla każdego oznaczenia jej pozycji, każde raz, w kolejności z XSD, także faktura do paragonu (FP); kwoty wiersza i deklaracji się nie zmieniają. Oznaczenie wybiera klient przy pozycji zwykłej faktury (formularz albo katalog produktów), to samo trafia do pliku FA(3) (GTU po P_12). Faktura z importu: oznaczenia z pliku KSeF, gdy każde jest kodem z listy. Korekta faktury z GTU w pozycjach daje odmowę, bo korekta w FaktWay nie zapisuje GTU pozycji.",
+      "regula": "Oznaczenia GTU w JPK_V7M: wiersz ewidencji sprzedaży faktury ma GTU_01-GTU_13 równe 1 dla każdego oznaczenia jej pozycji, każde raz, w kolejności z XSD, także faktura do paragonu (FP); kwoty wiersza i deklaracji się nie zmieniają. Oznaczenie wybiera klient przy pozycji zwykłej faktury (formularz albo katalog produktów), to samo trafia do pliku FA(3) (GTU po P_12). Faktura z importu: oznaczenia z pliku KSeF, gdy każde jest kodem z listy. Korekta FaktWay niesie oznaczenia pozycji faktury korygowanej i dostaje kody pozycji, których dotyczy: anulowanie wszystkich, korekta „przed/po” zmienionych i usuniętych (te same kody, co w jej pliku FA(3)), korekta kwotowa pozycji w stawce korekty, gdy mają jedno oznaczenie albo żadnego. Gdy FaktWay tego nie wie (pozycja dopisana albo o zmienionej nazwie w korekcie faktury z GTU, korekta kwotowa w stawce z różnymi oznaczeniami, pozycja, której oznaczeń FaktWay nie zna), odmowa.",
       "podstawa": [
         {
           "akt": "rozporządzenie Ministra Finansów, Inwestycji i Rozwoju z dnia 15 października 2019 r. w sprawie szczegółowego zakresu danych zawartych w deklaracjach podatkowych i w ewidencji w zakresie podatku od towarów i usług (Dz.U. 2019 poz. 1988 ze zm.)",
@@ -387,7 +387,8 @@
         "jpk.vat-fa",
         "ksiegowosc.vat",
         "faktury.fa3",
-        "faktury.wystawianie"
+        "faktury.wystawianie",
+        "faktury.korekty"
       ],
       "kod": [
         "lib/exports/jpk-v7m-generator.ts#generateJpkV7m",
@@ -397,7 +398,11 @@
         "lib/exports/data-fetcher.ts#gtuMarkingsOfFa3",
         "lib/invoices/line-codes.ts#isGtuCode",
         "lib/invoices/build-from-form.ts#buildInvoiceFromForm",
-        "lib/xml/fa3-generator.ts#generateFA3Xml"
+        "lib/xml/fa3-generator.ts#generateFA3Xml",
+        "lib/exports/data-fetcher.ts#fetchInvoicesForExport",
+        "lib/ksef/fa3-correction-generator.ts#correctionLinePairs",
+        "lib/ksef/fa3-correction-generator.ts#withCodesFromBefore",
+        "lib/invoices/line-codes.ts#lineCodesOf"
       ],
       "testy": [
         "tests/unit/jpk-v7m-gtu.test.ts > zbiór GTU_xx w wierszu = zbiór oznaczeń pozycji faktury",
@@ -405,12 +410,23 @@
         "tests/unit/jpk-v7m-gtu.test.ts > oznaczenie nie zmienia kwot",
         "tests/unit/jpk-v7m-gtu.test.ts > faktura do paragonu (FP) z GTU",
         "tests/unit/jpk-v7m-gtu.test.ts > GTU z pliku (poprawne kody) trafia do wiersza tej faktury",
-        "tests/unit/jpk-v7m-gtu.test.ts > korekta faktury FaktWay z GTU w pozycjach",
+        "tests/unit/jpk-v7m-gtu.test.ts > korekta kwotowa bez koperty faktury FaktWay z GTU w pozycjach",
         "tests/unit/jpk-v7m-gtu.test.ts > korekta faktury z importu z GTU w pliku KSeF",
         "tests/unit/jpk-v7m-gtu.test.ts > JPK_FA zgodny z XSD i EDI++ powstają bez odmowy i bez GTU",
         "tests/unit/import-data-sprzedazy-adnotacje.test.ts > oznaczenie GTU w pozycji (krok 2.6, część 2b-2)",
         "tests/unit/pozycje-gtu.test.ts > GTU po P_12 tej pozycji",
-        "tests/unit/produkty-podpowiedz-formularz.test.tsx > wybrane GTU idzie z formularza do akcji zapisu szkicu"
+        "tests/unit/produkty-podpowiedz-formularz.test.tsx > wybrane GTU idzie z formularza do akcji zapisu szkicu",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > zmiana ceny pozycji z GTU_12",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > zmiana tylko pozycji bez GTU",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > dopisana pozycja do faktury z GTU",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > zmiana nazwy pozycji faktury z GTU",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > anulowanie dotyczy wszystkich pozycji",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > kwotowa w stawce z pozycją z GTU_12 i pozycją bez GTU",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > kwotowa w stawce bez pozycji w stanie przed faktury z GTU",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > korekta sprzed zapisu kodów (koperta bez kodów) pozycji z GTU",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > łańcuch: korekta pozycji dopisanej wcześniejszą korektą faktury z GTU",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > GTU wiersza = kody GTU w pliku FA(3) KOR",
+        "tests/unit/korekta-kody-pozycji.test.ts > wiersz „przed” ma kody swojej pozycji"
       ],
       "parametry": [],
       "niezmienniki": [],
@@ -420,10 +436,10 @@
         "opis": "MF, pytania i odpowiedzi JPK_VAT z deklaracją (oznaczenia GTU i faktury korygujące): wiele oznaczeń GTU w jednym wpisie, GTU także przy FP, korekta oznaczona, gdy dotyczy pozycji z GTU; sekwencja GTU_01-GTU_13 w XSD JPK_V7M(3) i typ TGTU w XSD FA(3)",
         "sprawdzono": "2026-11-14"
       },
-      "interpretacja": "Wiersz faktury dostaje GTU_xx = 1 dla każdego kodu jej pozycji (bez powtórzeń, w kolejności XSD), bez zmiany pól K_ i deklaracji. Źródło: pozycje faktury FaktWay (fa3_data.lines[].gtuCode, z formularza albo katalogu, to samo co GTU w pliku FA(3)) i oznaczenia z pliku KSeF faktury z importu (fa3_data.ksefMarkers.gtu), gdy każde jest kodem z listy; kod spoza listy daje odmowę jak dotąd. Program nie dobiera kodu i nie sprawdza, czy towar go wymaga (D8): pozycja bez GTU idzie bez oznaczenia, także w fakturze z importu (MF, pyt. 1: GTU nie musi być na fakturze). Korekta faktury, której pozycje mają GTU (faktura FaktWay albo z importu): odmowa z wyjściem (JpkV7mGtuCorrectionNotSupportedError) w pliku i w rozliczeniu modułu VAT, bo korekta nie zapisuje GTU pozycji (krok 2.6, część 2b-3). Korekta faktury bez GTU: wiersz bez oznaczeń. Dziś idą do JPK_V7M bez GTU, także gdy dotyczą towaru albo usługi z GTU (do części 2b-3): faktura zaliczkowa i faktura rozliczająca (formularze bez pola GTU) oraz korekta „przed/po” faktury bez GTU, która dopisuje pozycję (pozycja dopisana ma tylko wiersz „po”, lib/ksef/fa3-correction-generator.ts, a korekta nie ma pola GTU). Pozycja ma jedno oznaczenie GTU (jak FaWiersz/GTU w FA(3)), więc towar z dwoma oznaczeniami (np. GTU_02 i GTU_03, MF pyt. 14) wymaga dwóch pozycji z tymi kodami.",
+      "interpretacja": "Wiersz faktury dostaje GTU_xx = 1 dla każdego kodu jej pozycji (bez powtórzeń, w kolejności XSD), bez zmiany pól K_ i deklaracji. Źródło: pozycje faktury FaktWay (fa3_data.lines[].gtuCode, z formularza albo katalogu, to samo co GTU w pliku FA(3)) i oznaczenia z pliku KSeF faktury z importu (fa3_data.ksefMarkers.gtu), gdy każde jest kodem z listy; kod spoza listy daje odmowę jak dotąd. Program nie dobiera kodu i nie sprawdza, czy towar go wymaga (D8): pozycja bez GTU idzie bez oznaczenia, także w fakturze z importu (MF, pyt. 1: GTU nie musi być na fakturze). Korekta FaktWay (krok 2.6, część 2b-3): stan przed bierze PKWiU i GTU pozycji z dokumentu faktury korygowanej (fa3_data.lines po numerze pozycji; w łańcuchu z dokumentu ostatniej korekty), pozycja „po” kody swojej pary „przed” o tej samej nazwie (to samo parowanie co plik FA(3) KOR, correctionLinePairs), pozycja dopisana i pozycja sparowana po kolejności ze zmienioną nazwą żadnych (FaktWay nie wie, czy to ta sama pozycja); kody z żądania się nie liczą. Wiersz korekty w JPK_V7M dostaje kody pozycji, których korekta dotyczy (MF, pyt. 8): anulowanie wszystkich pozycji stanu przed, korekta „przed/po” pozycji zmienionych i usuniętych (te same kody, co w jej pliku FA(3)), korekta kwotowa pozycji w stawce korekty, gdy wszystkie mają to samo oznaczenie (ten kod) albo żadna (bez oznaczeń). Pozycja stanu przed bez kodu jest pozycją bez GTU, gdy faktura korygowana ma pozycje o tej nazwie i żadna nie ma GTU; inaczej FaktWay jej oznaczenia nie zna (korekta wystawiona przed zapisem kodów w korektach, pozycja dopisana wcześniejszą korektą, faktura z importu z oznaczeniami całego pliku). Odmowa z wyjściem (JpkV7mGtuCorrectionNotSupportedError) w pliku i w rozliczeniu modułu VAT, gdy korekta faktury z GTU dotyczy pozycji o nieznanym oznaczeniu, dopisuje pozycję albo zmienia nazwę pozycji (taka pozycja nie ma w FaktWay kodów) albo jest kwotowa w stawce z różnymi oznaczeniami, z pozycjami z GTU i bez albo bez pozycji w stanie przed; komunikat podaje numer korekty, faktury korygowanej i kody, a przy korekcie kwotowej drogę przez korektę pozycji. Korekta faktury bez GTU: wiersz bez oznaczeń. Dziś idą do JPK_V7M bez GTU, także gdy dotyczą towaru albo usługi z GTU: faktura zaliczkowa i faktura rozliczająca (formularze bez pola GTU) oraz korekta „przed/po” faktury bez GTU, która dopisuje pozycję (pozycja dopisana nie ma w FaktWay pola GTU). Wiersz korekty kwotowej w pliku FA(3) jest bez GTU (korekta kwotowa nie wskazuje pozycji, a GTU w FA(3) jest polem pozycji, opcjonalnym). Pozycja ma jedno oznaczenie GTU (jak FaWiersz/GTU w FA(3)), więc towar z dwoma oznaczeniami (np. GTU_02 i GTU_03, MF pyt. 14) wymaga dwóch pozycji z tymi kodami.",
       "do_rozstrzygniecia": {
         "kto": "księgowa",
-        "pytanie": "Faktura zaliczkowa, faktura rozliczająca i korekta „przed/po”, która dopisuje pozycję do faktury bez GTU, nie mają w FaktWay pola GTU, więc ich wiersz w JPK_V7M jest bez oznaczenia, także gdy dotyczą towaru albo usługi z GTU (MF, pyt. 5: oznaczenia GTU dotyczą też faktur zaliczkowych). FaktWay nie informuje dziś o tym klienta ani przy wystawianiu, ani przy pliku JPK_V7M. Czy do czasu pola GTU w tych dokumentach (krok 2.6, część 2b-3) JPK_V7M może powstawać bez tych oznaczeń, czy plik z taką fakturą ma być wstrzymany z komunikatem?",
+        "pytanie": "Faktura zaliczkowa, faktura rozliczająca i korekta „przed/po”, która dopisuje pozycję do faktury bez GTU, nie mają w FaktWay pola GTU, więc ich wiersz w JPK_V7M jest bez oznaczenia, także gdy dotyczą towaru albo usługi z GTU (MF, pyt. 5: oznaczenia GTU dotyczą też faktur zaliczkowych). FaktWay nie informuje dziś o tym klienta ani przy wystawianiu, ani przy pliku JPK_V7M. Korekta, która dopisuje pozycję do faktury z GTU, wstrzymuje JPK_V7M z komunikatem. Czy do czasu pola GTU w tych dokumentach JPK_V7M może powstawać bez tych oznaczeń, czy plik z taką fakturą ma być wstrzymany z komunikatem?",
         "przypadki": []
       },
       "sprawdzil": {
@@ -433,7 +449,7 @@
       "odczyt": "2026-11-14",
       "zrodlo_planu": "PLAN-KOMPLETNA-APLIKACJA 2.6",
       "stan": "dziala",
-      "uwagi": "Krok 2.6, część 2b-2. JPK_FA(4) i EDI++ nie mają pola GTU: zaimportowana faktura z GTU dalej je wstrzymuje (decyzja C5b z 06.10.2026), a ostrzeżenie importu mówi o JPK_FA i JPK_V7M (do poprawy osobno); własna faktura FaktWay z GTU ich nie wstrzymuje. Raportów z kasy (RO) i korekt z art. 89a ust. 1 i 4 FaktWay nie wykazuje, więc GTU przy nich nie dotyczy."
+      "uwagi": "Krok 2.6, części 2b-2 i 2b-3. JPK_FA(4) i EDI++ nie mają pola GTU: zaimportowana faktura z GTU dalej je wstrzymuje (decyzja C5b z 06.10.2026), a ostrzeżenie importu mówi o JPK_FA i JPK_V7M (do poprawy osobno); własna faktura FaktWay z GTU ich nie wstrzymuje. Raportów z kasy (RO) i korekt z art. 89a ust. 1 i 4 FaktWay nie wykazuje, więc GTU przy nich nie dotyczy."
     },
     {
       "id": "RP-WAL-01",

@@ -143,7 +143,8 @@ const MAX_MESSAGE = 500;
  * nazwy pól (`P_15`), klasa błędu i opis z naszych komunikatów — HTTP i kod
  * KSeF mają własne kolumny. Odrzucenie w statusie KSeF ma w komunikacie sam
  * status, bez opisu i szczegółów z KSeF (F-093-STATUS). Najwyżej 500 znaków.
- * Pełny ostatni błąd jest na fakturze.
+ * Pełny tekst techniczny: audyt `invoice.submit_failed` (`metadata.error`) i log
+ * workera. Faktura niesie tekst dla klienta (U3), nie surowy komunikat libxml.
  */
 export function sendAttemptMessage(message: string): string {
   return scrubTelemetryText(message)

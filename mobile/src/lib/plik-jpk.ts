@@ -24,3 +24,19 @@ export async function udostepnijXml(nazwa: string, xml: string): Promise<void> {
   plik.write(xml);
   await Share.share({ url: plik.uri, title: plik.name });
 }
+
+/** Nazwa pliku bez znaków, których system plików nie przyjmie; rozszerzenie zostaje. */
+export function nazwaPliku(nazwa: string, domyslna = 'plik'): string {
+  return nazwa.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim() || domyslna;
+}
+
+/** Zapisuje plik z Base64 (np. XLSX, CSV, ZIP gotowego eksportu) i otwiera arkusz udostępniania. */
+export async function udostepnijBase64(nazwa: string, base64: string): Promise<void> {
+  const katalog = new Directory(Paths.cache, 'faktway-dane', 'jpk');
+  if (!katalog.exists) katalog.create({ intermediates: true, idempotent: true });
+  const plik = new File(katalog, nazwaPliku(nazwa));
+  if (plik.exists) plik.delete();
+  plik.create();
+  plik.write(base64, { encoding: 'base64' });
+  await Share.share({ url: plik.uri, title: plik.name });
+}

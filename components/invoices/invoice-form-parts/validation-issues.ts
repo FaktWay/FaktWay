@@ -38,6 +38,8 @@ const POLA: Record<string, { label: string; id: string }> = {
   cashRegisterNumber: { label: 'Numer unikatowy kasy', id: 'cash-register-number' },
   receiptRequestDate: { label: 'Data żądania faktury', id: 'receipt-request-date' },
   buyerNipOnReceipt: { label: 'Paragon ma NIP nabywcy', id: 'buyer-nip-on-receipt' },
+  orderNumber: { label: 'Numer zamówienia', id: 'invoice-order-number' },
+  orderDate: { label: 'Data zamówienia', id: 'invoice-order-date' },
   notes: { label: 'Uwagi', id: 'invoice-notes' },
 };
 

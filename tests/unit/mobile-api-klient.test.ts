@@ -92,8 +92,13 @@ describe('kody błędów kontraktu', () => {
       // Kontrahenci (M10e): zdanie serwera, przy `contractor_invalid` pod polem.
       contractor_invalid: 'odmowa',
       contractor_exists: 'odmowa',
+      // Ręczny eksport (M10d część 2).
+      export_refused: 'odmowa',
+      // Zapisy ksiąg (M10d część 3).
+      ledger_refused: 'odmowa',
       // Zapisy ustawień (M10c): zdanie serwera, przy `settings_invalid` pod polem.
       settings_invalid: 'odmowa',
+      password_code_required: 'odmowa',
     };
     expect(Object.keys(oczekiwane).sort()).toEqual([...MOBILE_API_ERROR_CODES].sort());
     for (const kod of MOBILE_API_ERROR_CODES) expect(rodzajBledu(500, kod)).toBe(oczekiwane[kod]);

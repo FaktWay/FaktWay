@@ -9,6 +9,7 @@ import {
   ADVANCE_DESCRIPTION_MAX,
   ADVANCE_LINE_NAME_PREFIX,
   DB_TEXT_LIMITS,
+  FA3_DATE_LIMITS,
   FA3_TEXT_LIMITS,
   InvoiceXmlSchemaError as BladGranic,
   isXmlSafe,
@@ -180,6 +181,15 @@ describe('C1: moduł granic zgadza się ze schematem FA(3)', () => {
     );
     expect(bezGranicy).toEqual([]);
     expect(Object.keys(BEZ_GRANICY).filter((el) => !emitowane.has(el) || pilnowane.has(el))).toEqual([]);
+  });
+});
+
+describe('krok 2.8: zakres dat TDataU (DataZamowienia) zgadza się ze schematem FA(3)', () => {
+  it('granice w module to minInclusive i maxInclusive typu TDataU z XSD', () => {
+    const i = FA3.indexOf('<xsd:simpleType name="TDataU"');
+    const def = FA3.slice(i, FA3.indexOf('</xsd:simpleType>', i));
+    expect(wartosc(def, 'xsd:minInclusive')).toBe(FA3_DATE_LIMITS.min);
+    expect(wartosc(def, 'xsd:maxInclusive')).toBe(FA3_DATE_LIMITS.max);
   });
 });
 

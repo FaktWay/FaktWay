@@ -14,6 +14,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * zamiast co 2 s przez całą minutę (31 pytań) pytamy od razu, potem po 2 s,
  * 3 s, 4,5 s, 6,75 s i co 10 s, a ostatnie pytanie 2 s przed limitem, jak
  * dawniej (10 pytań do 58 s). Limit 60 s bez zmian.
+ *
+ * Nowe wdrożenie i bramka logowania w trakcie czekania: odrzucenie akcji nie
+ * może po cichu dociągnąć do komunikatu o czasie, bo odczyt mógł już utworzyć
+ * wydatek. Akcja nieznana serwerowi (inny build) kończy pytania jednym
+ * `router.refresh()`, trzy inne odrzucenia z rzędu dają jedno odświeżenie,
+ * brak sieci (`TypeError`) nic. Wzorzec z `hooks/use-status-poll.ts`.
  */
 
 type StatusResult = Awaited<
@@ -28,13 +34,20 @@ const mocks = vi.hoisted(() => ({
 }));
 
 // Stały obiekt routera, jak w Next — efekt odpytywania zależy od `router`.
-vi.mock('next/navigation', () => ({ useRouter: () => mocks.router }));
+// `unstable_isUnrecognizedActionError` prawdziwy: rozpoznaje akcję nieznaną serwerowi po nowym wdrożeniu.
+vi.mock('next/navigation', async () => ({
+  useRouter: () => mocks.router,
+  unstable_isUnrecognizedActionError: (await import('next/dist/client/components/unrecognized-action-error'))
+    .unstable_isUnrecognizedActionError,
+}));
 vi.mock('sonner', () => ({ toast: mocks.toast }));
 vi.mock('@/app/actions/expenses', () => ({
   getOcrJobStatusAction: mocks.getStatus,
 }));
 // Wgranie: trasa `/api/uploads/expense` (plan skalowania, sesja 31).
 vi.mock('@/lib/uploads/client', () => ({ postExpenseUpload: mocks.upload }));
+
+import { UnrecognizedActionError } from 'next/dist/client/components/unrecognized-action-error';
 
 import { CaptureButton } from '@/components/expenses/capture-button';
 
@@ -185,6 +198,128 @@ describe('CaptureButton — odpytywanie stanu odczytu (E16)', () => {
     vi.useRealTimers();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(unhandled).toEqual([]);
+  });
+
+  it('nowe wdrożenie w trakcie czekania (akcja nieznana serwerowi) → jedno router.refresh(), koniec pytań, bez komunikatu o czasie', async () => {
+    mocks.getStatus
+      .mockResolvedValueOnce(job('processing'))
+      .mockResolvedValueOnce(job('processing'))
+      .mockRejectedValue(new UnrecognizedActionError('Server Action "00ab" was not found on the server.'));
+
+    await renderAndUpload();
+    await advance(2000);
+    expect(mocks.getStatus).toHaveBeenCalledTimes(2);
+    expect(mocks.router.refresh).not.toHaveBeenCalled();
+
+    // Pytanie po 5 s trafia już na nowy build.
+    await advance(3000);
+    expect(mocks.getStatus).toHaveBeenCalledTimes(3);
+    expect(mocks.router.refresh).toHaveBeenCalledOnce();
+
+    // Odświeżenie wykryje inny build i przeładuje kartę. Do tego czasu ani
+    // pytań, ani „Przekroczono czas oczekiwania”: odczyt mógł już utworzyć
+    // wydatek, a drugie wgranie zdjęcia dałoby drugi. Przycisk czeka zablokowany.
+    await advance(70_000);
+    expect(mocks.getStatus).toHaveBeenCalledTimes(3);
+    expect(mocks.router.refresh).toHaveBeenCalledOnce();
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+    expect(mocks.router.push).not.toHaveBeenCalled();
+    expect(buttonText()).toContain('Rozpoznaję');
+    expect(vi.getTimerCount()).toBe(0);
+
+    vi.useRealTimers();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(unhandled).toEqual([]);
+  });
+
+  it('bramka logowania (przekierowanie zamiast odpowiedzi akcji) → trzecie odrzucenie z rzędu daje jedno router.refresh(), szóste drugie', async () => {
+    mocks.getStatus.mockRejectedValue(new Error('An unexpected response was received from the server.'));
+
+    await renderAndUpload();
+    await advance(2000);
+    expect(mocks.getStatus).toHaveBeenCalledTimes(2);
+    expect(mocks.router.refresh).not.toHaveBeenCalled();
+
+    await advance(3000);
+    expect(mocks.getStatus).toHaveBeenCalledTimes(3);
+    expect(mocks.router.refresh).toHaveBeenCalledOnce();
+
+    // Odświeżenie pójdzie za przekierowaniem na logowanie. Dopóki karta stoi,
+    // pytamy dalej i liczymy od nowa (pytania po 9,5 s, 16,25 s i 26,25 s).
+    await advance(11_250);
+    expect(mocks.getStatus).toHaveBeenCalledTimes(5);
+    expect(mocks.router.refresh).toHaveBeenCalledOnce();
+    await advance(10_000);
+    expect(mocks.getStatus).toHaveBeenCalledTimes(6);
+    expect(mocks.router.refresh).toHaveBeenCalledTimes(2);
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+  });
+
+  it('brak sieci (`TypeError`) nie odświeża i nie liczy się do trzech; odpowiedź serwera liczy od nowa', async () => {
+    const gate = () => new Error('An unexpected response was received from the server.');
+    const offline = () => new TypeError('Failed to fetch');
+    mocks.getStatus
+      .mockRejectedValueOnce(gate()) // 0 s: pierwsze
+      .mockRejectedValueOnce(offline()) // 2 s: bez liczenia
+      .mockRejectedValueOnce(gate()) // 5 s: drugie
+      .mockResolvedValueOnce(RETRYABLE) // 9,5 s: serwer odpowiedział, od nowa
+      .mockRejectedValueOnce(gate()) // 16,25 s: pierwsze
+      .mockRejectedValueOnce(gate()) // 26,25 s: drugie
+      .mockRejectedValueOnce(offline()) // 36,25 s: bez liczenia
+      .mockRejectedValueOnce(gate()) // 46,25 s: trzecie z rzędu, odświeżenie
+      .mockResolvedValue(job('processing'));
+
+    await renderAndUpload();
+    await advance(36_250);
+    expect(mocks.getStatus).toHaveBeenCalledTimes(7);
+    expect(mocks.router.refresh).not.toHaveBeenCalled();
+
+    await advance(10_000);
+    expect(mocks.getStatus).toHaveBeenCalledTimes(8);
+    expect(mocks.router.refresh).toHaveBeenCalledOnce();
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+  });
+
+  it('odmontowanie w trakcie pytania → spóźnione odrzucenie (nowe wdrożenie) nie odświeża strony', async () => {
+    let reject!: (reason: unknown) => void;
+    mocks.getStatus.mockReturnValue(
+      new Promise<StatusResult>((_, r) => {
+        reject = r;
+      }),
+    );
+
+    await renderAndUpload();
+    act(() => root!.unmount());
+    root = null;
+
+    await act(async () => {
+      reject(new UnrecognizedActionError('Server Action "00ab" was not found on the server.'));
+    });
+    await advance(70_000);
+    expect(mocks.router.refresh).not.toHaveBeenCalled();
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+    expect(mocks.getStatus).toHaveBeenCalledOnce();
+  });
+
+  it('odrzucenie (nowe wdrożenie) po limicie 60 s → bez odświeżenia, został jeden komunikat o czasie', async () => {
+    let reject!: (reason: unknown) => void;
+    mocks.getStatus.mockReturnValue(
+      new Promise<StatusResult>((_, r) => {
+        reject = r;
+      }),
+    );
+
+    await renderAndUpload();
+    await advance(60_000);
+    expect(mocks.toast.error).toHaveBeenCalledOnce();
+    expect(mocks.toast.error).toHaveBeenCalledWith('Przekroczono czas oczekiwania');
+
+    await act(async () => {
+      reject(new UnrecognizedActionError('Server Action "00ab" was not found on the server.'));
+    });
+    expect(mocks.router.refresh).not.toHaveBeenCalled();
+    expect(mocks.toast.error).toHaveBeenCalledOnce();
+    expect(buttonText()).toContain('Dodaj wydatek');
   });
 
   it('ciągle retryable → po 60 s „Przekroczono czas oczekiwania” i koniec pytań', async () => {

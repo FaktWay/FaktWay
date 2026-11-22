@@ -7,8 +7,9 @@ import { VAT_MIESIACA } from '@/dane-przykladowe/ksiegowosc';
 import { PoleDaty, PoleTekstowe } from '@/komponenty/formularz';
 import { Kafle } from '@/komponenty/kafle';
 import { EkranListy, Sekcja, Wiersz } from '@/komponenty/lista';
-import { otworzStrone } from '@/komponenty/na-stronie';
+import { odmowaPlikuNaStronie, otworzStrone } from '@/komponenty/na-stronie';
 import { NaglowekKwoty } from '@/komponenty/naglowek';
+import { OdmowaPliku } from '@/komponenty/odmowa-pliku';
 import { StanPusty } from '@/komponenty/stan-pusty';
 import { SzkieletKwoty, SzkieletListy } from '@/komponenty/szkielet';
 import { Tekst } from '@/komponenty/tekst';
@@ -90,11 +91,15 @@ function EkranVatZBazy({ konto }: { konto: KontoFirmy }) {
     setBladPliku(undefined);
     setBledy({});
     const cialo = { miesiac: d.miesiac, nadwyzka: d.nadwyzka?.wpisana ?? null, imie, nazwisko, dataUrodzenia: urodzenie.trim(), email: email ?? d.plik.email ?? '' };
-    const w = await konto.zapytaj<PlikVatOdpowiedz>('ksiegowosc/vat/plik', { metoda: 'POST', cialo, firmaEkranu });
     try {
+      const w = await konto.zapytaj<PlikVatOdpowiedz>('ksiegowosc/vat/plik', { metoda: 'POST', cialo, firmaEkranu });
       if (!w.ok) {
         if (w.blad.pole) setBledy({ [w.blad.pole]: w.blad.komunikat });
-        else setBladPliku(w.blad.komunikat);
+        else {
+          setBladPliku(w.blad.komunikat);
+          // Brak urzędu skarbowego: arkusz z wyjściem, bo tekst pod przyciskiem bywa poza widokiem (U14).
+          odmowaPlikuNaStronie(w.blad.komunikat, konto.firma?.rola, () => setBladPliku(undefined));
+        }
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         return;
       }
@@ -245,9 +250,11 @@ function EkranVatZBazy({ konto }: { konto: KontoFirmy }) {
             ) : null}
           </Sekcja>
         ) : null}
-        {bladPliku || bledy.miesiac || bledy.nadwyzka ? (
+        {bladPliku ? (
+          <OdmowaPliku komunikat={bladPliku} rola={konto.firma?.rola} poPowrocie={() => setBladPliku(undefined)} />
+        ) : bledy.miesiac || bledy.nadwyzka ? (
           <Tekst styl="footnote" kolor="blad" style={styles.nota}>
-            {bladPliku ?? bledy.miesiac ?? bledy.nadwyzka}
+            {bledy.miesiac ?? bledy.nadwyzka}
           </Tekst>
         ) : null}
 

@@ -357,6 +357,22 @@ async function mapRowsToJpkInvoices(
 interface ParentInvoice {
   number: string;
   gtu: string[];
+  /** Pozycje dokumentu faktury z oznaczeniem GTU albo bez (krok 2.6, część 2b-3). */
+  lines: NonNullable<JpkInvoice['correctedInvoiceLines']>;
+}
+
+/**
+ * Pozycje dokumentu faktury (`fa3_data.lines`): nazwa i oznaczenie GTU tak,
+ * jak są zapisane (bez spacji na brzegach, także kod spoza listy). Faktura
+ * z importu nie ma `fa3_data.lines` (oznaczenia z pliku są dla całej faktury).
+ */
+function gtuLinesOfFa3(fa3: unknown): NonNullable<JpkInvoice['correctedInvoiceLines']> {
+  if (!isRecordJson(fa3) || !Array.isArray(fa3.lines)) return [];
+  return fa3.lines.flatMap((l) => {
+    if (!isRecordJson(l) || typeof l.name !== 'string') return [];
+    const gtu = typeof l.gtuCode === 'string' ? l.gtuCode.trim() : '';
+    return [{ name: l.name, ...(gtu ? { gtuCode: gtu } : {}) }];
+  });
 }
 
 /**
@@ -411,7 +427,11 @@ async function fetchParentInvoices(
     }
     for (const p of data) {
       if (!batch.includes(p.id)) throw new Error('Linked invoice not found in organization');
-      map.set(p.id, { number: p.internal_number ?? p.ksef_number ?? '', gtu: gtuMarkingsOfFa3(p.fa3_data) });
+      map.set(p.id, {
+        number: p.internal_number ?? p.ksef_number ?? '',
+        gtu: gtuMarkingsOfFa3(p.fa3_data),
+        lines: gtuLinesOfFa3(p.fa3_data),
+      });
     }
   }
   // A parent UUID is writable invoice data, not proof of ownership.
@@ -525,10 +545,12 @@ function mapInvoiceRow(
 
   let correctedNumber: string | undefined;
   let correctedGtu: string[] = [];
+  let correctedLines: NonNullable<JpkInvoice['correctedInvoiceLines']> = [];
   if (row.invoice_kind === 'correction' && row.parent_invoice_id) {
     const parent = parentById.get(row.parent_invoice_id);
     correctedNumber = parent?.number;
     correctedGtu = parent?.gtu ?? [];
+    correctedLines = parent?.lines ?? [];
   }
 
   // C5c: faktura z importu KSeF — pola pozycji z pliku (P_9B / P_11A…) dla JPK_FA.
@@ -563,7 +585,9 @@ function mapInvoiceRow(
     correctedInvoiceNumber: correctedNumber,
     correctionReason: row.correction_reason ?? undefined,
     ...(correctedGtu.length ? { correctedInvoiceGtu: correctedGtu } : {}),
+    ...(correctedLines.length ? { correctedInvoiceLines: correctedLines } : {}),
     ...correctionStatesFields(row),
+    ...correctionGtuSourceFields(row),
     ksefNumber: row.ksef_number ?? undefined,
     annotations: annotationsFromFa3(row.fa3_data),
     ...contentFlags,
@@ -579,13 +603,36 @@ function mapInvoiceRow(
  */
 function correctionStatesFields(row: InvoiceRow): Pick<JpkInvoice, 'correctionStates' | 'correctionStatesMissing'> {
   if (row.invoice_kind !== 'correction' || row.correction_type !== 'before_after') return {};
-  const data = row.special_data && typeof row.special_data === 'object' && !Array.isArray(row.special_data)
-    ? (row.special_data as Record<string, unknown>).correctionData
-    : undefined;
-  const envelope = data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : undefined;
+  const envelope = correctionEnvelope(row);
   const before = correctionStateLines(envelope?.linesBefore);
   const after = correctionStateLines(envelope?.linesAfter);
   return before && after ? { correctionStates: { before, after } } : { correctionStatesMissing: true };
+}
+
+/** Koperta korekty FaktWay (`special_data.correctionData`, A4b) albo `undefined`. */
+function correctionEnvelope(row: InvoiceRow): Record<string, unknown> | undefined {
+  const data = isRecordJson(row.special_data) ? row.special_data.correctionData : undefined;
+  return isRecordJson(data) ? data : undefined;
+}
+
+/**
+ * Krok 2.6, część 2b-3: rodzaj korekty i jej stany z koperty, z oznaczeniami
+ * GTU pozycji (koperta niesie kody pozycji faktury korygowanej), do oznaczeń GTU
+ * wiersza korekty w JPK_V7M (`gtuOfCorrection`). Brak albo nieczytelna koperta:
+ * stan `null`, czyli FaktWay nie wie, których pozycji korekta dotyczy.
+ */
+function correctionGtuSourceFields(row: InvoiceRow): Pick<JpkInvoice, 'correctionGtuSource'> {
+  if (row.invoice_kind !== 'correction') return {};
+  const type = row.correction_type;
+  if (type !== 'cancellation' && type !== 'before_after' && type !== 'amount_change') return {};
+  const envelope = correctionEnvelope(row);
+  return {
+    correctionGtuSource: {
+      correctionType: type,
+      linesBefore: correctionStateLines(envelope?.linesBefore),
+      linesAfter: type === 'before_after' ? correctionStateLines(envelope?.linesAfter) : null,
+    },
+  };
 }
 
 /** Pozycje stanu korekty z koperty: kwoty z kalkulatora faktury, jak w generatorze FA(3) KOR. */
@@ -609,6 +656,8 @@ function correctionStateLines(raw: unknown): JpkInvoiceLine[] | null {
       netAmount,
       vatRate,
       vatAmount,
+      // Krok 2.6, część 2b-3: GTU pozycji faktury korygowanej z koperty (tylko kod z listy).
+      ...(isGtuCode(o.gtuCode) ? { gtuCode: o.gtuCode } : {}),
     });
   }
   return lines;
