@@ -119,7 +119,7 @@ describe('NZ-KURS-03: kwota razy kurs do groszy jedną funkcją, bez błędu flo
     );
   });
 
-  it.fails('FZ-020: kurs z 8 miejscami (IDR za 10 000 jednostek), 100 000 000 IDR po 0,00024123 to 24 123,00 zł', () => {
+  it('FZ-020: kurs z 8 miejscami (IDR, API NBP podaje kurs za 1 jednostkę), 100 000 000 IDR po 0,00024123 to 24 123,00 zł', () => {
     expect(przeliczNaPln(10_000_000_000, 0.00024123)).toBe(wzorzec(10_000_000_000, '0.00024123'));
   });
 
