@@ -95,6 +95,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'tenant.user_role_changed': 'Zmiana roli użytkownika',
   'tenant.ksef_verified': 'Weryfikacja KSeF (claim NIP)',
   'tenant.ksef_nip_ownership_claimed': 'Przypisanie NIP do organizacji (KSeF)',
+  'expense.created_manually': 'Koszt wpisany ręcznie',
   'expense.document_requested': 'Prośba o dokument do kosztu',
   'expense.document_request_resolved': 'Prośba o dokument załatwiona',
   'retention.deletion_requested': 'Żądanie usunięcia danych',
