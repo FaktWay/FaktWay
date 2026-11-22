@@ -1,8 +1,13 @@
 /**
  * Nazwy zdarzeń dziennika (`audit_logs.action`) dla klienta: zakładka
  * „Dziennik zdarzeń” strony (`settings/audit`) i ta sama karta w aplikacji na
- * telefon (`GET /api/mobile/v1/ustawienia/dziennik`, M10e). Zdarzenie bez
- * nazwy pokazujemy kodem, jak dotąd.
+ * telefon (`GET /api/mobile/v1/ustawienia/dziennik`, M10e).
+ *
+ * Każdy kod, który może trafić do dziennika firmy, ma tu polską nazwę, a nowy
+ * kod dopisujesz razem z jego zapisem: pilnuje tego
+ * `tests/unit/audit-etykiety.test.ts` (typ `AuditAction`, kody zapisywane przez
+ * migracje SQL i wywołania KSeF). Surowy kod zostaje tylko dla kodu spoza tych
+ * źródeł, czyli dla błędu, który test ma wyłapać wcześniej (obchód U10).
  */
 export const ACTION_LABELS: Record<string, string> = {
   'auth.login': 'Zalogowanie',
@@ -96,6 +101,212 @@ export const ACTION_LABELS: Record<string, string> = {
   'retention.deletion_executed': 'Wykonano usunięcie danych',
   'accountant.expense_file_viewed': 'Księgowa otworzyła dokument kosztu',
   'accountant.expense_file_downloaded': 'Księgowa pobrała dokument kosztu',
+  // Logowanie i konto (obchód U10: nazwy dla kodów, których słownik dotąd nie miał).
+  'auth.login_failed': 'Nieudana próba logowania',
+  'auth.password_changed': 'Zmieniono hasło',
+  'auth.mfa_enrolled': 'Włączono weryfikację dwuetapową',
+  'auth.mfa_unenrolled': 'Wyłączono weryfikację dwuetapową',
+  'auth.mfa_challenge_succeeded': 'Potwierdzono logowanie kodem dwuetapowym',
+  'auth.mfa_challenge_failed': 'Błędny kod weryfikacji dwuetapowej',
+  'auth.mfa_recovery_code_used': 'Użyto kodu ratunkowego do logowania',
+  'auth.mfa_recovery_codes_regenerated': 'Wygenerowano nowe kody ratunkowe',
+  'gdpr.export_requested': 'Zamówiono eksport danych',
+  'gdpr.deletion_requested': 'Zlecono usunięcie konta',
+  'gdpr.deletion_canceled': 'Anulowano usunięcie konta',
+  'gdpr.deletion_executed': 'Usunięto konto',
+  'gdpr.deletion_failed': 'Nie udało się usunąć konta',
+  'retention.deletion_postponed': 'Odroczono usunięcie danych',
+  'legal.terms_accepted': 'Zaakceptowano regulamin',
+  'legal.checkout_statement_accepted': 'Potwierdzono oświadczenia przy płatności',
+  'legal.email_consent_granted': 'Wyrażono zgodę na wiadomości e-mail',
+  'legal.email_consent_withdrawn': 'Wycofano zgodę na wiadomości e-mail',
+  'analytics.consent_changed': 'Zmieniono zgodę na analitykę',
+  // Zespół w firmie.
+  'invitation.created': 'Zaproszono osobę do firmy',
+  'invitation.revoked': 'Cofnięto zaproszenie do firmy',
+  'invitation.accepted': 'Przyjęto zaproszenie do firmy',
+  'join_request.created': 'Złożono prośbę o dołączenie do firmy',
+  'join_request.approved': 'Zaakceptowano prośbę o dołączenie do firmy',
+  'join_request.denied': 'Odrzucono prośbę o dołączenie do firmy',
+  'membership.revoked': 'Odebrano dostęp do firmy',
+  'membership.role_changed': 'Zmieniono rolę w firmie',
+  // Faktury: wysyłka, decyzje przy duplikacie w KSeF, zapłata, e-mail.
+  'invoice.emailed': 'Wysłano fakturę mailem',
+  'invoice.marked_paid': 'Oznaczono fakturę jako zapłaconą',
+  'invoice.paid_undone': 'Cofnięto oznaczenie zapłaty faktury',
+  'invoice.send_enqueued': 'Faktura w kolejce do wysyłki do KSeF',
+  'invoice.send_requeued': 'Ponownie zlecono wysyłkę faktury do KSeF',
+  'invoice.send_reset': 'Faktura wróciła do szkicu po nieudanej wysyłce',
+  'invoice.enqueue_released': 'Faktura wróciła do szkicu, wysyłka nie ruszyła',
+  'invoice.submit_redirected_offline': 'Faktura czeka w kolejce offline na wysyłkę do KSeF',
+  'invoice.upo_downloaded': 'Zapisano UPO faktury',
+  'invoice.duplicate_recheck': 'Sprawdzono ponownie duplikat faktury w KSeF',
+  'invoice.ksef_duplicate_decided': 'Zapisano decyzję o duplikacie faktury w KSeF',
+  'invoice.ksef_duplicate_decision_notified': 'Powiadomiono o duplikacie faktury w KSeF',
+  'invoice.ksef_original_imported': 'Zapisano oryginał faktury z KSeF',
+  'invoice.ksef_original_review_released': 'Oddano decyzję o oryginale z KSeF klientowi',
+  'invoice.ksef_original_recheck_flagged': 'Oznaczono oryginał z KSeF do ponownego sprawdzenia',
+  'invoice.operator_requeue': 'Operator FaktWay ponowił wysyłkę faktury do KSeF',
+  'invoice.operator_reconcile': 'Operator FaktWay sprawdził status faktury w KSeF',
+  'invoice.operator_reset': 'Operator FaktWay przywrócił fakturę do szkicu',
+  'invoice.operator_duplicate_decision': 'Operator FaktWay zapisał decyzję o duplikacie w KSeF',
+  'invoice.operator_original_release': 'Operator FaktWay oddał decyzję o oryginale z KSeF',
+  'recurring_invoice.created': 'Dodano fakturę cykliczną',
+  'recurring_invoice.updated': 'Zmieniono fakturę cykliczną',
+  'recurring_invoice.paused': 'Wstrzymano fakturę cykliczną',
+  'recurring_invoice.resumed': 'Wznowiono fakturę cykliczną',
+  'recurring_invoice.deleted': 'Usunięto fakturę cykliczną',
+  'recurring_invoice.issued': 'Wystawiono fakturę z pozycji cyklicznej',
+  'recurring_invoice.run_date_repaired': 'Poprawiono termin następnej faktury cyklicznej',
+  'recurring_invoice.run_date_restored': 'Cofnięto termin następnej faktury cyklicznej',
+  // Koszty.
+  'expense.reviewed': 'Sprawdzono koszt',
+  'expense.foreign_currency_reviewed': 'Sprawdzono koszt w walucie obcej',
+  'expense.foreign_currency_excluded': 'Wyłączono koszt w walucie obcej z KPiR',
+  'expense.receipt_invoice_linked': 'Połączono paragon z fakturą do paragonu',
+  'expense.receipt_invoice_candidates': 'Możliwy podwójny koszt: paragon i faktura do niego',
+  'expense.receipt_invoice_separated': 'Uznano paragon i fakturę za osobne koszty',
+  // Produkty i usługi, archiwum dokumentów.
+  'product.created': 'Dodano produkt lub usługę',
+  'product.updated': 'Zmieniono produkt lub usługę',
+  'product.archived': 'Ukryto produkt lub usługę',
+  'product.restored': 'Przywrócono produkt lub usługę',
+  'product.deleted': 'Usunięto produkt lub usługę',
+  'document_archive.requested': 'Zlecono archiwum dokumentów',
+  'document_archive.downloaded': 'Pobrano archiwum dokumentów',
+  'document_archive.file_deleted': 'Usunięto plik wygasłego archiwum',
+  // Księgowość: profil podatkowy, ewidencja, KPiR, rozliczenie miesiąca, JPK.
+  'tax_profile.saved': 'Zapisano profil podatkowy',
+  'ledger_entry.created': 'Dodano wpis ręczny w ewidencji',
+  'ledger_entry.deleted': 'Usunięto wpis z ewidencji',
+  'ledger_entry.kpir_created': 'Dodano wpis ręczny w KPiR',
+  'ledger_inventory.created': 'Dodano spis z natury',
+  'ledger_inventory.deleted': 'Usunięto spis z natury',
+  'jpk_ewp.downloaded': 'Pobrano plik JPK_EWP',
+  'jpk_pkpir.downloaded': 'Pobrano plik JPK_PKPIR',
+  'jpk_v7m.downloaded': 'Pobrano plik JPK_V7M',
+  'jpk_v7m.sent': 'Wysłano JPK_V7M do MF',
+  'jpk_v7m.accepted': 'MF przyjęło JPK_V7M (jest UPO)',
+  'tax_settlement.approved': 'Zatwierdzono rozliczenie miesiąca',
+  'tax_settlement.paid': 'Oznaczono rozliczenie jako zapłacone',
+  'tax_settlement.unpaid': 'Cofnięto zapłatę rozliczenia',
+  'tax_settlement.manual_paid': 'Oznaczono zapłatę rozliczenia ręcznie',
+  // Abonament i płatności.
+  'billing.customer.created': 'Utworzono klienta w systemie płatności',
+  'billing.checkout.session_created': 'Rozpoczęto płatność za abonament',
+  'billing.checkout.blik_unavailable': 'BLIK niedostępny przy płatności za abonament',
+  'billing.subscription.created': 'Utworzono abonament',
+  'billing.subscription.updated': 'Zmieniono abonament',
+  'billing.subscription.synced': 'Zaktualizowano stan abonamentu',
+  'billing.subscription.canceled': 'Anulowano abonament',
+  'billing.payment.succeeded': 'Opłacono abonament',
+  'billing.payment.failed': 'Płatność za abonament nie powiodła się',
+  'billing.refund.issued': 'Zwrócono płatność za abonament',
+  'billing.refund.reconciliation_required': 'Zwrot za abonament czeka na uzgodnienie',
+  'billing.trial.will_end': 'Okres próbny kończy się wkrótce',
+  'billing.vat_invoice.queued': 'Zlecono fakturę VAT za abonament',
+  // Księgowa i operator.
+  'accountant.portal_export': 'Księgowa wygenerowała eksport w portalu',
+  'admin.flag.toggled': 'Operator FaktWay zmienił dostępność funkcji w firmie',
+  'admin.user.force_logout': 'Operator FaktWay wylogował użytkownika',
+  'admin.user.password_reset_triggered': 'Operator FaktWay wysłał link do zmiany hasła',
+  // FLO.
+  'flo.proposal.executed': 'FLO wykonał zatwierdzoną propozycję',
+  'flo.proposal.failed': 'FLO nie wykonał propozycji',
+  'flo.proposal.undone': 'Cofnięto propozycję FLO',
+  // KSeF: połączenia techniczne. Zapisujemy je przy każdej wysyłce i odpytaniu, więc
+  // dziennik pokazuje je zwykłymi słowami, bez kodów (decyzja z obchodu U10: nazwać, nie ukrywać).
+  'ksef.cert_expiry_alert': 'Ostrzeżenie o wygasającym certyfikacie KSeF',
+  'ksef.auth.token': 'Zalogowano do KSeF',
+  'ksef.session.open': 'Otwarto sesję w KSeF',
+  'ksef.session.close': 'Zamknięto sesję w KSeF',
+  'ksef.session.invoices': 'Sprawdzono listę faktur sesji w KSeF',
+  'ksef.invoice.send': 'Przekazano fakturę do KSeF',
+  'ksef.invoice.poll': 'Sprawdzono status faktury w KSeF',
+  'ksef.invoice.reconcile': 'Uzgodniono fakturę z KSeF',
+  'ksef.invoice.download-original': 'Pobrano oryginał faktury z KSeF',
+  'ksef.invoice.original-metadata': 'Pobrano dane oryginału faktury z KSeF',
+  'ksef.upo.download': 'Pobrano UPO z KSeF',
+  'ksef.inbox.poll': 'Sprawdzono skrzynkę KSeF',
+  'ksef.collective_identifier.generate': 'Zażądano identyfikatora zbiorczego w KSeF',
+  'ksef.history.query': 'Sprawdzono historię faktur w KSeF',
+  'ksef.history.download': 'Pobrano faktury z historii KSeF',
+  'ksef.history.paused': 'Wstrzymano pobieranie historii z KSeF',
+  'ksef.history.resumed': 'Wznowiono pobieranie historii z KSeF',
+  'ksef.history.operator': 'Operator FaktWay zmienił pobieranie historii z KSeF',
+  'ksef.permissions.grant': 'Zlecono w KSeF nadanie uprawnienia',
+  'ksef.permissions.revoke': 'Zlecono w KSeF odebranie uprawnienia',
+  'ksef.permissions.operation': 'Sprawdzono w KSeF wynik operacji na uprawnieniach',
+  'ksef.permissions.query': 'Sprawdzono w KSeF listę uprawnień',
+};
+
+/**
+ * Kody zapisywane BEZ firmy (`tenant_id` NULL), więc reguła RLS dziennika
+ * (`tenant_id = bieżąca firma`) nigdy ich klientowi nie pokazuje. Tylko tu
+ * wolno zostawić kod bez nazwy; każdy wpis ma uzasadnienie. Kod, który zaczyna
+ * być zapisywany z `tenantId`, wraca do `ACTION_LABELS` (test to wymusza).
+ */
+const OPERATOR_BEZ_FIRMY = 'Zapis operatora bez firmy (tenantId null): reguła RLS dziennika klienta go nie pokazuje.';
+export const AUDIT_ACTIONS_WITHOUT_CLIENT_LABEL: Readonly<Record<string, string>> = {
+  'admin.user.suspended': OPERATOR_BEZ_FIRMY,
+  'admin.user.unsuspended': OPERATOR_BEZ_FIRMY,
+  'admin.user.deleted': OPERATOR_BEZ_FIRMY,
+  'admin.note.created': OPERATOR_BEZ_FIRMY,
+  'admin.note.archived': OPERATOR_BEZ_FIRMY,
+  'admin.flo.rollout.changed': OPERATOR_BEZ_FIRMY,
+  'ops.flag.disabled': 'Zapis bramki operatora (migracja 00100) bez tenant_id: reguła RLS dziennika klienta go nie pokazuje.',
+};
+
+/**
+ * Rodzaj obiektu wpisu (`audit_logs.entity_type`) po polsku: to druga linia
+ * wpisu w dzienniku. Skrótu identyfikatora nie pokazujemy (osiem znaków UUID
+ * niczego klientowi nie mówi), więc wpis niesie sam rodzaj.
+ */
+export const ENTITY_TYPE_LABELS: Readonly<Record<string, string>> = {
+  invoice: 'Faktura',
+  recurring_invoice: 'Faktura cykliczna',
+  sales_quote: 'Proforma lub oferta',
+  accounting_note: 'Nota',
+  expense: 'Koszt',
+  contractor: 'Kontrahent',
+  product: 'Produkt lub usługa',
+  invoice_number_series: 'Seria numeracji',
+  tenant: 'Firma',
+  tenants: 'Firma',
+  tenant_feature_flags: 'Ustawienia funkcji firmy',
+  tax_profile: 'Profil podatkowy',
+  tax_settlement: 'Rozliczenie miesiąca',
+  ledger_manual_entry: 'Wpis ręczny',
+  ledger_inventory_count: 'Spis z natury',
+  jpk_submission: 'Wysyłka JPK',
+  jpk_v7m: 'JPK_V7M',
+  jpk_pkpir: 'JPK_PKPIR',
+  jpk_ewp: 'JPK_EWP',
+  document_archive: 'Archiwum dokumentów',
+  calendar_feed: 'Adres kalendarza',
+  accountant_access: 'Dostęp księgowej',
+  bank_import: 'Wyciąg bankowy',
+  bank_operation: 'Operacja z wyciągu',
+  cash_register: 'Kasa',
+  cash_document: 'Dowód kasowy',
+  ksef: 'KSeF',
+  ksef_history: 'Historia KSeF',
+  ksef_permission_grant: 'Uprawnienie w KSeF',
+  collective_identifier: 'Identyfikator zbiorczy KSeF',
+  api_key: 'Klucz API',
+  webhook: 'Webhook',
+  subscription: 'Abonament',
+  stripe_payment: 'Płatność za abonament',
+  stripe_session: 'Płatność za abonament',
+  stripe_checkout_attempt: 'Płatność za abonament',
+  stripe_portal: 'Panel płatności',
+  stripe_refund: 'Zwrot płatności',
+  flo_proposal: 'Propozycja FLO',
+  flo_rollout: 'Wdrożenie FLO',
+  user: 'Użytkownik',
+  admin_user_notes: 'Notatka operatora',
+  global_feature_flag: 'Ustawienie platformy',
+  ops: 'Operacje platformy',
 };
 
 /** Nazwa zdarzenia jak na stronie: z mapy albo sam kod. */
@@ -103,7 +314,13 @@ export function auditActionLabel(action: string): string {
   return ACTION_LABELS[action] ?? action;
 }
 
-/** Zasób wpisu jak na stronie: `typ:pierwsze 8 znaków…`; `null`, gdy wpis go nie ma (strona pisze wtedy kreskę). */
+/**
+ * Zasób wpisu jak na stronie i w telefonie: rodzaj obiektu po polsku
+ * („Faktura”, „Kontrahent”, „Spis z natury”); `null`, gdy wpis nie ma obiektu
+ * albo jego rodzaj nie ma nazwy (strona pisze wtedy kreskę, telefon pomija
+ * linię). Wcześniej było `typ:pierwsze 8 znaków…`, np. `ledger_manual_entry:efe30fc1…`.
+ */
 export function auditResourceLabel(entityType: string | null | undefined, entityId: string | null | undefined): string | null {
-  return entityType && entityId ? `${entityType}:${String(entityId).slice(0, 8)}…` : null;
+  if (!entityType || !entityId) return null;
+  return ENTITY_TYPE_LABELS[entityType] ?? null;
 }

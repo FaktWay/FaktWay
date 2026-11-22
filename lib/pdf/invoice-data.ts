@@ -1,4 +1,6 @@
 import { MARGIN_SCHEME_LABELS } from '@/lib/invoices/annotations';
+import { documentLineCodes, type DocumentLineCodes } from '@/lib/invoices/line-codes';
+import { orderFromJson } from '@/lib/invoices/order-reference';
 import { isReceiptInvoiceColumns, receiptFromJson } from '@/lib/invoices/receipt-invoice';
 import type { CorrectedInvoiceRef } from '@/lib/pdf/invoice-renderer';
 import { isTenantStoragePath } from '@/lib/storage/tenant-path';
@@ -89,8 +91,12 @@ interface InvoiceRow {
   annotations: unknown;
   /** `fa3_data->receipt`: faktura do paragonu z FaktWay (krok 1.2). */
   receipt?: unknown;
+  /** `fa3_data->order`: numer i data zamówienia (krok 2.8). */
+  order_ref?: unknown;
   /** `fa3_data->ksefLineFields`: pola pozycji z pliku KSeF (import), m.in. cena brutto P_9B. */
   ksef_line_fields?: unknown;
+  /** `fa3_data->lines`: PKWiU i GTU pozycji (krok 2.6, część 2b-3c), jak w pliku FA(3). */
+  document_lines?: unknown;
   /** `fa3_data->ksefMarkers->>fp`: FP z pliku KSeF (import, C5b). */
   ksef_fp?: string | null;
   updated_at: string | null;
@@ -110,8 +116,10 @@ const SELECT = `
   pdf_storage_path, pdf_generated_at, seller_data, buyer_data, payment_data,
   annotations:fa3_data->annotations,
   receipt:fa3_data->receipt,
+  order_ref:fa3_data->order,
   ksef_fp:fa3_data->ksefMarkers->>fp,
   ksef_line_fields:fa3_data->ksefLineFields,
+  document_lines:fa3_data->lines,
   invoice_line_items(
     ordinal, name, unit, quantity, unit_price_net,
     net_amount, vat_rate, vat_amount, gross_amount
@@ -136,7 +144,7 @@ function grossPriceFromFile(raw: unknown, ordinal: number | null): number | unde
   return typeof price === 'number' && Number.isFinite(price) ? price : undefined;
 }
 
-function mapLine(row: LineItemRow, fileFields?: unknown): InvoiceLineItem {
+function mapLine(row: LineItemRow, fileFields?: unknown, codes?: DocumentLineCodes): InvoiceLineItem {
   // Import z cenami brutto: baza ma NULL, a nie cenę 0 (F12-E4).
   const netMissing = row.unit_price_net === null;
   const gross = netMissing ? grossPriceFromFile(fileFields, row.ordinal) : undefined;
@@ -152,6 +160,9 @@ function mapLine(row: LineItemRow, fileFields?: unknown): InvoiceLineItem {
     vatRate: (row.vat_rate as VatRate | null) ?? '23',
     vatAmount: Number(row.vat_amount ?? 0),
     grossAmount: Number(row.gross_amount ?? 0),
+    // Krok 2.6, część 2b-3c: PKWiU i GTU z dokumentu faktury, te same co w pliku FA(3).
+    ...(codes?.pkwiuCode ? { pkwiuCode: codes.pkwiuCode } : {}),
+    ...(codes?.gtuCode ? { gtuCode: codes.gtuCode } : {}),
   };
 }
 
@@ -216,8 +227,9 @@ export async function loadInvoiceForPdf(
   if (res.error || !res.data) return null;
   const row = res.data;
 
+  const lineCodes = documentLineCodes(row.document_lines);
   const lines = (row.invoice_line_items ?? [])
-    .map((l) => mapLine(l, row.ksef_line_fields))
+    .map((l) => mapLine(l, row.ksef_line_fields, l.ordinal == null ? undefined : lineCodes.get(l.ordinal)))
     .sort((a, b) => a.ordinal - b.ordinal);
 
   const rawType = (row.invoice_type ?? 'VAT').toUpperCase();
@@ -228,6 +240,8 @@ export async function loadInvoiceForPdf(
   // Krok 1.2: paragon tylko w pełnym kształcie; każde inne oznaczenie FP daje samo „Faktura do paragonu”.
   const receipt = receiptFromJson(row.receipt);
   const receiptInvoice = isReceiptInvoiceColumns(row.receipt, row.ksef_fp);
+  // Krok 2.8: numer zamówienia tylko w pełnym kształcie; zły zapis to brak wiersza na wydruku.
+  const order = orderFromJson(row.order_ref);
 
   const invoice: Invoice = {
     internalNumber: row.internal_number ?? row.id.slice(0, 8),
@@ -244,6 +258,7 @@ export async function loadInvoiceForPdf(
     notes: row.notes ?? undefined,
     annotations: readAnnotations(row.annotations),
     ...(receipt ? { receipt } : {}),
+    ...(order ? { order } : {}),
   };
 
   return {

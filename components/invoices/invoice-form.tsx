@@ -36,6 +36,7 @@ import { DocumentHeaderFields } from './invoice-form-parts/document-header-field
 import { RecurringActionsCard, StickyFormActions } from './invoice-form-parts/form-actions';
 import { MobileFormHeader, PrefillBanner } from './invoice-form-parts/form-header';
 import { LineItemsSection } from './invoice-form-parts/line-items-section';
+import { OrderNumberField } from './invoice-form-parts/order-number-field';
 import { PaymentSection } from './invoice-form-parts/payment-section';
 import { ReceiptInvoiceFields } from './invoice-form-parts/receipt-invoice-fields';
 import { useLinesDesktopLayout } from './invoice-form-parts/use-lines-desktop-layout';
@@ -191,6 +192,9 @@ export function InvoiceForm({
       paymentDueDate: paymentDefaults.paymentDueDate,
       bankAccount: '',
       notes: '',
+      // Numer zamówienia (krok 2.8): domyślnie bez, pola zwinięte pod przyciskiem.
+      orderNumber: '',
+      orderDate: '',
       splitPayment: false,
       // Faktura do paragonu (krok 1.2): domyślnie wyłączona, pola puste.
       receiptInvoice: false,
@@ -540,6 +544,8 @@ export function InvoiceForm({
           <InvoiceTotals totals={totals} lines={lineItems} />
 
           <Separator />
+
+          <OrderNumberField form={form} />
 
           <div>
             <Label htmlFor="invoice-notes" className={labelClass}>

@@ -317,14 +317,10 @@ function appendFaWiersz(fa: any, line: InvoiceLineItem): void {
   // Kolejność z XSD (FaWiersz): P_7, potem klasyfikacja (GTIN, PKWiU, CN), potem P_8A.
   wiersz.ele('P_7').txt(requireText(line.name, `line[${line.ordinal}].name`));
 
-  if (line.classificationCode) {
-    if (/^\d{8,14}$/.test(line.classificationCode)) {
-      wiersz.ele('GTIN').txt(line.classificationCode);
-    } else if (/^\d{4,10}$/.test(line.classificationCode)) {
-      wiersz.ele('CN').txt(line.classificationCode);
-    } else {
-      wiersz.ele('PKWiU').txt(line.classificationCode);
-    }
+  // Krok 2.6, część 2b-3: PKWiU pozycji z jawnym typem, jak w zwykłej fakturze
+  // (bez zgadywania GTIN i CN po długości kodu).
+  if (line.pkwiuCode) {
+    wiersz.ele('PKWiU').txt(line.pkwiuCode);
   }
 
   wiersz.ele('P_8A').txt(requireText(line.unit, `line[${line.ordinal}].unit`));
@@ -353,10 +349,9 @@ function toPreparedLineItems(lines: InvoiceLine[]): InvoiceLineItem[] {
       quantity: line.quantity,
       unitPriceNet: line.unitPriceNet,
       vatRate: line.vatRate as VatRate,
-      classificationCode:
-        line.pkwiuCode && /^[0-9A-Za-z]+$/.test(line.pkwiuCode)
-          ? line.pkwiuCode
-          : undefined,
+      // Krok 2.6, część 2b-3: PKWiU bez spacji na brzegach, sprawdzone schematem
+      // pozycji (`pkwiuCodeSchema`); dotąd filtr gubił kody z kropkami.
+      ...(line.pkwiuCode?.trim() ? { pkwiuCode: line.pkwiuCode.trim() } : {}),
       netAmount,
       vatAmount,
       grossAmount,

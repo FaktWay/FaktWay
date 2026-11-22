@@ -11,6 +11,8 @@ import {
 } from '@/lib/invoices/invoice-payments';
 import { canCorrectInvoice, canMarkInvoicePaid } from '@/lib/invoices/list-row-facts';
 import { canChangeInvoicePayment } from '@/lib/invoices/manual-payment';
+import { documentLineCodes } from '@/lib/invoices/line-codes';
+import { orderReferenceView } from '@/lib/invoices/order-reference';
 import { receiptInvoiceView } from '@/lib/invoices/receipt-invoice';
 import { canDuplicateInvoice, canSetAsRecurring } from '@/lib/invoices/recurring/visibility';
 import { buyerLinkRefusal, canManageBuyerLinks } from '@/lib/invoice-share/policy';
@@ -178,9 +180,20 @@ export default async function InvoiceDetailPage({
       })
     : null;
 
+  // Krok 2.6, część 2b-3c: PKWiU i GTU pozycji z dokumentu faktury (to samo co
+  // w pliku FA(3)); do widoku idą same kody, reszta `fa3_data` zostaje na serwerze.
+  const lineCodes = documentLineCodes((invoice.fa3_data as { lines?: unknown } | null)?.lines);
   const lines = ((invoice.invoice_line_items ?? []) as InvoiceDetailLine[])
     .slice()
-    .sort((a, b) => a.ordinal - b.ordinal);
+    .sort((a, b) => a.ordinal - b.ordinal)
+    .map((line) => {
+      const codes = lineCodes.get(line.ordinal);
+      return {
+        ...line,
+        ...(codes?.pkwiuCode ? { pkwiu_code: codes.pkwiuCode } : {}),
+        ...(codes?.gtuCode ? { gtu_code: codes.gtuCode } : {}),
+      };
+    });
 
   // E3 / P4: pola pochodne dla układu Finory. Tylko liczby i flagi — treść
   // dokumentu (`fa3_data`) zostaje na serwerze.
@@ -280,6 +293,8 @@ export default async function InvoiceDetailPage({
     ksef_imported_original: importedOriginalProvenance(invoice.fa3_data),
     // Krok 1.2: oznaczenie FP i dane paragonu jako gotowy tekst, fa3_data zostaje na serwerze.
     receipt_invoice: receiptInvoiceView(invoice.fa3_data),
+    // Krok 2.8: numer zamówienia jako gotowy wiersz, reszta `fa3_data` zostaje na serwerze.
+    order_reference: orderReferenceView(invoice.fa3_data),
   };
 
   return <InvoiceDetailView key={initial.id} initial={initial} />;

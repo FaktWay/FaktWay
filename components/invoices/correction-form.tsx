@@ -43,7 +43,7 @@ import {
   correctionInvoiceSchema,
   correctionNpIiBuyerError,
   type CorrectionInvoiceSchemaIn,
-  type InvoiceLineSchema,
+  type CorrectionLineSchema,
 } from '@/lib/validators/invoice-validators';
 import { calculateCorrectionTotals } from '@/lib/invoices/calculator';
 import {
@@ -297,7 +297,7 @@ function buildDefaultCorrectionFormValues(
 const labelClass =
   'text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 block';
 
-type InvoiceLineDraft = InvoiceLineSchema;
+type InvoiceLineDraft = CorrectionLineSchema;
 
 const defaultLineRow: InvoiceLineDraft = {
   name: 'Pozycja',

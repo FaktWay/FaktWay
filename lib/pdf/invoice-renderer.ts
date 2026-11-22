@@ -13,6 +13,8 @@ import {
   SPLIT_PAYMENT_LABEL,
 } from '@/lib/invoices/annotations';
 import { tytulPrzelewuNaDokumencie } from '@/lib/invoices/tytul-przelewu';
+import { lineCodesText } from '@/lib/invoices/line-codes';
+import { orderLine } from '@/lib/invoices/order-reference';
 import { RECEIPT_INVOICE_LABEL, receiptDetailsLine } from '@/lib/invoices/receipt-invoice';
 import { vatSummaryAgreesWithGross } from '@/lib/invoices/vat-summary';
 import { drawPdfLogo, type PdfLogo } from '@/lib/pdf/logo';
@@ -484,9 +486,12 @@ function drawLineItems(
   // zawija), a wiersz, który się nie mieści, idzie na nową stronę razem
   // z powtórzonym nagłówkiem — bez tego pdfkit dokładał stronę na komórkę.
   invoice.lines.forEach((line: InvoiceLineItem, idx: number) => {
+    // Krok 2.6, część 2b-3c: PKWiU i GTU jak w pliku FA(3), w drugiej linii pod nazwą,
+    // tylko gdy są (wysokość wiersza liczy `heightOfString` z obu linii).
+    const codes = lineCodesText(line);
     const values: Record<string, string> = {
       lp: String(line.ordinal),
-      name: line.name,
+      name: codes ? `${line.name}\n${codes}` : line.name,
       qty: decimal4(line.quantity),
       unit: line.unit,
       // Import z cenami brutto: nie drukujemy ceny netto, której plik nie ma (F12-E4).
@@ -680,6 +685,12 @@ function drawFooter(
   if (exemption) {
     doc.font('body').fontSize(8).fillColor('#444444');
     doc.text(exemption, left, doc.y, { width });
+    doc.y += 4;
+  }
+  // Krok 2.8: numer zamówienia (FA(3) `WarunkiTransakcji/Zamowienia`); bez niego wydruk jak dotąd.
+  if (invoice.order) {
+    doc.font('body').fontSize(8).fillColor('#444444');
+    doc.text(orderLine(invoice.order), left, doc.y, { width });
     doc.y += 4;
   }
   if (invoice.notes) {

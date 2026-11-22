@@ -19,6 +19,7 @@ import {
   type NabywcaRodzajuTelefonu,
   type PozycjaRodzajuTelefonu,
   type RozliczenieTelefonu,
+  type WyliczenieZadanie,
   type ZaliczkaTelefonu,
 } from '../api/kontrakt';
 import { dodajDni, liczbaZPola, type PozycjaFormularza } from './wystawienie';
@@ -172,6 +173,73 @@ export function doKorektyTelefonu(f: FormularzKorekty): KorektaTelefonu {
         ? { netDelta: liczbaZPola(f.zmiana.netto), vatDelta: liczbaZPola(f.zmiana.vat), grossDelta: liczbaZPola(f.zmiana.brutto), description: f.zmiana.opis.trim() }
         : null,
   };
+}
+
+/** Która część treści wyliczenia ma puste albo błędne pole liczbowe (do zdania „Kwoty policzymy po…”). */
+export type BrakLiczb = 'zaliczka' | 'wartoscUmowy' | 'zmiana' | 'pozycje' | 'liczby';
+
+const nieSkonczona = (n: number) => !Number.isFinite(n);
+const pozycjeBezLiczb = (lista: PozycjaRodzajuTelefonu[]) => lista.some((p) => nieSkonczona(p.quantity) || nieSkonczona(p.unitPriceNet));
+
+function maNieskonczona(wartosc: unknown): boolean {
+  if (typeof wartosc === 'number') return nieSkonczona(wartosc);
+  if (Array.isArray(wartosc)) return wartosc.some(maNieskonczona);
+  if (wartosc && typeof wartosc === 'object') return Object.values(wartosc).some(maNieskonczona);
+  return false;
+}
+
+/**
+ * Pierwsza część treści z liczbą niebędącą skończoną (`liczbaZPola('')` albo
+ * samo „-” w polu to `NaN`), `null` dla pełnej treści. Pola tekstowe i pusta
+ * korekta danych (`amountChange: null`) nie są liczbami, więc brakiem nie są.
+ * `'liczby'`: nieskończona liczba poza znanymi polami (np. nowe pole kontraktu),
+ * żeby klucz i zdanie na ekranie zawsze mówiły to samo.
+ */
+export function brakLiczbWTresci(tresc: WyliczenieZadanie): BrakLiczb | null {
+  if ('zaliczka' in tresc) {
+    if (nieSkonczona(tresc.zaliczka.advanceAmount)) return 'zaliczka';
+    if (nieSkonczona(tresc.zaliczka.totalContractAmount)) return 'wartoscUmowy';
+  } else if ('rozliczenie' in tresc) {
+    if (pozycjeBezLiczb(tresc.rozliczenie.lines)) return 'pozycje';
+  } else {
+    const zmiana = tresc.korekta.amountChange;
+    if (zmiana && [zmiana.netDelta, zmiana.vatDelta, zmiana.grossDelta].some(nieSkonczona)) return 'zmiana';
+    if (pozycjeBezLiczb(tresc.korekta.linesAfter)) return 'pozycje';
+  }
+  return maNieskonczona(tresc) ? 'liczby' : null;
+}
+
+/**
+ * Czy gdziekolwiek w treści jest liczba niebędąca skończoną. W JSON `NaN` i
+ * `Infinity` stają się `null`, a schemat trasy (`z.number()`) odpowiada na to
+ * 400 `invalid_request`: serwer nie dostaje takiej treści (obchód U7).
+ */
+export function trescMaBrakLiczb(tresc: WyliczenieZadanie): boolean {
+  return brakLiczbWTresci(tresc) !== null;
+}
+
+/**
+ * Klucz (JSON) treści, którą wolno wysłać do `POST /faktury/wyliczenie`;
+ * `null`, gdy nie ma treści albo któreś pole liczbowe jest puste lub błędne
+ * (ekran mówi wtedy, czego brakuje, zamiast pytać serwer o niepełne dane).
+ * Liczby skończone, ale nie do przyjęcia (zero, zaliczka większa od zamówienia),
+ * idą do serwera: odpowiada zdaniem strony z polem (422 `invoice_invalid`).
+ */
+export function kluczWyliczenia(tresc: WyliczenieZadanie | null): string | null {
+  return tresc && !trescMaBrakLiczb(tresc) ? JSON.stringify(tresc) : null;
+}
+
+const ZDANIA_BRAKU_LICZB: Record<BrakLiczb, string> = {
+  zaliczka: 'Kwoty policzymy po wpisaniu kwoty zaliczki.',
+  wartoscUmowy: 'Kwoty policzymy po wpisaniu wartości zamówienia.',
+  zmiana: 'Kwoty policzymy, gdy wpiszesz zmianę netto, VAT i brutto.',
+  pozycje: 'Kwoty policzymy po wpisaniu ilości i cen netto pozycji.',
+  liczby: 'Kwoty policzymy po uzupełnieniu liczb w formularzu.',
+};
+
+/** Zdanie w „Podsumowaniu” dla klienta, gdy brakuje liczby (zamiast fałszywej awarii serwera). */
+export function zdanieBrakuLiczb(brak: BrakLiczb): string {
+  return ZDANIA_BRAKU_LICZB[brak];
 }
 
 /** Klucze błędów formularza telefonu dla zaliczki, rozliczenia i korekty. */

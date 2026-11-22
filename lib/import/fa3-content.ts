@@ -14,6 +14,7 @@ import {
   markersJpkCannotExpress,
   type Fa3Markers,
 } from '@/lib/xml/fa3-annotations';
+import { isGtuCode } from '@/lib/invoices/line-codes';
 import type { ParsedInvoice } from './fa3-parser';
 
 export interface ImportSaleDates {
@@ -82,25 +83,83 @@ export function fa3ImportContent(inv: ParsedInvoice): ImportContent {
   };
 }
 
+export type HeldJpkFile = 'JPK_FA' | 'JPK_V7M';
+
+export interface HeldReason {
+  text: string;
+  /** Pliki, których ten powód nie pozwala wygenerować (to samo, co robią generatory). */
+  files: readonly HeldJpkFile[];
+}
+
+const BOTH: readonly HeldJpkFile[] = ['JPK_FA', 'JPK_V7M'];
+const FA_ONLY: readonly HeldJpkFile[] = ['JPK_FA'];
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
  * Powody, dla których JPK FaktWay nie wykaże tej sprzedaży (te same co
- * odmowa w `amountsOf`), do ostrzeżenia na początku raportu importu.
+ * odmowa w `amountsOf`), z plikiem, którego dotyczą. Oznaczenia, które
+ * JPK_V7M wykazuje, a JPK_FA nie (`amountsOf` z `receiptInvoiceAsFp` i
+ * `gtuInRow`, plan kompletnej aplikacji 1.2 i 2.6 część 2b-2), wstrzymują
+ * tylko JPK_FA:
+ * - poprawne GTU (każdy kod z listy) na zwykłej fakturze;
+ * - zwykła FP (typ dokumentu FP w JPK_V7M), o ile paragon jest z miesiąca
+ *   wcześniejszego niż wystawienie faktury (`receiptInvoiceRow`: paragon
+ *   z miesiąca wystawienia albo nieznana data sprzedaży to odmowa JPK_V7M).
+ * Reszta (TP, procedury, podmiot upoważniony, P_22, P_23, marża, kod GTU spoza
+ * listy, nieczytelne adnotacje i daty, korekta, zaliczka, ROZ) wstrzymuje oba pliki.
  */
-export function contentHeldReasons(inv: ParsedInvoice, content: ImportContent): string[] {
-  const reasons: string[] = [];
-  const cannot = [...annotationsJpkCannotExpress(content.annotations), ...markersJpkCannotExpress(content.markers)];
-  if (cannot.length) reasons.push(`oznaczenie, którego FaktWay nie wykazuje w JPK — ${cannot.join(', ')}`);
+export function contentHeldReasonItems(inv: ParsedInvoice, content: ImportContent): HeldReason[] {
+  const items: HeldReason[] = [];
+  const regular = inv.invoiceType === 'regular';
+  const markers = content.markers;
+  const gtu = markers?.gtu ?? [];
+  const faOnlyGtu = regular && gtu.length > 0 && gtu.every(isGtuCode);
+  const plainFp = regular && markers?.fp === true;
+  const saleDay = content.saleDate && ISO_DAY.test(content.saleDate.trim()) ? content.saleDate.trim() : inv.issueDate;
+  const fpInIssueMonth = plainFp && saleDay.slice(0, 7) >= inv.issueDate.slice(0, 7);
+
+  const rest: Fa3Markers | undefined = markers
+    ? { ...markers, ...(plainFp ? { fp: undefined } : {}), ...(faOnlyGtu ? { gtu: undefined } : {}) }
+    : undefined;
+  const cannot = [...annotationsJpkCannotExpress(content.annotations), ...markersJpkCannotExpress(rest)];
+  if (cannot.length) items.push({ text: `oznaczenie, którego FaktWay nie wykazuje w JPK: ${cannot.join(', ')}`, files: BOTH });
+  if (plainFp) {
+    // Przy nieczytelnych datach sprzedaży daty paragonu nie znamy (powód dat wstrzymuje oba pliki osobno).
+    const dateKnown = !content.saleDates?.unclear;
+    items.push(fpInIssueMonth && dateKnown
+      ? {
+          text: 'faktura do paragonu (FP) z paragonem z miesiąca wystawienia faktury albo bez daty sprzedaży: JPK_V7M wykazuje FP tylko dla paragonu z wcześniejszego miesiąca, a JPK_FA nie ma dla niej oznaczenia',
+          files: BOTH,
+        }
+      : { text: 'faktura do paragonu (FP): JPK_FA nie ma dla niej oznaczenia', files: FA_ONLY });
+  }
+  if (faOnlyGtu) {
+    items.push({ text: `oznaczenie GTU w pozycjach (${gtu.join(', ')}): FaktWay nie wykazuje oznaczeń GTU w JPK_FA`, files: FA_ONLY });
+  }
   if (content.annotationProblems.length) {
-    reasons.push(`adnotacji z KSeF nie udało się odczytać (${content.annotationProblems.join('; ')})`);
+    items.push({ text: `adnotacji z KSeF nie udało się odczytać (${content.annotationProblems.join('; ')})`, files: BOTH });
   }
   if (content.annotations && exemptionMismatch(content.annotations, inv.lines.map((l) => l.vatRate))) {
-    reasons.push('zwolnienie z VAT (P_19) niezgodne ze stawkami pozycji');
+    items.push({ text: 'zwolnienie z VAT (P_19) niezgodne ze stawkami pozycji', files: BOTH });
   }
   if (content.saleDates?.unclear) {
     const lineDates = [...new Set((content.saleDates.lines ?? []).map((l) => l.date))].sort();
-    reasons.push(inv.saleDateProblems?.length
-      ? `daty sprzedaży nie udało się odczytać (${inv.saleDateProblems.join('; ')})`
-      : `pozycje mają różne daty sprzedaży (P_6A: ${lineDates.join(', ')}${content.saleDate ? `; P_6: ${content.saleDate}` : ''})`);
+    items.push({
+      text: inv.saleDateProblems?.length
+        ? `daty sprzedaży nie udało się odczytać (${inv.saleDateProblems.join('; ')})`
+        : `pozycje mają różne daty sprzedaży (P_6A: ${lineDates.join(', ')}${content.saleDate ? `; P_6: ${content.saleDate}` : ''})`,
+      files: BOTH,
+    });
   }
-  return reasons;
+  // Stawka „oo” (odwrotne obciążenie) to stawka FaktWay, ale JPK_V7M jej nie wykazuje (`JpkV7mReverseChargeNotSupportedError`).
+  // Dopisywana tylko tam, gdzie ostrzeżenie i tak jest (sama „oo” bez oznaczeń nie dostaje dziś ostrzeżenia: osobne ustalenie).
+  if (items.length > 0 && inv.lines.some((l) => l.vatRate.trim().toLowerCase() === 'oo')) {
+    items.push({ text: 'stawka „oo” (odwrotne obciążenie): FaktWay nie wykazuje jej w JPK_V7M', files: ['JPK_V7M'] });
+  }
+  return items;
+}
+
+/** Same powody (tekst) do ostrzeżenia na początku raportu importu. */
+export function contentHeldReasons(inv: ParsedInvoice, content: ImportContent): string[] {
+  return contentHeldReasonItems(inv, content).map((item) => item.text);
 }

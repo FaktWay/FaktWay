@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import { imageEnv, workerCmd } from '../helpers/worker-cmd';
+
 /**
  * RUN-01: worker startował z globalnym `--conditions=react-server`, żeby
  * `import 'server-only'` nie rzucał. Ten warunek przełączał też `react-dom/server`
@@ -15,10 +17,7 @@ import { describe, expect, it } from 'vitest';
  */
 
 const root = process.cwd();
-const dockerfile = readFileSync(join(root, 'Dockerfile'), 'utf8');
-const workerStage = dockerfile.split(/^FROM /m).find((stage) => /^\S+ AS worker\b/.test(stage));
-const cmdLine = workerStage?.match(/^CMD (\[.*\])$/m)?.[1];
-const cmd: string[] = cmdLine ? JSON.parse(cmdLine) : [];
+const cmd = workerCmd(root);
 const ENTRY = 'lib/jobs/worker.ts';
 
 /** Flagi Node z CMD workera, bez `node` i bez pliku wejściowego. */
@@ -61,7 +60,7 @@ function runNode(args: string[], env: Record<string, string> = {}) {
     const output = execFileSync(process.execPath, args, {
       cwd: root,
       encoding: 'utf8',
-      env: { ...process.env, NODE_OPTIONS: '', NODE_ENV: 'production', ...env },
+      env: imageEnv(env),
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 170_000,
     });

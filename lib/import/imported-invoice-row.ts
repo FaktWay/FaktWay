@@ -33,7 +33,7 @@ import type { InvoiceOrigin } from '@/lib/flo/functions/import-history';
 import { roundToCents } from '@/lib/xml/invoice-calculator';
 import { importedVatRateLabel, isVatRate } from '@/lib/xml/fa3-p12';
 import type { ParsedInvoice, ParsedParty } from './fa3-parser';
-import { contentHeldReasons, fa3ImportContent, type ImportContent } from './fa3-content';
+import { contentHeldReasonItems, fa3ImportContent, type HeldJpkFile, type ImportContent } from './fa3-content';
 import { fa3ImportLineAmounts, type ImportLineAmounts } from './fa3-line-amounts';
 
 /** Rodzaj faktury FA(3) (`RodzajFaktury`) zapisywany w `invoices.invoice_type`. */
@@ -209,7 +209,8 @@ export function heldDocumentWarning(
   const special = type === 'VAT' ? null : IMPORTED_TYPE_LABEL[type];
   const sale = status === 'accepted' && direction === 'outgoing';
   // C5b: data sprzedaży, adnotacje i oznaczenia, których JPK nie wykaże — tylko sprzedaż przyjęta w KSeF.
-  const contentReasons = sale ? contentHeldReasons(inv, content) : [];
+  const contentItems = sale ? contentHeldReasonItems(inv, content) : [];
+  const contentReasons = contentItems.map((item) => item.text);
   // C5c: kwoty pozycji, których nie da się wiernie przenieść z pliku (ceny brutto, VAT od sumy stawki).
   const amountReason = sale && amounts.problems.length
     ? `kwot pozycji nie da się wiernie przenieść z pliku KSeF (${amounts.problems.join('; ')})`
@@ -240,11 +241,21 @@ export function heldDocumentWarning(
   ].filter(Boolean).join('; ');
   // C5c: bez sum stawek w pliku netto i VAT faktury są nieznane — KPiR i CSV też ich nie pokażą.
   const exit = sale && amounts.totalsUnknown
-    ? 'przygotuj je z księgową — KPiR i CSV też nie pokażą poprawnych kwot tej faktury, wprowadźcie je ręcznie'
-    : 'przygotuj je z księgową (KPiR i CSV działają)';
+    ? 'Te pliki przygotuje księgowa poza FaktWay. KPiR i CSV też nie pokażą poprawnych kwot tej faktury, więc kwoty trzeba wprowadzić ręcznie.'
+    : 'Te pliki przygotuje księgowa poza FaktWay.';
+  // Plik, który nie powstanie, wynika z powodów (te same rozstrzygnięcia co generatory): stawka, rodzaj, kwoty
+  // i niezgodność sum wstrzymują oba pliki; oznaczenia GTU i FP z pliku KSeF bywają wstrzymaniem samego JPK_FA.
+  const held = new Set<HeldJpkFile>(contentItems.flatMap((item) => item.files));
+  const bothHeld = codes.length > 0 || Boolean(special) || Boolean(amountReason) || mismatch || held.size > 1;
+  if (!bothHeld && held.has('JPK_FA')) {
+    return (
+      `${doc}: ${what}. Faktura jest zapisana, ale JPK_FA za ${inv.issueDate.slice(0, 7)} nie powstanie ` +
+      'w FaktWay, dopóki ta faktura jest w okresie. JPK_FA przygotuje księgowa poza FaktWay.'
+    );
+  }
   return (
     `${doc}: ${what}. Faktura jest zapisana, ale JPK_FA i JPK_V7M za ${inv.issueDate.slice(0, 7)} nie powstaną ` +
-    `w FaktWay, dopóki ta faktura jest w okresie — ${exit}.`
+    `w FaktWay, dopóki ta faktura jest w okresie. ${exit}`
   );
 }
 

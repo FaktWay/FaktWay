@@ -6,7 +6,6 @@
       "app/(marketing)/kalkulator-oszczednosci/page.tsx": 3
     },
     "data-warszawa": {
-      "app/actions/ksiegowosc-ewidencja.ts": 1,
       "components/dashboard/footer.tsx": 1,
       "components/expenses/kpir-view.tsx": 1,
       "components/exports/accountant-export-buttons.tsx": 6,

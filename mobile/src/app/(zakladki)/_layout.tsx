@@ -1,10 +1,12 @@
 import { Redirect } from 'expo-router';
 import { NativeTabs } from 'expo-router/native-tabs';
+import { Platform, useWindowDimensions } from 'react-native';
 
 import { useStanFaktur } from '@/stan/faktury';
 import { useSesja } from '@/stan/sesja';
 import { useKolory } from '@/wyglad/kolory';
 import { czcionka } from '@/wyglad/typografia';
+import { ETYKIETA_ZAKLADKI, minimalizacjaPaska, rozmiarEtykietyZakladki } from '@/wyglad/zakladki';
 
 /**
  * Pięć zakładek jak w menu strony (plan, D3 i D11). Pasek rysuje system
@@ -15,6 +17,10 @@ import { czcionka } from '@/wyglad/typografia';
  */
 export default function Zakladki() {
   const kolory = useKolory();
+  // Duży tekst z ustawień: etykiety rosną (do sufitu), a pasek się nie minimalizuje (obchód U39, U40).
+  const { fontScale } = useWindowDimensions();
+  // Android przelicza fontSize etykiety przez sp sam (react-native-screens): tam rozmiar zostaje 10, żeby nie rósł dwa razy.
+  const rozmiarEtykiety = Platform.OS === 'ios' ? rozmiarEtykietyZakladki(fontScale) : ETYKIETA_ZAKLADKI;
   const { koszty, skrzynka, dane } = useStanFaktur();
   // Prawdziwe konto (M7): nowe faktury ze skrzynki KSeF; wydatki są jeszcze na danych przykładowych.
   const doOpisania = dane.zrodlo === 'baza' ? skrzynka.filter((s) => s.status === 'nowa').length : koszty.filter((k) => k.doOpisania).length;
@@ -26,8 +32,11 @@ export default function Zakladki() {
     <NativeTabs
       tintColor={kolory.akcent}
       iconColor={{ default: kolory.etykietaDrugorzedna, selected: kolory.akcent }}
-      labelStyle={{ default: { fontFamily: czcionka('medium'), fontSize: 10, color: kolory.etykietaDrugorzedna }, selected: { fontFamily: czcionka('medium'), fontSize: 10, color: kolory.akcent } }}
-      minimizeBehavior="onScrollDown">
+      labelStyle={{
+        default: { fontFamily: czcionka('medium'), fontSize: rozmiarEtykiety, color: kolory.etykietaDrugorzedna },
+        selected: { fontFamily: czcionka('medium'), fontSize: rozmiarEtykiety, color: kolory.akcent },
+      }}
+      minimizeBehavior={minimalizacjaPaska(fontScale)}>
       <NativeTabs.Trigger name="(pulpit)">
         <NativeTabs.Trigger.Label>Pulpit</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon

@@ -270,14 +270,21 @@ function EkranKsiegowosciZBazy({ konto }: { konto: KontoFirmy }) {
 
         <ZaplatySpozaWyliczenia key={d.miesiac} konto={konto} d={d} firmaEkranu={firmaEkranu} poZapisie={() => void ten.odswiez()} />
 
-        <Sekcja naglowek="Rejestry i pliki" stopka="KPiR, ewidencję i eksport prowadzisz na faktway.pl.">
+        <Sekcja naglowek="Rejestry i pliki" stopka="Wpisy ręczne, spis z natury i ustawienia podatkowe prowadzisz na faktway.pl.">
           <Wiersz
             tytul="VAT i JPK_V7M"
             podtytul="Deklaracja, termin, przelew i plik"
             strzalka
             onPress={() => router.push({ pathname: '/ksiegowosc/vat', params: { miesiac: d.miesiac, ...(nadwyzka ? { nadwyzka } : {}) } })}
           />
-          <Wiersz tytul="KPiR i ewidencja" strzalka onPress={() => otworzStrone(d.forma === 'ryczalt' ? '/reports/ewidencja' : '/reports/kpir')} />
+          <Wiersz
+            tytul={d.forma === 'ryczalt' ? 'Ewidencja przychodów' : 'KPiR modułu'}
+            podtytul={d.forma === 'ryczalt' ? 'Wpisy, sumy i plik JPK_EWP' : 'Księga, sumy i plik JPK_PKPIR'}
+            strzalka
+            onPress={() => router.push({ pathname: '/ksiegowosc/ewidencja', params: { miesiac: d.miesiac } })}
+          />
+          <Wiersz tytul="KPiR raportu" podtytul="Wynik, koszty według kolumn i księga" strzalka onPress={() => router.push({ pathname: '/ksiegowosc/kpir', params: { miesiac: d.miesiac } })} />
+          <Wiersz tytul="Eksport" podtytul="Pliki dla księgowej i programów" strzalka onPress={() => router.push('/ksiegowosc/eksport')} />
           <Wiersz tytul="Ustawienia podatkowe" strzalka onPress={() => otworzStrone('/reports/ustawienia-podatkowe')} />
         </Sekcja>
 

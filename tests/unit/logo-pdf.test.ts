@@ -238,7 +238,8 @@ describe('klucz PDF w pamięci podręcznej', () => {
     const bez = buildInvoicePdfKey('ten-1', 'inv-1', '2026-11-02', WZOR_QR, NUMER_KSEF);
     expect(buildInvoicePdfKey('ten-1', 'inv-1', '2026-11-02', WZOR_QR, NUMER_KSEF, null)).toBe(bez);
     const z = buildInvoicePdfKey('ten-1', 'inv-1', '2026-11-02', WZOR_QR, NUMER_KSEF, 'tenants/ten-1/logo/a.png');
-    expect(z).toMatch(/^ten-1\/2026\/11\/inv-1\.v7\.[0-9a-f]{32}\.l[0-9a-f]{16}\.pdf$/);
+    // v9 (krok 2.8): wiersz „Zamówienie” przy fakturze z numerem zamówienia; zmiana wydruku podbija wersję (pdf-storage.ts).
+    expect(z).toMatch(/^ten-1\/2026\/11\/inv-1\.v9\.[0-9a-f]{32}\.l[0-9a-f]{16}\.pdf$/);
     expect(z).not.toBe(bez);
     expect(buildInvoicePdfKey('ten-1', 'inv-1', '2026-11-02', WZOR_QR, NUMER_KSEF, 'tenants/ten-1/logo/b.png')).not.toBe(z);
     expect(invoicePdfQrStateKey(z)).toBe(bez);

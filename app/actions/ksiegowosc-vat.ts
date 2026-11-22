@@ -35,7 +35,11 @@ import { ActionAuthError, requireOrgRole, type AuthContext, type UserRole } from
  * z 00170 nie wpuści drugiej wysyłki za ten sam miesiąc, dopóki pierwsza
  * trwa. Ten sam plik wysłany drugi raz MF rozpoznaje po skrócie (kod 170)
  * i podaje numer oryginału. Status: zmiana stanu z warunkiem na stan
- * poprzedni, UPO zapisane tylko, gdy klucza jeszcze nie ma.
+ * poprzedni, UPO zapisane tylko, gdy klucza jeszcze nie ma. Błąd magazynu
+ * przy zapisie UPO albo przy jego pobraniu to komunikat dla klienta
+ * i zgłoszenie w Sentry, nie wyjątek na stronie. Przy zapisie wysyłka zostaje
+ * „w toku” (bez audytu), więc następne sprawdzenie zapisuje UPO jeszcze raz
+ * albo zastaje plik z pierwszej próby.
  */
 
 export type { WynikPlikuVat };
@@ -173,7 +177,15 @@ export async function sprawdzStatusJpkAction(wejscie: { id: string }): Promise<W
   if (ocena.stan === 'przyjeta') {
     if (!s.upo) return { success: false, error: 'MF potwierdziło przyjęcie bez UPO. Status sprawdzi się przy następnym otwarciu strony.' };
     const klucz = `upo/${ctx.tenantId}/jpk/${w.okres.slice(0, 7)}/${w.numerReferencyjny}.xml`;
-    await uploadToR2IfAbsent(klucz, Buffer.from(s.upo, 'utf8'), 'application/xml');
+    try {
+      // false (412): pod kluczem jest już plik. Klucz ma numer referencyjny MF i pisze go tylko ta akcja,
+      // więc to UPO tej wysyłki z wcześniejszej próby (także takiej, której odpowiedź z magazynu nie doszła).
+      await uploadToR2IfAbsent(klucz, Buffer.from(s.upo, 'utf8'), 'application/xml');
+    } catch (e) {
+      // Bez zmiany stanu: wiersz zostaje „w_toku”, więc następne sprawdzenie zapyta MF i zapisze UPO jeszcze raz.
+      Sentry.captureException(e, { tags: { area: 'ksiegowosc.jpk' }, extra: { tenantId: ctx.tenantId, id: w.id } });
+      return { success: false, error: 'MF potwierdziło przyjęcie, ale UPO nie udało się teraz zapisać. Status sprawdzi się przy następnym otwarciu strony.' };
+    }
     if (await zmienWysylke(client, w.id, 'w_toku', { stan: 'przyjeta', status_kod: s.kod, status_opis: s.opis, upo_sciezka: klucz, sprawdzono_o: teraz, zakonczono_o: teraz })) {
       await logAudit({
         action: 'jpk_v7m.accepted',
@@ -203,6 +215,12 @@ export async function pobierzUpoJpkAction(wejscie: { id: string }): Promise<Wyni
   if (!(await wlaczony(client, ctx.tenantId, 'vat'))) return { success: false, error: VAT_NIEDOSTEPNY };
   const w = await czytajWysylke(client, ctx.tenantId, id.data);
   if (!w?.upoSciezka || !w.numerReferencyjny) return { success: false, error: 'Ta wysyłka nie ma UPO.' };
-  const xml = (await downloadFromR2(w.upoSciezka, ctx.tenantId)).toString('utf8');
+  let xml: string;
+  try {
+    xml = (await downloadFromR2(w.upoSciezka, ctx.tenantId)).toString('utf8');
+  } catch (e) {
+    Sentry.captureException(e, { tags: { area: 'ksiegowosc.jpk' }, extra: { tenantId: ctx.tenantId, id: w.id } });
+    return { success: false, error: 'Nie udało się teraz pobrać UPO. Można spróbować jeszcze raz za chwilę.' };
+  }
   return { success: true, xml, nazwa: `UPO_JPK_V7M_${w.okres.slice(0, 7)}_${w.numerReferencyjny}.xml` };
 }
