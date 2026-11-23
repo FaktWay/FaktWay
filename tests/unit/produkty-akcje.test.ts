@@ -149,3 +149,39 @@ describe('deleteProductAction', () => {
     expect(db.tables.products).toHaveLength(1);
   });
 });
+
+describe('błąd odczytu produktu (osobne ustalenie 16, #887)', () => {
+  // Błąd bazy przy odczycie to nie „nie ma takiego produktu”: klient ma spróbować ponownie,
+  // a nie szukać produktu, który istnieje. Brak wiersza zostaje przy „Nie znaleziono produktu”.
+  it('edycja: błąd odczytu daje „Nie udało się odczytać produktu… Spróbuj ponownie”, nic nie zapisane', async () => {
+    db.tables.products = [produkt()];
+    db.failures['products:select'] = { code: '08006', message: 'connection failure' };
+    const r = await updateProductAction(P1, { ...INPUT, priceNet: '200,00' });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error).toMatch(/Nie udało się odczytać produktu/);
+      expect(r.error).toMatch(/Spróbuj ponownie/);
+      expect(r.error).not.toMatch(/Nie znaleziono/);
+    }
+    expect(db.tables.products[0]).toMatchObject({ default_price_net: 150 });
+    expect(mocks.audit).not.toHaveBeenCalled();
+  });
+
+  it('usunięcie: błąd odczytu daje „Nie udało się odczytać produktu… Spróbuj ponownie”, produkt zostaje', async () => {
+    db.tables.products = [produkt()];
+    db.failures['products:select'] = { code: '08006', message: 'connection failure' };
+    const r = await deleteProductAction(P1);
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(r.error).toMatch(/Nie udało się odczytać produktu/);
+      expect(r.error).not.toMatch(/Nie znaleziono/);
+    }
+    expect(db.tables.products).toHaveLength(1);
+  });
+
+  it('brak wiersza (inna firma albo usunięty) dalej daje „Nie znaleziono produktu”', async () => {
+    const r = await updateProductAction(P1, INPUT);
+    expect(r).toEqual({ success: false, error: 'Nie znaleziono produktu w tej organizacji.' });
+    expect(await deleteProductAction(P1)).toEqual({ success: false, error: 'Nie znaleziono produktu w tej organizacji.' });
+  });
+});
