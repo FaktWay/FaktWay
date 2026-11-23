@@ -281,3 +281,49 @@ describe('zapłata spoza wyliczenia w przyrostach (K7.2, D15)', () => {
   });
 });
 
+
+describe('FZ-027: zmiana podziału zapłaconych składek między FP i część bez FP', () => {
+  // Składki za styczeń zapłacone 10.02 z podziałem z wyliczenia, a 16.02 ta sama kwota zapisana cała bez FP (pomyłka):
+  // przyrosty odliczyłyby też 138,47 zł FP, który jest kosztem, nie odliczeniem.
+  const zmiana = [
+    zaplata('2026-01', 'zus_spoleczne', 192_676, '2026-02-10', 178_829, 1),
+    zaplata('2026-01', 'zus_spoleczne', 192_676, '2026-02-16', 192_676, 2),
+  ];
+
+  it('ryczałt i składka zdrowotna od miesiąca tej zapłaty to brak z okresem, dniem i wyjściem; składki społeczne zostają', () => {
+    for (const miesiac of ['2026-02', '2026-03']) {
+      const w = tenMiesiac(wejscie({ miesiac, platnosci: zmiana }));
+      for (const rodzaj of ['ryczalt', 'zdrowotna']) {
+        const brak = brakPozycji(w, rodzaj);
+        expect(brak).toContain('Składki ZUS za styczeń 2026');
+        expect(brak).toContain('16.02.2026');
+        expect(brak).toContain('„Cofnij”');
+      }
+      expect(kwoty(w).find(([r]) => r === 'zus_spoleczne')?.[1]).toEqual(expect.any(Number));
+    }
+  });
+
+  it('brak już od miesiąca pierwszej zapłaty okresu, gdy wersja ze zmianą podziału jest zapłacona później', () => {
+    // Cała kwota bez FP w lutym (pomyłka), wersja z wyliczenia w marcu: luty liczyłby FP w odliczeniu.
+    const pozniej = [
+      zaplata('2026-01', 'zus_spoleczne', 192_676, '2026-02-10', 192_676, 1),
+      zaplata('2026-01', 'zus_spoleczne', 192_676, '2026-03-05', 178_829, 2),
+    ];
+    expect(brakPozycji(tenMiesiac(wejscie({ miesiac: '2026-02', platnosci: pozniej })), 'ryczalt')).toContain('wersja 2 zapłacona 05.03.2026');
+    expect(kwoty(tenMiesiac(wejscie({ miesiac: '2026-01', platnosci: pozniej }))).find(([r]) => r === 'ryczalt')?.[1]).toEqual(expect.any(Number));
+  });
+
+  it('miesiąc przed tą zapłatą liczy ryczałt bez zmian', () => {
+    const w = tenMiesiac(wejscie({ miesiac: '2026-01', platnosci: zmiana }));
+    expect(kwoty(w).find(([r]) => r === 'ryczalt')?.[1]).toEqual(expect.any(Number));
+  });
+
+  it('dopłata, w której FP i część bez FP nie maleją, nie jest zmianą podziału', () => {
+    const w = tenMiesiac(
+      wejscie({ platnosci: [zaplata('2026-01', 'zus_spoleczne', 150_000, '2026-02-10', 140_000, 1), zaplata('2026-01', 'zus_spoleczne', 192_676, '2026-02-16', 178_829, 2)] }),
+    );
+    expect(kwoty(w).filter(([, k]) => k === 'brak')).toEqual([]);
+    if (!w.ok) return;
+    expect(w.wynik.ryczalt?.odliczenia.spoleczneZaplaconeGr).toBe(178_829);
+  });
+});

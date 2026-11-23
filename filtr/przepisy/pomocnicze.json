@@ -35,6 +35,10 @@
       "powod": "wycinek wierszy okresu (RP-KPIR-KOL-01)"
     },
     {
+      "symbol": "lib/ksiegowosc/kpir.ts#brakZmianyPodzialu",
+      "powod": "komunikat braku przy zmianie podziału składek między FP i część bez FP w KPiR i w „Ten miesiąc” (FZ-027, RP-KPIR-FP-01, RP-RYCZ-ODL-02)"
+    },
+    {
       "symbol": "lib/ksiegowosc/ten-miesiac.ts#wersjaMiesiaca",
       "powod": "wersja i skrót (RP-WERSJE-01)"
     },

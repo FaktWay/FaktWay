@@ -35,8 +35,8 @@ import { opcje, PRZYPADKI } from '../generatory/ustawienia';
  *    czerwony test) idzie przez helper stronicowania, a funkcja podana helperowi
  *    ma jedno zapytanie z `order('id')` i stronicowaniem tego helpera. Poza
  *    helperem tylko zapis, jeden wiersz, sam licznik, `limit(1)` albo lista
- *    `OGRANICZONE` z liczbą zapytań i powodem. Własne stronicowanie bez
- *    licznika w `lib/exports/jpk-fa-readiness.ts`: FZ-018.
+ *    `OGRANICZONE` z liczbą zapytań i powodem. Od naprawy FZ-018 także
+ *    `lib/exports/jpk-fa-readiness.ts` czyta przez helpery, bez wyjątków.
  */
 
 interface Wiersz {
@@ -316,13 +316,7 @@ const OGRANICZONE: Readonly<Record<string, { ile: number; powod: string }>> = {
   'lib/ksiegowosc/wysylka-jpk/zapis.ts#czytajWysylki:jpk_submissions': { ile: 1, powod: '`limit(100)` od najnowszej, poniżej limitu serwera' },
   'lib/reports/kpir-data.ts#getKpirData:invoices': { ile: 1, powod: 'waluty faktur KSeF po `id`, paczki po 200 z `assertKsefExpensesReadyForPln`' },
 };
-/** Odczyty ze znaleziska FZ-018 (otwarte), pilnowane przez `.fails` niżej. */
-const FZ_018 = [
-  'lib/exports/jpk-fa-readiness.ts#unsupportedDocumentReason:invoice_line_items',
-  'lib/exports/jpk-fa-readiness.ts#unsupportedDocumentReason:invoices',
-];
-
-/** Ścieżki względne zawsze z `/` (`posix.join`), także na Windowsie: klucze `OGRANICZONE` i `FZ_018` są napisami z `/`. */
+/** Ścieżki względne zawsze z `/` (`posix.join`), także na Windowsie: klucze `OGRANICZONE` są napisami z `/`. */
 function pliki(katalog: string): string[] {
   const wynik: string[] = [];
   const idz = (k: string) => {
@@ -412,7 +406,6 @@ function listyBezHelpera(z: readonly Zapytanie[]): Record<string, number> {
   for (const q of z) if (!q.wHelperze && !q.ograniczone) ile[q.klucz] = (ile[q.klucz] ?? 0) + 1;
   return ile;
 }
-const wybrane = (ile: Record<string, number>, czy: (klucz: string) => boolean) => Object.fromEntries(Object.entries(ile).filter(([k]) => czy(k)));
 
 describe('NZ-WSP-08: listy w księgowości, KPiR i eksportach czyta się stronami', () => {
   it('test widzi zapytania w każdym katalogu i w helperach (inaczej nie sprawdza niczego)', () => {
@@ -425,7 +418,7 @@ describe('NZ-WSP-08: listy w księgowości, KPiR i eksportach czyta się stronam
   });
 
   it('każdy odczyt listy idzie przez helper stronicowania albo jest na liście ograniczonych, policzony co do sztuki', () => {
-    expect(wybrane(listyBezHelpera(ZAPYTANIA), (k) => !FZ_018.includes(k))).toEqual(
+    expect(listyBezHelpera(ZAPYTANIA)).toEqual(
       Object.fromEntries(Object.entries(OGRANICZONE).map(([k, v]) => [k, v.ile])),
     );
   });
@@ -449,7 +442,11 @@ describe('NZ-WSP-08: listy w księgowości, KPiR i eksportach czyta się stronam
     expect(zle).toEqual([]);
   });
 
-  it.fails('FZ-018: jpk-fa-readiness czyta faktury i pozycje okresu własnymi stronami po 1000 bez licznika, więc limit serwera poniżej 1000 albo zapis w trakcie dają cichą niepełną listę', () => {
-    expect(wybrane(listyBezHelpera(ZAPYTANIA), (k) => FZ_018.includes(k))).toEqual({});
+  it('FZ-018: jpk-fa-readiness czyta faktury i pozycje okresu przez helpery stronicowania (licznik albo pusta strona na końcu)', () => {
+    const plik = ZAPYTANIA.filter((q) => q.klucz.startsWith('lib/exports/jpk-fa-readiness.ts#unsupportedDocumentReason:'));
+    expect(plik.filter((q) => q.wHelperze).map((q) => q.klucz).sort()).toEqual([
+      'lib/exports/jpk-fa-readiness.ts#unsupportedDocumentReason:invoice_line_items',
+      'lib/exports/jpk-fa-readiness.ts#unsupportedDocumentReason:invoices',
+    ]);
   });
 });

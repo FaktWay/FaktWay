@@ -138,3 +138,38 @@ describe('jpkFaBlocker — dokumenty, których JPK nie wykaże poprawnie', () =>
     expect(await blocker()).toBeNull();
   });
 });
+
+/**
+ * FZ-018: sprawdzenie czytało faktury i pozycje okresu własnymi stronami po
+ * 1000 i kończyło na stronie krótszej niż 1000, więc przy limicie serwera
+ * poniżej 1000 widziało tylko pierwszą odpowiedź. Teraz komplet przez helpery
+ * stronicowania (jak eksport), także gdy serwer ucina odpowiedź do 500.
+ */
+describe('FZ-018: komplet faktur i pozycji okresu także przy limicie serwera 500', () => {
+  const nr = (i: number) => String(i).padStart(4, '0');
+  const zLimitem = () => jpkFaBlocker(memoryClient(tables, { maxRows: 500 }) as never, {
+    tenantId: 'firma-a', periodStart: '2026-09-01', periodEnd: '2026-09-30', includeCorrections: true,
+  });
+
+  it('600 faktur, zaimportowana korekta ostatnia po id: powód z jej numerem', async () => {
+    tables.invoices = Array.from({ length: 599 }, (_, i) =>
+      faktura({ id: `fv-${nr(i)}`, internal_number: `FV/${i}`, origin: 'app', net_total: 100, vat_total: 23, fa3_data: { lines: [] } }));
+    tables.invoices.push(faktura({ id: 'fv-9999', internal_number: 'KOR/600', invoice_type: 'KOR' }));
+    tables.invoice_line_items = [{ id: 'l-kor', invoice_id: 'fv-9999', vat_rate: '23' }];
+    expect(await zLimitem()).toMatch(/JPK wstrzymany:.*KOR\/600/);
+  });
+
+  it('faktura z importu z 600 pozycjami, stawka spoza FaktWay w ostatniej po id: powód ze stawką, nie z sumą pierwszych 500', async () => {
+    tables.invoices = [faktura({ id: 'fv-1', internal_number: 'FV/1', net_total: 60_000, vat_total: 599 * 23 })];
+    tables.invoice_line_items = Array.from({ length: 599 }, (_, i) => ({ id: `l-${nr(i)}`, invoice_id: 'fv-1', ordinal: i + 1, vat_rate: '23', net_amount: 100, vat_amount: 23 }));
+    tables.invoice_line_items.push({ id: 'l-9999', invoice_id: 'fv-1', ordinal: 600, vat_rate: '0 WDT', net_amount: 100, vat_amount: 0 });
+    expect(await zLimitem()).toMatch(/JPK wstrzymany:.*FV\/1.*0 WDT/);
+  });
+
+  it('600 faktur ze stawkami FaktWay i limit serwera 500: brak blokady (komplet, nie odmowa)', async () => {
+    tables.invoices = Array.from({ length: 600 }, (_, i) =>
+      faktura({ id: `fv-${nr(i)}`, internal_number: `FV/${i}`, net_total: 100, vat_total: 23 }));
+    tables.invoice_line_items = tables.invoices.map((f, i) => ({ id: `l-${nr(i)}`, invoice_id: f.id, ordinal: 1, vat_rate: '23', net_amount: 100, vat_amount: 23 }));
+    expect(await zLimitem()).toBeNull();
+  });
+});
