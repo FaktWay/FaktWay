@@ -18,12 +18,13 @@ import { opcje } from '../generatory/ustawienia';
  * razy kurs średni NBP, połówka grosza od zera, iloczyn na BigInt.
  *
  * 1. Wzorzec na liczbach całkowitych z zapisu dziesiętnego kursu: `przeliczNaPln`
- *    daje to samo dla kursów z 4 i 6 miejscami po przecinku, w połowie grosza
+ *    daje to samo dla kursów z 4, 6 i 8 miejscami po przecinku, w połowie grosza
  *    (losowe remisy i tabela) i dla kwot ujemnych (korekty). API NBP podaje kurs
  *    przeliczony na jedną jednostkę, więc przy walutach z tabeli A za 100
- *    i 10 000 jednostek ma on 6 i 8 miejsc (do potwierdzenia jednym odczytem API).
- * 2. Kurs z 8 miejscami (IDR za 10 000 jednostek): `przeliczNaPln` skaluje kurs
- *    przez 10^6 i gubi dwa ostatnie miejsca: FZ-020.
+ *    i 10 000 jednostek ma on 6 i 8 miejsc (odczyt 22.11, 226/A/NBP/2026: IDR
+ *    0,00022236; sześć miejsc HUF, JPY, ISK, CLP, INR i KRW).
+ * 2. Kurs z 8 miejscami (IDR): `przeliczNaPln` skalował kurs przez 10^6 i gubił
+ *    dwa ostatnie miejsca (FZ-020); od naprawy skala 10^8.
  * 3. Test strukturalny po nazwie kursu (`NAZWY_KURSU` i ich aliasy w tym samym
  *    pliku: `const r = rate.mid`, `{ mid: r }`, `Number(mid)`, `mid as number`,
  *    `rate['mid']`): mnożenie albo dzielenie przez kurs w `lib/`, `app/`
@@ -103,11 +104,11 @@ describe('NZ-KURS-03: kwota razy kurs do groszy jedną funkcją, bez błędu flo
     expect(przeliczNaPln(kwotaGr, Number(k))).toBe(oczekiwane);
   });
 
-  it.each([4, 6])('losowa kwota i kurs z %i miejscami po przecinku: jak wzorzec na liczbach całkowitych', (miejsca) => {
+  it.each([4, 6, 8])('losowa kwota i kurs z %i miejscami po przecinku: jak wzorzec na liczbach całkowitych', (miejsca) => {
     fc.assert(fc.property(KWOTA, kurs(miejsca), (kwotaGr, k) => przeliczNaPln(kwotaGr, Number(k)) === wzorzec(kwotaGr, k)), opcje());
   });
 
-  it.each([4, 6])('losowy remis w połowie grosza przy kursie z %i miejscami, w obie strony: od zera, jak wzorzec', (miejsca) => {
+  it.each([4, 6, 8])('losowy remis w połowie grosza przy kursie z %i miejscami, w obie strony: od zera, jak wzorzec', (miejsca) => {
     fc.assert(
       fc.property(remis(miejsca), ([kwotaGr, k]) => {
         // Sprawdzenie generatora: iloczyn ma dokładnie pół grosza.
@@ -119,17 +120,17 @@ describe('NZ-KURS-03: kwota razy kurs do groszy jedną funkcją, bez błędu flo
     );
   });
 
-  it.fails('FZ-020: kurs z 8 miejscami (IDR za 10 000 jednostek), 100 000 000 IDR po 0,00024123 to 24 123,00 zł', () => {
+  it('FZ-020: kurs z 8 miejscami (IDR, API NBP podaje kurs za 1 jednostkę), 100 000 000 IDR po 0,00024123 to 24 123,00 zł', () => {
     expect(przeliczNaPln(10_000_000_000, 0.00024123)).toBe(wzorzec(10_000_000_000, '0.00024123'));
   });
 
-  it.fails('FZ-019: OCR kosztu w walucie, 0,75 EUR po 4,3000 to 3,23 zł', () => {
+  it('FZ-019: OCR kosztu w walucie, 0,75 EUR po 4,3000 to 3,23 zł', () => {
     const tabela = { currency: 'EUR', mid: 4.3, tableNo: '1/A/NBP/2026', effectiveDate: '2026-03-09' };
     const wynik = costInPln({ currency: 'EUR', net_amount: 0.75, vat_amount: 0, gross_amount: 0.75 }, '2026-03-10', { found: true, rate: tabela, gapDays: 1 });
     expect(wynik).toMatchObject({ kind: 'pln', net: 3.23, gross: 3.23 });
   });
 
-  it.fails('FZ-019: próg OSS, sprzedaż 0,75 EUR po 4,3000 liczy się jako 3,23 zł', () => {
+  it('FZ-019: próg OSS, sprzedaż 0,75 EUR po 4,3000 liczy się jako 3,23 zł', () => {
     const wynik = licznikOss(
       [{ id: 'a', issueDate: '2026-03-10', net: 0.75, kind: 'regular', currency: 'EUR', rateToPln: 4.3, countryCode: 'DE', isB2c: true, buyerNip: null, vatUe: null }],
       { year: 2026 },
@@ -143,7 +144,7 @@ const KATALOG = process.cwd();
 const NAZWY_KURSU = ['mid', 'rateToPln', 'kurs', 'kursNbp', 'kursSredni', 'exchangeRate', 'fxRate', 'USD_PLN', 'EUR_PLN', 'usdToPln', 'USD_TO_PLN'];
 /** `plik#funkcja`: ile przeliczeń w niej stoi i dlaczego wolno. */
 const DOZWOLONE: Readonly<Record<string, { ile: number; powod: string }>> = {
-  'lib/ksiegowosc/ewidencja.ts#przeliczNaPln': { ile: 2, powod: 'ta jedna funkcja (kurs razy 10^6, iloczyn na BigInt)' },
+  'lib/ksiegowosc/ewidencja.ts#przeliczNaPln': { ile: 2, powod: 'ta jedna funkcja (kurs razy 10^8, iloczyn na BigInt)' },
   'lib/flo/budget.ts#usdToPln': { ile: 1, powod: 'koszt modelu językowego FLO w USD po stałym kursie założonym (limit budżetu), nie kwota dla klienta ani księgi' },
   'lib/flo/metrics.ts#computeCost': { ile: 2, powod: 'koszt modelu FLO na firmę wobec progów w złotych (metryka), nie kwota dla klienta ani księgi' },
   'app/admin/flo/page.tsx#AdminFloPage': { ile: 1, powod: 'panel administratora: średni koszt modelu FLO po kursie z `FLO_USD_PLN`, nie kwota dla klienta ani księgi' },
@@ -247,7 +248,7 @@ describe('NZ-KURS-03: przeliczenia waluty po nazwie kursu stoją w przeliczNaPln
     expect(policzone((k) => !FZ_019.includes(k))).toEqual(Object.fromEntries(Object.entries(DOZWOLONE).map(([k, v]) => [k, v.ile])));
   });
 
-  it.fails('FZ-019: OCR kosztu (costInPln) i próg OSS (netPln) przeliczają sami, na liczbach zmiennoprzecinkowych', () => {
+  it('FZ-019: OCR kosztu (costInPln) i próg OSS (netPln) przeliczają sami, na liczbach zmiennoprzecinkowych', () => {
     expect(policzone((k) => FZ_019.includes(k))).toEqual({});
   });
 });

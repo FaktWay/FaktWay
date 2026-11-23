@@ -2,6 +2,7 @@ import { readCompletePagesByKey } from '@/lib/accounting/read-complete-pages';
 import { assertOutgoingInvoicesInPln } from '@/lib/exports/currency-guard';
 import { assertKsefExpensesReadyForPln } from '@/lib/expenses/ksef-currency-review';
 import { filterExpensesForKsefEnvironment } from '@/lib/expenses/ksef-environment';
+import { komunikatDublaKosztu, zdublowanyDokument } from '@/lib/expenses/jeden-koszt-dokumentu';
 import { todayInWarsaw } from '@/lib/format/warsaw-date';
 import { RECEIPT_REVENUE_COLUMNS, ReceiptInvoiceRevenueError, receiptInvoiceNumbers, receiptRevenueRow } from '@/lib/invoices/receipt-revenue-guard';
 import { fetchSettledAdvancesNet } from '@/lib/invoices/settled-advances';
@@ -18,6 +19,7 @@ import type { PageContext } from '@/lib/supabase/page-context';
  *   kontrola proweniencji przyjętych faktur okresu — obie RZUCAJĄ;
  * - koszty: `is_deductible = true`, pełne strony, filtr środowiska KSeF,
  *   koszt KSeF w walucie obcej zatrzymuje raport (C-11) — baner, nie kwoty;
+ *   ten sam dokument kosztu dwa razy (zdjęcie i Skrzynka KSeF) też (FZ-022);
  * - przychody: sprzedaż przyjęta w aktywnym środowisku, waluta PLN, a ROZ
  *   liczy tylko resztę ponad zaliczki (`fetchSettledAdvancesNet`).
  *
@@ -43,7 +45,7 @@ export interface KpirData {
   periodEnd: string;
   expenses: KpirExpenseRow[];
   invoices: KpirInvoiceRow[];
-  /** Waluty nie do potwierdzenia: raport wstrzymany (bez tabeli). */
+  /** Waluty nie do potwierdzenia, FP albo ten sam dokument kosztu dwa razy: raport wstrzymany (bez tabeli). */
   currencyBlocked: string | null;
   /** Zaliczek ROZ nie dało się odczytać: baner nad tabelą. */
   settledError: string | null;
@@ -149,7 +151,11 @@ export async function getKpirData(
   // faktury (strona pokazuje link do niej), bez kwot.
   const receiptNumbers = receiptInvoiceNumbers(invoices.map(receiptRevenueRow));
   const receiptError = receiptNumbers.length > 0 ? new ReceiptInvoiceRevenueError(receiptNumbers).message : null;
-  const currencyBlocked = currencyError ?? outgoingCurrencyError ?? receiptError;
+  // FZ-022: ten sam dokument wśród kosztów dwa razy (np. zdjęcie i ta sama
+  // faktura ze Skrzynki KSeF) to podwójny koszt: raport wstrzymany z numerem.
+  const dubel = zdublowanyDokument(visibleExpenses);
+  const duplicateError = dubel ? komunikatDublaKosztu(dubel) : null;
+  const currencyBlocked = currencyError ?? duplicateError ?? outgoingCurrencyError ?? receiptError;
 
   // ROZ niesie pełną wartość zamówienia — przychód liczy tylko resztę ponad
   // zaliczki, które KPiR już ma (`kpirRevenueNet`). Bez tej sumy przychód

@@ -234,6 +234,7 @@ const SKRYPTY_Z_INFRA_ENV = [
   'faktway-inwentarz.sh',
   'kontrola-captcha-gotrue.sh',
   'kontrola-faktur-ksef.sh',
+  'koszt-dwa-razy.sh',
   'ksef-historia.sh',
   'ksef-pauza.sh',
   'oryginal-ksef-data-nadania.sh',

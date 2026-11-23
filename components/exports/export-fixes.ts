@@ -1,3 +1,4 @@
+import { ODMOWA_DUBLA_KOSZTU } from '@/lib/expenses/jeden-koszt-dokumentu';
 import {
   isExportFormatSuspended,
   replacementForFormat,
@@ -95,6 +96,10 @@ export function exportFixFor(job: FixableJob): ExportFix | null {
   }
   if (message.includes(FIX_MARKERS.jpkCorrections)) {
     return { kind: 'link', label: 'Wybierz CSV', href: presetHref('csv_universal', job.period_start, job.period_end) };
+  }
+  // FZ-022: ten sam dokument kosztu dwa razy; wyjście w Kosztach („Uwzględnij w KPiR”), od miesiąca okresu.
+  if (message.startsWith(ODMOWA_DUBLA_KOSZTU)) {
+    return { kind: 'link', label: 'Koszty', href: `/expenses?miesiac=${job.period_start.slice(0, 7)}` };
   }
   const invoiceNumber = refusedInvoiceNumber(message);
   if (invoiceNumber) {
