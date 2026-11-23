@@ -216,3 +216,31 @@ describe('F11-B2: dane zmienione po zatwierdzeniu', () => {
   });
 });
 
+
+describe('FZ-030: szkic pozycji to brak po zatwierdzeniu', () => {
+  // Zaliczkę zatwierdzono, a potem dane dały brak (np. zapłata spoza wyliczenia z innym podziałem, FZ-027):
+  // „Ten miesiąc” pokazuje brak, więc przypomnienie nie może podać kwoty zatwierdzonej wersji.
+  const brak = (rodzaj: PozycjaZeSkrotem['rodzaj']): PozycjaZeSkrotem => ({ ok: false, rodzaj, termin: null, brak: 'Składki ZUS za październik 2026: wersje dzielą kwotę inaczej, więc tej kwoty nie liczymy.' });
+
+  it('zatwierdzona wersja bez zapłaty, a szkic to brak: przypomnienie bez kwoty, nie kwota zatwierdzonej wersji', () => {
+    for (const rodzaj of ['ryczalt', 'pit', 'zdrowotna', 'vat'] as const) {
+      const grupy = [rodzaj === 'zdrowotna' ? 'zus' : rodzaj === 'pit' ? 'pit' : rodzaj] as Parameters<typeof niezaplacone>[0]['grupy'];
+      const profil = rodzaj === 'pit' ? { ...PROFIL, forma: 'skala' as const, stawkaDomyslna: null } : PROFIL;
+      expect(niezaplacone({ grupy, rozliczenia: [wersja(rodzaj, 153_600)], pozycje: [brak(rodzaj)], profil }).filter((p) => p.rodzaj === rodzaj), rodzaj)
+        .toEqual([{ rodzaj, kwotaGr: null }]);
+    }
+  });
+
+  it('zatwierdzona i zapłacona wersja, a szkic to brak: bez przypomnienia, jak każda pozycja bez kwoty z zapłatą', () => {
+    expect(niezaplacone({
+      grupy: ['ryczalt'],
+      rozliczenia: [wersja('ryczalt', 153_600, { status: 'zaplacone', zaplaconeO: '2026-11-02' })],
+      pozycje: [brak('ryczalt')],
+      profil: PROFIL,
+    })).toEqual([]);
+  });
+
+  it('moduł bez szkicu (pozycje null): kwota z zatwierdzonej wersji jak dotąd', () => {
+    expect(niezaplacone({ grupy: ['ryczalt'], rozliczenia: [wersja('ryczalt', 153_600)], pozycje: null, profil: PROFIL })).toEqual([{ rodzaj: 'ryczalt', kwotaGr: 153_600 }]);
+  });
+});
