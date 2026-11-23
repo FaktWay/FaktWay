@@ -333,7 +333,7 @@ describe('FZ-032: faktura zakupu ze Skrzynki KSeF bez danych stron', () => {
 
   it('paczka powstaje: XML z KSeF w paczce, brak PDF w spisie z powodem, reszta dokumentów bez zmian', async () => {
     h.tables.invoices!.push(zeSkrzynki);
-    h.tables.xml_documents!.push({ tenant_id: T, invoice_id: 'z2', storage_path: `${T}/ksef-inbox/z2.xml`, sha256_hash: 'h-z2' });
+    h.tables.xml_documents!.push({ id: 'x-z2', tenant_id: T, invoice_id: 'z2', storage_path: `${T}/ksef-inbox/z2.xml`, sha256_hash: 'h-z2' });
     pdfJakRenderer();
 
     const built = await buildArchivePackage({ ...ORDER, kind: 'archive' }, { now: NOW });
