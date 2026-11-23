@@ -304,6 +304,17 @@ describe('strona „Ten miesiąc”', () => {
     expect(t).toContain('Cofnij zapłatę: Ryczałt od przychodów ewidencjonowanych, wersja 1');
   });
 
+  it('FZ-030: pozycja z brakiem po zapłaconej wcześniejszej wersji: bez „do dopłaty zostaje” z kwoty zatwierdzonej wersji', async () => {
+    const pozycje = [{ ok: false, rodzaj: 'ryczalt', termin, brak: 'Ewidencja przychodów ma braki w miesiącach: październik 2026.' }, POZYCJE[1], POZYCJE[2]];
+    mocks.dane = dane([
+      zatw('ryczalt', H('9'), { kwotaGr: 150_000, status: 'zaplacone', zaplaconeO: '2026-11-05' }),
+      zatw('ryczalt', H('a'), { wersja: 2, kwotaGr: 155_600 }),
+    ], pozycje);
+    const t = tekst(await strona());
+    expect(t).not.toContain('do dopłaty zostaje 56,00 zł');
+    expect(t).toContain('Zatwierdzone (wersja 2: 1556,00 zł); wcześniejsza wersja jest zapłacona (1500,00 zł). Bieżące dane mają tu brak, więc dopłaty nie liczymy.');
+  });
+
   it('brak jednej pozycji: komunikat zamiast kwoty, kafel z wyjaśnieniem, reszta do zatwierdzenia', async () => {
     const pozycje = [POZYCJE[0], { ok: false, rodzaj: 'zus_spoleczne', termin, brak: 'Etap „Ulga na start” kończy się w trakcie miesiąca (wrzesień 2026).' }, POZYCJE[2]];
     mocks.dane = dane([], pozycje);

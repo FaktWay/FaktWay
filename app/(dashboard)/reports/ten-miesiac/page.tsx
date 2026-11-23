@@ -245,8 +245,12 @@ function StatusRozliczenia({
     ostatnia.status === 'zaplacone' && ostatnia.zaplaconeO
       ? `Zapłacono ${formatIsoDatePl(ostatnia.zaplaconeO)} (${wersja}: ${zl(ostatnia.kwotaGr)}).`
       : zaplaconoGr > 0
-        ? `Zatwierdzone (${wersja}: ${zl(ostatnia.kwotaGr)}); wcześniejsza wersja jest zapłacona (${zl(zaplaconoGr)}), ` +
-          `więc do dopłaty zostaje ${zl(Math.max(0, ostatnia.kwotaGr - zaplaconoGr))}.`
+        ? p.ok
+          ? `Zatwierdzone (${wersja}: ${zl(ostatnia.kwotaGr)}); wcześniejsza wersja jest zapłacona (${zl(zaplaconoGr)}), ` +
+            `więc do dopłaty zostaje ${zl(Math.max(0, ostatnia.kwotaGr - zaplaconoGr))}.`
+          : // FZ-030: przy braku w bieżących danych dopłata z kwoty zatwierdzonej wersji byłaby nieaktualna.
+            `Zatwierdzone (${wersja}: ${zl(ostatnia.kwotaGr)}); wcześniejsza wersja jest zapłacona (${zl(zaplaconoGr)}). ` +
+            'Bieżące dane mają tu brak, więc dopłaty nie liczymy.'
         : `Zatwierdzone (${wersja}).`;
   const zmiana =
     p.ok && ostatnia.wejsciaHash !== p.wejsciaHash
