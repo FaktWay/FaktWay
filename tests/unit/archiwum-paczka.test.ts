@@ -336,10 +336,13 @@ describe('FZ-032: faktura zakupu ze Skrzynki KSeF bez danych stron', () => {
       if (id === 'z1') throw new TypeError("Cannot read properties of undefined (reading 'method')");
       return { success: true, pdf: Buffer.from(`%PDF ${id}`), filename: 'x.pdf', qrStateKey: 'k', missingKodI: false };
     });
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     const built = await buildArchivePackage({ ...ORDER, kind: 'archive' }, { now: NOW });
     const files = rozpakuj(built.zip);
+    // Wpis dla operatora w logu workera (id faktury i treść błędu, bez danych klienta).
+    expect(log).toHaveBeenCalledWith('[archiwum] wydruk PDF faktury', 'z1', expect.stringContaining("reading 'method'"));
+    log.mockRestore();
 
     expect(files.has('faktury-zakupu/2026-03-07_5260001246_ZK_7.xml')).toBe(true);
     expect(files.has('faktury-zakupu/2026-03-07_5260001246_ZK_7.pdf')).toBe(false);
