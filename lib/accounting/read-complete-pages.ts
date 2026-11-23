@@ -7,6 +7,16 @@ type Page<T> = {
   error: { message: string } | null;
 };
 
+/**
+ * Komplet wierszy zakresami (`range` z `count: 'exact'` przy każdej stronie).
+ * Każda strona po pierwszej zaczyna się od ostatniego przeczytanego wiersza
+ * (zakładka): gdy w trakcie odczytu ktoś usunie albo dopisze wiersz w części
+ * już przeczytanej, zakresy przesuwają się i zakładka jest innym wierszem,
+ * więc odczyt kończy się wyjątkiem, a nie listą z dwóch stanów, także gdy
+ * druga zmiana w części nieprzeczytanej zachowuje liczbę wierszy (FZ-017).
+ * Strona ma dalej najwyżej `ACCOUNTING_PAGE_SIZE` wierszy (z zakładką), więc
+ * mieści się w limicie serwera.
+ */
 export async function readCompletePages<T extends { id: string }>(
   label: string,
   fetchPage: (from: number, to: number) => PromiseLike<Page<T>>,
@@ -15,7 +25,9 @@ export async function readCompletePages<T extends { id: string }>(
   let total: number | null = null;
   let lastId: string | null = null;
 
-  for (let from = 0; total === null || from < total; from += ACCOUNTING_PAGE_SIZE) {
+  while (total === null || rows.length < total) {
+    // Zakładka: od drugiej strony zakres zaczyna się od ostatniego przeczytanego wiersza.
+    const from = rows.length === 0 ? 0 : rows.length - 1;
     const page = await fetchPage(from, from + ACCOUNTING_PAGE_SIZE - 1);
     if (page.error) throw new Error(`${label}: ${page.error.message}`);
     if (!page.data || typeof page.count !== 'number' ||
@@ -24,10 +36,16 @@ export async function readCompletePages<T extends { id: string }>(
       throw new Error(`${label}: nie można potwierdzić liczby rekordów`);
     }
     total = page.count;
+    const zakladka = rows.length === 0 ? 0 : 1;
+    // Inny wiersz na miejscu zakładki: zakresy przesunęły się (zapis w części przeczytanej) albo serwer zmienił kolejność.
+    if (zakladka === 1 && page.data.length > 0 && page.data[0]?.id !== lastId) {
+      throw new Error(`${label}: niestabilna kolejność stron danych`);
+    }
+    // Od drugiej strony brakuje co najmniej dwóch wierszy (zakładka i następny), więc pełna strona zawsze posuwa odczyt.
     if (page.data.length !== Math.min(ACCOUNTING_PAGE_SIZE, Math.max(0, total - from))) {
       throw new Error(`${label}: niepełna strona danych`);
     }
-    for (const row of page.data) {
+    for (const row of page.data.slice(zakladka)) {
       // Callers page by immutable id; a duplicate/reordered row must not be
       // counted twice as a different invoice or cost.
       if (typeof row.id !== 'string' || !row.id ||
@@ -89,7 +107,13 @@ const validCount = (count: number | null | undefined): count is number =>
  *   stron danych”.
  *
  * Jedna strona to jedna migawka: licznik i wiersze przychodzą w tej samej
- * odpowiedzi, więc licznika kontrolnego wtedy nie ma.
+ * odpowiedzi, więc licznika kontrolnego wtedy nie ma. Ostatnia strona prosi
+ * o więcej wierszy, niż brakuje do licznika (przy pełnej stronie o jeden
+ * więcej), więc wiersz, który został za licznikiem, bo w trakcie odczytu
+ * usunięto przeczytany i dopisano nieprzeczytany, daje „niepełna strona
+ * danych” (FZ-017). Zmiany po obu stronach kursora naraz (usunięty i dopisany
+ * wiersz w części przeczytanej oraz w nieprzeczytanej) łapie dopiero migawka
+ * (FZ-029).
  */
 export async function readCompletePagesByKey<T extends { id: string }>(
   label: string,
@@ -101,7 +125,10 @@ export async function readCompletePagesByKey<T extends { id: string }>(
   let pages = 0;
 
   while (total === null || rows.length < total) {
-    const page = await fetchPage({ afterId: lastId, limit: ACCOUNTING_PAGE_SIZE, count: total === null, head: false });
+    // Ostatnia strona, której brakuje pełnej strony do licznika, prosi o jeden wiersz więcej: wiersz za licznikiem
+    // (np. dopisany w części nieprzeczytanej, gdy usunięto przeczytany) daje stronę dłuższą, a nie cichy brak (FZ-017).
+    const limit = total !== null && total - rows.length === ACCOUNTING_PAGE_SIZE ? ACCOUNTING_PAGE_SIZE + 1 : ACCOUNTING_PAGE_SIZE;
+    const page = await fetchPage({ afterId: lastId, limit, count: total === null, head: false });
     pages += 1;
     if (page.error) throw new Error(`${label}: ${page.error.message}`);
     if (!page.data || (total === null && !validCount(page.count))) {
