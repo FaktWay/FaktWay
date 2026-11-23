@@ -227,7 +227,7 @@ describe('NZ-WSP-08: bezpieczniki zamiast cichej niepełnej sumy', () => {
 });
 
 const KATALOG = process.cwd();
-const KATALOGI = ['lib/ksiegowosc', 'lib/reports', 'lib/exports'];
+const KATALOGI = ['lib/ksiegowosc', 'lib/reports', 'lib/exports', 'lib/archiwum'];
 type Stronicowanie = 'zakresy' | 'po kluczu';
 /** Helpery, które sprawdzają komplet stron i kolejność po `id`, i jak stronicują. */
 const HELPERY = new Map<string, Stronicowanie>([
@@ -250,6 +250,7 @@ const ZAPIS = new Set(['insert', 'update', 'upsert', 'delete']);
  * takich zapytań stoi w tej funkcji i dlaczego limit serwera ich nie psuje.
  */
 const OGRANICZONE: Readonly<Record<string, { ile: number; powod: string }>> = {
+  'lib/archiwum/zlecenia.ts#readArchiveOrders:document_archives': { ile: 1, powod: '`limit(limit)`, domyślnie 5 ostatnich zleceń paczki; jedyne wywołanie (strona ustawień) nie podaje innego, poniżej limitu serwera' },
   'lib/exports/data-fetcher.ts#attachKsefNumbers:invoices': { ile: 1, powod: 'numery KSeF po `id`, paczki po 200 (`KSEF_LOOKUP_CHUNK`)' },
   'lib/exports/data-fetcher.ts#fetchExpensesForExport:invoices': { ile: 1, powod: 'waluty faktur KSeF po `id`, paczki po 200 z `assertKsefExpensesReadyForPln`' },
   'lib/exports/data-fetcher.ts#fetchParentInvoices:invoices': { ile: 1, powod: 'faktury korygowane po `id`, paczki po 100, licznik równy paczce' },
