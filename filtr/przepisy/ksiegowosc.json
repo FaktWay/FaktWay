@@ -2508,7 +2508,8 @@
         "tests/unit/ksiegowosc-kpir.test.ts > wiersz kolumny 13 w dniu zapłaty",
         "tests/unit/ksiegowosc-kpir-dane.test.ts > Fundusz Pracy (K7.3)",
         "tests/unit/ksiegowosc-kpir-dane.test.ts > FZ-027: wersja, która dzieli tę samą kwotę inaczej",
-        "tests/filtr/niezmienniki/ksiegi-uzupelnienie.test.ts > NZ-PIT-08: wersja, która przesuwa kwotę"
+        "tests/filtr/niezmienniki/ksiegi-uzupelnienie.test.ts > NZ-PIT-08: wersja, która przesuwa kwotę",
+        "tests/filtr/niezmienniki/podzial-skladek.test.ts > skala"
       ],
       "parametry": [],
       "niezmienniki": [],

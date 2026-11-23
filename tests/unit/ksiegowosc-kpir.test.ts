@@ -298,6 +298,35 @@ describe('FZ-027: zmiana podziału zapłaconych składek przy skali', () => {
     expect(pozycja('2026-02', kpir, 'pit')).toMatchObject({ ok: false, brak: expect.stringContaining('luty 2026') });
   });
 
+  it('zdrowotna od dochodu ma brak za miesiąc po pierwszej zapłacie okresu, także gdy wersja ze zmianą jest zapłacona później', () => {
+    const pozniej: Platnosc[] = [
+      { miesiac: '2026-01', rodzaj: 'zus_spoleczne', wersja: 1, kwotaGr: 192_676, spoleczneBezFpGr: 192_676, zaplaconeO: '2026-02-10' },
+      { miesiac: '2026-01', rodzaj: 'zus_spoleczne', wersja: 2, kwotaGr: 192_676, spoleczneBezFpGr: 178_829, zaplaconeO: '2026-03-05' },
+    ];
+    const kpir = ksiega();
+    const zdrowotna = (miesiac: string) => {
+      const w = tenMiesiac({ miesiac, kpir: { rok: kpir, poprzedni: null }, wersje: [SKALA], platnosci: pozniej, parametry: parametryRoku });
+      if (!w.ok) throw new Error(w.braki.join(' '));
+      return w.wynik.pozycje.find((p) => p.rodzaj === 'zdrowotna');
+    };
+    // Marzec liczy się z dochodu z lutego, a w lutym jest pierwsza zapłata okresu.
+    expect(zdrowotna('2026-03')).toMatchObject({ ok: false, brak: expect.stringContaining('wersja 1 zapłacona 10.02.2026') });
+    expect(zdrowotna('2026-02')).toMatchObject({ ok: true });
+  });
+
+  it('okres zapłacony w dwóch latach: brak w księdze każdego roku z zapłatą', () => {
+    const wersje = [{ ...SKALA, validFrom: '2025-01-01' }];
+    const przelom = [
+      { id: 'r1', okres: '2025-12', wersja: 1, kwotaGr: 100_000, spoleczneBezFpGr: 0, zaplaconeO: '2025-12-29' },
+      { id: 'r2', okres: '2025-12', wersja: 2, kwotaGr: 100_000, spoleczneBezFpGr: 90_000, zaplaconeO: '2026-01-15' },
+    ];
+    const zmiany = zmianyPodzialu(przelom);
+    for (const [rok, dzien] of [[2025, '2025-12-29'], [2026, '2026-01-15']] as const) {
+      const k = zbudujKpir(wejscie({ rok, wersje, zaplatyFp: zaplatyFunduszuPracy(przelom), zmianyPodzialu: zmiany }));
+      expect(k.braki.map((b) => [b.dzien, b.dokument]), String(rok)).toEqual([[dzien, 'Składki ZUS za 12/2025']]);
+    }
+  });
+
   it('brak należy do księgi roku dnia zapłaty tej wersji, a dzień z ryczałtem nie ma braku w KPiR', () => {
     const w = { kwotaGr: 100_000, bezFpGr: 90_000 };
     const zmiany = [{ okres: '2025-11', dni: ['2025-12-20'], wersje: [{ wersja: 1, data: '2025-12-20', ...w }, { wersja: 2, data: '2025-12-20', ...w, bezFpGr: 100_000 }] as [WersjaPodzialu, WersjaPodzialu] }];
