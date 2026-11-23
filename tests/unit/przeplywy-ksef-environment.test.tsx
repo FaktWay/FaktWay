@@ -237,10 +237,11 @@ describe('cash flow after switching from TEST to PROD', () => {
     expect(data.invoices).toHaveLength(1201);
     expect(data.costEntries).toHaveLength(1200);
     expect(data.revenue.at(-1)).toBe(1300);
-    expect(supabase.ranges).toContainEqual({ table: 'invoices', from: 500, to: 999 });
-    expect(supabase.ranges).toContainEqual({ table: 'expenses', from: 500, to: 999 });
-    expect(supabase.ranges).toContainEqual({ table: 'invoices', from: 1000, to: 1499 });
-    expect(supabase.ranges).toContainEqual({ table: 'expenses', from: 1000, to: 1499 });
+    // Druga strona od zakładki (ostatni przeczytany wiersz, FZ-017).
+    expect(supabase.ranges).toContainEqual({ table: 'invoices', from: 499, to: 998 });
+    expect(supabase.ranges).toContainEqual({ table: 'expenses', from: 499, to: 998 });
+    expect(supabase.ranges).toContainEqual({ table: 'invoices', from: 998, to: 1497 });
+    expect(supabase.ranges).toContainEqual({ table: 'expenses', from: 998, to: 1497 });
   });
 
   it('rejects an incomplete page instead of showing partial cash-flow totals', async () => {
