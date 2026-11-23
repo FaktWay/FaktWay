@@ -25,7 +25,7 @@ export type GenerateInvoicePdfResult =
   | {
       success: false;
       error: string;
-      code?: 'KSEF_NOT_VERIFIED' | 'NOT_FOUND' | 'FORBIDDEN' | 'OFFLINE_QR_UNAVAILABLE' | 'PDF_STATE_CHANGED' | 'RETIRED_DRAFT';
+      code?: 'KSEF_NOT_VERIFIED' | 'NOT_FOUND' | 'FORBIDDEN' | 'OFFLINE_QR_UNAVAILABLE' | 'PDF_STATE_CHANGED' | 'RETIRED_DRAFT' | 'CURRENCY_NOT_SUPPORTED';
       /**
        * PR C (5.12): odmowa dla szkicu wycofanego po zapisie oryginału wskazuje PDF faktury K z KSeF
        * (ścieżka względna tej aplikacji) — trasa oddaje ją w odpowiedzi 409, a przycisk w toaście.
@@ -98,6 +98,24 @@ async function checkQrAvailability(
   // trwałego XML, więc KODU I nie da się zbudować. Do czasu zapisu oryginału
   // wydajemy podgląd z dopiskiem; wysyłkę nabywcy blokuje akcja e-mail.
   return { qrPayload, failure: null, missingKodI: !!data.ksefNumber && !qrPayload };
+}
+
+/**
+ * FZ-021: odmowa PDF dla faktury w walucie innej niż PLN, z numerem, numerem
+ * KSeF, walutą i wyjściem. Wydruk zna tylko złote (dopisek „PLN”, „Do
+ * zapłaty”), a faktura w walucie obcej ma VAT w złotych obok kwot w walucie
+ * (art. 106e ust. 11 ustawy o VAT), więc sama zmiana dopisku nie wystarczy.
+ */
+function currencyRefusal(data: InvoicePdfData): PdfFailure {
+  const numer = data.internalNumberMissing ? (data.ksefNumber ?? 'bez numeru') : data.invoice.internalNumber;
+  const ksef = data.ksefNumber && data.ksefNumber !== numer ? ` (numer KSeF ${data.ksefNumber})` : '';
+  return {
+    success: false,
+    code: 'CURRENCY_NOT_SUPPORTED',
+    error:
+      `Faktura ${numer}${ksef} jest w walucie ${data.currency}. Wydruk PDF w FaktWay pokazuje kwoty tylko w złotych, więc go nie tworzymy. ` +
+      'Tę fakturę pokazuje KSeF: wizualizacja w Aplikacji Podatnika KSeF po numerze KSeF albo plik XML („Pobierz XML” na stronie faktury w FaktWay).',
+  };
 }
 
 /** Sprawdza stan bezpośrednio przed przekazaniem PDF odbiorcy lub wysyłką. */
@@ -183,6 +201,9 @@ export async function generateInvoicePdf(
       code: 'FORBIDDEN',
     };
   }
+  // FZ-021: wydruk ma kwoty i „Do zapłaty” w złotych na sztywno, więc faktura w innej walucie (np. faktura
+  // zakupu z KSeF w paczce archiwum) dostaje odmowę z wyjściem, zanim powstanie wydruk albo wyjdzie zapisany plik.
+  if ((data.currency ?? 'PLN') !== 'PLN') return currencyRefusal(data);
 
   // D-A4-1b-3 PR C (C8/T10): szkic BEZ numeru to dokument wycofany po zapisie oryginału z KSeF — numer
   // ma teraz faktura K, więc PDF z numerem zastępczym (`id.slice(0, 8)`) byłby fałszywym dokumentem.
