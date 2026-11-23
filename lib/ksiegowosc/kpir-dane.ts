@@ -23,7 +23,7 @@ import { filterExpensesForKsefEnvironment } from '@/lib/expenses/ksef-environmen
 import { formatIsoDatePl } from '@/lib/format/iso-date';
 import { requireConfiguredKsefEnvironment } from '@/lib/ksef/claim-environment';
 import { czytajFakturyRoku, KOMUNIKAT_ODCZYT, KOMUNIKAT_SRODOWISKO, type OpcjeOdczytu } from '@/lib/ksiegowosc/ewidencja-dane';
-import { zaplatyFunduszuPracy, zbudujKpir, type KosztKpir, type Kpir, type WpisKpir, type ZaplaconeSkladki } from '@/lib/ksiegowosc/kpir';
+import { zaplatyFunduszuPracy, zbudujKpir, zmianyPodzialu, type KosztKpir, type Kpir, type WpisKpir, type ZaplaconeSkladki } from '@/lib/ksiegowosc/kpir';
 import { czytajWersjeProfilu, type WersjaProfilu } from '@/lib/ksiegowosc/profil';
 import { czytajSpisy, type Spis } from '@/lib/ksiegowosc/spis-z-natury';
 import { czytajWpisyKpir, type RodzajWpisu } from '@/lib/ksiegowosc/wpisy-reczne';
@@ -213,7 +213,13 @@ export async function czytajKpir(client: SupabaseClient, tenantId: string, rok: 
   const [k, wpisy, wersje, skladki, spisy] = odczyt.r;
   if (!Array.isArray(k)) return { ok: false, komunikat: k.komunikat };
   const zaplatyFp = zaplatyFunduszuPracy(skladki);
-  return { ok: true, kpir: zbudujKpir({ rok, faktury: faktury.faktury, koszty: k, wpisy, zaplatyFp, wersje, kursy: faktury.kursy }), wpisy, wersje, spisy };
+  return {
+    ok: true,
+    kpir: zbudujKpir({ rok, faktury: faktury.faktury, koszty: k, wpisy, zaplatyFp, zmianyPodzialu: zmianyPodzialu(skladki), wersje, kursy: faktury.kursy }),
+    wpisy,
+    wersje,
+    spisy,
+  };
 }
 
 /**

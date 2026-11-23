@@ -1261,7 +1261,7 @@
     },
     {
       "id": "RP-RYCZ-ODL-02",
-      "regula": "Kolejna zapłacona wersja rozliczenia liczy się do odliczeń tylko dopłatą ponad najwyższą zapłaconą wersję okresu, w miesiącu tej zapłaty.",
+      "regula": "Kolejna zapłacona wersja rozliczenia liczy się do odliczeń tylko dopłatą ponad najwyższą zapłaconą wersję okresu, w miesiącu tej zapłaty. Wersja składek społecznych z kwotą nie niższą niż najwyższa zapłacona, w której Fundusz Pracy albo część bez FP jest niższa niż w wersji, która podział ustaliła, to brak każdej kwoty liczonej z odliczeń od miesiąca jej zapłaty, z wyjściem „Cofnij” wersji z błędnym podziałem (FZ-027).",
       "podstawa": [
         {
           "akt": "ustawa o zryczałtowanym podatku dochodowym od niektórych przychodów osiąganych przez osoby fizyczne",
@@ -1280,11 +1280,14 @@
         "ksiegowosc.rozliczenia"
       ],
       "kod": [
-        "lib/ksiegowosc/ten-miesiac.ts#przyrostyZaplat"
+        "lib/ksiegowosc/ten-miesiac.ts#przyrostyZaplat",
+        "lib/ksiegowosc/kpir.ts#zmianyPodzialu"
       ],
       "testy": [
         "tests/unit/ksiegowosc-ten-miesiac.test.ts > kolejna zapłacona wersja liczy się tylko dopłatą",
-        "tests/unit/ksiegowosc-ten-miesiac-dane.test.ts > zaległe składki za listopad zapłacone w styczniu"
+        "tests/unit/ksiegowosc-ten-miesiac-dane.test.ts > zaległe składki za listopad zapłacone w styczniu",
+        "tests/unit/ksiegowosc-ten-miesiac.test.ts > FZ-027: zmiana podziału zapłaconych składek między FP i część bez FP",
+        "tests/unit/ksiegowosc-kpir.test.ts > FZ-027: zmiana podziału zapłaconych składek przy skali"
       ],
       "parametry": [],
       "niezmienniki": [],
@@ -2481,7 +2484,7 @@
     },
     {
       "id": "RP-KPIR-FP-01",
-      "regula": "Fundusz Pracy i Fundusz Solidarnościowy z zapłaconych składek to przy skali i liniowym koszt w kolumnie 13 w dniu zapłaty (z przyrostów zapłaconych wersji); składki społeczne (przy liniowym także zdrowotna) odlicza się od dochodu, nie wpisuje do KPiR.",
+      "regula": "Fundusz Pracy i Fundusz Solidarnościowy z zapłaconych składek to przy skali i liniowym koszt w kolumnie 13 w dniu zapłaty (z przyrostów zapłaconych wersji); składki społeczne (przy liniowym także zdrowotna) odlicza się od dochodu, nie wpisuje do KPiR. Wersja, która tę samą albo wyższą kwotę dzieli inaczej między FP i część bez FP (FP albo część bez FP niższe niż w wersji, która podział ustaliła), to brak w KPiR w dniu jej zapłaty z nazwą okresu i wyjściem „Cofnij” wersji z błędnym podziałem, a nie koszt i odliczenie z tych samych pieniędzy (FZ-027).",
       "podstawa": [
         {
           "akt": "ustawa o podatku dochodowym od osób fizycznych",
@@ -2496,12 +2499,15 @@
         "ksiegowosc.kpir"
       ],
       "kod": [
-        "lib/ksiegowosc/kpir.ts#zaplatyFunduszuPracy"
+        "lib/ksiegowosc/kpir.ts#zaplatyFunduszuPracy",
+        "lib/ksiegowosc/kpir.ts#zmianyPodzialu"
       ],
       "testy": [
         "tests/unit/ksiegowosc-kpir.test.ts > FP z przyrostów zapłaconych wersji",
         "tests/unit/ksiegowosc-kpir.test.ts > wiersz kolumny 13 w dniu zapłaty",
-        "tests/unit/ksiegowosc-kpir-dane.test.ts > Fundusz Pracy (K7.3)"
+        "tests/unit/ksiegowosc-kpir-dane.test.ts > Fundusz Pracy (K7.3)",
+        "tests/unit/ksiegowosc-kpir-dane.test.ts > FZ-027: wersja, która dzieli tę samą kwotę inaczej",
+        "tests/filtr/niezmienniki/ksiegi-uzupelnienie.test.ts > NZ-PIT-08: wersja, która przesuwa kwotę"
       ],
       "parametry": [],
       "niezmienniki": [],

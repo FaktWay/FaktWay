@@ -14,6 +14,10 @@
  *   rozliczenia liczy się tylko dopłata (przyrost między zapłaconymi wersjami).
  * - Próg zdrowotnej: przychód od początku roku pomniejszony o zapłacone
  *   składki społeczne bez FP (sekcja 5, pewność średnia).
+ * - Wersja składek społecznych, która dzieli zapłaconą kwotę między FP i część
+ *   bez FP inaczej niż wcześniejsza (`zmianyPodzialu`, FZ-027), to brak każdej
+ *   kwoty liczonej z odliczeń od miesiąca jej zapłaty (ryczałt, próg
+ *   zdrowotnej, zaliczka PIT, zdrowotna od dochodu z tego miesiąca).
  * - Firma, która zaczyna w trakcie miesiąca, liczy się z pierwszej wersji
  *   ustawień z tego miesiąca; składka zdrowotna jest wtedy pełna.
  * - Skala i liniowy (K7): zamiast ryczałtu zaliczka PIT narastająco z KPiR
@@ -26,7 +30,7 @@
 import { monthLabel, monthRange } from '@/lib/expenses/month';
 import { formatIsoDatePl } from '@/lib/format/iso-date';
 import { brakiOkresu, sumyOkresu, wierszeOkresu, type Ewidencja } from '@/lib/ksiegowosc/ewidencja';
-import { brakiKpirOkresu, sumyKpir, wierszeKpirOkresu, type Kpir } from '@/lib/ksiegowosc/kpir';
+import { brakiKpirOkresu, brakZmianyPodzialu, sumyKpir, wierszeKpirOkresu, zmianyPodzialu, type Kpir } from '@/lib/ksiegowosc/kpir';
 import { zaliczkiPit, type FormaPit, type MiesiacPit, type ZaliczkaMiesiaca } from '@/lib/ksiegowosc/pit';
 import { terminDla, type Termin } from '@/lib/ksiegowosc/kalendarz';
 import { rokSkladkowyZdrowotnej, type ParametryRoku } from '@/lib/ksiegowosc/parametry';
@@ -175,6 +179,21 @@ export function przyrostyZaplat(platnosci: readonly Platnosc[]) {
 
 const miesiacNr = (rok: number, m: number) => `${rok}-${String(m).padStart(2, '0')}`;
 
+/**
+ * FZ-027: wersja składek społecznych zapłacona w miesiącach [od, do] (RRRR-MM),
+ * która zmienia podział kwoty między FP i część bez FP, to brak pozycji
+ * liczonej z odliczeń tych miesięcy (przyrosty dałyby FP w odliczeniu albo
+ * koszt i odliczenie z tych samych pieniędzy).
+ */
+function brakPodzialu(platnosci: readonly Platnosc[], odMiesiaca: string, doMiesiaca: string): string | null {
+  const zmiana = zmianyPodzialu(
+    platnosci
+      .filter((p) => p.rodzaj === 'zus_spoleczne')
+      .map((p) => ({ id: `${p.miesiac}-${p.wersja}`, okres: p.miesiac, wersja: p.wersja, kwotaGr: p.kwotaGr, spoleczneBezFpGr: p.spoleczneBezFpGr, zaplaconeO: p.zaplaconeO })),
+  ).find((z) => z.data.slice(0, 7) >= odMiesiaca && z.data.slice(0, 7) <= doMiesiaca);
+  return zmiana ? brakZmianyPodzialu(zmiana, 'tej kwoty nie liczymy') : null;
+}
+
 type Czesciowy<T> = ({ ok: true } & T) | { ok: false; brak: string };
 
 /** Wersja ustawień miesiąca: z pierwszego dnia, a przy starcie w trakcie miesiąca pierwsza z tego miesiąca. */
@@ -255,6 +274,8 @@ export function tenMiesiac(w: WejscieMiesiaca): TenMiesiac {
   // Ryczałt od stycznia: przeniesienie odliczeń i korekt zależy od wcześniejszych miesięcy.
   const ryczalt = ((): Czesciowy<{ ryczalt: RyczaltMiesiaca; wejscie: WejscieRyczaltu; lancuch: Record<string, unknown>[] }> => {
     if (brakEwidencji) return { ok: false, brak: brakEwidencji };
+    const podzial = brakPodzialu(w.platnosci, `${rok}-01`, w.miesiac);
+    if (podzial) return { ok: false, brak: podzial };
     let nadwyzka = 0;
     let ujemne: ReadonlyMap<number, number> = new Map();
     const lancuch: Record<string, unknown>[] = [];
@@ -295,6 +316,8 @@ export function tenMiesiac(w: WejscieMiesiaca): TenMiesiac {
       };
     }
     if (brakEwidencji) return { ok: false, brak: brakEwidencji };
+    const podzial = brakPodzialu(w.platnosci, `${rok}-01`, w.miesiac);
+    if (podzial) return { ok: false, brak: podzial };
     const przychodNarastajacoGr = sumyOkresu(wierszeOkresu(ewidencja, `${rok}-01-01`, koniec)).razemGr;
     const spoleczneNarastajacoGr = przyrosty
       .filter((z) => z.rodzaj === 'zus_spoleczne' && z.miesiacZaplaty >= `${rok}-01` && z.miesiacZaplaty <= w.miesiac)
@@ -382,6 +405,8 @@ type Przyrost = ReturnType<typeof przyrostyZaplat>[number];
  * i zapłat (społeczne bez FP, przy liniowym też zdrowotna), składka zdrowotna
  * od dochodu z poprzedniego miesiąca. Brak w KPiR od stycznia do miesiąca
  * zabiera zaliczkę; brak w poprzednim miesiącu zabiera składkę zdrowotną.
+ * Zmiana podziału składek (FZ-027) zabiera je tak samo, także gdy KPiR
+ * zbudowano bez `zmianyPodzialu`.
  */
 function miesiacKpir(
   w: WejscieMiesiaca,
@@ -406,6 +431,8 @@ function miesiacKpir(
     if (!kpir) return { ok: false, brak: 'Nie udało się odczytać KPiR, więc zaliczki nie liczymy.' };
     const braki = brakiKpirOkresu(kpir.rok, `${rok}-01-01`, koniec);
     if (braki.length > 0) return { ok: false, brak: brakKpir([...new Set(braki.map((b) => b.dzien.slice(0, 7)))]) };
+    const podzial = brakPodzialu(w.platnosci, `${rok}-01`, w.miesiac);
+    if (podzial) return { ok: false, brak: podzial };
     const lancuch: MiesiacPit[] = [];
     for (let m = 1; m <= nr; m++) {
       const miesiac = miesiacNr(rok, m);
@@ -446,6 +473,8 @@ function miesiacKpir(
     }
     const g = monthRange(poprzedni);
     if (brakiKpirOkresu(ksiega, g.from, g.to).length > 0) return { ok: false, brak: brakKpir([poprzedni]) };
+    const podzial = brakPodzialu(w.platnosci, poprzedni, poprzedni);
+    if (podzial) return { ok: false, brak: podzial };
     const sumy = sumyKpir(wierszeKpirOkresu(ksiega, g.from, g.to));
     const dochod = sumy.przychodGr - sumy.kosztyGr - zaplaconeW(poprzedni, 'zus_spoleczne', 'spoleczneBezFpGr');
     return zdrowotnaOdDochodu(forma, dochod, pz.zdrowotna.liczby);
