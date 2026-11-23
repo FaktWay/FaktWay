@@ -90,6 +90,12 @@ z których żaden nie jest kopią): zgłoszenie do zespołu z identyfikatorami
 kosztów z zapytania. Numeru prawdziwego dokumentu nie zmienia się po to, żeby
 ominąć odmowę.
 
+## Przebiegi na produkcji
+
+| Kiedy | Kod | Wynik | Wniosek |
+|---|---|---|---|
+| 23.11.2026 po 18:00 (Bartosz) | `main` z #839, bez opcji: wszystkie firmy, same liczby, KSeF `test` z kontenera aplikacji | koszty przeczytane 0, firmy z odmową 0, grupy 0, okresy złożone 0, pary źródeł brak | Odmowa wchodzi z nocnym wdrożeniem bez firm do kontaktu. `is_deductible` ma domyślnie TRUE (00034), więc 0 znaczy, że na produkcji nie ma kosztu spoza KSeF; pominięte z założenia są tylko koszty powiązane z fakturą KSeF z innego środowiska niż KSEF_ENV aplikacji (aplikacja też ich nie liczy). Przed zmianą KSEF_ENV aplikacji na `production` przebieg z `--srodowisko production`. |
+
 ## Fala odmów po wdrożeniu
 
 Wyłącznika nie ma. Gdy odmów jest dużo i nie są dublami, decyzję podejmuje
