@@ -363,3 +363,28 @@ describe('odczyt „Ten miesiąc”', () => {
     expect(prawdziwe.aktualne([r(1), r(3), r(2)]).get('ryczalt')).toMatchObject({ wersja: 3 });
   });
 });
+
+describe('FZ-034: „Cofnij” najnowszej wersji, gdy wyżej nie ma jej pozycji', () => {
+  it('miesiąc się nie liczy: „Cofnij” najnowszej zapłaconej wersji jest w historii wersji', async () => {
+    mocks.dane = {
+      ok: false,
+      braki: ['Na październik 2026 nie ma ustawień podatkowych, więc nic nie liczymy.'],
+      rozliczenia: [zatw('zus_spoleczne', H('b'), { status: 'zaplacone', zaplaconeO: '2026-11-05' })],
+      zaplatyReczne: [],
+    };
+    const t = tekst(await strona());
+    expect(t).toContain('Cofnij zapłatę: Składki społeczne, wersja 1');
+  });
+
+  it('miesiąc się liczy, ale pozycji tego rozliczenia już nie ma (np. VAT po zwolnieniu): „Cofnij” w historii', async () => {
+    mocks.dane = dane([zatw('vat', H('d'), { status: 'zaplacone', zaplaconeO: '2026-11-05' })]);
+    const t = tekst(await strona());
+    expect(t).toContain('Cofnij zapłatę: Podatek VAT, wersja 1');
+  });
+
+  it('pozycja jest wyżej: „Cofnij” najnowszej wersji tylko przy pozycji, nie drugi raz w historii', async () => {
+    mocks.dane = dane([zatw('ryczalt', H('a'), { status: 'zaplacone', zaplaconeO: '2026-11-05' })]);
+    const t = tekst(await strona());
+    expect(t.match(/Cofnij zapłatę: Ryczałt od przychodów ewidencjonowanych/g)).toHaveLength(1);
+  });
+});
