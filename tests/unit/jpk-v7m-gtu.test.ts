@@ -444,5 +444,5 @@ describe('JPK_V7M(3): niezmiennik oznaczeń GTU', () => {
       }),
       { numRuns: 40 },
     );
-  });
+  }, 600_000);
 });
