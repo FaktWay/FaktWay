@@ -170,7 +170,8 @@ describe('korekta faktury od brutto: odmowy z wyjściem i cena brutto tylko od s
       TENANT,
     );
     expect(r).toMatchObject({ success: false });
-    expect(r.success ? '' : r.error).toMatch(/liczy VAT od netto\. Podaj VAT od netto/);
+    // Zdanie odmowy podaje kwoty, które przejdą (uwaga do #881): −17,07 × 23 % = −3,9261, do grosza −3,93; brutto −21,00.
+    expect(r.success ? '' : r.error).toMatch(/liczy VAT od netto\. Przy zmianie netto -17,07 zł i stawce 23% zmiana VAT to -3,93 zł, a zmiana brutto -21,00 zł/);
   });
 
   it('cena brutto z żądania w pozycji „po” faktury od netto się nie liczy: plik liczy od netto', async () => {
