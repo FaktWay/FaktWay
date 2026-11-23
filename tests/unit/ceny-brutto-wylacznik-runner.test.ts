@@ -19,8 +19,9 @@ import { jsonb, memoryDb, type MemoryDb, type Row } from './helpers/ponowienie-s
  * nie widzą (uwaga 2 czytelnika #884, punkt „przed pierwszym włączeniem”).
  * Odmowę bez otwartej wysyłki sprawdza `ceny-brutto-wylacznik-job.test.ts`.
  *
- * Prawdziwy `runSubmitInvoice`, prawdziwa granica referencji i odczyt
- * wyłącznika przez `odmowaCenBrutto` (atrapa tylko wiersza flagi). Atrapy:
+ * Prawdziwy `runSubmitInvoice` i prawdziwa granica referencji; odczyty flag
+ * (`getGlobalFlagForExecution`) są zliczane, a `grossPricesEnabled` zawsze
+ * wyłączona, więc bramka przed uzgodnieniem dałaby odmowę. Atrapy:
  * baza (projekcja kolumn jak PostgREST), HTTP KSeF (status po referencji,
  * faktury sesji), pełny przepływ wysyłki (POST) i dziennik wysyłek.
  */
@@ -28,7 +29,7 @@ import { jsonb, memoryDb, type MemoryDb, type Row } from './helpers/ponowienie-s
 const ID = '11111111-1111-4111-8111-111111111111';
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const ATTEMPT = '22222222-2222-4222-8222-222222222222';
-const NIP = '5260001246';
+const NIP = '1234567890';
 
 const m = vi.hoisted(() => ({
   fullFlow: vi.fn(),
@@ -99,6 +100,7 @@ vi.mock('@/lib/cache/invalidation', () => ({ invalidateTenantDashboard: vi.fn() 
 vi.mock('@/lib/analytics/server', () => ({ trackServer: vi.fn() }));
 vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn(), captureMessage: vi.fn(), addBreadcrumb: vi.fn() }));
 
+import { czyFakturaWCenachBrutto } from '@/lib/invoices/ceny-brutto-wylacznik-wspolne';
 import { runSubmitInvoice } from '@/lib/jobs/runners/submit-invoice';
 import { finalizeInvoice } from '@/lib/xml/invoice-calculator';
 
@@ -110,7 +112,7 @@ const fakturaWCenachBrutto: Invoice = finalizeInvoice({
   type: 'VAT',
   issueDate: '2026-11-17',
   seller,
-  buyer: { nip: '5252241585', name: 'Klient sp. z o.o.', address: { countryCode: 'PL', addressLine1: 'ul. Klienta 10', addressLine2: '02-001 Warszawa' } },
+  buyer: { nip: '1234567890', name: 'Klient sp. z o.o.', address: { countryCode: 'PL', addressLine1: 'ul. Klienta 10', addressLine2: '02-001 Warszawa' } },
   payment: { currency: 'PLN', dueDate: '2026-12-01', method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
   pricesGross: true,
   lines: ['Kawa', 'Herbata', 'Woda'].map((name, i) => ({ ordinal: i + 1, name, unit: 'szt.', quantity: 1, unitPriceNet: 0, unitPriceGross: 1, vatRate: '23' as const })),
@@ -156,6 +158,10 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('wyłącznik cen brutto na pełnym runnerze: najpierw uzgodnienie, bez drugiej wysyłki', () => {
+  it('faktura testowa jest w cenach brutto (tak jak czyta ją bramka wyłącznika)', () => {
+    expect(czyFakturaWCenachBrutto(fakturaWCenachBrutto)).toBe(true);
+  });
+
   it('pełne zdarzenie z otwartym wpisem sent przy wyłączonym: uzgodnione po referencji, przyjęta z numerem KSeF, bez POST i bez odczytu wyłącznika', async () => {
     m.findOpen.mockResolvedValue(sentRow(hoursAgo(1)));
     m.status.mockResolvedValue({ state: 'accepted', ksefNumber: 'K-BRUTTO', acquisitionTimestamp: '2026-11-17T10:00:00Z' });
