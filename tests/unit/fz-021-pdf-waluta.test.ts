@@ -18,14 +18,11 @@ vi.mock('@/lib/supabase/server', () => ({
 }));
 
 import { loadInvoiceForPdf } from '@/lib/pdf/invoice-data';
-import { generateInvoicePdf } from '@/lib/pdf/invoice-pdf';
 
 /**
- * FZ-021: PDF faktury drukuje kwoty z dopiskiem „PLN” na sztywno, a odczyt
- * nie znał waluty faktury. Faktura w innej walucie (np. faktura zakupu z KSeF
- * w EUR w paczce archiwum albo pobrana po adresie) dostawała wydruk z kwotami
- * w walucie i dopiskiem PLN. Teraz odmowa z numerem, walutą i wyjściem,
- * zanim powstanie wydruk albo zostanie wydany zapisany wcześniej plik.
+ * FZ-021, odczyt: `loadInvoiceForPdf` czyta walutę faktury (wcześniej jej nie
+ * znał, a wydruk ma dopisek PLN na sztywno). Odmowę wydruku przy innej
+ * walucie sprawdza `tests/unit/fz-021-pdf-waluta-generator.test.ts`.
  */
 
 const wiersz = (o: Record<string, unknown> = {}) => ({
@@ -43,21 +40,13 @@ const wiersz = (o: Record<string, unknown> = {}) => ({
 beforeEach(() => vi.clearAllMocks());
 
 describe('FZ-021: PDF faktury w walucie innej niż PLN', () => {
-  it('odczyt czyta walutę faktury; brak waluty w wierszu to złote (domyślna kolumny)', async () => {
+  it('odczyt czyta walutę faktury wielkimi literami; brak waluty, pusta i małe litery PLN to złote (domyślna kolumny)', async () => {
     mocks.row = wiersz({ currency: ' eur ' });
     expect((await loadInvoiceForPdf('inv-1', 'ten-1'))?.currency).toBe('EUR');
     expect(mocks.select.mock.calls[0]?.[0]).toMatch(/\bcurrency\b/);
-    mocks.row = wiersz({ currency: null });
-    expect((await loadInvoiceForPdf('inv-1', 'ten-1'))?.currency).toBe('PLN');
-  });
-
-  it('faktura w EUR: odmowa z numerem, walutą i wyjściem, bez wydruku i bez zapisanego wcześniej pliku', async () => {
-    mocks.row = wiersz({ currency: 'EUR' });
-    const wynik = await generateInvoicePdf('inv-1', 'ten-1');
-    expect(wynik).toMatchObject({ success: false, code: 'CURRENCY_NOT_SUPPORTED' });
-    if (wynik.success) return;
-    expect(wynik.error).toContain('FZ/7/2026');
-    expect(wynik.error).toContain('EUR');
-    expect(wynik.error).toContain('KSeF');
+    for (const currency of [null, '', ' ', 'pln', 'PLN']) {
+      mocks.row = wiersz({ currency });
+      expect((await loadInvoiceForPdf('inv-1', 'ten-1'))?.currency, String(currency)).toBe('PLN');
+    }
   });
 });

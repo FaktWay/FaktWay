@@ -53,11 +53,11 @@ export interface InvoicePdfData {
    */
   receiptInvoiceMarker: boolean;
   /**
-   * Waluta faktury wielkimi literami; bez waluty w wierszu złote (domyślna
-   * kolumny). PDF drukuje kwoty tylko w złotych, więc inna waluta to odmowa
-   * (FZ-021, `generateInvoicePdf`).
+   * Waluta faktury wielkimi literami (`loadInvoiceForPdf` zawsze ją ustawia);
+   * bez waluty w wierszu albo bez pola złote, jak domyślna kolumny. PDF drukuje
+   * kwoty tylko w złotych, więc inna waluta to odmowa (FZ-021, `generateInvoicePdf`).
    */
-  currency: string;
+  currency?: string;
   /** Cache: PDF jest ważny gdy pdf_generated_at >= updated_at. */
   updatedAt: string | null;
   pdfStoragePath: string | null;
