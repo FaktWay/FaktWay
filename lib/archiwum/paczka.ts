@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { readCompletePagesByKey } from '@/lib/accounting/read-complete-pages';
 import { KsefExpenseCurrencyNotSupportedError } from '@/lib/expenses/ksef-currency-review';
 import { OutgoingInvoiceCurrencyNotSupportedError } from '@/lib/exports/currency-guard';
 import { fetchInvoicesForExport } from '@/lib/exports/data-fetcher';
@@ -18,6 +19,7 @@ import { MissingTaxOfficeError, readTenantTaxOffice } from '@/lib/exports/tax-of
 import { packageZip, type PackagedFile } from '@/lib/exports/zip-packager';
 import { formatWarsawDateTime } from '@/lib/format/warsaw-date';
 import { requireConfiguredKsefEnvironment } from '@/lib/ksef/claim-environment';
+import { readAllByIdInList } from '@/lib/pagination/in-list';
 import { generateInvoicePdf } from '@/lib/pdf/invoice-pdf';
 import { downloadExpensePhoto } from '@/lib/storage/expenses';
 import { downloadFromR2, downloadInvoiceXml } from '@/lib/storage/r2';
@@ -71,9 +73,6 @@ export interface BuiltArchive {
   filesCount: number;
   missing: ArchiveMissing[];
 }
-
-const PAGE = 1000;
-const CHUNK = 200;
 
 const XML_NO_FILE =
   'FaktWay nie ma zapisanego pliku XML tej faktury. Oryginał jest w KSeF: pobierzesz go po numerze KSeF w Aplikacji Podatnika KSeF.';
@@ -177,45 +176,75 @@ const EXPENSE_COLUMNS =
   'id, issue_date, document_number, document_type, seller_name, seller_nip, net_amount, vat_amount, gross_amount, source, source_file_path, source_file_mime, ksef_invoice_id';
 
 interface XmlDocRow {
+  id: string;
   invoice_id: string;
   storage_path: string;
   sha256_hash: string | null;
 }
 interface UpoRow {
+  id: string;
   invoice_id: string;
   status: string;
   upo_xml_path: string | null;
   created_at: string | null;
 }
 
-async function readPeriodRows<T>(db: SupabaseClient, table: string, columns: string, order: ArchiveOrderInput): Promise<T[]> {
-  const rows: T[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await db
+/**
+ * Wiersze okresu paczki (faktury, koszty): komplet albo wyjątek (FZ-033, ten sam
+ * wzór co FZ-018). Stronami po `id` z licznikiem (`readCompletePagesByKey`):
+ * serwer ucina odpowiedź do 1000 wierszy bez błędu, a dokument zapisany w trakcie
+ * budowania paczki przesuwał strony zakresów (wypadał z ZIP albo był w nim dwa
+ * razy). Teraz licznik tego nie przepuszcza: wyjątek i ponowienie joba. Kolejność
+ * w paczce jak dotąd: data wystawienia, potem `id`.
+ */
+async function readPeriodRows<T extends { id: string; issue_date: string }>(
+  db: SupabaseClient,
+  table: string,
+  columns: string,
+  order: ArchiveOrderInput,
+): Promise<T[]> {
+  const rows = await readCompletePagesByKey<T>(table, ({ afterId, limit, count, head }) => {
+    let query = db
       .from(table)
-      .select(columns)
+      .select(columns, count ? { count: 'exact', head } : undefined)
       .eq('tenant_id', order.tenantId)
       .gte('issue_date', order.periodStart)
-      .lte('issue_date', order.periodEnd)
-      .order('issue_date')
-      .order('id')
-      .range(from, from + PAGE - 1);
-    if (error) throw new Error(`${table}: ${error.message}`);
-    const page = (data ?? []) as unknown as T[];
-    rows.push(...page);
-    if (page.length < PAGE) return rows;
-  }
+      .lte('issue_date', order.periodEnd);
+    if (afterId !== null) query = query.gt('id', afterId);
+    // Kolumny podane zmienną: supabase-js nie zna typu wiersza, więc strona w typie helpera.
+    return query.order('id', { ascending: true }).limit(limit) as unknown as PromiseLike<{
+      data: T[] | null;
+      count?: number | null;
+      error: { message: string } | null;
+    }>;
+  });
+  return rows.sort((a, b) =>
+    a.issue_date < b.issue_date ? -1 : a.issue_date > b.issue_date ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+  );
 }
 
-async function readByInvoice<T>(db: SupabaseClient, table: string, columns: string, tenantId: string, ids: string[]): Promise<T[]> {
-  const rows: T[] = [];
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const { data, error } = await db.from(table).select(columns).eq('tenant_id', tenantId).in('invoice_id', ids.slice(i, i + CHUNK));
-    // „Nie wiem, jakie pliki ma faktura” to nie „nie ma plików”.
-    if (error) throw new Error(`${table}: ${error.message}`);
-    rows.push(...((data ?? []) as unknown as T[]));
-  }
-  return rows;
+/**
+ * Wiersze plików faktur (XML, UPO) dla listy faktur: paczki `in()` i każda
+ * stronami po `id` (`readAllByIdInList`, FZ-033). Dotąd jedna odpowiedź na 200
+ * faktur, więc przy ponad 1000 pasujących wierszach (np. historia UPO) serwer
+ * ucinał ją bez błędu. „Nie wiem, jakie pliki ma faktura” to nie „nie ma plików”:
+ * błąd odczytu rzuca.
+ */
+async function readByInvoice<T extends { id: string }>(
+  db: SupabaseClient,
+  table: string,
+  columns: string,
+  tenantId: string,
+  ids: string[],
+): Promise<T[]> {
+  return readAllByIdInList<T>(table, ids, (values, afterId, limit) => {
+    let query = db.from(table).select(columns).eq('tenant_id', tenantId).in('invoice_id', values);
+    if (afterId !== null) query = query.gt('id', afterId);
+    return query.order('id', { ascending: true }).limit(limit) as unknown as PromiseLike<{
+      data: T[] | null;
+      error: { message: string } | null;
+    }>;
+  });
 }
 
 /** Brak obiektu w magazynie (S3/MinIO) albo pusta odpowiedź: to brak, a nie awaria. */
@@ -369,8 +398,8 @@ export async function buildArchivePackage(
   const otherEnvironment = listed.length - documents.length;
   const ids = documents.map((inv) => inv.id);
   const [xmlDocs, upos] = await Promise.all([
-    readByInvoice<XmlDocRow>(db, 'xml_documents', 'invoice_id, storage_path, sha256_hash', tenantId, ids),
-    readByInvoice<UpoRow>(db, 'upo_receipts', 'invoice_id, status, upo_xml_path, created_at', tenantId, ids),
+    readByInvoice<XmlDocRow>(db, 'xml_documents', 'id, invoice_id, storage_path, sha256_hash', tenantId, ids),
+    readByInvoice<UpoRow>(db, 'upo_receipts', 'id, invoice_id, status, upo_xml_path, created_at', tenantId, ids),
   ]);
   const hashes = new Map(xmlDocs.map((d) => [`${d.invoice_id}|${d.storage_path}`, d.sha256_hash]));
   const uposByInvoice = new Map<string, UpoRow[]>();
