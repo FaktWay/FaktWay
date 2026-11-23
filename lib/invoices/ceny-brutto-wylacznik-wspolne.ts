@@ -38,10 +38,18 @@ const CO_SIE_STALO: Record<EtapOdmowyCenBrutto, string> = {
   ponowienie: 'więc tej wysyłki nie wykonaliśmy i faktura zostaje z błędem wysyłki',
 };
 
+/**
+ * „Wyślij ponownie” dotyczy faktury z błędem wysyłki, której plik mógł już dotrzeć
+ * do KSeF (np. przerwa po wysłaniu). Odmowa w kolejce pada przed jobem, więc nic
+ * jej nie uzgadnia; faktura wystawiona od nowa mogłaby być drugą fakturą w KSeF.
+ * Wyjście: pomoc FaktWay, operator najpierw uzgadnia (runbook
+ * `docs/runbooks/ceny-brutto-wylacznik.md`, „Jak wyłączyć”).
+ */
 const WYJSCIE: Record<EtapOdmowyCenBrutto, string> = {
   zapis: 'Wystaw fakturę w cenach netto.',
   wysylka: 'Wystaw fakturę od nowa w cenach netto, a szkic usuń.',
-  ponowienie: 'Wystaw fakturę od nowa w cenach netto.',
+  ponowienie:
+    'Nie wystawiaj jej od nowa, zanim sprawdzimy, czy KSeF jej nie przyjął: napisz do nas, a sprawdzimy to i powiemy, co dalej.',
 };
 
 /** Tekst odmowy dla klienta: nazwa dokumentu, co się stało i wyjście (protokół napraw, pkt 4). */
