@@ -94,16 +94,32 @@ async function pokaz(props: Partial<Parameters<typeof InvoiceForm>[0]> = {}) {
 
 
 describe('firma zwolniona z VAT a wybór cen brutto (ustalenie 13)', () => {
-  it('firma zwolniona z VAT: bez wyboru „Ceny netto / Ceny brutto”, pole „Cena netto”', async () => {
-    await pokaz({ vatExempt: true });
+  it('zwolnienie podmiotowe (art. 113): bez wyboru „Ceny netto / Ceny brutto”, pole „Cena netto”', async () => {
+    await pokaz({ vatExempt: true, vatExemptSubjective: true });
     expect(container.querySelector('select#prices-mode')).toBeNull();
     expect(container.querySelector('label[for="line-0-unit-price"]')?.textContent).toBe('Cena netto (zł)');
   });
 
-  it('firma zwolniona z VAT i podkład z faktury w cenach brutto: formularz w cenach netto (da się wystawić bez wyboru metody)', async () => {
-    await pokaz({ vatExempt: true, initialValues: { ...POCZATEK, pricesGross: true } as Partial<InvoiceFormValues> });
+  it('zwolnienie podmiotowe i podkład z faktury w cenach brutto: formularz w cenach netto (da się wystawić bez wyboru metody)', async () => {
+    await pokaz({ vatExempt: true, vatExemptSubjective: true, initialValues: { ...POCZATEK, pricesGross: true } as Partial<InvoiceFormValues> });
     expect(container.querySelector('select#prices-mode')).toBeNull();
     expect(container.querySelector('label[for="line-0-unit-price"]')?.textContent).toBe('Cena netto (zł)');
+  });
+
+  it('zwolnienie podmiotowe i faktura do paragonu przy pustych cenach: zostaje w cenach netto', async () => {
+    await pokaz({ vatExempt: true, vatExemptSubjective: true });
+    const fp = container.querySelector<HTMLInputElement>('#receipt-invoice');
+    expect(fp).not.toBeNull();
+    await act(async () => {
+      fp!.click();
+    });
+    expect(container.querySelector('select#prices-mode')).toBeNull();
+    expect(container.querySelector('label[for="line-0-unit-price"]')?.textContent).toBe('Cena netto (zł)');
+  });
+
+  it('zwolnienie przedmiotowe (art. 43, czynny podatnik): wybór metody jest, bo sprzedaż może mieć stawkę z podatkiem', async () => {
+    await pokaz({ vatExempt: true, vatExemptSubjective: false });
+    expect(container.querySelector<HTMLSelectElement>('select#prices-mode')?.value).toBe('netto');
   });
 
   it('firma z VAT: wybór metody jak dotąd', async () => {

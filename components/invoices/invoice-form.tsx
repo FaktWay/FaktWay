@@ -65,6 +65,7 @@ export function InvoiceForm({
   tenantId,
   prefill = null,
   vatExempt = false,
+  vatExemptSubjective = false,
   suggestedNumber = null,
   numbering = null,
   seller = null,
@@ -103,6 +104,13 @@ export function InvoiceForm({
    * Nowe pozycje dostają wtedy „zw” — inaczej z przyzwyczajenia wpada 23%.
    */
   vatExempt?: boolean;
+  /**
+   * Zwolnienie podmiotowe (art. 113, `isSubjectiveVatExemption`): firma nie
+   * wystawi faktury w cenach brutto (pozycje „zw”, #880), więc formularz nie
+   * pokazuje wyboru metody cen. Zwolnienie przedmiotowe (art. 43) go zostawia:
+   * czynny podatnik sprzedaje też ze stawką 23, 8 albo 5 %.
+   */
+  vatExemptSubjective?: boolean;
   /**
    * Podkład wpisany od razu w formularz (plan Finora N1: `?wzor=` i
    * `?cykliczna=` — `prefillFromInvoiceAction`). Bez niego formularz pusty.
@@ -185,9 +193,9 @@ export function InvoiceForm({
 
   // Ten sam schemat co serwer, z wyłącznikiem cen brutto (stan z serwera strony, stały przez życie formularza).
   const schema = useMemo(() => invoiceFormSchemaFor({ cenyBrutto: grossPricesAvailable }), [grossPricesAvailable]);
-  // Osobne ustalenie 13: firma zwolniona z VAT (nowe pozycje „zw”) nie wystawi faktury w cenach
-  // brutto (stawki bez podatku, #880), więc bez wyboru metody i bez podkładu w cenach brutto.
-  const cenyBruttoWFormularzu = grossPricesAvailable && !vatExempt;
+  // Osobne ustalenie 13: firma zwolniona podmiotowo (art. 113, pozycje „zw”) nie wystawi faktury
+  // w cenach brutto (stawki bez podatku, #880), więc bez wyboru metody i bez podkładu w cenach brutto.
+  const cenyBruttoWFormularzu = grossPricesAvailable && !vatExemptSubjective;
   const form = useForm<InvoiceFormValues>({
     resolver: zodResolver(schema),
     // Fokus po nieudanym zapisie bierze blok błędów (A-05), z odnośnikami do pól.
