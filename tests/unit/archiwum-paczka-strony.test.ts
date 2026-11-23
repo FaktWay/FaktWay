@@ -23,6 +23,9 @@ const h = vi.hoisted(() => ({
   tables: {} as Record<string, Row[]>,
   /** Limit wierszy jednej odpowiedzi serwera (PostgREST `max-rows`). */
   maxRows: 1000,
+  /** Kolejne zapytania o tabelę (licznik) i zapis „w trakcie” przed zapytaniem o numerze `n`. */
+  zapytania: {} as Record<string, number>,
+  przedZapytaniem: null as null | ((table: string, n: number) => void),
   xml: vi.fn(),
   r2: vi.fn(),
   photo: vi.fn(),
@@ -102,7 +105,13 @@ class Query implements PromiseLike<{ data: Row[] | null; count: number | null; e
 }
 
 vi.mock('@/lib/supabase/admin', () => ({
-  createAdminClient: () => ({ from: (table: string) => new Query(h.tables[table] ?? []) }),
+  createAdminClient: () => ({
+    from: (table: string) => {
+      h.zapytania[table] = (h.zapytania[table] ?? 0) + 1;
+      h.przedZapytaniem?.(table, h.zapytania[table]);
+      return new Query(h.tables[table] ?? []);
+    },
+  }),
 }));
 vi.mock('@/lib/storage/r2', () => ({ downloadInvoiceXml: h.xml, downloadFromR2: h.r2 }));
 vi.mock('@/lib/storage/expenses', () => ({ downloadExpensePhoto: h.photo }));
@@ -164,6 +173,8 @@ function plikXml(n: number): Row {
 beforeEach(() => {
   vi.clearAllMocks();
   h.maxRows = 1000;
+  h.zapytania = {};
+  h.przedZapytaniem = null;
   h.xml.mockImplementation(async (path: string) => `<Faktura>${path}</Faktura>`);
   h.r2.mockImplementation(async (key: string) => Buffer.from(`<UPO>${key}</UPO>`));
   h.photo.mockImplementation(async () => ({ buffer: Buffer.from('JPEG'), mimeType: 'image/jpeg' }));
@@ -220,4 +231,22 @@ describe('FZ-033: paczka archiwum czyta komplet wierszy albo rzuca', () => {
     expect([...files.keys()].filter((f) => f.startsWith('faktury-sprzedazy/') && f.endsWith('.xml') && !f.endsWith('.upo.xml'))).toHaveLength(700);
     expect(built.missing).toEqual([]);
   }, 120_000);
+
+  it('faktura zapisana w trakcie budowania paczki (między stronami odczytu): wyjątek i ponowienie joba, nie paczka z dublem albo brakiem', async () => {
+    // Uwaga N3 czytelnika: helper odczytu (licznik i strony po `id`) nie przepuszcza zmiany w trakcie.
+    const n = Array.from({ length: 600 }, (_, i) => i + 1);
+    h.tables = {
+      tenants: [{ id: T, nip: '1234567890', name: 'Firma Testowa' }],
+      invoices: n.map(sprzedaz),
+      xml_documents: n.map(plikXml),
+      upo_receipts: [],
+      expenses: [],
+    };
+    h.przedZapytaniem = (table, ktore) => {
+      if (table === 'invoices' && ktore === 2) h.tables.invoices!.push(sprzedaz(9999));
+    };
+
+    await expect(buildArchivePackage(ORDER, { now: NOW })).rejects.toThrow(/invoices: (nie można potwierdzić liczby rekordów|niepełna strona danych)/);
+  }, 120_000);
 });
+

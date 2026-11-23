@@ -3,8 +3,6 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { readCompletePagesByKey } from '@/lib/accounting/read-complete-pages';
-import { readAllByIdInList } from '@/lib/pagination/in-list';
-
 import { KsefExpenseCurrencyNotSupportedError } from '@/lib/expenses/ksef-currency-review';
 import { OutgoingInvoiceCurrencyNotSupportedError } from '@/lib/exports/currency-guard';
 import { fetchInvoicesForExport } from '@/lib/exports/data-fetcher';
@@ -21,6 +19,7 @@ import { MissingTaxOfficeError, readTenantTaxOffice } from '@/lib/exports/tax-of
 import { packageZip, type PackagedFile } from '@/lib/exports/zip-packager';
 import { formatWarsawDateTime } from '@/lib/format/warsaw-date';
 import { requireConfiguredKsefEnvironment } from '@/lib/ksef/claim-environment';
+import { readAllByIdInList } from '@/lib/pagination/in-list';
 import { generateInvoicePdf } from '@/lib/pdf/invoice-pdf';
 import { downloadExpensePhoto } from '@/lib/storage/expenses';
 import { downloadFromR2, downloadInvoiceXml } from '@/lib/storage/r2';
@@ -74,7 +73,6 @@ export interface BuiltArchive {
   filesCount: number;
   missing: ArchiveMissing[];
 }
-
 
 const XML_NO_FILE =
   'FaktWay nie ma zapisanego pliku XML tej faktury. Oryginał jest w KSeF: pobierzesz go po numerze KSeF w Aplikacji Podatnika KSeF.';
@@ -207,7 +205,12 @@ async function readPeriodRows<T extends { id: string; issue_date: string }>(
       .gte('issue_date', order.periodStart)
       .lte('issue_date', order.periodEnd);
     if (afterId !== null) query = query.gt('id', afterId);
-    return query.order('id', { ascending: true }).limit(limit);
+    // Kolumny podane zmienną: supabase-js nie zna typu wiersza, więc strona w typie helpera.
+    return query.order('id', { ascending: true }).limit(limit) as unknown as PromiseLike<{
+      data: T[] | null;
+      count?: number | null;
+      error: { message: string } | null;
+    }>;
   });
   return rows.sort((a, b) =>
     a.issue_date < b.issue_date ? -1 : a.issue_date > b.issue_date ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
@@ -231,7 +234,10 @@ async function readByInvoice<T extends { id: string }>(
   return readAllByIdInList<T>(table, ids, (values, afterId, limit) => {
     let query = db.from(table).select(columns).eq('tenant_id', tenantId).in('invoice_id', values);
     if (afterId !== null) query = query.gt('id', afterId);
-    return query.order('id', { ascending: true }).limit(limit);
+    return query.order('id', { ascending: true }).limit(limit) as unknown as PromiseLike<{
+      data: T[] | null;
+      error: { message: string } | null;
+    }>;
   });
 }
 
