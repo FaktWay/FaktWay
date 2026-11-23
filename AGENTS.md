@@ -221,6 +221,8 @@ Dawne sekcje tego pliku przeniesione są dosłownie; odnośniki typu
 | zmienić coś „na telefon” | [`zmiany-na-telefon.md`](docs/runbooks/zmiany-na-telefon.md) (Mac zamrożony) | obchód z `e2e/README.md`, „Telefon” |
 | zobaczyć, wstrzymać albo uruchomić nocne wdrożenie; zrozumieć raport z nocy | [`nocne-wdrozenie.md`](docs/runbooks/nocne-wdrozenie.md) | `./scripts/ops/zainstaluj-nocne-wdrozenie.sh --sprawdz` |
 | prowadzić noc nocnego zespołu, zatrzymać go | [`nocny-zespol.md`](docs/runbooks/nocny-zespol.md) | stop: etykieta `nocny:stop`; `scal` tylko przez `node scripts/nocny/bramka-scalenia.mjs N --scal` |
+| włączyć albo wyłączyć faktury w cenach brutto (tylko Bartosz, po warunkach z runbooka) | [`ceny-brutto-wylacznik.md`](docs/runbooks/ceny-brutto-wylacznik.md) | `./scripts/ops/ceny-brutto.sh stan`, potem `… wlacz --tak` |
+| sprawdzić, ilu firmom blokada „ten sam koszt dwa razy” zatrzyma KPiR i JPK (FZ-022) | [`koszt-dwa-razy.md`](docs/runbooks/koszt-dwa-razy.md) | `./scripts/ops/koszt-dwa-razy.sh` (tylko odczyt) |
 
 W Claude Code te same procedury otwierają skille `/wdrozenie`, `/migracja`,
 `/naprawa`, `/fa3-ksef`, `/telefon-review`, `/filtr` (`.claude/skills/`, odnośniki do
