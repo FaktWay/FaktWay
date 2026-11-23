@@ -18,7 +18,9 @@ import { readCompletePagesByKey } from '@/lib/accounting/read-complete-pages';
 import { kpirCostAmount } from '@/lib/categorization/kpir-cost';
 import { attachKsefNumbers, type ExportExpense } from '@/lib/exports/data-fetcher';
 import { assertKsefExpensesReadyForPln, KsefExpenseCurrencyNotSupportedError } from '@/lib/expenses/ksef-currency-review';
+import { zdublowanyDokument, type ZdublowanyDokument } from '@/lib/expenses/jeden-koszt-dokumentu';
 import { filterExpensesForKsefEnvironment } from '@/lib/expenses/ksef-environment';
+import { formatIsoDatePl } from '@/lib/format/iso-date';
 import { requireConfiguredKsefEnvironment } from '@/lib/ksef/claim-environment';
 import { czytajFakturyRoku, KOMUNIKAT_ODCZYT, KOMUNIKAT_SRODOWISKO, type OpcjeOdczytu } from '@/lib/ksiegowosc/ewidencja-dane';
 import { zaplatyFunduszuPracy, zbudujKpir, type KosztKpir, type Kpir, type WpisKpir, type ZaplaconeSkladki } from '@/lib/ksiegowosc/kpir';
@@ -65,41 +67,14 @@ function identyfikator(nip: string | null): { kraj: string | null; identyfikator
 }
 
 /**
- * Klucz dokumentu kosztu: NIP sprzedawcy (10 cyfr, bez kresek) i numer bez
- * spacji, wielkimi literami. Numer faktury jest jednoznaczny u wystawcy
- * (art. 106e ust. 1 pkt 2 ustawy o VAT). Bez NIP-u albo numeru: brak klucza.
+ * Brak KPiR przy zdublowanym dokumencie kosztu: numer, data i źródła (gdy są),
+ * sprzedawca i co dalej (bez trybu rozkazującego, D8).
  */
-function kluczDokumentu(w: { seller_nip: string | null; document_number: string | null }): string | null {
-  const nip = (w.seller_nip ?? '').replace(/\D/g, '');
-  const numer = (w.document_number ?? '').replace(/\s+/g, '').toUpperCase();
-  return nip.length === 10 && numer ? `${nip}|${numer}` : null;
-}
-
-interface DubelKosztu {
-  numer: string;
-  sprzedawca: string;
-  ile: number;
-}
-
-/** Pierwszy dokument, który jest wśród kosztów więcej niż raz (F11-C1), np. zdjęcie i ta sama faktura ze Skrzynki. */
-function zdublowanyDokument(wiersze: readonly WierszKosztu[]): DubelKosztu | null {
-  const grupy = new Map<string, WierszKosztu[]>();
-  for (const w of wiersze) {
-    const klucz = kluczDokumentu(w);
-    if (klucz) grupy.set(klucz, [...(grupy.get(klucz) ?? []), w]);
-  }
-  for (const grupa of grupy.values()) {
-    if (grupa.length > 1) {
-      return { numer: (grupa[0].document_number ?? '').trim(), sprzedawca: grupa[0].seller_name?.trim() || 'sprzedawcy bez nazwy', ile: grupa.length };
-    }
-  }
-  return null;
-}
-
-/** Brak KPiR przy zdublowanym dokumencie kosztu: numer, sprzedawca i co dalej (bez trybu rozkazującego, D8). */
-export function komunikatDublaKosztu(d: DubelKosztu): string {
+export function komunikatDublaKosztu(d: Pick<ZdublowanyDokument, 'numer' | 'sprzedawca' | 'ile' | 'data' | 'zrodla'>): string {
+  const data = d.data ? ` z ${formatIsoDatePl(d.data)}` : '';
+  const zrodla = d.zrodla && d.zrodla.length > 0 ? d.zrodla.join(' i ') : 'np. zdjęcie i ta sama faktura ze Skrzynki KSeF';
   return (
-    `Dokument ${d.numer} od ${d.sprzedawca} jest w kosztach ${d.ile} razy (np. zdjęcie i ta sama faktura ze Skrzynki KSeF), więc KPiR teraz nie liczymy, żeby nie wpisać kosztu podwójnie. ` +
+    `Dokument ${d.numer}${data} od ${d.sprzedawca} jest w kosztach ${d.ile} razy (${zrodla}), więc KPiR teraz nie liczymy, żeby nie wpisać kosztu podwójnie. ` +
     'Do KPiR wchodzi jeden koszt tego dokumentu, a przy pozostałych w Kosztach wyłącza się „Uwzględnij w KPiR”. Dokument celowo podzielony na kilka kosztów sprawdzimy po zgłoszeniu w Pomocy.'
   );
 }
@@ -137,7 +112,8 @@ async function koszty(client: SupabaseClient, tenantId: string, rok: number): Pr
     if (e instanceof KsefExpenseCurrencyNotSupportedError) return { komunikat: KOMUNIKAT_WALUTA_KOSZTU };
     throw e;
   }
-  // F11-C1: KPiR ma jeden wiersz na dowód; ten sam dokument dwa razy to podwójny koszt.
+  // F11-C1: KPiR ma jeden wiersz na dowód; ten sam dokument dwa razy to podwójny koszt
+  // (np. zdjęcie i ta sama faktura ze Skrzynki). Klucz wspólny z eksportem (FZ-022).
   const dubel = zdublowanyDokument(widoczne);
   if (dubel) return { komunikat: komunikatDublaKosztu(dubel) };
 

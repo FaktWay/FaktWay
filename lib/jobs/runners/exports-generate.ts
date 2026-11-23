@@ -40,6 +40,7 @@ import {
 import { fetchInvoicesForExport } from '@/lib/exports/data-fetcher';
 import { exportScopeFor, UnknownExportFormatError, type ExportScope } from '@/lib/exports/export-scope';
 import { KsefExpenseCurrencyNotSupportedError } from '@/lib/expenses/ksef-currency-review';
+import { ODMOWA_DUBLA_KOSZTU, ZdublowanyKosztError } from '@/lib/expenses/jeden-koszt-dokumentu';
 import { MissingIssuerAddressError, readIssuerRegisteredAddress } from '@/lib/exports/issuer-address';
 import {
   generateJpkFa,
@@ -274,6 +275,8 @@ export async function onExportsGenerateExhausted(
     failure.message.startsWith(CSV_REFUSAL_PREFIX) ||
     // F13 część 2b: odmowa strażnika pliku JPK_V7M ma w treści kod alarmu.
     failure.message.startsWith(ODMOWA_JPK_V7M_PREFIX) ||
+    // FZ-022: odmowa przy tym samym dokumencie kosztu dwa razy ma w treści jego numer.
+    failure.message.startsWith(ODMOWA_DUBLA_KOSZTU) ||
     Object.values(SUSPENDED_EXPORT_FORMATS).includes(failure.message);
   const message = human
     ? failure.message
@@ -361,6 +364,10 @@ export async function runExportsGenerate(eventData: Parameters<typeof exportsGen
       } catch (error) {
         // Ponowienie nie zmieni waluty kosztu — to czeka na przegląd (C-11).
         if (error instanceof KsefExpenseCurrencyNotSupportedError) {
+          throw new NonRetriableError(error.message);
+        }
+        // FZ-022: ten sam dokument kosztu dwa razy czeka na decyzję klienta w Kosztach.
+        if (error instanceof ZdublowanyKosztError) {
           throw new NonRetriableError(error.message);
         }
         throw error;

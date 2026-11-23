@@ -8,7 +8,7 @@
 > Numery artykułów w regułach spisała sesja agenta z planu księgowości i źródeł urzędowych;
 > prawnik sprawdza każdy przed podpisem (`sprawdzil.prawnik`), także w regułach bez pytania.
 
-## Dla księgowej (26)
+## Dla księgowej (27)
 
 - **RP-FA-ROZ-01** (pewność średnia): Czy na fakturze rozliczającej (art. 106f ust. 3) P_13_x i P_14_x to wartość i podatek zamówienia pomniejszone o zaliczki w tej samej stawce, przy pełnych pozycjach FaWiersz? Opis pól w schemacie potwierdza tylko P_15 (kwota pozostała do zapłaty). Przypadki: zamówienie 10 000 zł netto 23%, zaliczka 2 460 zł brutto: P_13_1 = 8 000, P_14_1 = 1 840, P_15 = 9 840.
   - Reguła: Faktura rozliczająca: pozycje (FaWiersz) pokazują pełne zamówienie, a P_13_x i P_14_x to wartość i podatek zamówienia w stawce pomniejszone o zaliczki w tej stawce (rozbicie z faktury zaliczkowej ma pierwszeństwo przed wzorem); P_15 to kwota pozostała do zapłaty.
@@ -95,6 +95,10 @@
 - **RP-NRS-01** (pewność niska): Kiedy dla JDG płacącej tylko za siebie DRA jest obowiązkowa? Potwierdzić na zus.pl.
   - Reguła: Rachunek składkowy ZUS (NRS) jest indywidualny z PUE ZUS; klient wpisuje go sam, program sprawdza tylko sumę kontrolną.
   - Podstawa: art. 47a (ustawa o systemie ubezpieczeń społecznych).
+- **RP-KOSZT-01** (pewność średnia): Czy jedną fakturę kosztową można wpisać do KPiR jako dwa wiersze z tym samym numerem dowodu (np. towar w kolumnie 10, transport w kolumnie 11), i czy paragon z tym samym numerem, dniem i kwotą brutto wgrany dwa razy zawsze jest tym samym dokumentem?
+  - Reguła: Jeden dokument kosztu to jeden koszt w KPiR i jedno odliczenie VAT: ten sam dokument (NIP sprzedawcy, numer i rok wystawienia, bez względu na rodzaj) z KSeF i spoza KSeF (zdjęcie, wpis ręczny, import) albo jako kopia spoza KSeF nie wchodzi do kosztów okresu dwa razy; odczyt okresu odmawia z numerem, datą, źródłami i wyjściem.
+  - Podstawa: art. 86 ust. 1 i ust. 2 pkt 1 lit. a (ustawa o podatku od towarów i usług); art. 106e ust. 1 pkt 2 (ustawa o podatku od towarów i usług); art. 22 ust. 1 (ustawa o podatku dochodowym od osób fizycznych); Dz.U. 2025 poz. 1299, załącznik (wzór i objaśnienia) (rozporządzenie MF w sprawie prowadzenia podatkowej księgi przychodów i rozchodów); F11-C1 (KPiR modułu), FZ-022 (zasada programu).
+  - Jak liczy program: Klucz: NIP sprzedawcy (10 cyfr), numer bez odstępów i wielkości liter oraz rok wystawienia (sprzedawca może co rok zaczynać numerację od nowa); rodzaju w kluczu nie ma, bo faktura uproszczona z KSeF ma rodzaj „invoice”, a jej zdjęcie z OCR „simplified_invoice”. Dubel: koszt z KSeF i koszt spoza KSeF dowolnego rodzaju; dwa koszty spoza KSeF z tą samą kwotą brutto albo, przy fakturach, w tej samej kolumnie KPiR; dwa paragony tylko przy tym samym dniu i kwocie brutto (wiele kas pod jednym NIP-em). Bez odmowy: dwa koszty z KSeF (dla KSeF to dwa dokumenty, np. faktura i korekta) i faktura spoza KSeF rozpisana na dwie kolumny KPiR z różnymi kwotami. Odmowa dotyczy odczytu okresu, w którym są oba koszty; para w dwóch okresach albo przez przełom roku, numer zapisany inaczej niż odstępami i wielkością liter oraz dwie kopie spoza KSeF z różną kwotą i kolumną przechodzą bez odmowy.
 - **RP-TERM-04** (pewność niska): Potwierdzić termin i zakres rocznego rozliczenia zdrowotnej dla każdej formy.
   - Reguła: Roczne rozliczenie składki zdrowotnej do 20 maja (do potwierdzenia).
   - Podstawa: art. 81 ust. 2ze (ustawa o świadczeniach opieki zdrowotnej finansowanych ze środków publicznych).
