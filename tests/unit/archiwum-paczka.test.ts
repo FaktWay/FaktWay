@@ -351,5 +351,21 @@ describe('FZ-032: faktura zakupu ze Skrzynki KSeF bez danych stron', () => {
       expect.objectContaining({ dokument: 'Faktura zakupu ZK/7 (NIP 5260001246)', plik: 'PDF', powod: expect.stringMatching(/nie udało się zrobić wydruku PDF/) }),
     ]);
   });
+
+  it('odmowa wydruku z `generateInvoicePdf` (np. waluta inna niż PLN, #905 FZ-021, kod 409 w trasie): brak PDF w spisie z treścią odmowy, paczka powstaje', async () => {
+    const odmowa = 'Wydruku faktury w walucie innej niż PLN FaktWay jeszcze nie robi. Oryginałem faktury jest plik XML z KSeF.';
+    h.pdf.mockImplementation(async (id: string) =>
+      id === 's1'
+        ? { success: false, code: 'CURRENCY_NOT_SUPPORTED', error: odmowa }
+        : { success: true, pdf: Buffer.from(`%PDF ${id}`), filename: 'x.pdf', qrStateKey: 'k', missingKodI: false },
+    );
+
+    const built = await buildArchivePackage({ ...ORDER, kind: 'archive' }, { now: NOW });
+    const files = rozpakuj(built.zip);
+
+    expect(files.has('faktury-sprzedazy/2026-03-05_FV_1_2026.xml')).toBe(true);
+    expect(files.has('faktury-sprzedazy/2026-03-05_FV_1_2026.pdf')).toBe(false);
+    expect(built.missing).toEqual([expect.objectContaining({ dokument: 'Faktura sprzedaży FV/1/2026', plik: 'PDF', powod: odmowa })]);
+  });
 });
 
