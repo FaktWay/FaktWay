@@ -52,6 +52,12 @@ export interface InvoicePdfData {
    * albo niepełny zapis): PDF ma samo oznaczenie. Z danymi: `invoice.receipt`.
    */
   receiptInvoiceMarker: boolean;
+  /**
+   * Waluta faktury wielkimi literami (`loadInvoiceForPdf` zawsze ją ustawia);
+   * bez waluty w wierszu albo bez pola złote, jak domyślna kolumny. PDF drukuje
+   * kwoty tylko w złotych, więc inna waluta to odmowa (FZ-021, `generateInvoicePdf`).
+   */
+  currency?: string;
   /** Cache: PDF jest ważny gdy pdf_generated_at >= updated_at. */
   updatedAt: string | null;
   pdfStoragePath: string | null;
@@ -73,6 +79,7 @@ interface LineItemRow {
 interface InvoiceRow {
   id: string;
   tenant_id: string;
+  currency?: string | null;
   internal_number: string | null;
   invoice_type: string | null;
   issue_date: string;
@@ -114,7 +121,7 @@ interface InvoiceRow {
 const SELECT = `
   id, tenant_id, internal_number, invoice_type, issue_date, sale_date,
   ksef_number, ksef_status, offline_idempotency_key, seller_nip, xml_storage_path,
-  net_total, vat_total, gross_total, notes, updated_at,
+  net_total, vat_total, gross_total, currency, notes, updated_at,
   parent_invoice_id, correction_reason,
   pdf_storage_path, pdf_generated_at, seller_data, buyer_data, payment_data,
   annotations:fa3_data->annotations,
@@ -278,6 +285,7 @@ export async function loadInvoiceForPdf(
     correctedInvoice: await readCorrectedInvoice(admin, row),
     receiptInvoiceMarker: receiptInvoice && !receipt,
     updatedAt: row.updated_at,
+    currency: (row.currency ?? 'PLN').trim().toUpperCase() || 'PLN',
     pdfStoragePath: row.pdf_storage_path,
     pdfGeneratedAt: row.pdf_generated_at,
   };

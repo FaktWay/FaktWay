@@ -88,6 +88,12 @@ const UPO_FOREIGN =
   'faktura trafiła do KSeF spoza FaktWay (pobrana z historii KSeF), więc UPO ma program, z którego ją wysłano.';
 const UPO_MISSING = 'pliku UPO nie ma w magazynie FaktWay. Napisz do nas; UPO pobierzesz też na stronie faktury.';
 const PHOTO_MISSING = 'zdjęcia nie ma w magazynie FaktWay. Napisz do nas, sprawdzimy kopię.';
+/** FZ-032: faktura bez danych stron (np. zakup ze Skrzynki KSeF z samymi metadanymi). */
+const PDF_NO_PARTIES =
+  'w FaktWay nie ma pełnych danych sprzedawcy i nabywcy tej faktury (tak jest np. przy fakturze zakupu pobranej ze Skrzynki KSeF, która ma tylko dane z KSeF), więc nie zrobiliśmy jej wydruku PDF. Oryginałem faktury jest plik XML z KSeF.';
+/** Nieprzewidziany błąd wydruku: PDF to wizualizacja, więc paczka powstaje bez niego. */
+const PDF_FAILED =
+  'nie udało się zrobić wydruku PDF tej faktury, więc nie trafił do paczki. Oryginałem faktury jest plik XML z KSeF. Napisz do nas, sprawdzimy wydruk.';
 const PHOTO_NONE =
   'w FaktWay nie ma zdjęcia ani pliku tego dokumentu. Jeśli jest na papierze, trzeba go dołączyć do dokumentów osobno.';
 const JPK_LATER =
@@ -289,6 +295,18 @@ function partyField(party: unknown, field: 'name' | 'nip'): string {
   return party && typeof party === 'object' && !Array.isArray(party) ? text((party as Record<string, unknown>)[field]) : '';
 }
 
+/** Strona faktury, którą wydrukuje renderer PDF: nazwa i adres (`lib/pdf/invoice-renderer.ts`, bloki stron). */
+function isPrintableParty(party: unknown): boolean {
+  if (!party || typeof party !== 'object' || Array.isArray(party)) return false;
+  const p = party as Record<string, unknown>;
+  return text(p.name) !== '' && !!p.address && typeof p.address === 'object' && !Array.isArray(p.address);
+}
+
+/** FZ-032: wydruk PDF tylko faktury z danymi sprzedawcy i nabywcy. */
+function hasPrintableParties(inv: { seller_data: unknown; buyer_data: unknown }): boolean {
+  return isPrintableParty(inv.seller_data) && isPrintableParty(inv.buyer_data);
+}
+
 /** Komórka CSV (separator „;”): cudzysłów przy „;” i „"”, bez formuł arkusza. */
 function cell(value: string): string {
   let v = value.replace(/[\r\n]+/g, ' ');
@@ -441,12 +459,28 @@ export async function buildArchivePackage(
         }
       }
 
-      const pdf = await generateInvoicePdf(inv.id, tenantId);
-      if (pdf.success) {
-        add(`${folder}/${base}.pdf`, pdf.pdf);
-        included.push('PDF');
+      // FZ-032: wydruk tylko faktury z danymi sprzedawcy i nabywcy. Faktura zakupu ze
+      // Skrzynki KSeF ma w wierszu same metadane (`inbox-polling` nie zapisuje stron),
+      // a renderer czyta strony wprost, więc dotąd jedna taka faktura kończyła całą
+      // paczkę błędem. Teraz brak PDF idzie do spisu z powodem, a XML z KSeF zostaje.
+      // Inny rzut renderera (np. brak danych płatności) też nie kończy paczki: wydruk
+      // to wizualizacja, a oryginał (XML z KSeF) zostaje.
+      if (!hasPrintableParties(inv)) {
+        missing.push({ dokument: label, plik: 'PDF', powod: PDF_NO_PARTIES });
       } else {
-        missing.push({ dokument: label, plik: 'PDF', powod: pdf.error });
+        let pdf: Awaited<ReturnType<typeof generateInvoicePdf>> | null = null;
+        try {
+          pdf = await generateInvoicePdf(inv.id, tenantId);
+        } catch (error) {
+          console.error('[archiwum] wydruk PDF faktury', inv.id, error instanceof Error ? error.message : error);
+          missing.push({ dokument: label, plik: 'PDF', powod: PDF_FAILED });
+        }
+        if (pdf?.success) {
+          add(`${folder}/${base}.pdf`, pdf.pdf);
+          included.push('PDF');
+        } else if (pdf) {
+          missing.push({ dokument: label, plik: 'PDF', powod: pdf.error });
+        }
       }
 
       if (sale) {
