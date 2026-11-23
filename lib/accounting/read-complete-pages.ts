@@ -15,7 +15,10 @@ type Page<T> = {
  * więc odczyt kończy się wyjątkiem, a nie listą z dwóch stanów, także gdy
  * druga zmiana w części nieprzeczytanej zachowuje liczbę wierszy (FZ-017).
  * Strona ma dalej najwyżej `ACCOUNTING_PAGE_SIZE` wierszy (z zakładką), więc
- * mieści się w limicie serwera.
+ * mieści się w limicie serwera; każda dalsza strona daje o jeden nowy wiersz
+ * mniej, więc czasem potrzeba jednej strony więcej. Zmiany po obu stronach
+ * kursora naraz (wiersz usunięty i dopisany przed zakładką oraz za nią) łapie
+ * dopiero migawka (FZ-031).
  */
 export async function readCompletePages<T extends { id: string }>(
   label: string,
@@ -111,9 +114,10 @@ const validCount = (count: number | null | undefined): count is number =>
  * o więcej wierszy, niż brakuje do licznika (przy pełnej stronie o jeden
  * więcej), więc wiersz, który został za licznikiem, bo w trakcie odczytu
  * usunięto przeczytany i dopisano nieprzeczytany, daje „niepełna strona
- * danych” (FZ-017). Zmiany po obu stronach kursora naraz (usunięty i dopisany
- * wiersz w części przeczytanej oraz w nieprzeczytanej) łapie dopiero migawka
- * (FZ-031).
+ * danych” (FZ-017); wymaga to limitu serwera ponad `ACCOUNTING_PAGE_SIZE`
+ * (produkcja: 1000), bo przy limicie równym stronie serwer utnie prośbę o 501.
+ * Zmiany po obu stronach kursora naraz (usunięty i dopisany wiersz w części
+ * przeczytanej oraz w nieprzeczytanej) łapie dopiero migawka (FZ-031).
  */
 export async function readCompletePagesByKey<T extends { id: string }>(
   label: string,

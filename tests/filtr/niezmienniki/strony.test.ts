@@ -106,8 +106,8 @@ const oba = (dane: Wiersz[], limit = POSTGREST_MAX_ROWS) => [
 ];
 
 describe('NZ-WSP-08: odczyt stronami daje te same wiersze i sumy co jeden odczyt', () => {
-  it('strona helpera mieści się w limicie serwera, więc pełnej strony serwer nie utnie', () => {
-    expect(ACCOUNTING_PAGE_SIZE).toBeLessThanOrEqual(POSTGREST_MAX_ROWS);
+  it('strona helpera z wierszem ponad licznik mieści się w limicie serwera, więc pełnej strony serwer nie utnie (FZ-017)', () => {
+    expect(ACCOUNTING_PAGE_SIZE + 1).toBeLessThanOrEqual(POSTGREST_MAX_ROWS);
   });
 
   it.each(GRANICE)('%i wierszy: oba odczyty zwracają każdy wiersz raz, w kolejności, z tą samą sumą', async (n) => {
@@ -142,12 +142,18 @@ describe('NZ-WSP-08: odczyt stronami daje te same wiersze i sumy co jeden odczyt
   }, 120_000);
 });
 
-/** Zmiany po pierwszej stronie, czyli po przeczytaniu wierszy 0–499 z 2500. */
+/** Usuwa wiersz o danym `id`; brak takiego wiersza to błąd testu, nie usunięcie ostatniego. */
+const usun = (d: Wiersz[], id: string) => {
+  const i = d.findIndex((r) => r.id === id);
+  if (i < 0) throw new Error(`brak wiersza ${id} w danych testu`);
+  d.splice(i, 1);
+};
+/** Zmiany po pierwszej stronie, czyli po przeczytaniu wierszy 0–499 (z 1000 i więcej). */
 const ZMIANY = {
   'dopisany na końcu': (d: Wiersz[]) => { d.push({ id: 'id-999999', kwotaGr: 1 }); },
   'dopisany w części nieprzeczytanej': (d: Wiersz[]) => { d.push({ id: 'id-000600a', kwotaGr: 1 }); },
-  'usunięty już przeczytany': (d: Wiersz[]) => { d.splice(d.findIndex((r) => r.id === 'id-000010'), 1); },
-  'usunięty jeszcze nieprzeczytany': (d: Wiersz[]) => { d.splice(d.findIndex((r) => r.id === 'id-001500'), 1); },
+  'usunięty już przeczytany': (d: Wiersz[]) => { usun(d, 'id-000010'); },
+  'usunięty jeszcze nieprzeczytany': (d: Wiersz[]) => { usun(d, 'id-000700'); },
   'dopisany w części przeczytanej': (d: Wiersz[]) => { d.push({ id: 'id-000250a', kwotaGr: 1 }); },
 };
 /** Pary zmian, które zachowują liczbę wierszy: jeden usunięty i jeden dopisany, w każdym miejscu względem kursora. */
@@ -218,6 +224,9 @@ describe('NZ-WSP-08: bezpieczniki zamiast cichej niepełnej sumy', () => {
     ['po kluczu', 'dopisany w części nieprzeczytanej', STRONA],
     ['po kluczu', 'usunięty już przeczytany', LICZBA],
     ['po kluczu', 'usunięty jeszcze nieprzeczytany', STRONA],
+    // Dopisany w części przeczytanej: zakresy widzą zmianę licznika, po kluczu łapie go licznik kontrolny.
+    ['zakresy', 'dopisany w części przeczytanej', LICZBA],
+    ['po kluczu', 'dopisany w części przeczytanej', LICZBA],
   ] as const)('%s, wiersz %s po pierwszej stronie: %s', async (czytnik, zmiana, komunikat) => {
     await expect(odczytZeZmianami(czytnik, wiersze(2500), [zmiana])).rejects.toThrow(komunikat);
   });
