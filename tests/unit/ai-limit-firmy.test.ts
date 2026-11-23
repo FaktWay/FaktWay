@@ -74,7 +74,7 @@ describe('budżet AI firmy', () => {
 
 /**
  * Plan kompletnej aplikacji, 2.6: komunikaty odmowy kazały „wprowadzić dane
- * ręcznie”, a formularza kosztu bez zdjęcia nie ma. Komunikat mówi, kiedy
+ * ręcznie”, a formularza kosztu bez zdjęcia wtedy nie było. Komunikat mówi, kiedy
  * limit wraca. Trafia do zadania OCR (`error_message`), stamtąd bez zmian do
  * przycisku „Dodaj wydatek” i do telefonu, a powiadomienie bierze z niego
  * pełne zdania do 80 znaków (`trescPowiadomienia`). Limity mieszczą się

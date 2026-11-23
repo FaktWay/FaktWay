@@ -500,8 +500,8 @@ describe('onProcessOcrExhausted — karta porażki po wyczerpaniu prób', () => 
     expect(card.topic_key).toBe(`expense.review:ocr:${OCR_JOB}`);
     expect(card.title).toBe('Nie odczytałem tego zdjęcia');
     expect(card.body).toContain('Zdjęcie zostało w archiwum');
-    // Formularza kosztu bez zdjęcia nie ma (plan kompletnej aplikacji, 2.6), więc
-    // karta nie każe wpisywać ręcznie: prowadzi do Wydatków, gdzie jest „+ Dodaj wydatek”.
+    // Karta nie każe wpisywać ręcznie (plan kompletnej aplikacji, 2.6; teksty FLO czyta też
+    // tests/unit/koszt-bez-wpisu-recznego.test.ts): prowadzi do Wydatków, gdzie jest „+ Dodaj wydatek”.
     expect(card.body).toContain('Wgraj je jeszcze raz');
     expect(card.body).not.toMatch(/ręcznie/i);
     // Karta powstaje też po odmowie limitu, więc nie każe ponawiać bez zastrzeżenia.

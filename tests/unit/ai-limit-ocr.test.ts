@@ -130,7 +130,7 @@ describe('OCR a limit AI firmy', () => {
   });
 
   // LIM-05, punkt 9 (#782): powiadomienie ucinało komunikat odmowy w połowie
-  // słowa („Spróbuj ponown”). Teksty jak w `checkTenantAiBudget`; zadanie
+  // słowa („Spróbuj ponowni”). Teksty jak w `checkTenantAiBudget`; zadanie
   // zachowuje cały komunikat, powiadomienie dostaje pełne zdania w 80 znakach.
   it.each([
     [

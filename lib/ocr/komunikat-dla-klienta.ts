@@ -189,7 +189,7 @@ export function komunikatBleduOdczytu(techniczny: string | null | undefined): st
 /**
  * Treść powiadomienia: komunikat w całości, gdy się mieści, a inaczej tyle
  * pełnych zdań z początku, ile wejdzie w `max` znaków. Wcześniej job ucinał
- * tekst w połowie słowa („Spróbuj ponown”). Gdy już pierwsze zdanie jest za
+ * tekst w połowie słowa („Spróbuj ponowni”). Gdy już pierwsze zdanie jest za
  * długie, cięcie na granicy słowa z wielokropkiem.
  */
 export function trescPowiadomienia(komunikat: string, max: number = POWIADOMIENIE_MAX_ZNAKOW): string {
