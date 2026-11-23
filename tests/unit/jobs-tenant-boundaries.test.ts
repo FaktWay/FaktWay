@@ -61,6 +61,7 @@ import { runProcessOcr } from '@/lib/jobs/runners/process-ocr';
 import { runSendReminder } from '@/lib/jobs/runners/send-reminder';
 import { runProcessOfflineQueue, runOfflineQueueSuccess, runOfflineQueueFailure } from '@/lib/jobs/runners/process-offline-queue';
 import { runSubmitInvoice, onSubmitInvoiceExhausted } from '@/lib/jobs/runners/submit-invoice';
+import { isOffline24Enabled } from '@/lib/ksef/offline24-policy';
 
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -327,8 +328,8 @@ describe('service-role job boundaries', () => {
     tables.invoices = [{
       id: ID, tenant_id: A, direction: 'outgoing', ksef_status: 'draft', invoice_kind: invoiceKind,
       internal_number: 'TEST-1', parent_invoice_id: OTHER, advance_invoice_ids: [OTHER],
-      // Ten sam dokument co w zdarzeniu: bieg dochodzi do kontroli rodzaju dokumentu.
-      fa3_data: { internalNumber: 'TEST-1' },
+      // Dokument wiersza wprost ze zdarzenia, więc korekta i zaliczka dochodzą do kontroli rodzaju dokumentu.
+      invoice_type: submitEvent.invoice.type, fa3_data: JSON.parse(JSON.stringify(submitEvent.invoice)),
     }];
     await expect(runSubmitInvoice(submitEvent, ctx)).rejects.toThrow(stop);
     expect(writes()).toEqual([]);
@@ -337,7 +338,7 @@ describe('service-role job boundaries', () => {
   });
   // Offline24 wstrzymany (decyzja 02.10.2026, #71): bez sondy zdrowia
   // i bez Offline24, zaliczka idzie zwykłą wysyłką, którą job ponawia.
-  it('sends an advance without an Offline24 detour on KSeF outage', async () => {
+  it('takes the ordinary send path for an advance on KSeF outage, without an Offline24 detour', async () => {
     const address = { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' };
     const seller = { nip: '1234567890', name: 'Firma testowa', address };
     const taxAnnotations = { cashMethod: 2, splitPayment: 2 };
@@ -372,7 +373,7 @@ describe('service-role job boundaries', () => {
     const regularInvoice = { type: 'VAT', internalNumber: 'TEST-1' } as Invoice;
     tables.invoices = [{
       id: ID, tenant_id: A, direction: 'outgoing', ksef_status: 'draft', invoice_kind: 'regular',
-      invoice_type: 'VAT', internal_number: 'TEST-1', fa3_data: regularInvoice,
+      invoice_type: 'VAT', internal_number: 'TEST-1', fa3_data: JSON.parse(JSON.stringify(regularInvoice)),
     }];
     // Celowy punkt zatrzymania: NIP firmy niezweryfikowany, więc bieg mija granicę
     // odwołań i bramkę Offline24, a kończy się na `load-credentials-meta`.
@@ -385,6 +386,11 @@ describe('service-role job boundaries', () => {
     expect(mocks.offlineAdd).not.toHaveBeenCalled();
     expect(writes()).toEqual([]);
   });
+  // Sama polityka (decyzja z 02.10.2026, #71): automatyczny Offline24 wyłączony
+  // w każdym środowisku KSeF. Biegi joba w tym pliku sprawdzają tylko test i produkcję.
+  it.each(['test', 'demo', 'production'] as const)('keeps automatic Offline24 off on KSeF %s (AUD-14)', (env) => {
+    expect(isOffline24Enabled(env)).toBe(false);
+  });
   it('rejects a stale event whose legal document differs from stored fa3_data before KSeF I/O', async () => {
     const staleInvoice = {
       type: 'VAT', internalNumber: 'TEST-1', buyer: { name: 'Before edit' },
@@ -395,10 +401,19 @@ describe('service-role job boundaries', () => {
       fa3_data: { type: 'VAT', internalNumber: 'TEST-1', buyer: { name: 'After edit' } },
     }];
     await expect(runSubmitInvoice({ ...submitEvent, invoice: staleInvoice }, ctx))
-      .rejects.toThrow('manual reconciliation');
+      .rejects.toThrow('KSeF document kind or source requires manual reconciliation');
     expect(mocks.health).not.toHaveBeenCalled();
     expect(mocks.submit).not.toHaveBeenCalled();
     expect(mocks.offlineAdd).not.toHaveBeenCalled();
+    expect(writes()).toEqual([]);
+    // Kontrola: ten sam wiersz z dokumentem równym zdarzeniu mija granicę odwołań
+    // i kończy się dopiero na `load-credentials-meta` (NIP firmy niezweryfikowany).
+    // Granica ma jeden komunikat dla każdej odmowy, więc bez kontroli test nie odróżni
+    // nieaktualnego dokumentu od wiersza, którego granica w ogóle nie znalazła.
+    tables.tenants = [{ id: A }];
+    tables.invoices[0].fa3_data = JSON.parse(JSON.stringify(staleInvoice));
+    await expect(runSubmitInvoice({ ...submitEvent, invoice: staleInvoice }, ctx))
+      .rejects.toThrow('Nie można użyć credentials KSeF');
     expect(writes()).toEqual([]);
   });
   it('rejects a replayed PROD Offline24 submit before privileged DB access', async () => {
@@ -416,12 +431,26 @@ describe('service-role job boundaries', () => {
   it('marks a regular PROD submit failed after retries without parking it in Offline24', async () => {
     vi.stubEnv('KSEF_ENV', 'production');
     tables.invoices = [{ id: ID, tenant_id: A, ksef_status: 'sending', invoice_kind: 'regular' }];
+    // Wynik kroku bramki Offline24 (`exhausted.ts`), a nie tekst `last_error`, który widzi klient.
+    const steps: Array<[string, unknown]> = [];
+    const recordingCtx: JobContext = {
+      ...ctx,
+      step: {
+        ...ctx.step,
+        run: async <T>(name: string, fn: () => Promise<T> | T): Promise<T> => {
+          const value = await fn();
+          steps.push([name, value]);
+          return value;
+        },
+      },
+    };
     const result = await onSubmitInvoiceExhausted(new Error('timeout'), {
       ...submitEvent, environment: 'production',
-    }, ctx);
+    }, recordingCtx);
     expect(result).toMatchObject({ handled: true, finalStatus: 'failed' });
     expect(tables.invoices[0].ksef_status).toBe('failed');
     expect(mocks.offlineAdd).not.toHaveBeenCalled();
+    expect(steps).toContainEqual(['try-offline-queue', { queued: false, reason: 'offline24-wylaczony-na-produkcji' }]);
     // Bez próby parkowania: krok Offline24 nie czyta nawet certyfikatu firmy (`exhausted.ts`).
     expect(calls.map((q) => q.table)).not.toContain('tenants');
   });
