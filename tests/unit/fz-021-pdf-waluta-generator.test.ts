@@ -37,7 +37,8 @@ const KODY = (() => {
 })();
 
 const KSEF = '1234567890-20260909-0100A0B0C0D1-AF';
-const ZAPISANY = buildInvoicePdfKey('tenant-a', 'invoice', '2026-09-09');
+/** Zapisany wcześniej plik jest ważny (ten sam klucz co liczy `generateInvoicePdf`: z numerem KSeF, bez KODU I i logo). */
+const ZAPISANY = buildInvoicePdfKey('tenant-a', 'invoice', '2026-09-09', null, KSEF);
 
 const dane = (z: Record<string, unknown> = {}) => ({
   invoice: { internalNumber: 'FZ/7/2026' }, tenantId: 'tenant-a', invoiceId: 'invoice', issueDate: '2026-09-09',
@@ -76,10 +77,13 @@ describe('FZ-021: PDF faktury tylko w złotych', () => {
     }
   });
 
-  it('PLN i dane bez pola waluty: PDF jak dotąd', async () => {
+  it('PLN i dane bez pola waluty: PDF jak dotąd, z zapisanego pliku (kontrola, że zapisany plik w danych testu jest ważny)', async () => {
     for (const z of [{ currency: 'PLN' }, {}]) {
+      vi.clearAllMocks();
       mocks.load.mockResolvedValue(dane(z));
-      expect(await generateInvoicePdf('invoice', 'tenant-a'), JSON.stringify(z)).toMatchObject({ success: true });
+      expect(await generateInvoicePdf('invoice', 'tenant-a'), JSON.stringify(z)).toMatchObject({ success: true, pdf: Buffer.from('zapisany-plik') });
+      expect(mocks.download, JSON.stringify(z)).toHaveBeenCalled();
+      expect(mocks.render, JSON.stringify(z)).not.toHaveBeenCalled();
     }
   });
 
