@@ -3,8 +3,9 @@ import { posix } from 'node:path';
 
 /**
  * Tryb pliku w indeksie gita: `100755` (wykonywalny), `100644`, `120000`
- * (dowiązanie) albo pusty napis, gdy git pliku nie śledzi. `plik` jest względny
- * wobec `repo`. Katalog albo plik w konflikcie kończą się wyjątkiem.
+ * (dowiązanie), `160000` (submoduł) albo pusty napis, gdy git pliku nie śledzi.
+ * `plik` jest względny wobec `repo`. Wyjątek dostaje katalog, w którym git coś
+ * śledzi, i plik w konflikcie.
  *
  * Zamiast `statSync(plik).mode & 0o100`, które na Windowsie zawsze daje 0:
  * NTFS nie ma bitu wykonywalności (Node widzi `100666`), a git trzyma go
@@ -13,22 +14,31 @@ import { posix } from 'node:path';
  * więc wynik jest ten sam na każdym systemie.
  */
 export function trybWGicie(plik: string, repo: string = process.cwd()): string {
+  // Na Windowsie `\` to separator (tak skleja `join`) i git czyta go jak `/`. Na Linuksie to znak nazwy.
+  const sciezka = posix.normalize(process.platform === 'win32' ? plik.replaceAll('\\', '/') : plik);
   // `--literal-pathspecs`: `*` albo `[` w nazwie to znak, nie wzorzec. `-z`: ścieżki bez cytowania.
-  const wynik = spawnSync('git', ['--literal-pathspecs', 'ls-files', '--stage', '-z', '--', plik], {
-    cwd: repo,
-    encoding: 'utf8',
-  });
+  const argumenty = ['--literal-pathspecs', 'ls-files', '--stage', '-z', '--', sciezka];
+  const wynik = spawnSync('git', argumenty, { cwd: repo, encoding: 'utf8' });
   if (wynik.status !== 0) {
-    throw new Error(`git ls-files --stage -- ${plik}: ${(wynik.stderr || wynik.error?.message || '').trim()}`);
+    throw new Error(`git ${argumenty.join(' ')}: ${(wynik.stderr || wynik.error?.message || '').trim()}`);
   }
   // Wpis: `<tryb> <obiekt> <etap>\t<ścieżka>`. Pod ścieżką katalogu git poda pliki z jego wnętrza,
-  // więc liczy się tylko wpis z dokładnie tą ścieżką. Plik w konflikcie ma ich kilka (etapy od 1 do 3).
-  const wpisy = wynik.stdout.split('\0').filter(Boolean);
-  const sciezki = wpisy.map((wpis) => wpis.slice(wpis.indexOf('\t') + 1));
-  const doPliku = wpisy.filter((_, i) => sciezki[i] === posix.normalize(plik));
+  // więc liczy się tylko wpis z dokładnie tą ścieżką. Etap inny niż 0 to plik w konflikcie.
+  const wpisy = wynik.stdout
+    .split('\0')
+    .filter(Boolean)
+    .map((wpis) => {
+      const tab = wpis.indexOf('\t');
+      const [tryb = '', , etap = ''] = wpis.slice(0, tab).split(' ');
+      return { tryb, etap, sciezka: wpis.slice(tab + 1) };
+    });
+  const doPliku = wpisy.filter((wpis) => wpis.sciezka === sciezka);
   if (doPliku.length === 0 && wpisy.length > 0) {
-    throw new Error(`${plik}: to nie plik, git ma pod tą ścieżką np. ${sciezki.slice(0, 3).join(', ')} (katalog?)`);
+    const przyklady = wpisy.slice(0, 3).map((wpis) => wpis.sciezka).join(', ');
+    throw new Error(`${plik}: to nie plik, git ma pod tą ścieżką np. ${przyklady} (katalog?)`);
   }
-  if (doPliku.length > 1) throw new Error(`${plik}: git podał kilka wpisów (${doPliku.length}), plik w konflikcie?`);
-  return doPliku[0]?.split(' ', 1)[0] ?? '';
+  if (doPliku.length > 1 || doPliku.some((wpis) => wpis.etap !== '0')) {
+    throw new Error(`${plik}: plik w konflikcie, etapy w indeksie: ${doPliku.map((wpis) => wpis.etap).join(', ')}`);
+  }
+  return doPliku[0]?.tryb ?? '';
 }
