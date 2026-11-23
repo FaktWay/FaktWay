@@ -29,7 +29,7 @@ import { opcje, PRZYPADKI } from '../generatory/ustawienia';
  *    względem kursora), daje wyjątek albo jeden stan (FZ-017: zakładka przy
  *    zakresach, jeden wiersz ponad licznik na pełnej ostatniej stronie po
  *    kluczu). Zmiany po obu stronach kursora naraz przechodzą dziś bez
- *    wyjątku: FZ-029 (potrzebna migawka).
+ *    wyjątku: FZ-031 (potrzebna migawka).
  * 3. Test strukturalny: każde zapytanie `.from('tabela')` i `.rpc('funkcja')`
  *    w `lib/ksiegowosc`, `lib/reports` i `lib/exports` (nazwa spoza napisu daje
  *    czerwony test) idzie przez helper stronicowania, a funkcja podana helperowi
@@ -257,11 +257,11 @@ describe('NZ-WSP-08: bezpieczniki zamiast cichej niepełnej sumy', () => {
 
   const POBU_STRONACH: readonly Zmiana[] = ['usunięty już przeczytany', 'dopisany w części przeczytanej', 'usunięty jeszcze nieprzeczytany', 'dopisany w części nieprzeczytanej'];
 
-  it.fails('FZ-029: zakresy, wiersz usunięty i dopisany po obu stronach kursora naraz (liczba bez zmian) dają dziś wiersze z dwóch stanów, potrzebna migawka', async () => {
+  it.fails('FZ-031: zakresy, wiersz usunięty i dopisany po obu stronach kursora naraz (liczba bez zmian) dają dziś wiersze z dwóch stanów, potrzebna migawka', async () => {
     await jedenStan('zakresy', POBU_STRONACH);
   });
 
-  it.fails('FZ-029: po kluczu, wiersz usunięty i dopisany po obu stronach kursora naraz (liczba bez zmian) dają dziś wiersze z dwóch stanów, potrzebna migawka', async () => {
+  it.fails('FZ-031: po kluczu, wiersz usunięty i dopisany po obu stronach kursora naraz (liczba bez zmian) dają dziś wiersze z dwóch stanów, potrzebna migawka', async () => {
     await jedenStan('po kluczu', POBU_STRONACH);
   });
 });

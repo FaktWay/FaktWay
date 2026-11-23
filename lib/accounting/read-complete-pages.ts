@@ -113,7 +113,7 @@ const validCount = (count: number | null | undefined): count is number =>
  * usunięto przeczytany i dopisano nieprzeczytany, daje „niepełna strona
  * danych” (FZ-017). Zmiany po obu stronach kursora naraz (usunięty i dopisany
  * wiersz w części przeczytanej oraz w nieprzeczytanej) łapie dopiero migawka
- * (FZ-029).
+ * (FZ-031).
  */
 export async function readCompletePagesByKey<T extends { id: string }>(
   label: string,
