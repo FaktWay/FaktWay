@@ -51,6 +51,7 @@ import type {
   ZeroVatAmountChangeRate,
 } from '@/types/invoice-types';
 import { loadParentAnnotations } from '@/lib/invoices/correction-annotations';
+import { documentGrossPrices } from '@/lib/invoices/document-lines';
 import { lineCodesOf } from '@/lib/invoices/line-codes';
 import { withCodesFromBefore } from '@/lib/ksef/fa3-correction-generator';
 import { correctionSpecialData, specialDataInsertError } from '@/lib/invoices/special-data';
@@ -242,29 +243,35 @@ function sellerDataFromParty(sp: SellerParty): SellerData {
  * Dokument korekty „przed/po” trzyma stan po korekcie z kodami
  * (`linesToStoredItems`), więc łańcuch korekt też je ma. Faktura z importu nie
  * ma `fa3_data.lines`: pozycje bez kodów, jak dotąd.
+ *
+ * Do tego ceny brutto pozycji z dokumentu (`documentGrossPrices`: faktura
+ * FaktWay w cenach brutto albo plik importu z `P_9B`), po których korekta
+ * rozpoznaje fakturę w cenach brutto (plan cen brutto, PR (e), część 1).
  */
 async function fetchDocumentLineCodes(
   supabase: SupabaseClient,
   invoiceId: string,
   label: string,
-): Promise<Map<number, ReturnType<typeof lineCodesOf>>> {
+): Promise<{ codes: Map<number, ReturnType<typeof lineCodesOf>>; grossPrices: Map<number, number> }> {
   const { data, error } = await supabase
     .from('invoices')
-    .select('id, document_lines:fa3_data->lines')
+    .select('id, document_lines:fa3_data->lines, prices_gross:fa3_data->pricesGross, ksef_line_fields:fa3_data->ksefLineFields')
     .eq('id', invoiceId)
     .maybeSingle();
   if (error) {
     throw new Error(`Nie odczytaliśmy kodów pozycji faktury ${label} (PKWiU, GTU), więc korekty nie przygotujemy w aplikacji. Spróbuj ponownie za chwilę. ${CORRECTION_HELP_STEP}`);
   }
-  const lines = (data as { document_lines?: unknown } | null)?.document_lines;
+  const doc = data as { document_lines?: unknown; prices_gross?: unknown; ksef_line_fields?: unknown } | null;
+  const lines = doc?.document_lines;
   const codes = new Map<number, ReturnType<typeof lineCodesOf>>();
-  if (!Array.isArray(lines)) return codes;
+  const grossPrices = documentGrossPrices({ pricesGross: doc?.prices_gross, lines, ksefLineFields: doc?.ksef_line_fields });
+  if (!Array.isArray(lines)) return { codes, grossPrices };
   for (const line of lines) {
     if (!line || typeof line !== 'object' || Array.isArray(line)) continue;
     const ordinal = (line as { ordinal?: unknown }).ordinal;
     if (typeof ordinal === 'number' && !codes.has(ordinal)) codes.set(ordinal, lineCodesOf(line as Record<string, unknown>));
   }
-  return codes;
+  return { codes, grossPrices };
 }
 
 /** Kwoty zapisanej pozycji (`invoice_line_items`) albo `undefined`, gdy którejś brak. */
@@ -310,12 +317,26 @@ function grossLinesBeforeAfterError(label: string): string {
   return `Faktura ${label} ma pozycje, których kwoty nie wynikają z ilości i ceny netto (np. faktura za abonament liczona od brutto albo zaokrąglenia z innego programu), a korekta pozycji („przed / po”) liczy od ceny netto. Anuluj fakturę albo wystaw korektę kwotową.`;
 }
 
+/**
+ * Odmowa korekty faktury w cenach brutto (plan cen brutto, PR (e), część 1):
+ * pozycja bez ceny netto w bazie, z ceną brutto w dokumencie (faktura FaktWay
+ * z `fa3_data.pricesGross` albo plik importu z `P_9B`, `documentGrossPrices`).
+ * Kształtu pliku korekty z `P_9B` rejestr jeszcze nie rozstrzygnął
+ * (RP-FA-BRUTTO-01, pytanie do księgowej), więc aplikacja takiej korekty nie
+ * przygotowuje: żadnego rodzaju, bo stan przed liczy się z pozycji. Dotąd
+ * odmowa mówiła o „pozycji bez pełnej ilości lub ceny”, choć faktura ma pełne
+ * ceny brutto. Wyjście jak przy innych odmowach korekty: pomoc FaktWay.
+ */
+function grossPricedInvoiceCorrectionError(label: string): string {
+  return `Faktura ${label} jest w cenach brutto (pozycje mają cenę brutto zamiast ceny netto), a korekty takiej faktury aplikacja jeszcze nie przygotowuje. ${CORRECTION_HELP_STEP}`;
+}
+
 async function fetchParentInvoiceLines(
   supabase: SupabaseClient,
   invoiceId: string,
   label: string,
 ): Promise<CorrectionLineSchema[]> {
-  const [{ data, error }, codes] = await Promise.all([
+  const [{ data, error }, documentFacts] = await Promise.all([
     supabase
       .from('invoice_line_items')
       .select('ordinal, name, unit, quantity, unit_price_net, vat_rate, net_amount, vat_amount, gross_amount')
@@ -329,6 +350,9 @@ async function fetchParentInvoiceLines(
   }
 
   return data.map((row) => {
+    if (row.unit_price_net == null && typeof row.ordinal === 'number' && documentFacts.grossPrices.has(row.ordinal)) {
+      throw new Error(grossPricedInvoiceCorrectionError(label));
+    }
     if (row.quantity == null || row.unit_price_net == null ||
         !Number.isFinite(Number(row.quantity)) ||
         !Number.isFinite(Number(row.unit_price_net))) {
@@ -349,7 +373,7 @@ async function fetchParentInvoiceLines(
       // Stan przed z zapisu: kwoty pozycji, jak ją wystawiono, nie liczone od nowa.
       ...(recordedAmounts ? { recordedAmounts } : {}),
       // Krok 2.6, część 2b-3: kody tej pozycji z dokumentu faktury.
-      ...(typeof row.ordinal === 'number' ? codes.get(row.ordinal) : undefined),
+      ...(typeof row.ordinal === 'number' ? documentFacts.codes.get(row.ordinal) : undefined),
     });
     if (!parsed.success) {
       throw new Error(`Faktura ${label} ma pozycję, której korekta w aplikacji nie przyjmie (np. pusta nazwa lub jednostka). ${CORRECTION_HELP_STEP}`);
