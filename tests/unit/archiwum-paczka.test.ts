@@ -25,16 +25,35 @@ const h = vi.hoisted(() => ({
   xsd: vi.fn(),
 }));
 
-/** Atrapa klienta PostgREST: filtry eq/in/gte/lte na wierszach tabeli, `range` tnie stronę. */
-class Query implements PromiseLike<{ data: Row[]; error: null }> {
+/**
+ * Atrapa klienta PostgREST: filtry eq/in/gte/lte/gt na wierszach tabeli, `range`
+ * i `limit` tną stronę, `order('id')` sortuje, `count`/`head` jak w PostgREST
+ * (odczyt stronami po `id` z licznikiem, FZ-033).
+ */
+class Query implements PromiseLike<{ data: Row[] | null; count: number | null; error: null }> {
   private rows: Row[];
+  private countMode = false;
+  private headMode = false;
+  private sortById = false;
+  private take: number | null = null;
   constructor(rows: Row[]) {
     this.rows = [...rows];
   }
-  select() {
+  select(_cols?: string, opts?: { count?: string; head?: boolean }) {
+    this.countMode = opts?.count === 'exact';
+    this.headMode = opts?.head === true;
     return this;
   }
-  order() {
+  order(column?: string) {
+    if (column === 'id') this.sortById = true;
+    return this;
+  }
+  gt(column: string, value: string) {
+    this.rows = this.rows.filter((r) => String(r[column]) > value);
+    return this;
+  }
+  limit(n: number) {
+    this.take = n;
     return this;
   }
   eq(column: string, value: unknown) {
@@ -60,8 +79,14 @@ class Query implements PromiseLike<{ data: Row[]; error: null }> {
   maybeSingle() {
     return Promise.resolve({ data: this.rows[0] ?? null, error: null });
   }
-  then<A, B>(ok?: ((v: { data: Row[]; error: null }) => A | PromiseLike<A>) | null, bad?: ((e: unknown) => B | PromiseLike<B>) | null) {
-    return Promise.resolve({ data: this.rows, error: null as null }).then(ok, bad);
+  then<A, B>(
+    ok?: ((v: { data: Row[] | null; count: number | null; error: null }) => A | PromiseLike<A>) | null,
+    bad?: ((e: unknown) => B | PromiseLike<B>) | null,
+  ) {
+    const all = this.sortById ? [...this.rows].sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0)) : this.rows;
+    const count = this.countMode ? all.length : null;
+    const data = this.headMode ? null : this.take === null ? all : all.slice(0, this.take);
+    return Promise.resolve({ data, count, error: null as null }).then(ok, bad);
   }
 }
 
@@ -133,11 +158,12 @@ beforeEach(() => {
       { id: 'd1', tenant_id: T, direction: 'outgoing', internal_number: null, ksef_status: 'draft', issue_date: '2026-03-10' },
     ],
     xml_documents: [
-      { tenant_id: T, invoice_id: 's1', storage_path: `${T}/2026/03/s1.xml`, sha256_hash: 'h-s1' },
-      { tenant_id: T, invoice_id: 'z1', storage_path: `${T}/ksef-import/z1.xml`, sha256_hash: 'h-z1' },
+      // Wiersze jak w bazie, z `id` (odczyt plików faktur stronami po `id`, FZ-033).
+      { id: 'x-s1', tenant_id: T, invoice_id: 's1', storage_path: `${T}/2026/03/s1.xml`, sha256_hash: 'h-s1' },
+      { id: 'x-z1', tenant_id: T, invoice_id: 'z1', storage_path: `${T}/ksef-import/z1.xml`, sha256_hash: 'h-z1' },
     ],
     upo_receipts: [
-      { tenant_id: T, invoice_id: 's1', status: 'downloaded', upo_xml_path: `upo/${T}/s1.xml`, created_at: '2026-03-05T10:00:00Z' },
+      { id: 'u-s1', tenant_id: T, invoice_id: 's1', status: 'downloaded', upo_xml_path: `upo/${T}/s1.xml`, created_at: '2026-03-05T10:00:00Z' },
     ],
     expenses: [
       {
