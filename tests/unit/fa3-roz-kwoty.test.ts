@@ -9,6 +9,7 @@ import {
   settlementVatSummaries,
   type AdvanceInvoiceSettlementRow,
 } from '@/lib/ksef/fa3-advance-generator';
+import { sprawdzFa3 } from '@/lib/bezpieczniki/fa3';
 import { validateInvoiceXml } from '@/lib/xml/validator';
 import type { FinalInvoiceData, InvoiceLine } from '@/types/invoice-types';
 
@@ -258,3 +259,49 @@ function toItem(line: InvoiceLine) {
     grossAmount: Math.round((net + vat) * 100) / 100,
   };
 }
+
+describe('ROZ: reszta stawki ujemna o grosz z zaokrąglenia zaliczek (art. 106f ust. 3, RP-FA-ROZ-01)', () => {
+  // Kontrprzykład z testu losowego filtra (tests/filtr/xsd/fa3-rozliczenie.test.ts, ziarno -1393428064,
+  // kolejka scalania 23.11): 1 × 1,06 zł przy 5 % (VAT 0,05, brutto 1,11) i dwie zaliczki po 0,32 zł brutto
+  // z rozbiciem z faktury zaliczkowej 0,29 + 0,03 (wzór dałby 0,30 + 0,02). Zaliczki to 0,64 zł brutto, mniej
+  // niż zamówienie, ale ich VAT 0,06 jest o grosz większy niż VAT zamówienia. Dotąd generator odmawiał
+  // („zaliczki przekraczają wartość zamówienia”), choć reszta brutto to 0,47 zł. Reguła: zamówienie minus
+  // zaliczki w stawce, więc P_13_3 = 1,06 − 0,58 = 0,48, P_14_3 = 0,05 − 0,06 = −0,01, P_15 = 0,47.
+  const zamowienie = [pozycja('Szkolenie', 1, 1.06, '5')];
+  const zaliczkiPlus = [1, 2].map((i) =>
+    zaliczka({ internal_number: `ZAL/5/${i}`, ksef_number: null, advance_amount: 0.32, vat_rate: '5', net_amount: 0.29, vat_amount: 0.03 }),
+  );
+
+  it('VAT zaliczek o grosz ponad VAT zamówienia: P_14 = −0,01, P_13 = 0,48, P_15 = 0,47; XSD i strażnik bez uwag', async () => {
+    const [s] = settlementVatSummaries(zamowienie.map(toItem), zaliczkiPlus);
+    expect(s).toMatchObject({ rate: '5', netSum: 0.48, vatSum: -0.01 });
+    const xml = generateFinalInvoiceXml(roz(zamowienie, 0.64), zaliczkiPlus);
+    expect(xml).toContain('<P_13_3>0.48</P_13_3>');
+    expect(xml).toContain('<P_14_3>-0.01</P_14_3>');
+    expect(xml).toContain('<P_15>0.47</P_15>');
+    expect((await validateInvoiceXml(xml)).errors).toEqual([]);
+    expect(sprawdzFa3(xml)).toEqual([]);
+  });
+
+  it('netto zaliczek o grosz ponad netto zamówienia (VAT zaliczki o grosz mniejszy niż wzór): ta sama reguła', async () => {
+    // 1 × 1,00 zł przy 23 % (brutto 1,23) i dwie zaliczki po 0,61 zł z rozbiciem 0,51 + 0,10 (wzór 0,50 + 0,11):
+    // netto 1,00 − 1,02 = −0,02, VAT 0,23 − 0,20 = 0,03, P_15 = 0,01.
+    const zam = [pozycja('Projekt', 1, 1, '23')];
+    const zal = [1, 2].map((i) =>
+      zaliczka({ internal_number: `ZAL/23/${i}`, ksef_number: null, advance_amount: 0.61, vat_rate: '23', net_amount: 0.51, vat_amount: 0.1 }),
+    );
+    const xml = generateFinalInvoiceXml(roz(zam, 1.22), zal);
+    expect(xml).toContain('<P_13_1>-0.02</P_13_1>');
+    expect(xml).toContain('<P_14_1>0.03</P_14_1>');
+    expect(xml).toContain('<P_15>0.01</P_15>');
+    expect((await validateInvoiceXml(xml)).errors).toEqual([]);
+    expect(sprawdzFa3(xml)).toEqual([]);
+  });
+
+  it('zaliczki ponad brutto zamówienia w stawce dalej są błędem (2 × 0,60 zł przy zamówieniu 1,11 zł)', () => {
+    const ponad = [1, 2].map((i) =>
+      zaliczka({ internal_number: `ZAL/5/${i}`, ksef_number: null, advance_amount: 0.6, vat_rate: '5', net_amount: 0.57, vat_amount: 0.03 }),
+    );
+    expect(() => settlementVatSummaries(zamowienie.map(toItem), ponad)).toThrow(/przekraczają/);
+  });
+});
