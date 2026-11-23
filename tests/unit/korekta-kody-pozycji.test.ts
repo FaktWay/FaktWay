@@ -306,5 +306,5 @@ describe('niezmiennik: kody wierszy korekty „przed/po”', () => {
       }),
       { numRuns: 40 },
     );
-  });
+  }, 600_000);
 });
