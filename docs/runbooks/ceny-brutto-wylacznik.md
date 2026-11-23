@@ -117,14 +117,24 @@ pokazuje stan.
 
 Przed `./scripts/ops/ceny-brutto.sh wylacz --tak` sprawdź drugą tabelę
 `./scripts/ops/ceny-brutto.sh stan` (faktury w cenach brutto według stanu
-wysyłki). Faktury `failed` i `sending` najpierw uzgodnij („Sprawdź ponownie”,
-uzgodnienie nic nie wysyła i działa także przy wyłączonym). Po wyłączeniu
-„Wyślij ponownie” takiej faktury dostaje odmowę, a plik z wcześniejszej próby
-mógł już dotrzeć do KSeF (np. przerwa po wysłaniu). Dlatego tekst odmowy
-prosi klienta, żeby nie wystawiał faktury od nowa i napisał do pomocy.
-Operator wtedy uzgadnia fakturę tak samo: przy numerze KSeF faktura jest
-przyjęta, a bez numeru i bez otwartej wysyłki klient wystawia ją od nowa
-w cenach netto.
+wysyłki):
+
+- `sending`: poczekaj, aż wysyłka się skończy (faktura przejdzie w `accepted`
+  albo `failed`). Takiej faktury nie da się uzgodnić ręcznie.
+- `failed`: operator w `/admin/ksef` przy tej fakturze klika „Tylko uzgodnij”
+  (uzgodnienie nic nie wysyła i działa także przy wyłączonym). Uzgodnienie
+  wymaga otwartej wysyłki z wcześniejszej próby (`sent` albo zamiar). Bez niej
+  odmawia (brak otwartej wysyłki), a to znaczy, że plik do KSeF nie poszedł.
+
+Po wyłączeniu „Wyślij ponownie” takiej faktury dostaje odmowę, a plik
+z wcześniejszej próby mógł już dotrzeć do KSeF (np. przerwa po wysłaniu).
+Dlatego tekst odmowy prosi klienta, żeby nie wystawiał faktury od nowa
+i napisał do pomocy. Operator robi wtedy to samo („Tylko uzgodnij”
+w `/admin/ksef`). Gdy pojawi się numer KSeF, faktura jest przyjęta i nic
+więcej nie trzeba. Gdy uzgodnienie odmawia z powodu braku otwartej wysyłki,
+pliku w KSeF nie ma i klient wystawia fakturę od nowa w cenach netto.
+Przycisk klienta „Sprawdź ponownie” pojawia się tylko na karcie faktury do
+ponownego sprawdzenia oryginału, więc nie jest tu drogą dla klienta.
 
 ## Jak sprawdzić po włączeniu
 
