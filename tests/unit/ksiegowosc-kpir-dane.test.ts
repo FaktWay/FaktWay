@@ -142,7 +142,7 @@ describe('odczyt KPiR', () => {
     expect(przed00168.ok && przed00168.kpir.wiersze.map((w) => w.zrodlo.typ)).toEqual(['koszt']);
   });
 
-  it('FZ-027: wersja, która dzieli tę samą kwotę inaczej między FP i część bez FP, to brak okresu w dniu jej zapłaty', async () => {
+  it('FZ-027: wersja, która dzieli tę samą kwotę inaczej między FP i część bez FP, to brak okresu w dniu obu zapłat', async () => {
     mocks.waluty = { data: [{ id: 'f-ksef-1', currency: 'PLN' }], error: null };
     mocks.zaplacone = [
       { id: 'r1', okres: '2026-02-01', wersja: 1, kwota_gr: 192_676, zaplacone_o: '2026-03-10', spoleczne_bez_fp: 178_829 },
@@ -150,7 +150,7 @@ describe('odczyt KPiR', () => {
     ];
     const wynik = await czytajKpir(client, 'firma-1', 2026, { wersje: [SKALA] });
     if (!wynik.ok) throw new Error(wynik.komunikat);
-    expect(wynik.kpir.braki.map((b) => [b.dzien, b.dokument])).toEqual([['2026-03-16', 'Składki ZUS za 02/2026']]);
+    expect(wynik.kpir.braki.map((b) => [b.dzien, b.dokument])).toEqual([['2026-03-10', 'Składki ZUS za 02/2026'], ['2026-03-16', 'Składki ZUS za 02/2026']]);
   });
 
   // F11-C1: ten sam dokument (NIP sprzedawcy i numer) jako dwa koszty, np.

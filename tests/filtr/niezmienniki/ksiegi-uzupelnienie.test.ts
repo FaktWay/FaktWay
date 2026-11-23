@@ -320,28 +320,77 @@ describe('niezmienniki ksiąg (F5), uzupełnienie: stawki, kolumny, FP, rok, rod
     expect(odliczenia(powrot).reduce((s, o) => s + o.spoleczneBezFpGr, 0)).toBe(165_000);
   });
 
-  /** KPiR z FP i ze zmianami podziału składek za grudzień 2025 (brak z nazwą okresu w dniu zapłaty wersji, która zmienia podział). */
-  const ksiegaGrudnia = (zaplaty: ZaplaconeSkladki[]) =>
+  /** KPiR z FP i ze zmianami podziału składek (brak z nazwą okresu w dniu każdej zapłaty okresu, którego wersje się nie zgadzają). */
+  const ksiegaZaplat = (zaplaty: ZaplaconeSkladki[]) =>
     zbudujKpir({ rok: ROK, faktury: [], koszty: [], wpisy: [], zaplatyFp: zaplatyFunduszuPracy(zaplaty), zmianyPodzialu: zmianyPodzialu(zaplaty), wersje: skala, kursy: new Map() });
+  const dniBrakow = (zaplaty: ZaplaconeSkladki[], dokument: string) =>
+    ksiegaZaplat(zaplaty).braki.filter((b) => b.dokument === dokument).map((b) => b.dzien);
+  /** Wersja najwyższa okresu: ostatnia (numerem) z największą kwotą; jej podział ustala FP i odliczenie. */
+  const najwyzsza = (wersje: readonly ZaplaconeSkladki[]) => {
+    const maxK = Math.max(...wersje.map((v) => v.kwotaGr));
+    return [...wersje].sort((a, b) => a.wersja - b.wersja).filter((v) => v.kwotaGr === maxK).at(-1)!;
+  };
+  /** Dowolne wersje jednego okresu: część bez FP i FP niezależnie w krokach po 100 zł (dużo równych kwot i części, także niższa kwota z wyższą częścią bez FP). */
+  const dowolneArb = fc
+    .array(fc.record({ b: fc.integer({ min: 0, max: 4 }), f: fc.integer({ min: 0, max: 4 }), dni: fc.integer({ min: 0, max: 20 }) }), { minLength: 1, maxLength: 4 })
+    .map((xs) => {
+      let dzien = 0;
+      return xs.map((x, i): ZaplaconeSkladki => {
+        dzien += x.dni;
+        return { id: `v${i + 1}`, okres: `${ROK}-03`, wersja: i + 1, kwotaGr: (x.b + x.f) * 10_000, spoleczneBezFpGr: x.b * 10_000, zaplaconeO: odDnia(Date.UTC(ROK, 3, 1), dzien) };
+      });
+    });
 
-  it('NZ-PIT-08: wersja, która przesuwa kwotę z FP do części bez FP, daje brak okresu w KPiR zamiast FP i odliczenia z tych samych pieniędzy (FZ-027)', () => {
+  it('NZ-PIT-08: dowolne wersje okresu: brak w KPiR w dniu każdej zapłaty okresu dokładnie wtedy, gdy przyrosty nie dają podziału wersji najwyższej albo wersje się nie mieszczą w jej podziale (FZ-027)', () => {
+    fc.assert(
+      fc.property(dowolneArb, (wersje) => {
+        const a = najwyzsza(wersje);
+        const fpA = a.kwotaGr - a.spoleczneBezFpGr;
+        const fp = zaplatyFunduszuPracy(wersje).reduce((s, w) => s + w.fpGr, 0);
+        const odl = odliczenia(wersje).reduce((s, o) => s + o.spoleczneBezFpGr, 0);
+        // FP z przyrostów i odliczenie to podział wersji najwyższej, a każda wersja mieści się w tym podziale (nadpłata to mniej w obu częściach).
+        const zgodne = fp === fpA && odl === a.spoleczneBezFpGr && wersje.every((v) => v.spoleczneBezFpGr <= a.spoleczneBezFpGr && v.kwotaGr - v.spoleczneBezFpGr <= fpA);
+        const zmiany = zmianyPodzialu(wersje);
+        expect(zmiany.length, JSON.stringify(wersje)).toBe(zgodne ? 0 : 1);
+        if (zgodne) return;
+        const dni = [...new Set(wersje.map((v) => v.zaplaconeO))].sort();
+        expect(zmiany[0]).toMatchObject({ okres: `${ROK}-03`, dni });
+        expect(dniBrakow(wersje, `Składki ZUS za 03/${ROK}`)).toEqual(dni);
+      }),
+      opcje(),
+    );
+  });
+
+  it('NZ-PIT-08: wersja, która przesuwa kwotę z FP do części bez FP, daje brak w dniu obu zapłat zamiast FP i odliczenia z tych samych pieniędzy (FZ-027)', () => {
     // Zapłata spoza wyliczenia z częścią bez FP równą zero (pomyłka), potem wersja z kwotą z DRA; bez braku 1000 zł kosztu i 900 zł odliczenia z 1000 zł.
     const zaplaty: ZaplaconeSkladki[] = [
       { id: 'v1', okres: '2025-12', wersja: 1, kwotaGr: 100_000, spoleczneBezFpGr: 0, zaplaconeO: '2026-01-10' },
       { id: 'v2', okres: '2025-12', wersja: 2, kwotaGr: 100_000, spoleczneBezFpGr: 90_000, zaplaconeO: '2026-01-20' },
     ];
-    expect(zmianyPodzialu(zaplaty)).toEqual([{ okres: '2025-12', data: '2026-01-20' }]);
-    expect(ksiegaGrudnia(zaplaty).braki.filter((b) => b.dokument === 'Składki ZUS za 12/2025').map((b) => b.dzien)).toEqual(['2026-01-20']);
+    expect(zmianyPodzialu(zaplaty)).toMatchObject([{ okres: '2025-12', dni: ['2026-01-10', '2026-01-20'] }]);
+    expect(dniBrakow(zaplaty, 'Składki ZUS za 12/2025')).toEqual(['2026-01-10', '2026-01-20']);
   });
 
-  it('NZ-PIT-08: wersja, która przesuwa kwotę z części bez FP do FP, daje brak okresu w KPiR zamiast FP w odliczeniu (FZ-027)', () => {
+  it('NZ-PIT-08: wersja, która przesuwa kwotę z części bez FP do FP, daje brak w dniu obu zapłat zamiast FP w odliczeniu (FZ-027)', () => {
     // Odwrotnie: część bez FP równa całej kwocie (pomyłka), potem 900 zł; bez braku FP nie trafia do kolumny 13, a odliczenie zostaje z FP.
     const zaplaty: ZaplaconeSkladki[] = [
       { id: 'v1', okres: '2025-12', wersja: 1, kwotaGr: 100_000, spoleczneBezFpGr: 100_000, zaplaconeO: '2026-01-10' },
       { id: 'v2', okres: '2025-12', wersja: 2, kwotaGr: 100_000, spoleczneBezFpGr: 90_000, zaplaconeO: '2026-01-20' },
     ];
-    expect(zmianyPodzialu(zaplaty)).toEqual([{ okres: '2025-12', data: '2026-01-20' }]);
-    expect(brakiDokumentu(ksiegaGrudnia(zaplaty).braki, 'Składki ZUS za 12/2025')).toHaveLength(1);
+    expect(dniBrakow(zaplaty, 'Składki ZUS za 12/2025')).toEqual(['2026-01-10', '2026-01-20']);
+  });
+
+  it('NZ-PIT-08: wersja z niższą kwotą i wyższą częścią bez FP, a także niższa z wyższym FP, to też zmiana podziału (FZ-027)', () => {
+    // Kwota z DRA o grosz niższa niż wpisana z częścią bez FP 0 zł: bez braku 1000 zł FP i 900 zł odliczenia.
+    expect(dniBrakow([
+      { id: 'v1', okres: '2025-12', wersja: 1, kwotaGr: 100_000, spoleczneBezFpGr: 0, zaplaconeO: '2026-01-10' },
+      { id: 'v2', okres: '2025-12', wersja: 2, kwotaGr: 99_999, spoleczneBezFpGr: 90_000, zaplaconeO: '2026-01-20' },
+    ], 'Składki ZUS za 12/2025')).toEqual(['2026-01-10', '2026-01-20']);
+    // Cała kwota bez FP (pomyłka), potem niższa wersja z DRA z FP 150 zł: bez braku odliczenie 1000 zł razem z FP.
+    expect(dniBrakow([
+      { id: 'v1', okres: '2025-12', wersja: 1, kwotaGr: 100_000, spoleczneBezFpGr: 100_000, zaplaconeO: '2026-01-10' },
+      { id: 'v2', okres: '2025-12', wersja: 2, kwotaGr: 95_000, spoleczneBezFpGr: 80_000, zaplaconeO: '2026-01-20' },
+    ], 'Składki ZUS za 12/2025')).toEqual(['2026-01-10', '2026-01-20']);
   });
 
   it('NZ-PIT-08: dopłata z tym samym albo rosnącym FP i częścią bez FP, nadpłata i powrót do kwoty nie są zmianą podziału', () => {

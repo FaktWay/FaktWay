@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { FakturaEwidencji } from '@/lib/ksiegowosc/ewidencja';
-import { sumyKpir, wierszeKpirOkresu, zaplatyFunduszuPracy, zbudujKpir, zmianyPodzialu, type KosztKpir, type WejscieKpir } from '@/lib/ksiegowosc/kpir';
+import { sumyKpir, wierszeKpirOkresu, zaplatyFunduszuPracy, zbudujKpir, zmianyPodzialu, type KosztKpir, type WejscieKpir, type WersjaPodzialu } from '@/lib/ksiegowosc/kpir';
 import { parametryRoku } from '@/lib/ksiegowosc/parametry';
 import type { WersjaProfilu } from '@/lib/ksiegowosc/profil';
 import { tenMiesiac, type Platnosc } from '@/lib/ksiegowosc/ten-miesiac';
@@ -286,15 +286,21 @@ describe('FZ-027: zmiana podziału zapłaconych składek przy skali', () => {
     return w.wynik.pozycje.find((p) => p.rodzaj === rodzaj);
   };
 
-  it('KPiR: brak z okresem w dniu zapłaty tej wersji, więc zaliczka za luty to brak', () => {
+  it('KPiR: brak z okresem w dniu obu zapłat, z obiema wersjami w komunikacie, więc zaliczka za luty to brak', () => {
     const kpir = ksiega({ zmianyPodzialu: zmianyPodzialu(skladki) });
-    expect(kpir.braki.map((b) => [b.dzien, b.dokument])).toEqual([['2026-02-16', 'Składki ZUS za 01/2026']]);
+    expect(kpir.braki.map((b) => [b.dzien, b.dokument])).toEqual([
+      ['2026-02-10', 'Składki ZUS za 01/2026'],
+      ['2026-02-16', 'Składki ZUS za 01/2026'],
+    ]);
+    expect(kpir.braki[0].komunikat).toContain('wersja 1 zapłacona 10.02.2026 (1926,76 zł, w tym bez Funduszu Pracy i FS 1788,29 zł)');
+    expect(kpir.braki[0].komunikat).toContain('wersja 2 zapłacona 16.02.2026 (1926,76 zł, w tym bez Funduszu Pracy i FS 1926,76 zł)');
     expect(kpir.braki[0].komunikat).toContain('„Cofnij”');
     expect(pozycja('2026-02', kpir, 'pit')).toMatchObject({ ok: false, brak: expect.stringContaining('luty 2026') });
   });
 
   it('brak należy do księgi roku dnia zapłaty tej wersji, a dzień z ryczałtem nie ma braku w KPiR', () => {
-    const zmiany = [{ okres: '2025-11', data: '2025-12-20' }];
+    const w = { kwotaGr: 100_000, bezFpGr: 90_000 };
+    const zmiany = [{ okres: '2025-11', dni: ['2025-12-20'], wersje: [{ wersja: 1, data: '2025-12-20', ...w }, { wersja: 2, data: '2025-12-20', ...w, bezFpGr: 100_000 }] as [WersjaPodzialu, WersjaPodzialu] }];
     const wersje = [{ ...SKALA, validFrom: '2025-01-01' }];
     expect(zbudujKpir(wejscie({ wersje, zmianyPodzialu: zmiany })).braki).toEqual([]);
     const k2025 = zbudujKpir(wejscie({ rok: 2025, wersje, zmianyPodzialu: zmiany }));

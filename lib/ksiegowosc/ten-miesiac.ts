@@ -14,10 +14,10 @@
  *   rozliczenia liczy się tylko dopłata (przyrost między zapłaconymi wersjami).
  * - Próg zdrowotnej: przychód od początku roku pomniejszony o zapłacone
  *   składki społeczne bez FP (sekcja 5, pewność średnia).
- * - Wersja składek społecznych, która dzieli zapłaconą kwotę między FP i część
- *   bez FP inaczej niż wcześniejsza (`zmianyPodzialu`, FZ-027), to brak każdej
- *   kwoty liczonej z odliczeń od miesiąca jej zapłaty (ryczałt, próg
- *   zdrowotnej, zaliczka PIT, zdrowotna od dochodu z tego miesiąca).
+ * - Okres składek społecznych, którego zapłacone wersje różnie dzielą kwotę
+ *   między FP i część bez FP (`zmianyPodzialu`, FZ-027), to brak każdej kwoty
+ *   liczonej z odliczeń od miesiąca pierwszej jego zapłaty (ryczałt, próg
+ *   zdrowotnej, zaliczka PIT, zdrowotna od dochodu z miesiąca zapłaty).
  * - Firma, która zaczyna w trakcie miesiąca, liczy się z pierwszej wersji
  *   ustawień z tego miesiąca; składka zdrowotna jest wtedy pełna.
  * - Skala i liniowy (K7): zamiast ryczałtu zaliczka PIT narastająco z KPiR
@@ -180,17 +180,17 @@ export function przyrostyZaplat(platnosci: readonly Platnosc[]) {
 const miesiacNr = (rok: number, m: number) => `${rok}-${String(m).padStart(2, '0')}`;
 
 /**
- * FZ-027: wersja składek społecznych zapłacona w miesiącach [od, do] (RRRR-MM),
- * która zmienia podział kwoty między FP i część bez FP, to brak pozycji
- * liczonej z odliczeń tych miesięcy (przyrosty dałyby FP w odliczeniu albo
- * koszt i odliczenie z tych samych pieniędzy).
+ * FZ-027: okres składek społecznych, którego wersje różnie dzielą kwotę między
+ * FP i część bez FP, z zapłatą w miesiącach [od, do] (RRRR-MM), to brak
+ * pozycji liczonej z odliczeń tych miesięcy (przyrosty dałyby FP w odliczeniu
+ * albo koszt i odliczenie z tych samych pieniędzy).
  */
 function brakPodzialu(platnosci: readonly Platnosc[], odMiesiaca: string, doMiesiaca: string): string | null {
   const zmiana = zmianyPodzialu(
     platnosci
       .filter((p) => p.rodzaj === 'zus_spoleczne')
       .map((p) => ({ id: `${p.miesiac}-${p.wersja}`, okres: p.miesiac, wersja: p.wersja, kwotaGr: p.kwotaGr, spoleczneBezFpGr: p.spoleczneBezFpGr, zaplaconeO: p.zaplaconeO })),
-  ).find((z) => z.data.slice(0, 7) >= odMiesiaca && z.data.slice(0, 7) <= doMiesiaca);
+  ).find((z) => z.dni.some((d) => d.slice(0, 7) >= odMiesiaca && d.slice(0, 7) <= doMiesiaca));
   return zmiana ? brakZmianyPodzialu(zmiana, 'tej kwoty nie liczymy') : null;
 }
 
