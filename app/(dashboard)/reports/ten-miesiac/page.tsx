@@ -145,8 +145,13 @@ export default async function TenMiesiacPage({ searchParams }: { searchParams: P
           rozliczenia={dane.rozliczenia}
           canEdit={canEdit}
           dzis={dzis}
-          // FZ-034: najnowsza wersja ma „Cofnij” wyżej tylko przy swojej pozycji w „Do zapłaty”.
-          zPozycjaWyzej={new Set(dane.ok ? dane.pozycje.map((p) => p.rodzaj) : [])}
+          // FZ-034: kontrolkę wyżej ma najnowsza wersja przy swojej pozycji w „Do zapłaty” i każda zapłata spoza wyliczenia z listy.
+          zKontrolkaWyzej={
+            new Set([
+              ...(dane.ok ? dane.pozycje.flatMap((p) => aktualne(dane.rozliczenia).get(p.rodzaj)?.id ?? []) : []),
+              ...dane.zaplatyReczne.map((r) => r.id),
+            ])
+          }
         />
       ) : null}
     </div>
@@ -394,17 +399,17 @@ function Historia({
   rozliczenia,
   canEdit,
   dzis,
-  zPozycjaWyzej,
+  zKontrolkaWyzej,
 }: {
   rozliczenia: Rozliczenie[];
   canEdit: boolean;
   dzis: string;
-  /** Rodzaje rozliczeń z pozycją w „Do zapłaty” (tam najnowsza wersja ma swoją kontrolkę). */
-  zPozycjaWyzej: ReadonlySet<RodzajRozliczenia>;
+  /** Id wersji, które mają kontrolkę wyżej: najnowsza przy swojej pozycji w „Do zapłaty” i zapłaty spoza wyliczenia z listy. */
+  zKontrolkaWyzej: ReadonlySet<string>;
 }) {
-  // Starszą wersję da się oznaczyć albo poprawić tutaj; najnowszą przy rozliczeniu wyżej, a gdy wyżej nie ma jej
-  // pozycji (miesiąc się nie liczy, pozycji tego rozliczenia już nie ma), też tutaj: inaczej jej zapłaty nie da się cofnąć (FZ-034).
-  const najnowsze = new Set([...aktualne(rozliczenia).values()].filter((r) => zPozycjaWyzej.has(r.rodzaj)).map((r) => r.id));
+  // Każda wersja ma dokładnie jedną kontrolkę: tutaj, gdy nie ma jej wyżej. Najnowsza bez pozycji wyżej (miesiąc się nie
+  // liczy, pozycji tego rozliczenia już nie ma) też tutaj, inaczej jej zapłaty nie da się cofnąć (FZ-034).
+  const najnowsze = zKontrolkaWyzej;
   return (
     <Card>
       <CardContent className="flex flex-col gap-3">

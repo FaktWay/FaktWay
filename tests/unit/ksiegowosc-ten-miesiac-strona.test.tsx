@@ -382,6 +382,29 @@ describe('FZ-034: „Cofnij” najnowszej wersji, gdy wyżej nie ma jej pozycji'
     expect(t).toContain('Cofnij zapłatę: Podatek VAT, wersja 1');
   });
 
+  it('każda wersja ma u właściciela dokładnie jedną kontrolkę zapłaty, a u członka firmy żadnej', async () => {
+    const reczna = zatw('zus_spoleczne', H('e'), { id: 'reczna-1', wersja: 3, reczna: true, status: 'zatwierdzone', zaplaconeO: null });
+    const brakRyczaltu = { ok: false, rodzaj: 'ryczalt', termin, brak: 'Ewidencja przychodów ma braki w miesiącach: październik 2026.' };
+    const scenariusze: Array<[string, unknown]> = [
+      ['miesiąc się nie liczy', { ok: false, braki: ['Stawki czekają na sprawdzenie.'], rozliczenia: [zatw('ryczalt', H('a')), zatw('zus_spoleczne', H('b'), { status: 'zaplacone', zaplaconeO: '2026-11-05' })], zaplatyReczne: [] }],
+      ['pozycja policzona ze starszą wersją', dane([zatw('ryczalt', H('9'), { status: 'zaplacone', zaplaconeO: '2026-11-05' }), zatw('ryczalt', H('a'), { wersja: 2 })])],
+      ['pozycja z brakiem', dane([zatw('ryczalt', H('a'))], [brakRyczaltu, POZYCJE[1], POZYCJE[2]])],
+      ['wersja bez pozycji (VAT)', dane([zatw('vat', H('d'))])],
+      ['miesiąc się nie liczy i zapłata spoza wyliczenia bez daty', { ok: false, braki: ['Stawki czekają na sprawdzenie.'], rozliczenia: [reczna], zaplatyReczne: [reczna] }],
+    ];
+    for (const [opis, d] of scenariusze) {
+      for (const rola of ['owner', 'member'] as const) {
+        mocks.rola = rola;
+        mocks.dane = d;
+        const html = await strona();
+        const ids = (d as { rozliczenia: { id: string }[] }).rozliczenia.map((r) => r.id);
+        for (const id of ids) {
+          expect(html.split(`data-zaplata="${id}"`).length - 1, `${opis}, ${rola}, ${id}`).toBe(rola === 'owner' ? 1 : 0);
+        }
+      }
+    }
+  });
+
   it('pozycja jest wyżej: „Cofnij” najnowszej wersji tylko przy pozycji, nie drugi raz w historii', async () => {
     mocks.dane = dane([zatw('ryczalt', H('a'), { status: 'zaplacone', zaplaconeO: '2026-11-05' })]);
     const t = tekst(await strona());
