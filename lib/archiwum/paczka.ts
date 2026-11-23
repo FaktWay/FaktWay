@@ -91,7 +91,10 @@ const UPO_MISSING = 'pliku UPO nie ma w magazynie FaktWay. Napisz do nas; UPO po
 const PHOTO_MISSING = 'zdjęcia nie ma w magazynie FaktWay. Napisz do nas, sprawdzimy kopię.';
 /** FZ-032: faktura bez danych stron (np. zakup ze Skrzynki KSeF z samymi metadanymi). */
 const PDF_NO_PARTIES =
-  'w FaktWay nie ma pełnych danych sprzedawcy i nabywcy tej faktury (faktura zakupu pobrana ze Skrzynki KSeF ma tylko dane z KSeF), więc nie zrobiliśmy jej wydruku PDF. Oryginałem faktury jest plik XML z KSeF.';
+  'w FaktWay nie ma pełnych danych sprzedawcy i nabywcy tej faktury (tak jest np. przy fakturze zakupu pobranej ze Skrzynki KSeF, która ma tylko dane z KSeF), więc nie zrobiliśmy jej wydruku PDF. Oryginałem faktury jest plik XML z KSeF.';
+/** Nieprzewidziany błąd wydruku: PDF to wizualizacja, więc paczka powstaje bez niego. */
+const PDF_FAILED =
+  'nie udało się zrobić wydruku PDF tej faktury, więc nie trafił do paczki. Oryginałem faktury jest plik XML z KSeF. Napisz do nas, sprawdzimy wydruk.';
 const PHOTO_NONE =
   'w FaktWay nie ma zdjęcia ani pliku tego dokumentu. Jeśli jest na papierze, trzeba go dołączyć do dokumentów osobno.';
 const JPK_LATER =
@@ -431,14 +434,22 @@ export async function buildArchivePackage(
       // Skrzynki KSeF ma w wierszu same metadane (`inbox-polling` nie zapisuje stron),
       // a renderer czyta strony wprost, więc dotąd jedna taka faktura kończyła całą
       // paczkę błędem. Teraz brak PDF idzie do spisu z powodem, a XML z KSeF zostaje.
+      // Inny rzut renderera (np. brak danych płatności) też nie kończy paczki: wydruk
+      // to wizualizacja, a oryginał (XML z KSeF) zostaje.
       if (!hasPrintableParties(inv)) {
         missing.push({ dokument: label, plik: 'PDF', powod: PDF_NO_PARTIES });
       } else {
-        const pdf = await generateInvoicePdf(inv.id, tenantId);
-        if (pdf.success) {
+        let pdf: Awaited<ReturnType<typeof generateInvoicePdf>> | null = null;
+        try {
+          pdf = await generateInvoicePdf(inv.id, tenantId);
+        } catch (error) {
+          console.error('[archiwum] wydruk PDF faktury', inv.id, error instanceof Error ? error.message : error);
+          missing.push({ dokument: label, plik: 'PDF', powod: PDF_FAILED });
+        }
+        if (pdf?.success) {
           add(`${folder}/${base}.pdf`, pdf.pdf);
           included.push('PDF');
-        } else {
+        } else if (pdf) {
           missing.push({ dokument: label, plik: 'PDF', powod: pdf.error });
         }
       }
