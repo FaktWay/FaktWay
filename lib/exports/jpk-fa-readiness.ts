@@ -10,11 +10,14 @@
  *   ze stawką spoza FaktWay albo zaimportowana korekta / zaliczka / ROZ,
  * - GUS nie zna adresu firmy z województwem, powiatem i gminą.
  *
- * Faktury i pozycje okresu czytają helpery stronicowania, jak eksport
- * (FZ-018): faktury `readCompletePagesByKey` (licznik i kolejność po `id`),
- * pozycje faktur z importu `readAllByIdInList` (paczki identyfikatorów,
- * koniec na pustej stronie). Limit serwera poniżej strony albo zapis
- * w trakcie to wyjątek (krok paczki się ponawia), a nie cicha niepełna lista.
+ * Faktury i pozycje okresu czytają helpery stronicowania (FZ-018). Faktury
+ * `readCompletePagesByKey` (licznik, kolejność po `id`, licznik kontrolny),
+ * jak eksport: limit serwera poniżej strony albo zapis w trakcie to wyjątek
+ * (krok paczki się ponawia), a nie cicha niepełna lista. Pozycje faktur
+ * z importu `readAllByIdInList` (paczki identyfikatorów, każda do pustej
+ * strony), więc mały limit serwera nie ucina listy; licznika nie ma, ale
+ * pozycje faktur z importu się nie zmieniają (eksport czyta je
+ * `readCompletePagesByKey` w paczkach po 100).
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
