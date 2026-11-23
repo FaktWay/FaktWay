@@ -1,9 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+
+import { trybWGicie } from '../helpers/tryb-w-gicie';
 
 /**
  * Skrypty operatora BLIK-a w scripts/ops. Część wykonywana w kontenerze aplikacji
@@ -382,7 +384,7 @@ describe('stripe-blik-wygas-sesje.sh: otwarte Session przy wycofaniu', () => {
     const source = readFileSync(join(process.cwd(), EXPIRE), 'utf8');
 
     expect(source).toContain('source "$ENV_FILE"');
-    expect(statSync(join(process.cwd(), EXPIRE)).mode & 0o100).toBeTruthy();
+    expect(trybWGicie(EXPIRE), 'wykonywalny w gicie').toBe('100755');
     expect(shellSyntaxError(EXPIRE)).toBe('');
   });
 });
