@@ -140,7 +140,20 @@ export default async function TenMiesiacPage({ searchParams }: { searchParams: P
 
       {canEdit || dane.zaplatyReczne.length > 0 ? <ZaplatySpozaWyliczenia zaplaty={dane.zaplatyReczne} canEdit={canEdit} dzis={dzis} miesiac={miesiac} /> : null}
 
-      {dane.rozliczenia.length > 0 ? <Historia rozliczenia={dane.rozliczenia} canEdit={canEdit} dzis={dzis} /> : null}
+      {dane.rozliczenia.length > 0 ? (
+        <Historia
+          rozliczenia={dane.rozliczenia}
+          canEdit={canEdit}
+          dzis={dzis}
+          // FZ-034: kontrolkę wyżej ma najnowsza wersja przy swojej pozycji w „Do zapłaty” i każda zapłata spoza wyliczenia z listy.
+          zKontrolkaWyzej={
+            new Set([
+              ...(dane.ok ? dane.pozycje.flatMap((p) => aktualne(dane.rozliczenia).get(p.rodzaj)?.id ?? []) : []),
+              ...dane.zaplatyReczne.map((r) => r.id),
+            ])
+          }
+        />
+      ) : null}
     </div>
   );
 }
@@ -382,9 +395,21 @@ function ZaplatySpozaWyliczenia({ zaplaty, canEdit, dzis, miesiac }: { zaplaty: 
   );
 }
 
-function Historia({ rozliczenia, canEdit, dzis }: { rozliczenia: Rozliczenie[]; canEdit: boolean; dzis: string }) {
-  // Starszą wersję da się oznaczyć albo poprawić tutaj; najnowszą przy rozliczeniu wyżej.
-  const najnowsze = new Set([...aktualne(rozliczenia).values()].map((r) => r.id));
+function Historia({
+  rozliczenia,
+  canEdit,
+  dzis,
+  zKontrolkaWyzej,
+}: {
+  rozliczenia: Rozliczenie[];
+  canEdit: boolean;
+  dzis: string;
+  /** Id wersji, które mają kontrolkę wyżej: najnowsza przy swojej pozycji w „Do zapłaty” i zapłaty spoza wyliczenia z listy. */
+  zKontrolkaWyzej: ReadonlySet<string>;
+}) {
+  // Każda wersja ma dokładnie jedną kontrolkę: tutaj, gdy nie ma jej wyżej. Najnowsza bez pozycji wyżej (miesiąc się nie
+  // liczy, pozycji tego rozliczenia już nie ma) też tutaj, inaczej jej zapłaty nie da się cofnąć (FZ-034).
+  const najnowsze = zKontrolkaWyzej;
   return (
     <Card>
       <CardContent className="flex flex-col gap-3">
