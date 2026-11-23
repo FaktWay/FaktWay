@@ -6,6 +6,7 @@ import {
   type ProductListItem,
   type ProductSuggestion,
 } from '@/lib/produkty/model';
+import { GROSS_PRICES_UNTAXED_RATES } from '@/lib/xml/invoice-calculator';
 
 /**
  * Odczyt katalogu produktów klientem z sesji (RLS 00013 zawęża do firmy, a
@@ -187,7 +188,11 @@ export async function suggestProducts(client: unknown, tenantId: string, q: stri
         name: row.name,
         unit: row.unit,
         priceNet: price(row.default_price_net),
-        priceGross: price(row.default_price_gross),
+        // Osobne ustalenie 14: stawka bez podatku (zw, oo, np) a zapisana cena brutto (np. stawka zmieniona
+        // przy ukrytym polu). Faktura w cenach brutto takiej pozycji nie przyjmie (#880), więc bez ceny brutto.
+        priceGross: isProductVatRate(row.default_vat_rate) && GROSS_PRICES_UNTAXED_RATES.has(row.default_vat_rate)
+          ? null
+          : price(row.default_price_gross),
         vatRate: isProductVatRate(row.default_vat_rate) ? row.default_vat_rate : null,
         pkwiuCode: typeof row.pkwiu_code === 'string' && isPkwiuCode(row.pkwiu_code.trim()) ? row.pkwiu_code.trim() : null,
         gtuCode: isGtuCode(gtu) ? gtu : null,
