@@ -175,6 +175,9 @@ interface ExpenseRow {
 const EXPENSE_COLUMNS =
   'id, issue_date, document_number, document_type, seller_name, seller_nip, net_amount, vat_amount, gross_amount, source, source_file_path, source_file_mime, ksef_invoice_id';
 
+const XML_DOC_COLUMNS = 'id, invoice_id, storage_path, sha256_hash';
+const UPO_COLUMNS = 'id, invoice_id, status, upo_xml_path, created_at';
+
 interface XmlDocRow {
   id: string;
   invoice_id: string;
@@ -189,61 +192,69 @@ interface UpoRow {
   created_at: string | null;
 }
 
-/**
- * Wiersze okresu paczki (faktury, koszty): komplet albo wyjątek (FZ-033, ten sam
- * wzór co FZ-018). Stronami po `id` z licznikiem (`readCompletePagesByKey`):
- * serwer ucina odpowiedź do 1000 wierszy bez błędu, a dokument zapisany w trakcie
- * budowania paczki przesuwał strony zakresów (wypadał z ZIP albo był w nim dwa
- * razy). Teraz licznik tego nie przepuszcza: wyjątek i ponowienie joba. Kolejność
- * w paczce jak dotąd: data wystawienia, potem `id`.
- */
-async function readPeriodRows<T extends { id: string; issue_date: string }>(
-  db: SupabaseClient,
-  table: string,
-  columns: string,
-  order: ArchiveOrderInput,
-): Promise<T[]> {
-  const rows = await readCompletePagesByKey<T>(table, ({ afterId, limit, count, head }) => {
-    let query = db
-      .from(table)
-      .select(columns, count ? { count: 'exact', head } : undefined)
-      .eq('tenant_id', order.tenantId)
-      .gte('issue_date', order.periodStart)
-      .lte('issue_date', order.periodEnd);
-    if (afterId !== null) query = query.gt('id', afterId);
-    // Kolumny podane zmienną: supabase-js nie zna typu wiersza, więc strona w typie helpera.
-    return query.order('id', { ascending: true }).limit(limit) as unknown as PromiseLike<{
-      data: T[] | null;
-      count?: number | null;
-      error: { message: string } | null;
-    }>;
-  });
+/** Strona odczytu po kluczu w typie helpera: kolumny ze stałej sklejanej `+`, więc supabase-js nie zna typu wiersza. */
+type KeyPage<T> = PromiseLike<{ data: T[] | null; count?: number | null; error: { message: string } | null }>;
+
+/** Kolejność w paczce jak przed odczytem po kluczu: data wystawienia, potem `id`. */
+function byIssueDate<T extends { id: string; issue_date: string }>(rows: T[]): T[] {
   return rows.sort((a, b) =>
     a.issue_date < b.issue_date ? -1 : a.issue_date > b.issue_date ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );
 }
 
-/**
- * Wiersze plików faktur (XML, UPO) dla listy faktur: paczki `in()` i każda
- * stronami po `id` (`readAllByIdInList`, FZ-033). Dotąd jedna odpowiedź na 200
- * faktur, więc przy ponad 1000 pasujących wierszach (np. historia UPO) serwer
- * ucinał ją bez błędu. „Nie wiem, jakie pliki ma faktura” to nie „nie ma plików”:
- * błąd odczytu rzuca.
+/*
+ * Odczyty paczki: komplet albo wyjątek (FZ-033, ten sam wzór co FZ-018). Serwer
+ * ucina odpowiedź do 1000 wierszy bez błędu, a dokument zapisany w trakcie
+ * budowania paczki przesuwał strony zakresów (wypadał z ZIP albo był w nim dwa
+ * razy). Wiersze okresu idą stronami po `id` z licznikiem (`readCompletePagesByKey`),
+ * pliki faktur (XML, UPO) paczkami `in()`, każda stronami po `id`
+ * (`readAllByIdInList`); zmiana w trakcie daje wyjątek i ponowienie joba.
+ * „Nie wiem, jakie pliki ma faktura” to nie „nie ma plików”: błąd odczytu rzuca.
+ * Jedna funkcja na tabelę z nazwą tabeli wprost, bo niezmiennik NZ-WSP-08
+ * (`tests/filtr/niezmienniki/strony.test.ts`) sprawdza każde zapytanie po nazwie.
  */
-async function readByInvoice<T extends { id: string }>(
-  db: SupabaseClient,
-  table: string,
-  columns: string,
-  tenantId: string,
-  ids: string[],
-): Promise<T[]> {
-  return readAllByIdInList<T>(table, ids, (values, afterId, limit) => {
-    let query = db.from(table).select(columns).eq('tenant_id', tenantId).in('invoice_id', values);
+
+async function readPeriodInvoices(db: SupabaseClient, order: ArchiveOrderInput): Promise<InvoiceRow[]> {
+  const rows = await readCompletePagesByKey<InvoiceRow>('invoices', ({ afterId, limit, count, head }) => {
+    let query = db
+      .from('invoices')
+      .select(INVOICE_COLUMNS, count ? { count: 'exact', head } : undefined)
+      .eq('tenant_id', order.tenantId)
+      .gte('issue_date', order.periodStart)
+      .lte('issue_date', order.periodEnd);
     if (afterId !== null) query = query.gt('id', afterId);
-    return query.order('id', { ascending: true }).limit(limit) as unknown as PromiseLike<{
-      data: T[] | null;
-      error: { message: string } | null;
-    }>;
+    return query.order('id', { ascending: true }).limit(limit) as unknown as KeyPage<InvoiceRow>;
+  });
+  return byIssueDate(rows);
+}
+
+async function readPeriodExpenses(db: SupabaseClient, order: ArchiveOrderInput): Promise<ExpenseRow[]> {
+  const rows = await readCompletePagesByKey<ExpenseRow>('expenses', ({ afterId, limit, count, head }) => {
+    let query = db
+      .from('expenses')
+      .select(EXPENSE_COLUMNS, count ? { count: 'exact', head } : undefined)
+      .eq('tenant_id', order.tenantId)
+      .gte('issue_date', order.periodStart)
+      .lte('issue_date', order.periodEnd);
+    if (afterId !== null) query = query.gt('id', afterId);
+    return query.order('id', { ascending: true }).limit(limit) as unknown as KeyPage<ExpenseRow>;
+  });
+  return byIssueDate(rows);
+}
+
+async function readXmlDocuments(db: SupabaseClient, tenantId: string, ids: string[]): Promise<XmlDocRow[]> {
+  return readAllByIdInList<XmlDocRow>('xml_documents', ids, (values, afterId, limit) => {
+    let query = db.from('xml_documents').select(XML_DOC_COLUMNS).eq('tenant_id', tenantId).in('invoice_id', values);
+    if (afterId !== null) query = query.gt('id', afterId);
+    return query.order('id', { ascending: true }).limit(limit) as unknown as KeyPage<XmlDocRow>;
+  });
+}
+
+async function readUpoReceipts(db: SupabaseClient, tenantId: string, ids: string[]): Promise<UpoRow[]> {
+  return readAllByIdInList<UpoRow>('upo_receipts', ids, (values, afterId, limit) => {
+    let query = db.from('upo_receipts').select(UPO_COLUMNS).eq('tenant_id', tenantId).in('invoice_id', values);
+    if (afterId !== null) query = query.gt('id', afterId);
+    return query.order('id', { ascending: true }).limit(limit) as unknown as KeyPage<UpoRow>;
   });
 }
 
@@ -390,16 +401,16 @@ export async function buildArchivePackage(
   const companyName = text((tenant as { name?: unknown }).name);
 
   const [invoices, expenses] = await Promise.all([
-    readPeriodRows<InvoiceRow>(db, 'invoices', INVOICE_COLUMNS, order),
-    readPeriodRows<ExpenseRow>(db, 'expenses', EXPENSE_COLUMNS, order),
+    readPeriodInvoices(db, order),
+    readPeriodExpenses(db, order),
   ]);
   const listed = invoices.filter((inv) => inv.ksef_status !== 'draft');
   const documents = listed.filter((inv) => !inv.ksef_environment || inv.ksef_environment === environment);
   const otherEnvironment = listed.length - documents.length;
   const ids = documents.map((inv) => inv.id);
   const [xmlDocs, upos] = await Promise.all([
-    readByInvoice<XmlDocRow>(db, 'xml_documents', 'id, invoice_id, storage_path, sha256_hash', tenantId, ids),
-    readByInvoice<UpoRow>(db, 'upo_receipts', 'id, invoice_id, status, upo_xml_path, created_at', tenantId, ids),
+    readXmlDocuments(db, tenantId, ids),
+    readUpoReceipts(db, tenantId, ids),
   ]);
   const hashes = new Map(xmlDocs.map((d) => [`${d.invoice_id}|${d.storage_path}`, d.sha256_hash]));
   const uposByInvoice = new Map<string, UpoRow[]>();
