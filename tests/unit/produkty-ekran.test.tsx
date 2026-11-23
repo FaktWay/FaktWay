@@ -33,7 +33,7 @@ import type { ProductListItem } from '@/lib/produkty/model';
 
 const plain = (html: string) => html.replace(/[  ]/g, ' ').replace(/&quot;/g, '"');
 const item = (extra: Partial<ProductListItem> = {}): ProductListItem => ({
-  id: 'p1', name: 'Szkolenie', unit: 'godz.', defaultPriceNet: 1250.5, defaultVatRate: '23', pkwiuCode: null, gtuCode: null, description: null, isArchived: false, useCount: 0, lastUsedAt: null, ...extra,
+  id: 'p1', name: 'Szkolenie', unit: 'godz.', defaultPriceNet: 1250.5, defaultPriceGross: null, defaultVatRate: '23', pkwiuCode: null, gtuCode: null, description: null, isArchived: false, useCount: 0, lastUsedAt: null, ...extra,
 });
 
 async function render(sp: Record<string, string> = {}) {

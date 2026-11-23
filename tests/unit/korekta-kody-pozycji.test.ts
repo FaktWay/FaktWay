@@ -91,6 +91,10 @@ function faktura(id: string, pozycje: Poz[], o: Row = {}) {
 const linia = (p: Poz, o: Partial<InvoiceLine> = {}): InvoiceLine => ({
   name: p.name, unit: 'usł.', quantity: p.quantity, unitPriceNet: p.unitPriceNet, vatRate: '23', ...o,
 });
+/** Stan przed niesie kwoty pozycji z zapisu (`recordedAmounts`, naprawa ilość × cena na stosie #828). */
+const zZapisu = (p: Poz): Partial<InvoiceLine> => ({
+  recordedAmounts: calculateLineItem({ quantity: p.quantity, unitPriceNet: p.unitPriceNet, vatRate: '23' }),
+});
 
 function payload(o: Record<string, unknown>) {
   return {
@@ -127,7 +131,7 @@ describe('korekta: kody pozycji z dokumentu faktury korygowanej', () => {
     const ctx = await getCorrectionParentContextAction(PARENT);
     expect(ctx.success).toBe(true);
     if (!ctx.success) return;
-    expect(ctx.linesBefore).toEqual([linia(DORADZTWO, { pkwiuCode: '69.20.2', gtuCode: 'GTU_12' }), linia(DOJAZD)]);
+    expect(ctx.linesBefore).toEqual([linia(DORADZTWO, { pkwiuCode: '69.20.2', gtuCode: 'GTU_12', ...zZapisu(DORADZTWO) }), linia(DOJAZD, zZapisu(DOJAZD))]);
     expect(ctx.linesAfter).toEqual(ctx.linesBefore);
   });
 
@@ -234,7 +238,10 @@ describe('korekta: kody pozycji z dokumentu faktury korygowanej', () => {
     const ctx = await getCorrectionParentContextAction(PARENT);
     if (!ctx.success) throw new Error(ctx.error);
     expect(ctx.previousCorrection).toEqual({ internalNumber: 'FK/0/11/2026', correctionType: 'before_after' });
-    expect(ctx.linesBefore).toEqual([linia({ ...DORADZTWO, quantity: 1 }, { pkwiuCode: '69.20.2', gtuCode: 'GTU_12' }), linia(DOJAZD)]);
+    expect(ctx.linesBefore).toEqual([
+      linia({ ...DORADZTWO, quantity: 1 }, { pkwiuCode: '69.20.2', gtuCode: 'GTU_12', ...zZapisu({ ...DORADZTWO, quantity: 1 }) }),
+      linia(DOJAZD, zZapisu(DOJAZD)),
+    ]);
   });
 });
 

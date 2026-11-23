@@ -238,8 +238,10 @@ function faktura(linie: Array<{ name: string; quantity: number; unitPriceNet: nu
 }
 
 describe('uwagi drugiego czytelnika (31a9e96c)', () => {
-  it('pozycja od netto z netto ≠ ilość × cena (import: cena 10,125, netto 10,12): „przed/po” odmawia neutralnie, z wyjściem; anulowanie odtwarza kwoty', async () => {
-    faktura([{ name: 'Usługa z importu', quantity: 1, unitPriceNet: 10.125, vatRate: '23', net: 10.12, vat: 2.33, gross: 12.45 }]);
+  // Naprawa ilość × cena (stos na #828): 10,125 → 10,12 to połówka grosza w dół, więc pozycja od netto
+  // (`amountsFollowNetPrice`, tests/unit/korekta-stara-faktura.test.ts); odmowę sprawdza netto spoza połówki.
+  it('pozycja od netto z netto ≠ ilość × cena (import: cena 10,13, netto 10,12): „przed/po” odmawia neutralnie, z wyjściem; anulowanie odtwarza kwoty', async () => {
+    faktura([{ name: 'Usługa z importu', quantity: 1, unitPriceNet: 10.13, vatRate: '23', net: 10.12, vat: 2.33, gross: 12.45 }]);
     const ctx = await getCorrectionParentContextAction(PARENT);
     if (!ctx.success) throw new Error(ctx.error);
     const r = await saveCorrectionDraftAction(
@@ -262,17 +264,19 @@ describe('uwagi drugiego czytelnika (31a9e96c)', () => {
   });
 
   it('przegląd do 2000 zł: każda trójka z jedną stawką od netto ma tę samą stawkę także teraz', () => {
-    const stawki = [['23', 0.23], ['8', 0.08], ['5', 0.05], ['0', 0]] as const;
-    const r = (v: number) => Math.round(v * 100) / 100;
+    // Wyrocznia w groszach całkowitych (art. 106e ust. 11: od 0,5 grosza w górę), nie w liczbach
+    // zmiennoprzecinkowych: dawne `r = Math.round(v * 100) / 100` na połówce grosza szło w dół
+    // (FZ-025) i uzgadniało test z tym samym błędem co kod. VAT = ⌊(netto_gr × stawka + 50) / 100⌋.
+    const stawki = [['23', 23], ['8', 8], ['5', 5], ['0', 0]] as const;
+    const vatGr = (netGr: number, stopa: number) => Math.floor((netGr * stopa + 50) / 100);
     let sprawdzone = 0;
     for (let netGr = 1; netGr <= 200_000; netGr += 1) {
-      const netDelta = netGr / 100;
       for (const [, stopa] of stawki) {
-        const vatDelta = r(netDelta * stopa);
-        const odNetto = stawki.filter(([, s]) => r(netDelta * s) === vatDelta);
+        const vGr = vatGr(netGr, stopa);
+        const odNetto = stawki.filter(([, s]) => vatGr(netGr, s) === vGr);
         if (odNetto.length !== 1) continue;
         sprawdzone += 1;
-        expect(resolveAmountChangeVatRate({ netDelta, vatDelta, grossDelta: r(netDelta + vatDelta) })).toBe(odNetto[0]![0]);
+        expect(resolveAmountChangeVatRate({ netDelta: netGr / 100, vatDelta: vGr / 100, grossDelta: (netGr + vGr) / 100 })).toBe(odNetto[0]![0]);
       }
     }
     expect(sprawdzone).toBeGreaterThan(700_000);

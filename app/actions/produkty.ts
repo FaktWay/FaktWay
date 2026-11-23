@@ -3,9 +3,12 @@
 import { revalidatePath } from 'next/cache';
 
 import { logAudit, type AuditAction } from '@/lib/audit/log';
+import { czyCenyBruttoWlaczone } from '@/lib/invoices/ceny-brutto-wylacznik';
 import { suggestProducts } from '@/lib/produkty/baza';
 import {
   duplicateProductMessage,
+  PRODUCT_GROSS_PRICES_OFF,
+  PRODUCT_GROSS_PRICES_UNKNOWN,
   productFormSchema,
   type ProductFormInput,
   type ProductSuggestion,
@@ -32,18 +35,35 @@ async function context() {
   }
 }
 
-const COLUMNS = 'id, name, unit, default_price_net, default_vat_rate, pkwiu_code, gtu_code, description, use_count';
+const COLUMNS =
+  'id, name, unit, default_price_net, default_price_gross, default_vat_rate, pkwiu_code, gtu_code, description, use_count';
 
 function columnsOf(d: ReturnType<typeof productFormSchema.parse>) {
   return {
     name: d.name,
     unit: d.unit,
     default_price_net: d.defaultPriceNet,
+    // Pole ceny brutto, które nie przyszło (ekran przy wyłączonym wyłączniku cen
+    // brutto), zostawia zapisaną cenę brutto: kolumny nie ma w zapisie.
+    ...(d.defaultPriceGross === undefined ? {} : { default_price_gross: d.defaultPriceGross }),
     default_vat_rate: d.defaultVatRate,
     pkwiu_code: d.pkwiuCode,
     gtu_code: d.gtuCode,
     description: d.description,
   };
+}
+
+/**
+ * Nowa cena brutto produktu tylko przy włączonym wyłączniku `grossPricesEnabled`
+ * (plan cen brutto, #884; B4.0 zasada 2). Odczyt wprost z bazy, błąd odczytu to
+ * odmowa. Produkt bez ceny brutto i edycja bez zmiany ceny brutto flagi nie czytają.
+ */
+async function grossPriceRefusal(): Promise<string | null> {
+  try {
+    return (await czyCenyBruttoWlaczone()) ? null : PRODUCT_GROSS_PRICES_OFF;
+  } catch {
+    return PRODUCT_GROSS_PRICES_UNKNOWN;
+  }
 }
 
 /** Dodanie produktu do katalogu firmy. Dubel nazwy i jednostki to komunikat z nazwą produktu. */
@@ -52,6 +72,11 @@ export async function createProductAction(input: ProductFormInput): Promise<Prod
   if (!c.ctx) return { success: false, error: c.error };
   const parsed = productFormSchema.safeParse(input);
   if (!parsed.success) return { success: false, error: parsed.error.issues[0]?.message ?? 'Nieprawidłowe dane produktu.' };
+
+  if (parsed.data.defaultPriceGross !== null && parsed.data.defaultPriceGross !== undefined) {
+    const refusal = await grossPriceRefusal();
+    if (refusal) return { success: false, error: refusal };
+  }
 
   const { supabase, tenantId, user } = c.ctx;
   const { data, error } = await supabase
@@ -99,6 +124,10 @@ export async function updateProductAction(productId: string, input: ProductFormI
     (k) => (before[k] ?? null) !== next[k],
   );
   if (changed.length === 0) return { success: true, id: productId };
+  if (changed.includes('default_price_gross') && next.default_price_gross !== null && next.default_price_gross !== undefined) {
+    const refusal = await grossPriceRefusal();
+    if (refusal) return { success: false, error: refusal };
+  }
 
   const { data: updated, error } = await supabase
     .from('products')

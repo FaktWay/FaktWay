@@ -37,6 +37,7 @@ interface FormState {
   name: string;
   unit: string;
   priceNet: string;
+  priceGross: string;
   vatRate: ProductFormInput['vatRate'];
   pkwiu: string;
   gtu: string;
@@ -48,6 +49,8 @@ function initial(product?: ProductListItem): FormState {
     name: product?.name ?? '',
     unit: product?.unit ?? 'szt.',
     priceNet: product?.defaultPriceNet === null || product?.defaultPriceNet === undefined ? '' : String(product.defaultPriceNet).replace('.', ','),
+    priceGross:
+      product?.defaultPriceGross === null || product?.defaultPriceGross === undefined ? '' : String(product.defaultPriceGross).replace('.', ','),
     vatRate: (product?.defaultVatRate as ProductFormInput['vatRate']) ?? '23',
     pkwiu: product?.pkwiuCode ?? '',
     gtu: product?.gtuCode ?? '',
@@ -55,11 +58,29 @@ function initial(product?: ProductListItem): FormState {
   };
 }
 
+/** Przy wyłączonym wyłączniku cen brutto okno nie wysyła pola: zapisana cena brutto zostaje. */
+function toInput(form: FormState, grossPrices: boolean): ProductFormInput {
+  if (grossPrices) return form;
+  const { priceGross: _ukryte, ...rest } = form;
+  void _ukryte;
+  return rest;
+}
+
 /**
  * Dodanie i edycja produktu (krok 2.6). Walidacja tym samym schematem co akcja
  * serwera; błąd z serwera (np. dubel nazwy i jednostki) pokazany przy formularzu.
+ * Pole ceny brutto (plan cen brutto, PR (d)) tylko przy `grossPrices` (włączony
+ * wyłącznik `grossPricesEnabled`, odczyt na stronie).
  */
-export function ProductFormDialog({ product, trigger }: { product?: ProductListItem; trigger: ReactElement }) {
+export function ProductFormDialog({
+  product,
+  trigger,
+  grossPrices = false,
+}: {
+  product?: ProductListItem;
+  trigger: ReactElement;
+  grossPrices?: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(() => initial(product));
@@ -79,14 +100,15 @@ export function ProductFormDialog({ product, trigger }: { product?: ProductListI
   }
 
   function submit() {
-    const parsed = productFormSchema.safeParse(form);
+    const input = toInput(form, grossPrices);
+    const parsed = productFormSchema.safeParse(input);
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? 'Sprawdź dane produktu.');
       return;
     }
     setError(null);
     startSaving(async () => {
-      const result = product ? await updateProductAction(product.id, form) : await createProductAction(form);
+      const result = product ? await updateProductAction(product.id, input) : await createProductAction(input);
       if (!result.success) {
         setError(result.error);
         return;
@@ -106,6 +128,9 @@ export function ProductFormDialog({ product, trigger }: { product?: ProductListI
           <DialogTitle>{product ? 'Edytuj produkt lub usługę' : 'Nowy produkt lub usługa'}</DialogTitle>
           <DialogDescription>
             Wpis w katalogu podpowiada się przy wystawianiu faktury. Zmiana ceny nie zmienia wystawionych faktur.
+            {grossPrices
+              ? ' Faktura w cenach netto bierze cenę netto, a faktura w cenach brutto cenę brutto. Jednej ceny nie wyliczamy z drugiej.'
+              : null}
           </DialogDescription>
         </DialogHeader>
 
@@ -123,6 +148,18 @@ export function ProductFormDialog({ product, trigger }: { product?: ProductListI
               <Label htmlFor='product-price'>Cena netto (zł)</Label>
               <Input id='product-price' inputMode='decimal' placeholder='np. 1250,00' value={form.priceNet} onChange={(e) => set('priceNet', e.target.value)} />
             </div>
+            {grossPrices ? (
+              <div className='col-start-2 grid gap-1.5'>
+                <Label htmlFor='product-price-gross'>Cena brutto (zł)</Label>
+                <Input
+                  id='product-price-gross'
+                  inputMode='decimal'
+                  placeholder='np. 1537,50'
+                  value={form.priceGross}
+                  onChange={(e) => set('priceGross', e.target.value)}
+                />
+              </div>
+            ) : null}
           </div>
           <div className='grid grid-cols-2 gap-3'>
             <div className='grid gap-1.5'>

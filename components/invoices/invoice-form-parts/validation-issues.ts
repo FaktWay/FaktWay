@@ -48,6 +48,7 @@ const POLA_POZYCJI: Record<string, { label: string; suffix: string }> = {
   unit: { label: 'jednostka', suffix: 'unit' },
   quantity: { label: 'ilość', suffix: 'quantity' },
   unitPriceNet: { label: 'cena netto', suffix: 'unit-price' },
+  unitPriceGross: { label: 'cena brutto', suffix: 'unit-price' },
   vatRate: { label: 'stawka VAT', suffix: 'vat-rate' },
   pkwiuCode: { label: 'PKWiU', suffix: 'pkwiu' },
   gtuCode: { label: 'GTU', suffix: 'gtu' },
