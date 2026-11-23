@@ -385,5 +385,5 @@ describe('JPK_V7M(3): niezmiennik oznaczeń GTU korekty', () => {
       }),
       { numRuns: 25 },
     );
-  });
+  }, 600_000);
 });

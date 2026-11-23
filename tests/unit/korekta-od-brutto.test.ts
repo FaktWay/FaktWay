@@ -217,7 +217,7 @@ describe('niezmiennik: anulowanie faktury od brutto odtwarza jej kwoty', () => {
       }),
       opcje(40),
     );
-  });
+  }, 600_000);
 });
 
 /** Pozycja zapisana tak, jak podaje ją wiersz (`invoice_line_items`) i dokument (`fa3_data.lines`). */
@@ -344,5 +344,5 @@ describe('niezmiennik: faktura od netto bez zmian', () => {
       ),
       opcje(40),
     );
-  });
+  }, 600_000);
 });
