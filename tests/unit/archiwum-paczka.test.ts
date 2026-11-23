@@ -281,11 +281,15 @@ describe('FZ-032: faktura zakupu ze Skrzynki KSeF bez danych stron', () => {
     seller_data: null, seller_nip: '5260001246', buyer_data: null, buyer_nip: '1234567890', xml_storage_path: `${T}/ksef-inbox/z2.xml`,
   };
 
+  /** Strona, którą renderer drukuje: nazwa i adres (`invoice.seller.name`, `invoice.seller.address.addressLine1`). */
+  const drukowalna = (strona: unknown) =>
+    !!strona && typeof strona === 'object' && !!(strona as { name?: unknown }).name && !!(strona as { address?: unknown }).address;
+
   /** PDF jak naprawdę: renderer rzuca, gdy faktura nie ma danych stron (atrapa tylko zamiast plików i bazy PDF). */
   function pdfJakRenderer() {
     h.pdf.mockImplementation(async (id: string) => {
       const row = h.tables.invoices!.find((r) => r.id === id)!;
-      if (!row.seller_data || !row.buyer_data) throw new TypeError("Cannot read properties of null (reading 'name')");
+      if (!drukowalna(row.seller_data) || !drukowalna(row.buyer_data)) throw new TypeError("Cannot read properties of null (reading 'name')");
       return { success: true, pdf: Buffer.from(`%PDF ${id}`), filename: 'x.pdf', qrStateKey: 'k', missingKodI: false };
     });
   }
@@ -298,7 +302,7 @@ describe('FZ-032: faktura zakupu ze Skrzynki KSeF bez danych stron', () => {
       payment: { currency: 'PLN', method: 'transfer' },
       lines: [{ ordinal: 1, name: 'Towar', unit: 'szt.', quantity: 1, unitPriceNet: 50, vatRate: '23' }],
     } as Parameters<typeof finalizeInvoice>[0]);
-    await expect(renderInvoicePdf({ ...faktura, seller: null, buyer: null } as unknown as Invoice)).rejects.toThrow(TypeError);
+    await expect(renderInvoicePdf({ ...faktura, seller: null, buyer: null } as unknown as Invoice)).rejects.toThrow(/Cannot read properties of null/);
   });
 
   it('paczka powstaje: XML z KSeF w paczce, brak PDF w spisie z powodem, reszta dokumentów bez zmian', async () => {
@@ -324,4 +328,25 @@ describe('FZ-032: faktura zakupu ze Skrzynki KSeF bez danych stron', () => {
     expect(spis).toMatch(/nie ma pełnych danych sprzedawcy i nabywcy/);
     expect(spis).not.toMatch(/[—–]/);
   });
+
+  it('nieprzewidziany błąd wydruku faktury ze stronami: paczka powstaje, brak PDF w spisie z powodem, XML zostaje', async () => {
+    // Uwaga N3 czytelnika: wydruk to wizualizacja, oryginałem jest XML z KSeF, więc inny rzut renderera
+    // (np. brak danych płatności) nie może kończyć całej paczki dokumentów do przechowania.
+    h.pdf.mockImplementation(async (id: string) => {
+      if (id === 'z1') throw new TypeError("Cannot read properties of undefined (reading 'method')");
+      return { success: true, pdf: Buffer.from(`%PDF ${id}`), filename: 'x.pdf', qrStateKey: 'k', missingKodI: false };
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const built = await buildArchivePackage({ ...ORDER, kind: 'archive' }, { now: NOW });
+    const files = rozpakuj(built.zip);
+
+    expect(files.has('faktury-zakupu/2026-03-07_5260001246_ZK_7.xml')).toBe(true);
+    expect(files.has('faktury-zakupu/2026-03-07_5260001246_ZK_7.pdf')).toBe(false);
+    expect(files.has('faktury-sprzedazy/2026-03-05_FV_1_2026.pdf')).toBe(true);
+    expect(built.missing).toEqual([
+      expect.objectContaining({ dokument: 'Faktura zakupu ZK/7 (NIP 5260001246)', plik: 'PDF', powod: expect.stringMatching(/nie udało się zrobić wydruku PDF/) }),
+    ]);
+  });
 });
+
