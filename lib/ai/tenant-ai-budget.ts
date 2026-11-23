@@ -41,9 +41,9 @@ export type TenantAiBudget = { allowed: true } | { allowed: false; message: stri
  * zmian do klienta: przy „Dodaj wydatek” i w telefonie, bo jest na liście
  * zdań dla klienta (`lib/ocr/komunikat-dla-klienta.ts`). Powiadomienie bierze
  * z niego tyle pełnych zdań, ile mieści się w 80 znakach, więc pierwsze zdanie
- * ma sens samo. Limity mówią, kiedy wracają. Wpisu ręcznego kosztu nie ma
- * (plan kompletnej aplikacji, 2.6; formularz to krok 3.8), dlatego nie
- * odsyłamy do wpisywania. Okna, o których mówi komunikat, sprawdza
+ * ma sens samo. Limity mówią, kiedy wracają, a do wpisywania ręcznego nie
+ * odsyłają (strażnik tests/unit/koszt-bez-wpisu-recznego.test.ts czyta też
+ * `lib/ai`). Okna, o których mówi komunikat, sprawdza
  * tests/unit/ai-limit-firmy.test.ts (dzienny: 24 godziny kroczące)
  * i tests/unit/koszt-bez-wpisu-recznego.test.ts (miesięczny: od 1. dnia miesiąca).
  * Treści leżą w `lib/ai/tenant-ai-budget-messages.ts`.

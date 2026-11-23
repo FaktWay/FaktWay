@@ -19,11 +19,12 @@
  *
  * Zdania kategorii (`KOMUNIKAT_ODCZYTU`): do 80 znaków (tyle zostawia
  * powiadomienie), pełne zdanie z kropką, bez trybu rozkazującego (lista
- * kontrolna filtra, pkt 16), bez nazwy dostawcy modelu i bez obietnicy wpisu
- * ręcznego (kosztu bez zdjęcia nie ma). Starsze zdania z listy (po
- * wyczerpaniu prób, odmowy budżetu) zostają bez zmian. Pilnuje tego
+ * kontrolna filtra, pkt 16) i bez nazwy dostawcy modelu. Starsze zdania
+ * z listy (po wyczerpaniu prób, odmowy budżetu) zostają bez zmian. Pilnuje tego
  * tests/unit/ocr-komunikat-dla-klienta.test.ts, razem z tekstami błędów
- * prawdziwego SDK.
+ * prawdziwego SDK. Wpisu ręcznego kosztu zdania nie obiecują, a strażnik
+ * tests/unit/koszt-bez-wpisu-recznego.test.ts czyta też `lib/ocr` (powód
+ * opisuje jego nagłówek).
  */
 
 import { TENANT_AI_BUDGET_MESSAGES } from '@/lib/ai/tenant-ai-budget-messages';
