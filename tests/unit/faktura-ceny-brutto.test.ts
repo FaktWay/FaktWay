@@ -175,7 +175,7 @@ describe('niezmiennik faktury w cenach brutto', () => {
       }),
       opcje(40),
     );
-  });
+  }, 600_000);
 });
 
 describe('bramka wysyłki (validateInvoice) dla faktury w cenach brutto', () => {

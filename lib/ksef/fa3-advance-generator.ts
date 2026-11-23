@@ -562,7 +562,12 @@ export function settlementVatSummaries(
     }
     bucket.netSum = roundToCents(bucket.netSum - net);
     bucket.vatSum = roundToCents(bucket.vatSum - vat);
-    if (bucket.netSum < 0 || bucket.vatSum < 0) {
+    // Zaliczki ponad zamówienie to brutto reszty stawki poniżej zera. Netto albo
+    // VAT reszty może wyjść ujemne o grosz, gdy rozbicie z faktury zaliczkowej
+    // zaokrągliło inaczej niż wzór (np. 2 × 0,32 zł z VAT 0,03 przy 5 %): P_13_x
+    // i P_14_x to wtedy dalej zamówienie minus zaliczki (art. 106f ust. 3,
+    // RP-FA-ROZ-01), a nie odmowa faktury, której zaliczki nie przekraczają.
+    if (roundToCents(bucket.netSum + bucket.vatSum) < 0) {
       throw new Error(`FA(3) ROZ: zaliczki przekraczają wartość zamówienia w stawce ${rate}.`);
     }
   }

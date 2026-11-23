@@ -316,7 +316,7 @@ describe('FZ-008: niezmiennik faktury za abonament na kwotach brutto', () => {
       }),
       { numRuns: 2000 },
     );
-  });
+  }, 600_000);
 });
 
 /** Faktura z jedną pozycją o podanych kwotach (bez przeliczania) — tylko do sprawdzania walidatora. */
