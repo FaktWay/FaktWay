@@ -18,7 +18,13 @@ import type { BuyerEU, CorrectionInvoiceData, InvoiceLine } from '@/types/invoic
 import { correctionStateAmounts, lineAmounts, negatedAmounts } from '@/lib/invoices/calculator';
 import { resolveAmountChangeVatRate } from '@/lib/invoices/correction-amount-change';
 import { isGtuCode, lineCodesOf } from '@/lib/invoices/line-codes';
-import { addressCountryForKodUE, parseVatUe, type ParsedVatUe } from '@/lib/invoices/vat-ue';
+import {
+  addressCountryForKodUE,
+  parseVatUe,
+  SELLER_VAT_UE_PREFIX,
+  sellerNeedsVatUePrefix,
+  type ParsedVatUe,
+} from '@/lib/invoices/vat-ue';
 import { correctionNpIiBuyerError } from '@/lib/validators/invoice-validators';
 import {
   assertFa3TextLimits,
@@ -633,6 +639,11 @@ export function generateCorrectionInvoiceXml(
   naglowek.ele('SystemInfo').txt(systemInfo);
 
   const podmiot1 = root.ele('Podmiot1');
+  // W8 (plan zero C2): korekta usługi „np II” ma NIP sprzedawcy z prefiksem PL, jak
+  // faktura (art. 97 ust. 10 pkt 3, RP-FA-VATUE-01); stawki stanu przed, po i wierszy XML.
+  if (sellerNeedsVatUePrefix(correctionRates(data, preparedLines))) {
+    podmiot1.ele('PrefiksPodatnika').txt(SELLER_VAT_UE_PREFIX);
+  }
   const dane1 = podmiot1.ele('DaneIdentyfikacyjne');
   dane1.ele('NIP').txt(requireText(data.seller.nip, 'seller.nip'));
   dane1.ele('Nazwa').txt(requireText(data.seller.name, 'seller.name'));
