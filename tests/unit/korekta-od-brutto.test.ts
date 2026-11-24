@@ -98,7 +98,7 @@ function payload(o: Record<string, unknown>) {
 
 beforeEach(() => {
   vi.stubEnv('KSEF_ENV', 'test');
-  db.tables = { tenants: [{ id: TENANT, nip: '1234567890', name: 'FaktWay testowy', address_json: null }], invoices: [], invoice_line_items: [] };
+  db.tables = { tenants: [{ id: TENANT, nip: '1234567890', name: 'FaktWay testowy', address_json: { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' } }], invoices: [], invoice_line_items: [] };
 });
 
 const zapisana = () => db.tables.invoices!.find((r) => r.invoice_kind === 'correction')!;
@@ -202,7 +202,7 @@ describe('niezmiennik: anulowanie faktury od brutto odtwarza jej kwoty', () => {
   it('dla każdej ceny brutto 0,01-10 000 zł: kontekst bez odmowy, anulowanie = kwoty faktury z minusem; XSD', async () => {
     await fc.assert(
       fc.asyncProperty(fc.integer({ min: 1, max: 1_000_000 }), async (bruttoGr) => {
-        db.tables = { tenants: [{ id: TENANT, nip: '1234567890', name: 'FaktWay testowy', address_json: null }], invoices: [], invoice_line_items: [] };
+        db.tables = { tenants: [{ id: TENANT, nip: '1234567890', name: 'FaktWay testowy', address_json: { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' } }], invoices: [], invoice_line_items: [] };
         const k = fakturaZaAbonament(bruttoGr);
         const ctx = await getCorrectionParentContextAction(PARENT);
         if (!ctx.success) throw new Error(ctx.error);
@@ -325,7 +325,7 @@ describe('niezmiennik: faktura od netto bez zmian', () => {
           vatRate: fc.constantFrom(...stawki),
         }), { minLength: 1, maxLength: 4 }),
         async (opisy) => {
-          db.tables = { tenants: [{ id: TENANT, nip: '1234567890', name: 'FaktWay testowy', address_json: null }], invoices: [], invoice_line_items: [] };
+          db.tables = { tenants: [{ id: TENANT, nip: '1234567890', name: 'FaktWay testowy', address_json: { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' } }], invoices: [], invoice_line_items: [] };
           const linie = opisy.map((o, i) => {
             const c = calculateLineItem({ quantity: o.quantity, unitPriceNet: o.cenaGr / 100, vatRate: o.vatRate });
             return { name: `Pozycja ${i + 1}`, quantity: o.quantity, unitPriceNet: o.cenaGr / 100, vatRate: o.vatRate, net: c.netAmount, vat: c.vatAmount, gross: c.grossAmount };
