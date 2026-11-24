@@ -65,6 +65,7 @@ export function InvoiceForm({
   tenantId,
   prefill = null,
   vatExempt = false,
+  vatExemptSubjective = false,
   suggestedNumber = null,
   numbering = null,
   seller = null,
@@ -103,6 +104,13 @@ export function InvoiceForm({
    * Nowe pozycje dostają wtedy „zw” — inaczej z przyzwyczajenia wpada 23%.
    */
   vatExempt?: boolean;
+  /**
+   * Zwolnienie podmiotowe (art. 113, `isSubjectiveVatExemption`): firma nie
+   * wystawi faktury w cenach brutto (pozycje „zw”, #880), więc formularz nie
+   * pokazuje wyboru metody cen. Zwolnienie przedmiotowe (art. 43) go zostawia:
+   * czynny podatnik sprzedaje też ze stawką 23, 8 albo 5 %.
+   */
+  vatExemptSubjective?: boolean;
   /**
    * Podkład wpisany od razu w formularz (plan Finora N1: `?wzor=` i
    * `?cykliczna=` — `prefillFromInvoiceAction`). Bez niego formularz pusty.
@@ -185,6 +193,9 @@ export function InvoiceForm({
 
   // Ten sam schemat co serwer, z wyłącznikiem cen brutto (stan z serwera strony, stały przez życie formularza).
   const schema = useMemo(() => invoiceFormSchemaFor({ cenyBrutto: grossPricesAvailable }), [grossPricesAvailable]);
+  // Osobne ustalenie 13: firma zwolniona podmiotowo (art. 113, pozycje „zw”) nie wystawi faktury
+  // w cenach brutto (stawki bez podatku, #880), więc bez wyboru metody i bez podkładu w cenach brutto.
+  const cenyBruttoWFormularzu = grossPricesAvailable && !vatExemptSubjective;
   const form = useForm<InvoiceFormValues>({
     resolver: zodResolver(schema),
     // Fokus po nieudanym zapisie bierze blok błędów (A-05), z odnośnikami do pól.
@@ -232,7 +243,7 @@ export function InvoiceForm({
       ...(salesQuoteId && salesQuoteSeq ? { salesQuoteId, salesQuoteSeq } : {}),
       // Plan cen brutto, PR (b): ceny netto domyślnie, jak dotąd; ceny brutto tylko z podkładu
       // w cenach brutto i przy włączonym wyłączniku (bez niego zawsze ceny netto).
-      pricesGross: grossPricesAvailable && czyFakturaWCenachBrutto(initialValues),
+      pricesGross: cenyBruttoWFormularzu && czyFakturaWCenachBrutto(initialValues),
     },
   });
   /** Tryb „Wystaw teraz” z faktury cyklicznej — bez szkicu (C2). */
@@ -259,7 +270,7 @@ export function InvoiceForm({
     if (Array.isArray(lines) && lines.length > 0 && lines.every((l) => typeof l === 'object' && l !== null)) replace(lines);
     // Metoda cen z kopii; kopia sprzed cen brutto (bez metody) była w cenach netto,
     // a bez wyłącznika cen brutto formularz zostaje w cenach netto.
-    form.setValue('pricesGross', grossPricesAvailable && czyFakturaWCenachBrutto(rest));
+    form.setValue('pricesGross', cenyBruttoWFormularzu && czyFakturaWCenachBrutto(rest));
     cenyBruttoOdParagonu.current = false;
     // Kolejne autozapisy nadpisują tę samą kopię, a zapis faktury niesie jej klucz.
     form.setValue('numberRequestKey', restoreOffer.requestKey);
@@ -339,7 +350,7 @@ export function InvoiceForm({
       const bezCen = lines.every(
         (l) => !(Number(l?.unitPriceNet) > 0) && !(l?.vatRate !== undefined && GROSS_PRICES_UNTAXED_RATES.has(l.vatRate)),
       );
-      if (grossPricesAvailable && bezCen && form.getValues('pricesGross') !== true) {
+      if (cenyBruttoWFormularzu && bezCen && form.getValues('pricesGross') !== true) {
         ustawCenyBrutto(true);
         cenyBruttoOdParagonu.current = true;
       }
@@ -396,7 +407,7 @@ export function InvoiceForm({
     if (v.bankAccount) form.setValue('bankAccount', v.bankAccount);
     // Faktura-podkład w cenach brutto wraca w cenach brutto, z ceną brutto pozycji (N1);
     // bez wyłącznika cen brutto podkład jest w cenach netto (serwer daje go wtedy bez cen brutto).
-    form.setValue('pricesGross', grossPricesAvailable && czyFakturaWCenachBrutto(v));
+    form.setValue('pricesGross', cenyBruttoWFormularzu && czyFakturaWCenachBrutto(v));
     cenyBruttoOdParagonu.current = false;
     replace(v.lines);
     setPrefillUzyty(true);
@@ -610,7 +621,7 @@ export function InvoiceForm({
             onAddLine={() => append(newLine)}
             vatExempt={vatExempt}
             pricesGross={pricesGross}
-            pricesModeAvailable={grossPricesAvailable}
+            pricesModeAvailable={cenyBruttoWFormularzu}
             onPricesGrossChange={onPricesGrossChange}
             lineItems={lineItems}
           />

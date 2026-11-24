@@ -15,7 +15,7 @@ import { loadInvoiceAutosave } from '@/lib/invoices/form-autosave';
 import { loadTenantSellerForForms } from '@/lib/invoices/load-tenant-seller';
 import { getRecurringInvoice } from '@/lib/invoices/recurring/queries';
 import { recurringPeriodKey, recurringPeriodLabel } from '@/lib/invoices/recurring/schedule';
-import { readTenantVatExemption } from '@/lib/invoices/vat-exemption';
+import { isSubjectiveVatExemption, readTenantVatExemption } from '@/lib/invoices/vat-exemption';
 import { loadInvoiceNumbering } from '@/lib/numeracja/baza';
 import { selectedNumberingOption } from '@/lib/numeracja/model';
 import { loadQuoteSource, regularInvoiceFromQuote } from '@/lib/proformy/zamiana';
@@ -245,6 +245,7 @@ export default async function NewRegularInvoicePage({
       tenantId={tenantId}
       prefill={source ? null : podpowiedz}
       vatExempt={vatExemptionBasis !== null}
+      vatExemptSubjective={isSubjectiveVatExemption(vatExemptionBasis)}
       suggestedNumber={suggestedNumber}
       numbering={numbering}
       seller={seller}

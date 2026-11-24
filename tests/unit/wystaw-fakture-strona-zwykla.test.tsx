@@ -13,7 +13,9 @@ vi.mock('@/lib/supabase/page-context', () => ({
 vi.mock('@/components/invoices/actions', () => ({
   prefillFromLastInvoiceAction: vi.fn().mockResolvedValue(null),
 }));
-vi.mock('@/lib/invoices/vat-exemption', () => ({
+// Prawdziwy moduł (strona woła też `isSubjectiveVatExemption`), podmieniony tylko odczyt zwolnienia.
+vi.mock('@/lib/invoices/vat-exemption', async (orig) => ({
+  ...(await orig<typeof import('@/lib/invoices/vat-exemption')>()),
   readTenantVatExemption: vi.fn().mockResolvedValue(null),
 }));
 vi.mock('@/lib/invoices/next-number', () => ({
