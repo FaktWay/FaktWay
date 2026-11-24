@@ -179,9 +179,16 @@ describe('błąd odczytu produktu (osobne ustalenie 16, #887)', () => {
     expect(db.tables.products).toHaveLength(1);
   });
 
-  it('brak wiersza (inna firma albo usunięty) dalej daje „Nie znaleziono produktu”', async () => {
-    const r = await updateProductAction(P1, INPUT);
-    expect(r).toEqual({ success: false, error: 'Nie znaleziono produktu w tej organizacji.' });
-    expect(await deleteProductAction(P1)).toEqual({ success: false, error: 'Nie znaleziono produktu w tej organizacji.' });
+  it('brak wiersza (inna firma albo usunięty): „Nie znaleziono produktu” z wyjściem, przy każdej akcji (ustalenie 22)', async () => {
+    // Dotąd sam tekst „Nie znaleziono produktu w tej organizacji.” nie mówił, skąd brak ani co zrobić.
+    const notFound = {
+      success: false,
+      error: 'Nie znaleziono produktu w tej firmie. Mógł go usunąć ktoś inny albo w innej karcie wybrano inną firmę. Odśwież katalog produktów, a jeśli produktu nie ma na liście, dodaj go jeszcze raz.',
+    };
+    expect(await updateProductAction(P1, INPUT)).toEqual(notFound);
+    expect(await deleteProductAction(P1)).toEqual(notFound);
+    expect(await archiveProductAction(P1)).toEqual(notFound);
+    expect(await restoreProductAction(P1)).toEqual(notFound);
+    expect(mocks.audit).not.toHaveBeenCalled();
   });
 });
