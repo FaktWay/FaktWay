@@ -165,7 +165,7 @@ function parentLabelOf(parent: { id: string; internal_number: string | null }): 
 }
 
 /** Stawki bez VAT, których z samych kwot (VAT 0) nie da się odróżnić od „0 KR”. */
-const ZERO_VAT_RATES: ReadonlySet<string> = new Set<ZeroVatAmountChangeRate>(['np', 'np_ii', 'oo']);
+const ZERO_VAT_RATES: ReadonlySet<string> = new Set<ZeroVatAmountChangeRate>(['np', 'np_ii', 'oo', 'zw']);
 
 /**
  * Nabywca faktury pierwotnej jako nabywca korekty: firma z NIP albo firma z UE
@@ -927,7 +927,7 @@ async function normalizePayload(
     // „0 KR”, a korekta może dotyczyć pozycji np I / np II / oo — nie zgadujemy.
     if (!parentRate && rate === '0' && original.some((line) => ZERO_VAT_RATES.has(line.vatRate))) {
       return {
-        error: 'Korekta kwotowa bez VAT faktury z różnymi stawkami (w tym np., np. II lub oo) jest niejednoznaczna — skoryguj pozycje („przed / po”).',
+        error: 'Korekta kwotowa bez VAT faktury z różnymi stawkami (w tym np., np. II, oo lub zw) jest niejednoznaczna — skoryguj pozycje („przed / po”).',
       };
     }
     // F12-D2: różnica według stawek faktury korygowanej (art. 106j ust. 2 pkt 5).

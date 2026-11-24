@@ -60,5 +60,5 @@ export function zeroVatRateFromParentLines(
   const rates = new Set(lines.map((l) => l.vatRate));
   if (rates.size !== 1) return undefined;
   const [rate] = [...rates];
-  return rate === 'np' || rate === 'np_ii' || rate === 'oo' ? rate : undefined;
+  return rate === 'np' || rate === 'np_ii' || rate === 'oo' || rate === 'zw' ? rate : undefined;
 }

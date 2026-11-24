@@ -350,7 +350,7 @@ export const correctionInvoiceSchema = z
           .refine(notBlank, 'Opisz zmianę kwoty')
           .refine(isXmlSafe, NO_CONTROL_CHARS_MESSAGE),
         /** Stawka bez VAT z faktury pierwotnej (np I / np II / oo) — nie wynika z kwot. */
-        vatRate: z.enum(['np', 'np_ii', 'oo']).optional(),
+        vatRate: z.enum(['np', 'np_ii', 'oo', 'zw']).optional(),
       })
       .optional(),
   })

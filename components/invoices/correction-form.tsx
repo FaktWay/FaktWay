@@ -173,6 +173,7 @@ const ZERO_VAT_RATE_LABELS = {
   np: 'np (nie podlega)',
   np_ii: NP_II_OPTION_LABEL,
   oo: 'oo (odwrotne obciążenie)',
+  zw: 'zw (zwolniona z VAT)',
 } satisfies Record<ZeroVatAmountChangeRate, string>;
 
 /** Etykiety MF `TypKorekty` (1–3) — uproszczony opis dla użytkownika. */
