@@ -924,10 +924,10 @@ async function normalizePayload(
       return { error: e instanceof Error ? e.message : 'Korekta kwotowa: niespójne kwoty.' };
     }
     // VAT 0 przy fakturze z różnymi stawkami, w tym bez VAT: z kwot wyszłoby
-    // „0 KR”, a korekta może dotyczyć pozycji np I / np II / oo — nie zgadujemy.
+    // „0 KR”, a korekta może dotyczyć pozycji np I / np II / oo / zw, więc nie zgadujemy.
     if (!parentRate && rate === '0' && original.some((line) => ZERO_VAT_RATES.has(line.vatRate))) {
       return {
-        error: 'Korekta kwotowa bez VAT faktury z różnymi stawkami (w tym np., np. II, oo lub zw) jest niejednoznaczna — skoryguj pozycje („przed / po”).',
+        error: 'Korekta kwotowa bez VAT faktury z różnymi stawkami (w tym np., np. II, oo lub zw) jest niejednoznaczna, więc skoryguj pozycje („przed / po”).',
       };
     }
     // F12-D2: różnica według stawek faktury korygowanej (art. 106j ust. 2 pkt 5).
