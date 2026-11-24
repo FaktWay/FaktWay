@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 type Row = Record<string, unknown>;
 const tables: Record<string, Row[]> = { expenses: [] };
-const insertFail = { on: false };
+const insertFail: { on: boolean; code?: string } = { on: false };
 const ilikeCalls: Array<[string, string]> = [];
 const rpcCalls: Array<{ name: string; args: Row }> = [];
 
@@ -24,7 +24,7 @@ const rpcCalls: Array<{ name: string; args: Row }> = [];
 async function rpc(name: string, args: Row) {
   rpcCalls.push({ name, args });
   if (name !== 'expense_create_manual') return { data: null, error: { message: `nieznana funkcja ${name}` } };
-  if (insertFail.on) return { data: null, error: { message: 'boom' } };
+  if (insertFail.on) return { data: null, error: { message: 'boom', ...(insertFail.code ? { code: insertFail.code } : {}) } };
   const row: Row = {
     id: `exp-${(tables.expenses ??= []).length + 1}`,
     created_at: new Date().toISOString(),
@@ -144,6 +144,7 @@ beforeEach(() => {
   ilikeCalls.length = 0;
   rpcCalls.length = 0;
   insertFail.on = false;
+  insertFail.code = undefined;
   m.exempt = null;
   m.audit.mockReset();
 });
@@ -294,6 +295,24 @@ describe('koszt wpisany ręcznie: odmowy bez zapisu', () => {
   it('firma z formularza inna niż aktywna: odmowa bez zapisu', async () => {
     const r = await createManualExpenseAction(OK, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc');
     expect(r.success).toBe(false);
+    expect(wiersze()).toHaveLength(0);
+  });
+
+  it('odmowa funkcji 00212 (dalszy krok #834): przyczyna i wyjście zamiast „Sprawdź połączenie”, bez audytu', async () => {
+    insertFail.on = true;
+    insertFail.code = '42501';
+    const dostep = await createManualExpenseAction(OK, TENANT);
+    expect(dostep).toEqual({
+      success: false,
+      error: 'Nie zapisaliśmy kosztu, bo zmieniła się wybrana firma albo Twoja rola w niej. Odśwież stronę i sprawdź wybraną firmę, a jeśli to się powtórzy, poproś właściciela firmy o sprawdzenie Twojej roli.',
+    });
+    insertFail.code = '23514';
+    const dane = await createManualExpenseAction(OK, TENANT);
+    expect(dane).toEqual({
+      success: false,
+      error: 'Nie zapisaliśmy kosztu, bo baza odrzuciła dane dokumentu (data, kwoty albo kolumna KPiR). Sprawdź pola formularza i zapisz ponownie, a jeśli to się powtórzy, napisz do nas.',
+    });
+    expect(m.audit).not.toHaveBeenCalled();
     expect(wiersze()).toHaveLength(0);
   });
 
