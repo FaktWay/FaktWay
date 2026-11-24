@@ -22,7 +22,11 @@ const EDITOR_ROLES = ['owner', 'admin', 'member'] as const;
 /** Podpowiedź tylko czyta katalog, więc dostaje ją każdy członek firmy. */
 const READER_ROLES = ['owner', 'admin', 'member', 'accountant'] as const;
 
-const NOT_FOUND = 'Nie znaleziono produktu w tej organizacji.';
+/**
+ * Brak wiersza produktu w firmie (usunięty przez kogoś innego albo w innej karcie
+ * wybrano inną firmę): powód i wyjście, bo sam brak nie mówił, co zrobić (ustalenie 22).
+ */
+const NOT_FOUND = 'Nie znaleziono produktu w tej firmie. Mógł go usunąć ktoś inny albo w innej karcie wybrano inną firmę. Odśwież katalog produktów, a jeśli produktu nie ma na liście, dodaj go jeszcze raz.';
 /** Błąd bazy przy odczycie to nie brak produktu: klient spróbuje ponownie, a nie szuka produktu, który jest. */
 const READ_FAILED_UPDATE = 'Nie udało się odczytać produktu, więc zmian nie zapisaliśmy. Spróbuj ponownie za chwilę.';
 const READ_FAILED_DELETE = 'Nie udało się odczytać produktu, więc go nie usunęliśmy. Spróbuj ponownie za chwilę.';
