@@ -5,7 +5,7 @@
  * przez import czyta potem eksport — bez ręcznego przepisywania.
  *
  * Obsługa: select (kolumny, count/head), insert (wiersz albo tablica, z
- * `.select()` zwraca wstawione), update, delete, eq/neq/in/is/not/gte/lte/gt/lt,
+ * `.select()` zwraca wstawione), update, delete, eq/neq/in/is/not/gte/lte/gt/lt, overlaps,
  * `or` dla kontroli środowiska z data-fetchera, wyszukiwania
  * (`searchOrFilter`: ilike/eq) i proste alternatywy warunków
  * (`orPredicate` atrapy: dzień wpływu E11), order, limit, range, single,
@@ -112,6 +112,10 @@ export function memoryClient(
       eq: (k: string, v: unknown) => { predicates.push((r) => valueAt(r, k) === v); return q; },
       neq: (k: string, v: unknown) => { predicates.push((r) => r[k] !== v); return q; },
       in: (k: string, vs: unknown[]) => { predicates.push((r) => vs.includes(r[k])); return q; },
+      overlaps: (k: string, vs: unknown[]) => {
+        predicates.push((r) => Array.isArray(r[k]) && (r[k] as unknown[]).some((x) => vs.includes(x)));
+        return q;
+      },
       is: (k: string, v: unknown) => { predicates.push((r) => (valueAt(r, k) ?? null) === v); return q; },
       not: (k: string, operator: string, v: unknown) => {
         if (operator === 'is') predicates.push((r) => (r[k] ?? null) !== v);
