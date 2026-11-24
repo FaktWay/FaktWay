@@ -268,3 +268,57 @@ describe('job OCR — dokument w walucie obcej', () => {
     expect(db.inserts[0]).toMatchObject({ net_amount: 100, vat_amount: 23, gross_amount: 123, vat_deductible_amount: 23, notes: null });
   });
 });
+
+/**
+ * Nocny zespół, KWN-01: notatka kosztu w walucie („Przeliczono z … po kursie
+ * …”, `costInPln`) zapisywała kurs NBP zaokrąglony do czterech miejsc, a kwoty
+ * w złotych liczy pełny kurs (`przeliczNaPln`, do ośmiu miejsc, FZ-020). Kurs
+ * tabeli A za 1 jednostkę ma sześć miejsc przy HUF, JPY i KRW, a osiem przy
+ * IDR, więc notatka, która ma być śladem kursu do kontroli, podawała inny kurs
+ * niż ten, którym liczono: 10 000 HUF po „0,0110” to 110,00 zł, a koszt
+ * zapisano na 110,23 zł. KPiR i ewidencja piszą kurs w pełni.
+ */
+describe('KWN-01: kurs w notatce kosztu to kurs, którym liczono', () => {
+  it.each([
+    ['HUF', 0.011023, 10000, '0,011023', 110.23],
+    ['JPY', 0.026154, 10000, '0,026154', 261.54],
+    ['IDR', 0.00022236, 1000000, '0,00022236', 222.36],
+  ])('job OCR, %s po kursie %s: notatka z pełnym kursem', async (waluta, mid, kwota, tekst, brutto) => {
+    db.doc = { ...DOKUMENT, currency: waluta, net_amount: kwota, vat_amount: 0, gross_amount: kwota };
+    db.nbp.mockResolvedValue({ found: true, rate: { currency: waluta, mid, tableNo: '226/A/NBP/2026', effectiveDate: '2026-11-20' }, gapDays: 1 });
+    await runProcessOcr({ ocrJobId: OCR_JOB, tenantId: TENANT }, ctx);
+    expect(db.inserts[0]).toMatchObject({ net_amount: brutto, gross_amount: brutto });
+    expect(String(db.inserts[0]!.notes)).toContain(`po kursie ${tekst} (tabela 226/A/NBP/2026 z 2026-11-20)`);
+  });
+
+  it('kurs z czterema miejscami jak dotąd: 4,2567 i 4,2550', () => {
+    for (const [mid, tekst] of [[4.2567, '4,2567'], [4.255, '4,2550']] as const) {
+      const wynik = costInPln({ currency: 'EUR', net_amount: 100, vat_amount: 0, gross_amount: 100 }, '2026-09-28', {
+        found: true,
+        rate: { currency: 'EUR', mid, tableNo: '188/A/NBP/2026', effectiveDate: '2026-09-25' },
+        gapDays: 1,
+      });
+      expect(wynik.kind === 'pln' && wynik.note).toContain(`po kursie ${tekst} (tabela`);
+    }
+  });
+
+  it('niezmiennik: kurs przepisany z notatki daje te same złote (kursy z 4, 6 i 8 miejscami)', () => {
+    const rozne: string[] = [];
+    const kursy: number[] = [];
+    for (let i = 1; i <= 400; i += 1) {
+      kursy.push(Number((1 + i * 0.0137).toFixed(4)), Number((0.0001 + i * 0.000071).toFixed(6)), Number((0.00001 + i * 0.00000073).toFixed(8)));
+    }
+    for (const mid of kursy) {
+      const rate = { currency: 'XXX', mid, tableNo: '226/A/NBP/2026', effectiveDate: '2026-11-20' };
+      const doc = { currency: 'XXX', net_amount: 98765.43, vat_amount: 0, gross_amount: 98765.43 };
+      const wynik = costInPln(doc, '2026-11-24', { found: true, rate, gapDays: 1 });
+      const zNotatki = wynik.kind === 'pln' ? /po kursie ([0-9,]+) \(tabela/.exec(wynik.note ?? '')?.[1] : undefined;
+      const kurs = zNotatki === undefined ? NaN : Number(zNotatki.replace(',', '.'));
+      const ponownie = costInPln(doc, '2026-11-24', { found: true, rate: { ...rate, mid: kurs }, gapDays: 1 });
+      if (wynik.kind !== 'pln' || ponownie.kind !== 'pln' || ponownie.gross !== wynik.gross || kurs !== mid) {
+        rozne.push(`kurs ${mid}: w notatce ${zNotatki}`);
+      }
+    }
+    expect(rozne.slice(0, 5), `${rozne.length} z ${kursy.length} kursów`).toEqual([]);
+  });
+});
