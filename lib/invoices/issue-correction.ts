@@ -53,7 +53,7 @@ import type {
 import { loadParentAnnotations } from '@/lib/invoices/correction-annotations';
 import { documentGrossPrices } from '@/lib/invoices/document-lines';
 import { lineCodesOf } from '@/lib/invoices/line-codes';
-import { withCodesFromBefore } from '@/lib/ksef/fa3-correction-generator';
+import { CORRECTION_ZW_WITHOUT_BASIS_MESSAGE, withCodesFromBefore } from '@/lib/ksef/fa3-correction-generator';
 import { matchesTenantSeller, sellerFromTenantProfile } from '@/lib/invoices/tenant-seller';
 import { correctionSpecialData, specialDataInsertError } from '@/lib/invoices/special-data';
 
@@ -134,6 +134,7 @@ function vatRateFromDbForCorrectionLine(raw: unknown, label: string): Correction
     case 'oo':
     case 'np':
     case 'np_ii':
+    case 'zw':
       return s;
     case 'np I':
       return 'np';
@@ -142,6 +143,17 @@ function vatRateFromDbForCorrectionLine(raw: unknown, label: string): Correction
     default:
       throw new Error(`Faktura ${label} ma stawkę VAT, której korekta w aplikacji nie obsługuje. ${CORRECTION_HELP_STEP}`);
   }
+}
+
+/**
+ * Plan zero C3: korekta z pozycją „zw” (stan przed albo po) wymaga podstawy
+ * zwolnienia z faktury korygowanej (`loadParentAnnotations`), bo plik KOR ma blok
+ * Zwolnienie z P_19A/B/C. Bez niej odmowa przed zapisem, a nie przy wysyłce.
+ */
+function correctionZwBasisError(envelope: CorrectionInvoiceData): string | null {
+  const lines = [...(envelope.linesBefore ?? []), ...(envelope.linesAfter ?? [])];
+  if (!lines.some((line) => line.vatRate === 'zw')) return null;
+  return envelope.annotations?.vatExemptionBasis?.trim() ? null : CORRECTION_ZW_WITHOUT_BASIS_MESSAGE;
 }
 
 /** Następny krok, gdy klient nie ma jak sam rozwiązać odmowy korekty (F12-D6). */
@@ -1067,6 +1079,8 @@ export async function previewCorrection(
     }
     const envelope = buildCorrectionEnvelope(normalized as CorrectionInvoiceSchemaIn);
     envelope.annotations = await loadParentAnnotations(supabase, tenant.id, envelope.parentInvoiceId);
+    const zwError = correctionZwBasisError(envelope);
+    if (zwError) return { success: false, error: zwError };
     return { success: true, invoice: ghostInvoice(envelope, linesToStoredItems(envelope)) };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : 'Nieznany błąd' };
@@ -1087,6 +1101,8 @@ export async function saveCorrectionDraft(
     const envelope = buildCorrectionEnvelope(normalized as CorrectionInvoiceSchemaIn);
     // P_16/P_18A z faktury pierwotnej (AUD-23) — zapis i wysyłka mają te same.
     envelope.annotations = await loadParentAnnotations(supabase, tenant.id, envelope.parentInvoiceId);
+    const zwError = correctionZwBasisError(envelope);
+    if (zwError) return { success: false, error: zwError };
     const lines = linesToStoredItems(envelope);
 
     // Krok 2.5: numer z licznika serii albo z pola, ten sam w kolumnie, fa3_data i danych korekty.
@@ -1136,6 +1152,8 @@ export async function saveAndSendCorrection(
     const envelope = buildCorrectionEnvelope(normalized as CorrectionInvoiceSchemaIn);
     // P_16/P_18A z faktury pierwotnej (AUD-23) — zapis i wysyłka mają te same.
     envelope.annotations = await loadParentAnnotations(supabase, tenant.id, envelope.parentInvoiceId);
+    const zwError = correctionZwBasisError(envelope);
+    if (zwError) return { success: false, error: zwError };
     const lines = linesToStoredItems(envelope);
 
     // Ta sama reguła co zwykła faktura (A1, W5): w KSeF tylko z dzisiejszą datą

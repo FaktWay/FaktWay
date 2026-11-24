@@ -256,9 +256,9 @@ export const DUPLICATE_DECISION_TEXTS = {
     },
     REISSUED: 'Jeśli sprzedaż z tego dokumentu jest już wystawiona ponownie pod innym numerem, są teraz dwie faktury tej samej sprzedaży — fakturę wystawioną ponownie trzeba skorygować do zera.',
     CORRECTION_PERSON: ` Korekty faktury dla nabywcy bez NIP i bez numeru VAT-UE FaktWay jeszcze nie wystawia — jeśli trzeba ją skorygować, napisz do nas: ${SUPPORT_EMAIL}.`,
-    // D-A4-1b-3-KORZW: pozycja zw (do C3), stawka FA(3) spoza FaktWay albo pozycja bez ceny netto. Krótko, bez długiego myślnika.
+    // D-A4-1b-3-KORZW: stawka FA(3) spoza FaktWay albo pozycja bez ceny netto (pozycję zw koryguje FaktWay od planu zero C3). Krótko, bez długiego myślnika.
     CORRECTION_RATE: (nrK: string) =>
-      ` Korekt faktury ${nrK} z pozycją o stawce zwolnionej, o stawce spoza FaktWay albo bez ceny netto jeszcze nie wystawiamy. Jeśli trzeba coś w niej zmienić, napisz do nas: ${SUPPORT_EMAIL}.`,
+      ` Korekt faktury ${nrK} z pozycją o stawce spoza FaktWay albo bez ceny netto jeszcze nie wystawiamy. Jeśli trzeba coś w niej zmienić, napisz do nas: ${SUPPORT_EMAIL}.`,
     SALE_DATE_AS_ISSUE: 'jak data wystawienia',
     DATA_FROM_KSEF: (nrK: string) => `Obowiązują dane z KSeF. Jeśli trzeba je zmienić, wystaw korektę faktury ${nrK}.`,
     HELD_CORRECTIONS: ` Korekty do produkcyjnego KSeF są teraz wstrzymane przez FaktWay — napisz do nas: ${SUPPORT_EMAIL}.`,

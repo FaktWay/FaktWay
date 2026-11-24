@@ -340,6 +340,13 @@ function correctionRates(data: CorrectionInvoiceData, rows: readonly InvoiceLine
   ]);
 }
 
+/**
+ * Plan zero C3: korekta pozycji „zw” bez podstawy zwolnienia w fakturze korygowanej
+ * (stara faktura albo plik bez P_19A/B/C). Bez podstawy plik nie powstaje.
+ */
+export const CORRECTION_ZW_WITHOUT_BASIS_MESSAGE =
+  'Faktura korygowana ma pozycję zwolnioną z VAT („zw”), ale nie ma zapisanej podstawy zwolnienia, więc korekty nie przygotujemy w aplikacji. Napisz do nas, a przygotujemy korektę z Tobą.';
+
 function buildAdnotacjeMinimal(
   fa: XMLBuilder,
   lines: InvoiceLineItem[],
@@ -350,11 +357,13 @@ function buildAdnotacjeMinimal(
   // P_18=1 dla „oo” i „np II” (VAT rozlicza nabywca; AUD-70) — jak w zwykłej
   // fakturze, liczone z pozycji przed i po korekcie (`correctionRates`).
   const p18 = reverseCharge ? 1 : 2;
+  // Plan zero C3: pozycja „zw” (stan przed, po albo wiersz korekty) ma blok Zwolnienie
+  // z podstawą zwolnienia faktury korygowanej (P_19A, z pliku KSeF też P_19B albo
+  // P_19C), jak zwykła faktura (`fa3-generator.ts`). Bez podstawy: odmowa, bez pliku.
   const hasZwLine = lines.some((l) => l.vatRate === 'zw');
-  if (hasZwLine) {
-    throw new Error(
-      'FA(3) KOR: stawka "zw" wymaga bloków Zwolnienia (P_19*) — MVP nieobsługiwane w generatorze korekt.',
-    );
+  const exemptionBasis = annotations.vatExemptionBasis?.trim();
+  if (hasZwLine && !exemptionBasis) {
+    throw new Error(CORRECTION_ZW_WITHOUT_BASIS_MESSAGE);
   }
 
   // P_16 i P_18A z faktury pierwotnej (AUD-23) — do 02.10 zawsze 2.
@@ -363,7 +372,12 @@ function buildAdnotacjeMinimal(
   adn.ele('P_18').txt(String(p18));
   adn.ele('P_18A').txt(String(annotations.splitPayment === 1 ? 1 : 2));
   const zwolnienie = adn.ele('Zwolnienie');
-  zwolnienie.ele('P_19N').txt('1');
+  if (hasZwLine && exemptionBasis) {
+    zwolnienie.ele('P_19').txt('1');
+    zwolnienie.ele(annotations.vatExemptionBasisKind ?? 'P_19A').txt(exemptionBasis);
+  } else {
+    zwolnienie.ele('P_19N').txt('1');
+  }
   adn.ele('NoweSrodkiTransportu').ele('P_22N').txt('1');
   adn.ele('P_23').txt('2');
   adn.ele('PMarzy').ele('P_PMarzyN').txt('1');

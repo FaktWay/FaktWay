@@ -226,11 +226,12 @@ export const correctionBuyerSchema = z.discriminatedUnion('type', [
 
 /**
  * Pozycja korekty — jak `invoiceLineSchema`, plus `np_ii` (korekta faktury dla
- * firmy z UE). GTU tylko z listy (krok 2.6, część 2b-3): kody pozycji korekty
+ * firmy z UE) i `zw` (plan zero C3: korekta faktury zwolnionej z VAT; podstawę
+ * zwolnienia korekta bierze z faktury korygowanej). GTU tylko z listy (krok 2.6, część 2b-3): kody pozycji korekty
  * pochodzą z dokumentu faktury korygowanej i nadaje je serwer.
  */
 export const correctionLineSchema = invoiceLineSchema.extend({
-  vatRate: z.enum(['23', '8', '5', '0', 'oo', 'np', 'np_ii']),
+  vatRate: z.enum(['23', '8', '5', '0', 'oo', 'np', 'np_ii', 'zw']),
   gtuCode: gtuCodeSchema,
   // Faktura liczona od brutto (faktura za abonament): cenę brutto pozycji nadaje
   // serwer z jej zapisanych kwot (`fetchParentInvoiceLines`); z żądania się nie liczy.

@@ -1049,6 +1049,9 @@ function CorrectionLinesTable(props: {
   });
   const watched = useWatch({ control: form.control, name });
   const watchedBefore = useWatch({ control: form.control, name: 'linesBefore' });
+  // Plan zero C3: „zw” tylko przy fakturze z pozycją „zw” (firma zwolniona z VAT), bo
+  // korekta bierze podstawę zwolnienia z faktury korygowanej; czynny podatnik jej nie wybierze.
+  const zwAllowed = (form.formState.defaultValues?.linesBefore ?? []).some((line) => line?.vatRate === 'zw');
   // Kwoty jak na serwerze (`correctionStateAmounts`): pozycja „Było” bez zmian względem faktury
   // ma kwoty z jej zapisu, pozycja „Jest” bez zmian względem „Było” też; zmieniona albo
   // dopisana liczy się od ilości × ceny netto.
@@ -1147,6 +1150,7 @@ function CorrectionLinesTable(props: {
                       {npIiBlock === null || wl?.vatRate === 'np_ii' ?
                         <option value="np_ii">{NP_II_OPTION_LABEL}</option>
                       : null}
+                      {zwAllowed || wl?.vatRate === 'zw' ? <option value="zw">zw</option> : null}
                     </select>
                   </td>
                   <td className="py-3 pr-2 text-right tabular-nums">

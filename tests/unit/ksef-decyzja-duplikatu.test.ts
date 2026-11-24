@@ -1494,7 +1494,7 @@ describe('U1u (PR C): lustra funkcji SQL na wspólnych tabelach (INV-15) — ofe
   });
 });
 
-describe('U1r (D-A4-1b-3-KORZW): korekta K, której FaktWay jeszcze nie wystawi (stawka zw, stawka spoza FaktWay, brak ceny netto)', () => {
+describe('U1r (D-A4-1b-3-KORZW): korekta K, której FaktWay jeszcze nie wystawi (stawka spoza FaktWay, brak ceny netto; zw od planu zero C3 koryguje)', () => {
   const line = (over: Record<string, unknown> = {}) => ({
     ordinal: 1, name: 'Usługa', quantity: '1', unit: 'usł.', unitPriceNet: '100.00', vatRate: '23', gross: '123.00', ...over,
   });
@@ -1504,19 +1504,20 @@ describe('U1r (D-A4-1b-3-KORZW): korekta K, której FaktWay jeszcze nie wystawi 
     return problems.length > 0 ? faktflowReviewGate(problems, { preview }) : faktflowGate({ preview });
   };
   const manyLines = (n: number, over: Record<string, unknown> = {}) => Array.from({ length: n }, (_, i) => line({ ordinal: i + 1, ...over }));
-  const zw = () => gateOf([line({ vatRate: 'zw' })]);
+  // Od planu zero C3 pozycję zw FaktWay koryguje, więc przykładem stawki bez korekty jest 0 WDT.
+  const pozaFaktWay = () => gateOf([line({ vatRate: '0 WDT' })]);
 
   describe('polityka originalHasUncorrectableLine', () => {
-    it('sama pozycja zw → true; nabywca z NIP i stawka 23% → false', () => {
-      expect(originalHasUncorrectableLine(zw())).toBe(true);
+    it('sama pozycja 0 WDT → true; nabywca z NIP i stawka 23% → false', () => {
+      expect(originalHasUncorrectableLine(pozaFaktWay())).toBe(true);
       expect(originalHasUncorrectableLine(faktflowGate())).toBe(false);
     });
 
-    it.each(['23', '8', '5', '0', 'oo', 'np', 'np_ii'])('stawka %s, którą FaktWay koryguje → false', (vatRate) => {
+    it.each(['23', '8', '5', '0', 'oo', 'np', 'np_ii', 'zw'])('stawka %s, którą FaktWay koryguje → false (zw od planu zero C3)', (vatRate) => {
       expect(originalHasUncorrectableLine(gateOf([line({ vatRate })]))).toBe(false);
     });
 
-    it.each(['zw', '0 WDT', '0 EX', '22', '7', '4', '3', 'nieznana'])('stawka %s bez korekty w FaktWay → true (nawet gdy inne pozycje są w porządku)', (vatRate) => {
+    it.each(['0 WDT', '0 EX', '22', '7', '4', '3', 'nieznana'])('stawka %s bez korekty w FaktWay → true (nawet gdy inne pozycje są w porządku)', (vatRate) => {
       expect(originalHasUncorrectableLine(gateOf([line(), line({ ordinal: 2, vatRate })]))).toBe(true);
     });
 
@@ -1536,8 +1537,8 @@ describe('U1r (D-A4-1b-3-KORZW): korekta K, której FaktWay jeszcze nie wystawi 
       expect(originalHasUncorrectableLine(gateOf(visible, ['rates'], { lineCount: 20 }))).toBe(false);
     });
 
-    it('widoczna pozycja zw wygrywa także przy skróconej liście', () => {
-      expect(originalHasUncorrectableLine(gateOf([...manyLines(19), line({ ordinal: 20, vatRate: 'zw' })], [], { lineCount: 25 }))).toBe(true);
+    it('widoczna pozycja 0 WDT wygrywa także przy skróconej liście', () => {
+      expect(originalHasUncorrectableLine(gateOf([...manyLines(19), line({ ordinal: 20, vatRate: '0 WDT' })], [], { lineCount: 25 }))).toBe(true);
     });
 
     it('brak bramy, podglądu albo pozycji (zły kształt) → false: nie ma na czym oprzeć obietnicy ani jej cofnięcia', () => {
@@ -1548,8 +1549,8 @@ describe('U1r (D-A4-1b-3-KORZW): korekta K, której FaktWay jeszcze nie wystawi 
   });
 
   describe('widok panelu (decidable) i przeglądu operatora', () => {
-    it('zw → correctionForRate; correctionForPerson bez zmian (nabywca z NIP)', () => {
-      const check = { importGate: zw() };
+    it('0 WDT → correctionForRate; correctionForPerson bez zmian (nabywca z NIP)', () => {
+      const check = { importGate: pozaFaktWay() };
       for (const ownHistory of [false, true]) {
         const v = ffDecidable({ check: { ...check, ownHistory } });
         expect(v, `ownHistory=${ownHistory}`).toMatchObject({ kind: 'decidable', correctionForRate: true, correctionForPerson: false });
@@ -1557,9 +1558,9 @@ describe('U1r (D-A4-1b-3-KORZW): korekta K, której FaktWay jeszcze nie wystawi 
       expect(ffDecidable()).toMatchObject({ correctionForRate: false, correctionForPerson: false });
     });
 
-    it('nabywca bez NIP i stawka zw → oba zdania; nabywca bez NIP i 23% → tylko osoba', () => {
+    it('nabywca bez NIP i stawka 0 WDT → oba zdania; nabywca bez NIP i 23% → tylko osoba', () => {
       const pesel = (lines: unknown[]) => ({ importGate: gateOf(lines, [], { buyerIdKind: 'pesel' }) });
-      expect(ffDecidable({ check: pesel([line({ vatRate: 'zw' })]) })).toMatchObject({ correctionForPerson: true, correctionForRate: true });
+      expect(ffDecidable({ check: pesel([line({ vatRate: '0 WDT' })]) })).toMatchObject({ correctionForPerson: true, correctionForRate: true });
       expect(ffDecidable({ check: pesel([line()]) })).toMatchObject({ correctionForPerson: true, correctionForRate: false });
     });
 
@@ -1588,16 +1589,16 @@ describe('U1r (D-A4-1b-3-KORZW): korekta K, której FaktWay jeszcze nie wystawi 
       });
     const nrK = 'FV/2026/10/7-K';
 
-    it.each(['same_sale', 'other_sale'] as const)('%s: K z pozycją zw → CORRECTION_RATE(numer K) dokładnie raz; K z 23% → brak', (choice) => {
+    it.each(['same_sale', 'other_sale'] as const)('%s: K z pozycją 0 WDT → CORRECTION_RATE(numer K) dokładnie raz; K z 23% → brak', (choice) => {
       const sentence = FF.CORRECTION_RATE(nrK).trim();
-      const withZw = retiredOf(choice, { check: { importGate: zw() } })!;
+      const withZw = retiredOf(choice, { check: { importGate: pozaFaktWay() } })!;
       expect(withZw.body.split(sentence).length - 1).toBe(1);
       expect(withZw.body.endsWith(FF.CORRECTION_RATE(nrK))).toBe(true);
       expect(retiredOf(choice)!.body).not.toContain(sentence);
     });
 
-    it('nabywca bez NIP i stawka zw → oba zdania po jednym razie, osoba przed stawką', () => {
-      const v = retiredOf('same_sale', { buyerIdKind: 'pesel', check: { importGate: zw() } })!;
+    it('nabywca bez NIP i stawka 0 WDT → oba zdania po jednym razie, osoba przed stawką', () => {
+      const v = retiredOf('same_sale', { buyerIdKind: 'pesel', check: { importGate: pozaFaktWay() } })!;
       expect(v.body.endsWith(FF.CORRECTION_PERSON + FF.CORRECTION_RATE(nrK))).toBe(true);
       expect(v.body.split(FF.CORRECTION_PERSON.trim()).length - 1).toBe(1);
       expect(v.body.split(FF.CORRECTION_RATE(nrK).trim()).length - 1).toBe(1);
@@ -1607,7 +1608,7 @@ describe('U1r (D-A4-1b-3-KORZW): korekta K, której FaktWay jeszcze nie wystawi 
       const released = retiredDraftView({
         invoiceNumber: DUP_NR,
         invoiceKind: 'regular',
-        submissions: [numberTakenFaktflowRow('no-import', { choice: 'same_sale', offer: 'released', check: { importGate: zw() } })],
+        submissions: [numberTakenFaktflowRow('no-import', { choice: 'same_sale', offer: 'released', check: { importGate: pozaFaktWay() } })],
         kindHeld: false,
       })!;
       expect(released.body).not.toContain(FF.CORRECTION_RATE(DUP_NR).trim());
@@ -1617,7 +1618,8 @@ describe('U1r (D-A4-1b-3-KORZW): korekta K, której FaktWay jeszcze nie wystawi 
   it('CORRECTION_RATE: krótko, z numerem K i adresem pomocy, bez długiego myślnika', () => {
     const t = FF.CORRECTION_RATE('FV/1/K');
     expect(t.startsWith(' Korekt faktury FV/1/K ')).toBe(true);
-    expect(t).toContain('zwolnion');
+    // Od planu zero C3 pozycję zw FaktWay koryguje, więc zdanie o niej nie mówi.
+    expect(t).not.toContain('zwolnion');
     expect(t).toContain('spoza FaktWay');
     expect(t).toContain('bez ceny netto');
     expect(t).toContain(SUPPORT_EMAIL);
