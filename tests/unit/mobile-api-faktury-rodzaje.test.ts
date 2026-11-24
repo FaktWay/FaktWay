@@ -937,6 +937,30 @@ describe('FA(3) z treści telefonu: generator i XSD MF', () => {
     await xsdOk(xml);
   });
 
+  it('korekta kwotowa faktury „zw” z telefonu (ustalenie 29): kontekst ze stawką „zw”, koperta z podstawą, XML KOR z P_13_7 i P_19 przechodzi XSD', async () => {
+    const parent = invoices.find((i) => i.id === PARENT)!;
+    Object.assign(parent, {
+      vat_total: 0,
+      gross_total: 1000,
+      fa3_data: { annotations: { cashMethod: 2, splitPayment: 2, vatExemptionBasis: 'art. 113 ust. 1 ustawy o VAT' } },
+    });
+    lines = [{ ...lines[0]!, vat_rate: 'zw', vat_amount: 0, gross_amount: 1000 }];
+    const kontekst = await kontekstKorekty(PARENT);
+    expect(kontekst.status).toBe(200);
+    expect(((await kontekst.json()) as { stawkaBezVat: string | null }).stawkaBezVat).toBe('zw');
+    const response = await wystaw({
+      wyslij: true,
+      korekta: korekta({ amountChange: { netDelta: -100, vatDelta: 0, grossDelta: -100, description: 'Rabat' } }),
+    });
+    expect(response.status).toBe(201);
+    const data = (fake.enqueue.mock.calls[0]![0] as { correctionData: CorrectionInvoiceData }).correctionData;
+    expect(data.annotations).toMatchObject({ vatExemptionBasis: 'art. 113 ust. 1 ustawy o VAT' });
+    const xml = generateCorrectionInvoiceXml(data);
+    expect(xml).toContain('<P_13_7>-100.00</P_13_7>');
+    expect(xml).toContain('<P_19>1</P_19>');
+    await xsdOk(xml);
+  });
+
   it('rozliczenie zapisane z telefonu: XML ROZ z danych szkicu przechodzi XSD', async () => {
     const draft = await wystaw({ wyslij: false, rozliczenie: rozliczenie() });
     const id = ((await draft.json()) as { faktura: { id: string } }).faktura.id;
