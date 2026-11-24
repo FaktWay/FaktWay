@@ -103,7 +103,7 @@ function payload(o: Record<string, unknown>) {
 
 beforeEach(() => {
   vi.stubEnv('KSEF_ENV', 'test');
-  db.tables = { tenants: [{ id: TENANT, nip: '1234567890', name: 'Firma testowa', address_json: null }], invoices: [], invoice_line_items: [] };
+  db.tables = { tenants: [{ id: TENANT, nip: '1234567890', name: 'Firma testowa', address_json: { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' } }], invoices: [], invoice_line_items: [] };
 });
 
 describe('FZ-025: akcja korekty kwotowej (prawdziwa ścieżka na bazie w pamięci)', () => {

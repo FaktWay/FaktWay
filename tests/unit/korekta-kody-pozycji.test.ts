@@ -107,7 +107,7 @@ function payload(o: Record<string, unknown>) {
 }
 
 function pustaBaza() {
-  db.tables = { tenants: [{ id: TENANT, nip: '1234567890', name: 'Firma testowa', address_json: null }], invoices: [], invoice_line_items: [] };
+  db.tables = { tenants: [{ id: TENANT, nip: '1234567890', name: 'Firma testowa', address_json: { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' } }], invoices: [], invoice_line_items: [] };
 }
 
 beforeEach(() => {

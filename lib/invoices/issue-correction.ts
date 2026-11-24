@@ -54,6 +54,7 @@ import { loadParentAnnotations } from '@/lib/invoices/correction-annotations';
 import { documentGrossPrices } from '@/lib/invoices/document-lines';
 import { lineCodesOf } from '@/lib/invoices/line-codes';
 import { withCodesFromBefore } from '@/lib/ksef/fa3-correction-generator';
+import { matchesTenantSeller, sellerFromTenantProfile } from '@/lib/invoices/tenant-seller';
 import { correctionSpecialData, specialDataInsertError } from '@/lib/invoices/special-data';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -224,17 +225,18 @@ function sameBuyerAsParent(
     (supplied.address.addressLine2 ?? '') === (original.address.addressLine2 ?? '');
 }
 
-function sellerDataFromParty(sp: SellerParty): SellerData {
-  return {
-    nip: sp.nip.replace(/\s+/g, ''),
-    name: sp.name,
-    address: {
-      countryCode: (sp.address.countryCode as string) || 'PL',
-      addressLine1: sp.address.addressLine1 || ' ',
-      addressLine2: sp.address.addressLine2 || ' ',
-    },
-    email: sp.email,
-  };
+/**
+ * Plan zero, karta C2, punkt S6: sprzedawca korekty z danych firmy, jak w zaliczce
+ * i fakturze rozliczającej (`requireTenantSeller` w `issue-advance.ts`, `issue-final.ts`).
+ * Nazwa i adres w `Podmiot1` to dzisiejsze dane firmy, a nie dane z przeglądarki ani
+ * z faktury pierwotnej (stary adres po przeprowadzce). NIP faktury pierwotnej sprawdza
+ * `normalizePayload` osobno.
+ */
+const CORRECTION_SELLER_MISSING = 'Uzupełnij poprawne dane sprzedawcy w ustawieniach firmy przed wystawieniem korekty.';
+const CORRECTION_SELLER_CHANGED = 'Dane sprzedawcy zmieniły się lub nie należą do tej firmy. Odśwież formularz.';
+
+function tenantSellerOf(tenant: TenantSnap): SellerData | null {
+  return sellerFromTenantProfile({ nip: tenant.nip, name: tenant.name, address_json: tenant.address });
 }
 
 /**
@@ -834,6 +836,10 @@ async function normalizePayload(
       compactNip(parsed.data.seller.nip) !== compactNip(seller.nip)) {
     return { error: 'Dane faktury pierwotnej zmieniły się lub nie należą do tej firmy. Wybierz ją ponownie.' };
   }
+  // C2 S6: przeglądarka tylko powtarza dane firmy; do korekty idą dane z bazy.
+  const tenantSeller = tenantSellerOf(tenant);
+  if (!tenantSeller) return { error: CORRECTION_SELLER_MISSING };
+  if (!matchesTenantSeller(parsed.data.seller as SellerData, tenantSeller)) return { error: CORRECTION_SELLER_CHANGED };
 
   // MVP corrections change amounts or lines, never the legal buyer identity —
   // ani typu nabywcy (firma z NIP / firma z UE z numerem VAT-UE, AUD-70).
@@ -953,6 +959,7 @@ async function normalizePayload(
     linesBefore,
     linesAfter: linesAfter as CorrectionInvoiceSchemaIn['linesAfter'],
     amountChange,
+    seller: tenantSeller as CorrectionInvoiceSchemaIn['seller'],
     buyer: authoritativeBuyer,
     parentInvoiceNumber: parentNumber,
     parentInvoiceIssueDate: parentIssueDate,
@@ -1004,6 +1011,9 @@ export async function getCorrectionParentContext(context: CorrectionContextSourc
     const buyerRow = row.buyer_data as BuyerParty | null;
     if (!sellerRow || !buyerRow)
       return { success: false, error: `Faktura ${parentLabelOf(row)} nie ma pełnych danych sprzedawcy lub nabywcy, więc korekty nie przygotujemy w aplikacji. ${CORRECTION_HELP_STEP}` };
+    // C2 S6: formularz pokazuje dzisiejsze dane firmy, te same, które zapis wpisze do korekty.
+    const tenantSeller = tenantSellerOf(tenant);
+    if (!tenantSeller) return { success: false, error: CORRECTION_SELLER_MISSING };
 
     const buyer = buyerDataFromParty(buyerRow, parentLabelOf(row));
     // K4: stan PO poprzednich przyjętych korektach — to od niego liczy się różnicę.
@@ -1023,7 +1033,7 @@ export async function getCorrectionParentContext(context: CorrectionContextSourc
       grossTotal: baseline.totals.gross,
       previousCorrection: baseline.latest ? { internalNumber: baseline.latest.internalNumber, correctionType: baseline.latest.correctionType } : undefined,
       allowedCorrectionTypes: baseline.allowed,
-      seller: sellerDataFromParty(sellerRow) as CorrectionInvoiceSchemaIn['seller'],
+      seller: tenantSeller as CorrectionInvoiceSchemaIn['seller'],
       buyer: buyer as CorrectionInvoiceSchemaIn['buyer'],
       ...(buyerVatUe ? { buyerVatUe } : {}),
       npIiAllowed: isNpIiBuyerVat(buyerVatUe),

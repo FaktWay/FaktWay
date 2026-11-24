@@ -136,7 +136,7 @@ beforeEach(() => {
   vi.stubEnv('KSEF_ENV', 'test');
   ksefLicznik = 0;
   db.tables = {
-    tenants: [{ id: T, nip: NIP, name: 'Firma testowa', address_json: null }],
+    tenants: [{ id: T, nip: NIP, name: 'Firma testowa', address_json: { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' } }],
     invoices: [],
     invoice_line_items: [],
     expenses: [],
@@ -359,7 +359,7 @@ describe('JPK_V7M(3): niezmiennik oznaczeń GTU korekty', () => {
         if (!anuluj && !dopisz && opisy.every((o) => o.zmiana === 'bez zmian')) return;
         if (!anuluj && !dopisz && opisy.every((o) => o.zmiana === 'usuń')) return;
         ksefLicznik = 0;
-        db.tables = { tenants: [{ id: T, nip: NIP, name: 'Firma testowa', address_json: null }], invoices: [], invoice_line_items: [], expenses: [] };
+        db.tables = { tenants: [{ id: T, nip: NIP, name: 'Firma testowa', address_json: { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' } }], invoices: [], invoice_line_items: [], expenses: [] };
         faktura(opisy.map((o, i) => pozycja({ name: `Pozycja ${i + 1}`, unitPriceNet: o.cena, vatRate: o.stawka, ...(o.gtu ? { gtuCode: o.gtu } : {}) })));
 
         const kor = await korekta(anuluj
