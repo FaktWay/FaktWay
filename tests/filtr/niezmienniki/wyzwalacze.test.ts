@@ -85,20 +85,6 @@ const BEZ_KOMUNIKATU: Record<string, BezKomunikatu> = {
   // Firma
   guard_tenant_first_invoice_accepted_at: { stan: 'kod', test: 'rls-lejek-analityka.test.ts', uwaga: 'właściciel ustawia i zmienia datę pierwszej faktury (42501)' },
   guard_tenant_logo_storage_key: { stan: 'kod', test: 'rls-logo-firmy.test.ts', uwaga: 'właściciel zmienia i czyści klucz logo (42501)' },
-  // Abonament FaktWay (Stripe)
-  guard_tenant_stripe_customer_id: { stan: 'brak', uwaga: 'stripe_customer_id ustawia serwis albo właściciel bazy (ścieżka dozwolona)' },
-  guard_billing_invoice_identity: { stan: 'brak', uwaga: 'faktura abonamentu powstaje tylko przez RPC albo jako właściciel bazy (ścieżka dozwolona)' },
-  guard_billing_invoice_line: { stan: 'brak', uwaga: 'brak zapisu pozycji faktury abonamentu' },
-  guard_billing_invoice_financial_case: { stan: 'brak', uwaga: 'faktura abonamentu z poprawną referencją płatności (ścieżka dozwolona)' },
-  guard_admin_refund_financial_case: { stan: 'brak', uwaga: 'żaden test nie dotyka stripe_refund_operations' },
-  guard_stripe_payment_financial_refs: { stan: 'brak', uwaga: 'płatności Stripe tylko z poprawnymi referencjami; brak zmiany ani usunięcia' },
-  guard_stripe_payment_vat_invoice_link: { stan: 'brak', uwaga: 'powiązanie z fakturą VAT robi tylko RPC (ścieżka dozwolona)' },
-  enforce_stripe_payment_subscription_tenant: { stan: 'brak', uwaga: 'brak płatności z subskrypcją innej firmy' },
-  enforce_stripe_subscription_customer_tenant: { stan: 'brak', uwaga: 'subskrypcje z dopasowanym klientem Stripe (ścieżka dozwolona)' },
-  lock_stripe_subscription_tenant_for_checkout: { stan: 'brak', uwaga: 'brak przepięcia firmy subskrypcji ani firmy, której nie ma' },
-  preserve_canceled_stripe_subscription: { stan: 'brak', uwaga: 'status subskrypcji zmienia test jako właściciel bazy (ścieżka dozwolona)' },
-  preserve_stripe_payment_refund_status: { stan: 'brak', uwaga: 'brak zmiany firmy ani statusu zwróconej płatności' },
-  prevent_financial_case_review_mutation: { stan: 'brak', uwaga: 'żaden test nie dotyka stripe_financial_case_reviews ani stripe_financial_case_reopenings' },
 };
 
 /** Wyzwalacze bez wyjątku: funkcja, test na bazie (plik w `tests/`) albo powód braku. */
@@ -122,7 +108,7 @@ const SKUTKI: Record<string, { test?: string; uwaga: string }> = {
  * etykiety (usunięta linia w `tests/filtr`).
  */
 // prettier-ignore
-const ZAPADKA_BEZ_KOMUNIKATU = 'enforce_stripe_payment_subscription_tenant enforce_stripe_subscription_customer_tenant guard_admin_refund_financial_case guard_billing_invoice_financial_case guard_billing_invoice_identity guard_billing_invoice_line guard_invoice_delivery_history guard_invoice_number_series_update guard_invoice_payment_evidence guard_invoice_recurring_link guard_invoice_sales_quote_update guard_invoice_send_owner guard_ksef_collective_identifier guard_ksef_permission_grant guard_roz_advance_single_settlement guard_stripe_payment_financial_refs guard_stripe_payment_vat_invoice_link guard_tenant_first_invoice_accepted_at guard_tenant_logo_storage_key guard_tenant_stripe_customer_id lock_stripe_subscription_tenant_for_checkout preserve_canceled_stripe_subscription preserve_stripe_payment_refund_status prevent_financial_case_review_mutation';
+const ZAPADKA_BEZ_KOMUNIKATU = 'guard_invoice_delivery_history guard_invoice_number_series_update guard_invoice_payment_evidence guard_invoice_recurring_link guard_invoice_sales_quote_update guard_invoice_send_owner guard_ksef_collective_identifier guard_ksef_permission_grant guard_roz_advance_single_settlement guard_tenant_first_invoice_accepted_at guard_tenant_logo_storage_key';
 // prettier-ignore
 const ZAPADKA_SKUTKI_BEZ_TESTU = 'handle_new_user reopen_reviewed_financial_cases_for_payment set_updated_at';
 
@@ -447,7 +433,8 @@ describe('NZ-SQL-01: strażnicy mają test na bazie', () => {
     expect(bledy).toEqual([]);
   });
 
-  it.fails('każdy strażnik ma na bazie test zabronionego zapisu (FZ-024)', () => {
+  // FZ-024: ostatnie wpisy `brak` zeszły w paczce 3 (abonament); zostają tylko wpisy `kod` z listy wyżej.
+  it('każdy strażnik ma na bazie test zabronionego zapisu (FZ-024)', () => {
     const bezTestu = Object.entries(BEZ_KOMUNIKATU)
       .filter(([, wpis]) => wpis.stan === 'brak')
       .map(([nazwa]) => nazwa);
