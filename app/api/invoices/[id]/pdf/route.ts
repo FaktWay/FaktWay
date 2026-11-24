@@ -42,7 +42,7 @@ export async function GET(
             ? 403
             : result.code === 'KSEF_NOT_VERIFIED'
               ? 403
-              : result.code === 'OFFLINE_QR_UNAVAILABLE' || result.code === 'PDF_STATE_CHANGED' || result.code === 'RETIRED_DRAFT' || result.code === 'CURRENCY_NOT_SUPPORTED' || result.code === 'PARTY_DATA_MISSING'
+              : result.code === 'OFFLINE_QR_UNAVAILABLE' || result.code === 'PDF_STATE_CHANGED' || result.code === 'RETIRED_DRAFT' || result.code === 'CURRENCY_NOT_SUPPORTED' || result.code === 'PRINT_DATA_MISSING'
                 ? 409
               : 400;
       // D-A4-1b-3 PR C (5.12): szkic wycofany po zapisie oryginału odsyła do PDF faktury K (`link`).

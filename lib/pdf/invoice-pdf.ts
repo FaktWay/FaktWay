@@ -25,7 +25,7 @@ export type GenerateInvoicePdfResult =
   | {
       success: false;
       error: string;
-      code?: 'KSEF_NOT_VERIFIED' | 'NOT_FOUND' | 'FORBIDDEN' | 'OFFLINE_QR_UNAVAILABLE' | 'PDF_STATE_CHANGED' | 'RETIRED_DRAFT' | 'CURRENCY_NOT_SUPPORTED' | 'PARTY_DATA_MISSING';
+      code?: 'KSEF_NOT_VERIFIED' | 'NOT_FOUND' | 'FORBIDDEN' | 'OFFLINE_QR_UNAVAILABLE' | 'PDF_STATE_CHANGED' | 'RETIRED_DRAFT' | 'CURRENCY_NOT_SUPPORTED' | 'PRINT_DATA_MISSING';
       /**
        * PR C (5.12): odmowa dla szkicu wycofanego po zapisie oryginału wskazuje PDF faktury K z KSeF
        * (ścieżka względna tej aplikacji) — trasa oddaje ją w odpowiedzi 409, a przycisk w toaście.
@@ -118,15 +118,19 @@ function currencyRefusal(data: InvoicePdfData): PdfFailure {
   };
 }
 
-/** FZ-037: odmowa PDF dla faktury bez danych sprzedawcy albo nabywcy (faktura zakupu ze Skrzynki KSeF), z numerem i wyjściem. */
-function partiesRefusal(data: InvoicePdfData): PdfFailure {
+/**
+ * FZ-037: odmowa PDF dla faktury bez pełnych danych sprzedawcy, nabywcy (z adresem) albo płatności, z numerem
+ * i wyjściem. Tak jest przy fakturze zakupu ze Skrzynki KSeF: wiersz ma NIP i nazwę z KSeF, ale nie strony
+ * z adresem ani płatność.
+ */
+function printDataRefusal(data: InvoicePdfData): PdfFailure {
   const numer = data.internalNumberMissing ? (data.ksefNumber ?? 'bez numeru') : data.invoice.internalNumber;
   const ksef = data.ksefNumber && data.ksefNumber !== numer ? ` (numer KSeF ${data.ksefNumber})` : '';
   return {
     success: false,
-    code: 'PARTY_DATA_MISSING',
+    code: 'PRINT_DATA_MISSING',
     error:
-      `Faktura ${numer}${ksef} nie ma w FaktWay danych sprzedawcy albo nabywcy (tak jest przy fakturze zakupu ze Skrzynki KSeF), więc wydruku PDF nie tworzymy. ` +
+      `Faktura ${numer}${ksef} nie ma w FaktWay pełnych danych sprzedawcy, nabywcy albo płatności (tak jest przy fakturze zakupu ze Skrzynki KSeF), więc wydruku PDF nie tworzymy. ` +
       'Tę fakturę pokazuje KSeF: wizualizacja w Aplikacji Podatnika KSeF po numerze KSeF albo plik XML („Pobierz XML” na stronie faktury w FaktWay).',
   };
 }
@@ -217,9 +221,10 @@ export async function generateInvoicePdf(
   // FZ-021: wydruk ma kwoty i „Do zapłaty” w złotych na sztywno, więc faktura w innej walucie (np. faktura
   // zakupu z KSeF w paczce archiwum) dostaje odmowę z wyjściem, zanim powstanie wydruk albo wyjdzie zapisany plik.
   if ((data.currency ?? 'PLN') !== 'PLN') return currencyRefusal(data);
-  // FZ-037: faktura zakupu ze Skrzynki KSeF nie ma w wierszu danych stron (`inbox-polling.ts` ich nie zapisuje), a wydruk
-  // potrzebuje sprzedawcy i nabywcy z adresem: bez nich renderer padał (trasa 500, paczka archiwum). Odmowa z wyjściem.
-  if (!data.invoice.seller?.address || !data.invoice.buyer?.address) return partiesRefusal(data);
+  // FZ-037: faktura zakupu ze Skrzynki KSeF nie ma w wierszu danych stron ani płatności (`inbox-polling.ts` ich nie
+  // zapisuje), a wydruk czyta sprzedawcę i nabywcę z adresem oraz płatność wprost: bez nich renderer padał (trasa 500).
+  // Odmowa z wyjściem, zanim powstanie wydruk albo wyjdzie zapisany plik.
+  if (!data.invoice.seller?.address || !data.invoice.buyer?.address || !data.invoice.payment) return printDataRefusal(data);
 
   // D-A4-1b-3 PR C (C8/T10): szkic BEZ numeru to dokument wycofany po zapisie oryginału z KSeF — numer
   // ma teraz faktura K, więc PDF z numerem zastępczym (`id.slice(0, 8)`) byłby fałszywym dokumentem.
