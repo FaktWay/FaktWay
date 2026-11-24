@@ -196,7 +196,11 @@ export async function czytajTenMiesiac(client: SupabaseClient, tenantId: string,
     return { ok: false, braki: [BLAD_ODCZYTU_ROZLICZEN], rozliczenia: [], zaplatyReczne: [] };
   }
   const tegoMiesiaca = odczyt.r.filter((r) => r.miesiac === miesiac);
-  const zaplatyReczne = odczyt.r.filter((r) => r.reczna && (r.status === 'zatwierdzone' || r.zaplaconeO?.slice(0, 7) === miesiac));
+  // FZ-036: strony sprzed pierwszego miesiąca (styczeń 2026, `miesiacZParametrow` od 2026 r.) nie ma, więc zapłata
+  // z wcześniejszą datą stoi na liście pierwszego miesiąca (inaczej nie widać jej nigdzie i nie da się jej cofnąć).
+  const PIERWSZY_MIESIAC_STRONY = '2026-01';
+  const miesiacListy = (dzien: string) => (dzien.slice(0, 7) < PIERWSZY_MIESIAC_STRONY ? PIERWSZY_MIESIAC_STRONY : dzien.slice(0, 7));
+  const zaplatyReczne = odczyt.r.filter((r) => r.reczna && (r.status === 'zatwierdzone' || (r.zaplaconeO !== null && miesiacListy(r.zaplaconeO) === miesiac)));
   if (!wersjeOdczyt.ok) {
     console.error('[ten-miesiac] profil', wersjeOdczyt.e instanceof Error ? wersjeOdczyt.e.message : wersjeOdczyt.e);
     return { ok: false, braki: [BLAD_ODCZYTU_ROZLICZEN], rozliczenia: tegoMiesiaca, zaplatyReczne };
