@@ -9,7 +9,7 @@ import {
   type InvoicePaymentEntry,
   type InvoicePaymentsData,
 } from '@/lib/invoices/invoice-payments';
-import { canCorrectInvoice, canMarkInvoicePaid } from '@/lib/invoices/list-row-facts';
+import { canCorrectInvoice, canMarkInvoicePaid, correctionRefusalFromLines } from '@/lib/invoices/list-row-facts';
 import { canChangeInvoicePayment } from '@/lib/invoices/manual-payment';
 import { documentGrossPrices } from '@/lib/invoices/document-lines';
 import { documentLineCodes } from '@/lib/invoices/line-codes';
@@ -209,7 +209,14 @@ export default async function InvoiceDetailPage({
     gross_total: invoice.gross_total,
     payment_data: invoice.payment_data,
   });
-  const canCorrect = await loadCanCorrect(supabase, invoice, env);
+  // Ustalenie 17: faktura z pozycją bez ceny netto albo ilości (np. w cenach brutto)
+  // nie dostaje „Korekta”, bo formularz korekty i tak odmówi; zamiast linku powód
+  // z wyjściem, ten sam tekst co odmowa formularza (`correctionRefusalFromLines`).
+  const correctable = await loadCanCorrect(supabase, invoice, env);
+  const correctionRefusal = correctable
+    ? correctionRefusalFromLines(lines, grossPrices, internalNumber?.trim() || String(invoice.id).slice(0, 8))
+    : null;
+  const canCorrect = correctable && correctionRefusal === null;
   const paymentPanel = await loadPaymentPanel(supabase, invoice, env, membership?.role ?? null);
   const paymentHistory = await loadPaymentHistory(supabase, invoice, env, membership?.role ?? null, paymentPanel);
   const qr = await loadQr(supabase, invoice);
@@ -245,6 +252,7 @@ export default async function InvoiceDetailPage({
     split_payment: splitPayment,
     amount_due: amountDue,
     can_correct: canCorrect,
+    correction_refusal: correctionRefusal,
     // N1: „Ustaw jako cykliczną” tylko dla faktury, którą przyjmie akcja tworzenia (te same warunki).
     can_set_recurring: canSetAsRecurring({
       direction: invoice.direction as string | null,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { getRecentInvoices } from '@/lib/dashboard/recent-invoices';
+import { orPredicate } from '@/lib/demo/fake-postgrest';
 import type { PageContext } from '@/lib/supabase/page-context';
 
 /**
@@ -45,6 +46,7 @@ function database(tables: Tables) {
         lt(c: string, v: string) { predicates.push((r) => r[c] != null && String(r[c]) < v); return builder; },
         in(c: string, v: unknown[]) { predicates.push((r) => v.includes(r[c])); return builder; },
         is(c: string, v: null) { predicates.push((r) => (v === null ? r[c] == null : r[c] === v)); return builder; },
+        or(expr: string) { predicates.push(orPredicate(expr)); return builder; },
         overlaps(c: string, v: string[]) {
           predicates.push((r) => Array.isArray(r[c]) && (r[c] as string[]).some((x) => v.includes(x)));
           return builder;

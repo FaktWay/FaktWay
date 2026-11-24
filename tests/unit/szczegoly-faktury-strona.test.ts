@@ -836,6 +836,32 @@ describe('E3 P4: pola podglądu faktury liczone na serwerze', () => {
     expect((await loadInitial(ACC_ID)).can_correct).toBe(false);
   });
 
+  it('korekta niedostępna: faktura w cenach brutto; zamiast linku powód z wyjściem, jak odmowa formularza (ustalenie 17)', async () => {
+    put(accepted({
+      fa3_data: { pricesGross: true, lines: [{ ordinal: 1, unitPriceGross: 123 }, { ordinal: 2, unitPriceGross: 54 }] },
+      invoice_line_items: lineRows.map((line) => ({ ...line, unit_price_net: null })),
+    }));
+    const initial = await loadInitial(ACC_ID);
+    expect(initial.can_correct).toBe(false);
+    expect(initial.correction_refusal).toBe(
+      'Faktura FV/1/10/2026 jest w cenach brutto (pozycje mają cenę brutto zamiast ceny netto), a korekty takiej faktury aplikacja jeszcze nie przygotowuje. Napisz do nas, a przygotujemy korektę z Tobą.',
+    );
+  });
+
+  it('bez powodu odmowy: faktura do korekty i szkic z pozycjami w cenach brutto (ustalenie 17)', async () => {
+    put(accepted());
+    expect((await loadInitial(ACC_ID)).correction_refusal).toBeNull();
+    st.db!.tables.invoices!.length = 0;
+    put(accepted({
+      ksef_status: 'draft', ksef_number: null,
+      fa3_data: { pricesGross: true, lines: [{ ordinal: 1, unitPriceGross: 123 }, { ordinal: 2, unitPriceGross: 54 }] },
+      invoice_line_items: lineRows.map((line) => ({ ...line, unit_price_net: null })),
+    }));
+    const draft = await loadInitial(ACC_ID);
+    expect(draft.can_correct).toBe(false);
+    expect(draft.correction_refusal).toBeNull();
+  });
+
   it('korekta niedostępna, gdy KSEF_ENV niepoprawne (środowisko nieznane)', async () => {
     vi.stubEnv('KSEF_ENV', 'bogus');
     put(accepted());
