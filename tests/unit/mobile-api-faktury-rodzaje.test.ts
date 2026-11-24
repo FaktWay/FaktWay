@@ -574,6 +574,20 @@ describe('zaliczka z telefonu', () => {
     expect(writes.filter((w) => w.table === 'invoices')).toEqual([]);
   });
 
+  it('rozliczenie z pozycją „zw”: 422 invoice_invalid ze zdaniem strony po polsku, bez zapisu (ustalenie 31)', async () => {
+    // Od planu zero C3 schemat pozycji telefonu zna „zw” (korekta faktury zwolnionej z VAT),
+    // a rozliczenie zaliczek „zw” nie obsługuje: odmawia schemat strony, nie walidacja telefonu.
+    const response = await wystaw({
+      wyslij: false,
+      rozliczenie: rozliczenie({ lines: [{ name: 'Projekt strony', unit: 'szt', quantity: 1, unitPriceNet: 4000, vatRate: 'zw' }] }),
+    });
+    expect(response.status).toBe(422);
+    const blad = await errorOf(response);
+    expect(blad.code).toBe('invoice_invalid');
+    expect(blad.message).not.toMatch(/Invalid|expected/);
+    expect(writes.filter((w) => w.table === 'invoices')).toEqual([]);
+  });
+
   it('treść spoza kontraktu (dwa rodzaje naraz, pole spoza): 400 invalid_request', async () => {
     for (const body of [
       { wyslij: false, zaliczka: zaliczka(), korekta: korekta() },
