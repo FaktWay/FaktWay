@@ -111,20 +111,20 @@ export const ORIGINAL_CORRECTABLE_BUYER_ID_KINDS = ['nip', 'vat-ue'] as const sa
 /**
  * Stawki pozycji, przy których FaktWay wystawia korektę faktury K: lustro
  * `correctionLineSchema` i `vatRateFromDbForCorrectionLine`
- * (`components/invoices/correction-actions.ts`) — stawki FaktWay bez `zw`
- * (`np I` i `np II` to dawny zapis P_12 z importu). Brak `zw` jest znany
- * (pozycja planu C3); gdy C3 doda korektę dla `zw`, dopisz ją tu i zmień test.
+ * (`lib/invoices/issue-correction.ts`) — stawki FaktWay, od planu zero C3 także
+ * `zw` (korekta bierze podstawę zwolnienia z faktury korygowanej; bez podstawy
+ * odmawia z wyjściem). `np I` i `np II` to dawny zapis P_12 z importu.
  * Kody FA(3) bez odpowiednika (0 WDT, 0 EX, 22, 7, 4, 3) oraz `nieznana` nigdy
  * nie są korygowalne.
  */
-export const ORIGINAL_CORRECTABLE_VAT_RATES: readonly string[] = ['23', '8', '5', '0', 'oo', 'np', 'np_ii', 'np I', 'np II'];
+export const ORIGINAL_CORRECTABLE_VAT_RATES: readonly string[] = ['23', '8', '5', '0', 'oo', 'np', 'np_ii', 'zw', 'np I', 'np II'];
 
 /**
  * Problemy bramy, które przy skróconej liście pozycji podglądu (`lineCount` >
  * `lines.length`) mogą dotyczyć pozycji ukrytych: stawka spoza FaktWay
  * (`rates`), ceny brutto (`gross-prices`) albo brak ceny netto (`line-fields`
- * obejmuje brak P_9A). Stawka `zw` nie jest problemem bramy, więc pozycji `zw`
- * poza podglądem nie wykryjemy (znane ograniczenie, D-A4-1b-3-KORZW).
+ * obejmuje brak P_9A). Stawka `zw` od planu zero C3 jest korygowalna, więc nie
+ * musi być problemem bramy (D-A4-1b-3-KORZW).
  */
 const HIDDEN_LINE_UNCORRECTABLE_PROBLEMS: readonly string[] = ['rates', 'gross-prices', 'line-fields'];
 

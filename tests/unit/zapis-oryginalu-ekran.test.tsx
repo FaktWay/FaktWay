@@ -867,20 +867,21 @@ describe('RetiredDraftBanner — szkic wycofany po zapisie oryginału (karta X, 
     expect(occurrences(text(), F.CORRECTION_PERSON.trim())).toBe(1);
   });
 
-  const WITH_ZW = { importGate: { v: 1, rules: 1, kind: 'importable', problems: [], preview: { ...PREVIEW, lineCount: 1, lines: [{ ...PREVIEW.lines[0], vatRate: 'zw' }] } } };
+  // Od planu zero C3 pozycję zw FaktWay koryguje, więc przykładem stawki bez korekty jest 0 WDT.
+  const WITH_ZW = { importGate: { v: 1, rules: 1, kind: 'importable', problems: [], preview: { ...PREVIEW, lineCount: 1, lines: [{ ...PREVIEW.lines[0], vatRate: '0 WDT' }] } } };
 
   it.each([
     ['sama sprzedaż', { choice: 'same_sale', offer: 'pair' }],
     ['inna sprzedaż', { choice: 'other_sale', offer: 'pair' }],
     ['zapis operatora (review-record)', { choice: 'same_sale', offer: 'review-record' }],
-  ])('ZB3 (KORZW): %s, K z pozycją zw w pliku — CORRECTION_RATE w banerze dokładnie raz, bez CORRECTION_PERSON (nabywca z NIP)', (_label, decision) => {
+  ])('ZB3 (KORZW): %s, K z pozycją 0 WDT w pliku — CORRECTION_RATE w banerze dokładnie raz, bez CORRECTION_PERSON (nabywca z NIP)', (_label, decision) => {
     mount(<RetiredDraftBanner view={importedBanner(decision, 'nip', WITH_ZW)} />);
 
     expect(occurrences(text(), F.CORRECTION_RATE(NR).trim())).toBe(1);
     expect(text()).not.toContain(F.CORRECTION_PERSON.trim());
   });
 
-  it('ZB3 (KORZW): K z 23% i nabywca z NIP — baner bez zdań o korekcie; nabywca bez NIP i zw — oba po jednym razie', () => {
+  it('ZB3 (KORZW): K z 23% i nabywca z NIP — baner bez zdań o korekcie; nabywca bez NIP i 0 WDT — oba po jednym razie', () => {
     mount(<RetiredDraftBanner view={importedBanner({}, 'nip', { importGate: { v: 1, rules: 1, kind: 'importable', problems: [], preview: PREVIEW } })} />);
     expect(text()).not.toContain(F.CORRECTION_RATE(NR).trim());
     expect(text()).not.toContain(F.CORRECTION_PERSON.trim());
