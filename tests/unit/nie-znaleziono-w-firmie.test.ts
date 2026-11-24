@@ -4,6 +4,7 @@ vi.mock('@/lib/audit/log', () => ({ logAudit: vi.fn() }));
 
 import { deleteContractor, updateContractor } from '@/lib/contractors/manage';
 import { describeResetError } from '@/lib/invoices/ksef-send-policy';
+import { resendInvoice } from '@/lib/invoices/ksef-resend';
 import { describeKsefSendError } from '@/lib/invoices/ksef-send-step';
 import { sendRegularDraft } from '@/lib/invoices/send-draft';
 
@@ -67,6 +68,13 @@ describe('faktura, której nie ma w firmie (ustalenie 25)', () => {
         reason: 'refused',
         error: 'Nie udało się odczytać faktury, więc jej nie wysłaliśmy. Spróbuj ponownie za chwilę.',
       });
+  });
+
+  it('„Wyślij ponownie” przy błędzie odczytu: spróbuj ponownie, a nie „nie znaleziono”; bez wiersza: powód i wyjście (uwaga N1 czytelnika)', async () => {
+    const kontekst = (supabase: unknown) => async () => ({ supabase, userId: 'user-1', tenantId: 'ten-1', role: 'owner' }) as never;
+    expect(await resendInvoice(kontekst(db({ data: null, error: { message: 'connection failure' } })), 'inv-1'))
+      .toEqual({ success: false, error: 'Nie udało się odczytać faktury, więc nie wysłaliśmy jej ponownie. Spróbuj ponownie za chwilę.' });
+    expect(await resendInvoice(kontekst(db({ data: null, error: null })), 'inv-1')).toEqual({ success: false, error: FAKTURA_BRAK });
   });
 
   it('ponowna wysyłka i przywrócenie wysyłki bez faktury (P0002): powód i wyjście', () => {
