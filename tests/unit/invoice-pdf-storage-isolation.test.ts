@@ -17,6 +17,12 @@ vi.mock('@/lib/pdf/pdf-storage', async (importOriginal) => ({
 import { generateInvoicePdf } from '@/lib/pdf/invoice-pdf';
 import { buildInvoicePdfKey } from '@/lib/pdf/pdf-storage';
 
+/** Sprzedawca i nabywca z adresem: wydruk ich wymaga (FZ-037, bez nich odmowa `PARTY_DATA_MISSING`). */
+const STRONY = {
+  seller: { nip: '1234567890', name: 'Sprzedawca', address: { countryCode: 'PL', addressLine1: 'ul. A 1', addressLine2: '00-001 Warszawa' } },
+  buyer: { nip: '1234567890', name: 'Nabywca', address: { countryCode: 'PL', addressLine1: 'ul. B 2', addressLine2: '00-002 Warszawa' } },
+};
+
 const DRAFT_KEY = buildInvoicePdfKey('tenant-a', 'invoice', '2026-09-09');
 
 beforeEach(() => {
@@ -26,7 +32,7 @@ beforeEach(() => {
   mocks.render.mockResolvedValue(Buffer.from('generated-own-document'));
   mocks.offlineQueueEntry.mockResolvedValue(false);
   mocks.load.mockResolvedValue({
-    invoice: { internalNumber: 'FV/1' }, tenantId: 'tenant-a', issueDate: '2026-09-09',
+    invoice: { ...STRONY, internalNumber: 'FV/1' }, tenantId: 'tenant-a', issueDate: '2026-09-09',
     pdfStoragePath: DRAFT_KEY,
     pdfGeneratedAt: '2026-09-09T13:00:00Z', updatedAt: '2026-09-09T12:00:00Z',
   });
@@ -35,7 +41,7 @@ beforeEach(() => {
 describe('PDF cache ownership', () => {
   it('regenerates an own invoice whose writable pdf_storage_path points to another tenant', async () => {
     mocks.load.mockResolvedValue({
-      invoice: { internalNumber: 'FV/1' }, tenantId: 'tenant-a', issueDate: '2026-09-09',
+      invoice: { ...STRONY, internalNumber: 'FV/1' }, tenantId: 'tenant-a', issueDate: '2026-09-09',
       pdfStoragePath: 'tenant-b/2026/09/victim.pdf',
       pdfGeneratedAt: '2026-09-09T13:00:00Z', updatedAt: '2026-09-09T12:00:00Z',
     });
@@ -55,7 +61,7 @@ describe('PDF cache ownership', () => {
 
   it('regenerates an old PDF cache after the renderer adds the VAT exemption basis', async () => {
     mocks.load.mockResolvedValue({
-      invoice: { internalNumber: 'FV/1', annotations: { vatExemptionBasis: 'fixture basis' } },
+      invoice: { ...STRONY, internalNumber: 'FV/1', annotations: { vatExemptionBasis: 'fixture basis' } },
       tenantId: 'tenant-a', issueDate: '2026-09-09',
       pdfStoragePath: 'tenant-a/2026/09/invoice.pdf',
       pdfGeneratedAt: '2026-09-09T13:00:00Z', updatedAt: '2026-09-09T12:00:00Z',
@@ -70,7 +76,7 @@ describe('PDF cache ownership', () => {
 
   it('ignores an unrelated PDF path from the same tenant', async () => {
     mocks.load.mockResolvedValue({
-      invoice: { internalNumber: 'FV/1' }, tenantId: 'tenant-a', issueDate: '2026-09-09',
+      invoice: { ...STRONY, internalNumber: 'FV/1' }, tenantId: 'tenant-a', issueDate: '2026-09-09',
       pdfStoragePath: buildInvoicePdfKey('tenant-a', 'other-invoice', '2026-09-09'),
       pdfGeneratedAt: '2026-09-09T13:00:00Z', updatedAt: '2026-09-09T12:00:00Z',
     });
@@ -94,7 +100,7 @@ describe('PDF cache ownership', () => {
 describe('PDF: kod QR weryfikacji w KSeF', () => {
   const HEX = Buffer.from('UtQp9Gpc51y-u3xApZjIjgkpZ01js-J8KflSPW8WzIE', 'base64url').toString('hex');
   const bazowe = {
-    invoice: { internalNumber: 'FV/1' }, tenantId: 'tenant-a', issueDate: '2026-02-01',
+    invoice: { ...STRONY, internalNumber: 'FV/1' }, tenantId: 'tenant-a', issueDate: '2026-02-01',
     pdfStoragePath: null, pdfGeneratedAt: null, updatedAt: null, sellerNip: '1111111111',
     ksefStatus: 'draft', offlineIdempotencyKey: null,
   };
@@ -332,7 +338,7 @@ describe('PDF korekty: faktura korygowana', () => {
   it('loader → renderer bez zmian', async () => {
     const correctedInvoice = { number: 'FV/9/09', issueDate: '2026-09-05', ksefNumber: null, reason: 'Błędna cena' };
     mocks.load.mockResolvedValue({
-      invoice: { internalNumber: 'KOR/1' }, tenantId: 'tenant-a', issueDate: '2026-10-01',
+      invoice: { ...STRONY, internalNumber: 'KOR/1' }, tenantId: 'tenant-a', issueDate: '2026-10-01',
       pdfStoragePath: null, pdfGeneratedAt: null, updatedAt: null, correctedInvoice,
     });
     await generateInvoicePdf('invoice', 'tenant-a');

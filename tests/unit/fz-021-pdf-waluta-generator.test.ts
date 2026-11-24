@@ -21,6 +21,12 @@ vi.mock('@/lib/pdf/pdf-storage', async (importOriginal) => ({
 import { generateInvoicePdf } from '@/lib/pdf/invoice-pdf';
 import { buildInvoicePdfKey } from '@/lib/pdf/pdf-storage';
 
+/** Sprzedawca i nabywca z adresem: wydruk ich wymaga (FZ-037, bez nich odmowa `PARTY_DATA_MISSING`). */
+const STRONY = {
+  seller: { nip: '1234567890', name: 'Sprzedawca', address: { countryCode: 'PL', addressLine1: 'ul. A 1', addressLine2: '00-001 Warszawa' } },
+  buyer: { nip: '1234567890', name: 'Nabywca', address: { countryCode: 'PL', addressLine1: 'ul. B 2', addressLine2: '00-002 Warszawa' } },
+};
+
 /**
  * FZ-021: wydruk ma kwoty i „Do zapłaty” z dopiskiem PLN na sztywno, więc
  * faktura w każdej innej walucie ze słownika MF (`TKodWaluty` w schemacie
@@ -41,7 +47,7 @@ const KSEF = '1234567890-20260909-0100A0B0C0D1-AF';
 const ZAPISANY = buildInvoicePdfKey('tenant-a', 'invoice', '2026-09-09', null, KSEF);
 
 const dane = (z: Record<string, unknown> = {}) => ({
-  invoice: { internalNumber: 'FZ/7/2026' }, tenantId: 'tenant-a', invoiceId: 'invoice', issueDate: '2026-09-09',
+  invoice: { ...STRONY, internalNumber: 'FZ/7/2026' }, tenantId: 'tenant-a', invoiceId: 'invoice', issueDate: '2026-09-09',
   ksefNumber: KSEF, ksefStatus: 'accepted', internalNumberMissing: false, offlineIdempotencyKey: null,
   sellerNip: '1234567890', xmlSha256Hex: null, correctedInvoice: null, receiptInvoiceMarker: false,
   pdfStoragePath: ZAPISANY, pdfGeneratedAt: '2026-09-09T13:00:00Z', updatedAt: '2026-09-09T12:00:00Z',
@@ -88,7 +94,7 @@ describe('FZ-021: PDF faktury tylko w złotych', () => {
   });
 
   it('faktura bez numeru własnego: odmowa z numerem KSeF zamiast numeru zastępczego', async () => {
-    mocks.load.mockResolvedValue(dane({ currency: 'USD', internalNumberMissing: true, invoice: { internalNumber: 'invoice' } }));
+    mocks.load.mockResolvedValue(dane({ currency: 'USD', internalNumberMissing: true, invoice: { ...STRONY, internalNumber: 'invoice' } }));
     const wynik = await generateInvoicePdf('invoice', 'tenant-a');
     expect(wynik).toMatchObject({ success: false, code: 'CURRENCY_NOT_SUPPORTED' });
     if (wynik.success) return;
