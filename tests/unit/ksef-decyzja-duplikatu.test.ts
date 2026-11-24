@@ -179,6 +179,16 @@ describe('U1a: kolejność odmów — blokada SQL (2.1.2), potem środowisko i r
     expect(view(decisionFacts()).kind).toBe('decidable');
   });
 
+  it('faktura zakupu: blokada not-found ze zdaniem o zakupie, a nie „mogła zostać usunięta” (ustalenie 30)', () => {
+    const zakup = clone(decisionFacts());
+    zakup.invoice.direction = 'incoming';
+    expect(view(zakup)).toMatchObject({
+      kind: 'refused',
+      refusal: 'not-found',
+      message: 'Ta faktura jest fakturą zakupu, a decyzja o numerze zajętym w KSeF dotyczy tylko faktur sprzedaży wystawionych w FaktWay. Odśwież listę faktur.',
+    });
+  });
+
   it('operator: ta sama kolejność bez roli — członek firmy widzi prawdziwą blokadę, operator roli nie potrzebuje', () => {
     for (let i = 0; i < ORDER.length - 1; i += 1) {
       const c = withFaults(i);
