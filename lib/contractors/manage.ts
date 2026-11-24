@@ -30,7 +30,10 @@ export function mayEditContractors(role: UserRole): boolean {
   return (CONTRACTOR_EDITOR_ROLES as readonly UserRole[]).includes(role);
 }
 
-export const CONTRACTOR_NOT_FOUND = 'Nie znaleziono kontrahenta w tej organizacji.';
+/** Brak kontrahenta w firmie: powód i wyjście (ustalenie 25), jak „Nie znaleziono produktu” (#924). */
+export const CONTRACTOR_NOT_FOUND = 'Nie znaleziono kontrahenta w tej firmie. Mógł go usunąć ktoś inny albo w innej karcie wybrano inną firmę. Odśwież listę kontrahentów.';
+/** Błąd bazy przy odczycie to nie brak kontrahenta: klient spróbuje ponownie, a nie szuka kontrahenta, który jest. */
+export const CONTRACTOR_READ_FAILED = 'Nie udało się odczytać kontrahenta, więc zmian nie zapisaliśmy. Spróbuj ponownie za chwilę.';
 
 export type ContractorWriteFailure = {
   success: false;
@@ -78,7 +81,8 @@ export async function updateContractor(
     .eq('id', contractorId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
-  if (readError || !current) return { success: false, reason: 'not_found', error: CONTRACTOR_NOT_FOUND };
+  if (readError) return { success: false, reason: 'failed', error: CONTRACTOR_READ_FAILED };
+  if (!current) return { success: false, reason: 'not_found', error: CONTRACTOR_NOT_FOUND };
 
   const before = {
     name: (current.name as string | null) ?? null,

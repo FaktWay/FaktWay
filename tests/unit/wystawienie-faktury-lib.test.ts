@@ -270,7 +270,7 @@ describe('wysyłka szkicu: akcja strony i lib robią to samo', () => {
     mocks.draftRow = null;
     const zAkcji = await sendDraftInvoiceAction('inv-1');
     const zLib = await sendRegularDraft({ supabase: fakeSupabase() as never, userId: 'user-1', tenantId: 'ten-1' }, 'inv-1');
-    expect(zAkcji).toEqual({ success: false, error: 'Nie znaleziono faktury w tej organizacji.' });
+    expect(zAkcji).toEqual({ success: false, error: 'Nie znaleziono faktury w tej firmie. Mogła zostać usunięta albo w innej karcie wybrano inną firmę. Odśwież listę faktur.' });
     expect(zLib).toEqual({ ...zAkcji, reason: 'not_found' });
   });
 });

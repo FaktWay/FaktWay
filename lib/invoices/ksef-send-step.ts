@@ -57,7 +57,8 @@ export function ksefSendTransactionStep(mode: KsefSendMode, ids: KsefSendIds): (
 export const KSEF_ALREADY_QUEUED_MESSAGE = 'Ta faktura jest już wysyłana albo nie jest szkicem.';
 
 /** Odmowa `requeue_ksef_send` (P0002): brak faktury w firmie. */
-export const KSEF_REQUEUE_NOT_FOUND_MESSAGE = 'Nie znaleziono faktury w tej organizacji.';
+/** Brak faktury w firmie przy ponownej wysyłce (RPC: P0002): powód i wyjście (ustalenie 25). */
+export const KSEF_REQUEUE_NOT_FOUND_MESSAGE = 'Nie znaleziono faktury w tej firmie. Mogła zostać usunięta albo w innej karcie wybrano inną firmę. Odśwież listę faktur.';
 
 /** Brak uprawnień roli połączenia do RPC (42501) — błąd konfiguracji, nie klienta. */
 export const KSEF_SEND_FORBIDDEN_MESSAGE =
