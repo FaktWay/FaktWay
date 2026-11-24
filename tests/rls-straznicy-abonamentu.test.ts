@@ -15,8 +15,8 @@ import { getRlsTestDatabaseUrl, getRlsTestEnvironment } from './helpers/rls-envi
  *
  * Fakturę abonamentu, subskrypcję, zwrot, sprawę finansową i jej przegląd
  * zapisuje w aplikacji tylko RPC albo właściciel bazy (strażnik tożsamości
- * faktury abonamentu odmawia także serwisowi, a do subskrypcji i zwrotów serwis
- * nie ma zapisu), więc cały plik potrzebuje połączenia z bazą
+ * faktury abonamentu odmawia także serwisowi, do subskrypcji serwis nie ma zapisu,
+ * a zwrotów nie wstawia), więc cały plik potrzebuje połączenia z bazą
  * (`RLS_TEST_DATABASE_URL`, w CI jest). Przeglądów spraw finansowych nie usuwa
  * nikt, także właściciel bazy, więc identyfikatory Stripe mają losowy przyrostek
  * z każdego przebiegu; po przebiegu zostają zdarzenie webhooka, sprawa
@@ -31,7 +31,10 @@ import { getRlsTestDatabaseUrl, getRlsTestEnvironment } from './helpers/rls-envi
  * reconciliation”, przepięcie subskrypcji do innej firmy („cannot be rebound”),
  * zmiana firmy subskrypcji i ciche zignorowanie wznowienia anulowanej,
  * ciche odrzucenie starego stanu płatności po zwrocie, przegląd na
- * `stripe_financial_case_reopenings` i INSERT firmy z klientem Stripe przez klienta.
+ * `stripe_financial_case_reopenings`, INSERT firmy z klientem Stripe przez klienta,
+ * blokada przez prawdziwą sprawę finansową (po `payment_id` albo po referencjach;
+ * testy sprawdzają blokadę przez brak potwierdzenia płatności), ciche odrzucenie
+ * spóźnionego `failed` po `succeeded` i zajęta blokada referencji (40001).
  *
  * Kolejność wyzwalaczy BEFORE (nazwy alfabetycznie): na `stripe_payments`
  * trigger_preserve_stripe_payment_refund_status (UPDATE OF status, tenant_id),
@@ -145,8 +148,9 @@ async function cleanup() {
   await db().executeSql('DELETE FROM public.invoice_line_items WHERE invoice_id IN (SELECT id FROM public.invoices WHERE tenant_id = $1)', [ORG]);
   await db().executeSql('UPDATE public.stripe_payments SET vat_invoice_id = NULL WHERE tenant_id = $1 AND vat_invoice_id IS NOT NULL', [ORG]);
   await db().executeSql('DELETE FROM public.invoices WHERE tenant_id = $1', [ORG]);
-  await db().executeSql('DELETE FROM public.stripe_refund_operations WHERE tenant_id = $1', [ORG]);
-  await db().executeSql('DELETE FROM public.stripe_payments WHERE tenant_id = $1 AND NOT EXISTS (SELECT 1 FROM public.stripe_financial_cases c WHERE c.payment_id = stripe_payments.id)', [ORG]);
+  // Obie firmy: gdyby strażnik firmy płatności zawiódł, płatność przepisana na ORG_B nie zostanie w bazie.
+  await db().executeSql('DELETE FROM public.stripe_refund_operations WHERE tenant_id = ANY($1::uuid[])', [[ORG, ORG_B]]);
+  await db().executeSql('DELETE FROM public.stripe_payments WHERE tenant_id = ANY($1::uuid[]) AND NOT EXISTS (SELECT 1 FROM public.stripe_financial_cases c WHERE c.payment_id = stripe_payments.id)', [[ORG, ORG_B]]);
   await db().executeSql('DELETE FROM public.subscriptions WHERE tenant_id = ANY($1::uuid[])', [[ORG, ORG_B]]);
   await db().executeSql('UPDATE public.tenants SET stripe_customer_id = NULL WHERE id = ANY($1::uuid[])', [[ORG, ORG_B]]);
 }
