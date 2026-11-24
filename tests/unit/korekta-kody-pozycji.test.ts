@@ -255,56 +255,72 @@ describe('niezmiennik: kody wierszy korekty „przed/po”', () => {
     zmiana: fc.constantFrom('bez zmian', 'cena', 'usuń'),
   });
 
+  type Opis = typeof pozycjaArb extends fc.Arbitrary<infer T> ? T : never;
+
+  /** Jedna korekta „przed/po” z opisu pozycji przez prawdziwą ścieżkę; zwraca plik albo null, gdy to nie ten niezmiennik. */
+  async function sprawdzKorekte(opisy: Opis[], dopisz: boolean): Promise<string | null> {
+    const pozycje = opisy.map((o, i): Poz => ({
+      name: `Pozycja ${i + 1}`, quantity: 1, unitPriceNet: o.cena,
+      ...(o.pkwiu ? { pkwiuCode: o.pkwiu } : {}), ...(o.gtu ? { gtuCode: o.gtu } : {}),
+    }));
+    // Klient (strona albo żądanie spreparowane) przysyła w „po” kody spoza faktury.
+    const afterKlienta: InvoiceLine[] = opisy.flatMap((o, i) =>
+      o.zmiana === 'usuń' ? [] : [linia(pozycje[i]!, { pkwiuCode: '99.99', gtuCode: 'GTU_13', ...(o.zmiana === 'cena' ? { unitPriceNet: o.cena + 1 } : {}) })],
+    );
+    if (dopisz) afterKlienta.push(linia({ name: 'Nowa pozycja', quantity: 1, unitPriceNet: 10 }, { pkwiuCode: '99.99', gtuCode: 'GTU_01' }));
+    // Korekta bez zmiany albo bez żadnej pozycji „po” to odmowa schematu, nie ten niezmiennik.
+    if (afterKlienta.length === 0 || (!opisy.some((o) => o.zmiana !== 'bez zmian') && !dopisz)) return null;
+
+    // Prawdziwa ścieżka: faktura w bazie, kontekst formularza, zapis korekty, plik z koperty.
+    pustaBaza();
+    faktura(PARENT, pozycje);
+    const ctx = await getCorrectionParentContextAction(PARENT);
+    if (!ctx.success) throw new Error(ctx.error);
+    const r = await saveCorrectionDraftAction(
+      payload({ correctionType: 'before_after', linesBefore: ctx.linesBefore, linesAfter: afterKlienta }),
+      TENANT,
+    );
+    expect(r).toMatchObject({ success: true });
+    const xml = generateCorrectionInvoiceXml(koperta(), { generatedAt: new Date('2026-11-16T10:00:00Z') });
+    const wiersze = kodyWierszy(xml);
+
+    const kodyPozycji = new Map(opisy.map((o, i) => [`Pozycja ${i + 1}`, { pkwiu: o.pkwiu ?? null, gtu: o.gtu ?? null }]));
+    // Wiersze „przed” tylko dla pozycji zmienionych albo usuniętych, w kolejności faktury.
+    expect(wiersze.filter((w) => w.przed).map((w) => w.nazwa)).toEqual(
+      opisy.flatMap((o, i) => (o.zmiana === 'bez zmian' ? [] : [`Pozycja ${i + 1}`])),
+    );
+    wiersze.forEach((w, i) => {
+      if (w.przed) {
+        expect({ pkwiu: w.pkwiu, gtu: w.gtu }).toEqual(kodyPozycji.get(w.nazwa!));
+        return;
+      }
+      const para = wiersze[i - 1];
+      // „Po” zaraz za „przed” o tej samej nazwie to jego para (ta sama pozycja po korekcie): te same
+      // kody. Inny „po” (dopisany albo sparowany po kolejności ze zmienioną nazwą) bez kodów.
+      if (para?.przed && para.nazwa === w.nazwa) expect({ pkwiu: w.pkwiu, gtu: w.gtu }).toEqual({ pkwiu: para.pkwiu, gtu: para.gtu });
+      else expect({ pkwiu: w.pkwiu, gtu: w.gtu }).toEqual({ pkwiu: null, gtu: null });
+    });
+    // Kod klienta jako cała treść elementu (w dowolnym polu pliku), nie kawałek kwoty: różnica VAT -899.99 zawiera
+    // „99.99” (FZ-038). Kwota równa dokładnie 99.99 tu nie wyjdzie: netto to pełne złote, VAT i brutto ich wielokrotności 0,23 i 1,23.
+    expect(xml).not.toMatch(/>\s*99\.99\s*</);
+    expect(xml).not.toContain('GTU_13');
+    expect(xml).not.toContain('GTU_01');
+    expect((await validateInvoiceXml(xml)).errors).toEqual([]);
+    return xml;
+  }
+
   it('wiersz „przed” ma kody swojej pozycji, wiersz „po” zaraz za nim kody pary, dopisany „po” żadnych; kody klienta się nie liczą; pozycja bez zmian poza plikiem; XSD', async () => {
     await fc.assert(
       fc.asyncProperty(fc.array(pozycjaArb, { minLength: 1, maxLength: 4 }), fc.boolean(), async (opisy, dopisz) => {
-        const pozycje = opisy.map((o, i): Poz => ({
-          name: `Pozycja ${i + 1}`, quantity: 1, unitPriceNet: o.cena,
-          ...(o.pkwiu ? { pkwiuCode: o.pkwiu } : {}), ...(o.gtu ? { gtuCode: o.gtu } : {}),
-        }));
-        // Klient (strona albo żądanie spreparowane) przysyła w „po” kody spoza faktury.
-        const afterKlienta: InvoiceLine[] = opisy.flatMap((o, i) =>
-          o.zmiana === 'usuń' ? [] : [linia(pozycje[i]!, { pkwiuCode: '99.99', gtuCode: 'GTU_13', ...(o.zmiana === 'cena' ? { unitPriceNet: o.cena + 1 } : {}) })],
-        );
-        if (dopisz) afterKlienta.push(linia({ name: 'Nowa pozycja', quantity: 1, unitPriceNet: 10 }, { pkwiuCode: '99.99', gtuCode: 'GTU_01' }));
-        // Korekta bez zmiany albo bez żadnej pozycji „po” to odmowa schematu, nie ten niezmiennik.
-        if (afterKlienta.length === 0 || (!opisy.some((o) => o.zmiana !== 'bez zmian') && !dopisz)) return;
-
-        // Prawdziwa ścieżka: faktura w bazie, kontekst formularza, zapis korekty, plik z koperty.
-        pustaBaza();
-        faktura(PARENT, pozycje);
-        const ctx = await getCorrectionParentContextAction(PARENT);
-        if (!ctx.success) throw new Error(ctx.error);
-        const r = await saveCorrectionDraftAction(
-          payload({ correctionType: 'before_after', linesBefore: ctx.linesBefore, linesAfter: afterKlienta }),
-          TENANT,
-        );
-        expect(r).toMatchObject({ success: true });
-        const xml = generateCorrectionInvoiceXml(koperta(), { generatedAt: new Date('2026-11-16T10:00:00Z') });
-        const wiersze = kodyWierszy(xml);
-
-        const kodyPozycji = new Map(opisy.map((o, i) => [`Pozycja ${i + 1}`, { pkwiu: o.pkwiu ?? null, gtu: o.gtu ?? null }]));
-        // Wiersze „przed” tylko dla pozycji zmienionych albo usuniętych, w kolejności faktury.
-        expect(wiersze.filter((w) => w.przed).map((w) => w.nazwa)).toEqual(
-          opisy.flatMap((o, i) => (o.zmiana === 'bez zmian' ? [] : [`Pozycja ${i + 1}`])),
-        );
-        wiersze.forEach((w, i) => {
-          if (w.przed) {
-            expect({ pkwiu: w.pkwiu, gtu: w.gtu }).toEqual(kodyPozycji.get(w.nazwa!));
-            return;
-          }
-          const para = wiersze[i - 1];
-          // „Po” zaraz za „przed” o tej samej nazwie to jego para (ta sama pozycja po korekcie): te same
-          // kody. Inny „po” (dopisany albo sparowany po kolejności ze zmienioną nazwą) bez kodów.
-          if (para?.przed && para.nazwa === w.nazwa) expect({ pkwiu: w.pkwiu, gtu: w.gtu }).toEqual({ pkwiu: para.pkwiu, gtu: para.gtu });
-          else expect({ pkwiu: w.pkwiu, gtu: w.gtu }).toEqual({ pkwiu: null, gtu: null });
-        });
-        expect(xml).not.toContain('99.99');
-        expect(xml).not.toContain('GTU_13');
-        expect(xml).not.toContain('GTU_01');
-        expect((await validateInvoiceXml(xml)).errors).toEqual([]);
+        await sprawdzKorekte(opisy, dopisz);
       }),
       { numRuns: 40 },
     );
   }, 600_000);
+
+  it('FZ-038: kwota w pliku to nie kod klienta (kontrprzykład z ziarna 1252289581: różnica VAT -899.99)', async () => {
+    // Pozycja za 3923 zł usunięta, dopisana za 10 zł: VAT różnicy 2,30 - 902,29 = -899,99, a kod klienta w „po” to „99.99”.
+    const xml = await sprawdzKorekte([{ cena: 3923, pkwiu: undefined, gtu: undefined, zmiana: 'usuń' }], true);
+    expect(xml).toContain('-899.99');
+  }, 60_000);
 });
