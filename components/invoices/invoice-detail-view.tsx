@@ -107,6 +107,12 @@ export interface InvoiceDetailInitial {
   /** E3 / P4: pokazać link „Korekta” (ten sam predykat co lista faktur + brak korekty w toku). */
   can_correct: boolean;
   /**
+   * Ustalenie 17: powód, dla którego formularz korekty odmówi (pozycja bez ceny
+   * netto albo ilości, np. faktura w cenach brutto), z wyjściem. Zamiast linku
+   * „Korekta”. Brak pola albo `null` = bez powodu.
+   */
+  correction_refusal?: string | null;
+  /**
    * N1: pokazać „Ustaw jako cykliczną” (faktura spełnia warunki wzoru faktury
    * cyklicznej — liczy serwer tym samym predykatem co akcja tworzenia).
    * Brak pola = przycisk ukryty.
@@ -389,6 +395,7 @@ export function InvoiceDetailView({ initial }: { initial: InvoiceDetailInitial }
     ksef_duplicate_panel: duplicatePanel,
     ksef_retired: retired ? { deletable: retired.deletable, ...(retired.imported ? { imported: retired.imported } : {}) } : null,
     can_correct: inv.can_correct,
+    correction_refusal: inv.correction_refusal ?? null,
     can_set_recurring: inv.can_set_recurring ?? false,
     can_duplicate: inv.can_duplicate ?? false,
     can_share_with_buyer: inv.can_share_with_buyer ?? false,
