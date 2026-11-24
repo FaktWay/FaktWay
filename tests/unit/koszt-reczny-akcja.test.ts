@@ -304,14 +304,19 @@ describe('koszt wpisany ręcznie: odmowy bez zapisu', () => {
     const dostep = await createManualExpenseAction(OK, TENANT);
     expect(dostep).toEqual({
       success: false,
-      error: 'Nie zapisaliśmy kosztu, bo zmieniła się wybrana firma albo Twoja rola w niej. Odśwież stronę i sprawdź wybraną firmę, a jeśli to się powtórzy, poproś właściciela firmy o sprawdzenie Twojej roli.',
+      error: 'Nie zapisaliśmy kosztu, bo baza nie potwierdziła Twojego dostępu do tej firmy, np. zmieniła się wybrana firma albo Twoja rola w niej. Odśwież stronę i sprawdź wybraną firmę, a jeśli to się powtórzy, poproś właściciela firmy o sprawdzenie Twojej roli albo napisz do nas.',
     });
     insertFail.code = '23514';
     const dane = await createManualExpenseAction(OK, TENANT);
     expect(dane).toEqual({
       success: false,
-      error: 'Nie zapisaliśmy kosztu, bo baza odrzuciła dane dokumentu (data, kwoty albo kolumna KPiR). Sprawdź pola formularza i zapisz ponownie, a jeśli to się powtórzy, napisz do nas.',
+      error: 'Nie zapisaliśmy kosztu, bo baza odrzuciła dane dokumentu (np. datę, kwoty albo kolumnę KPiR). Sprawdź pola formularza i zapisz ponownie, a jeśli to się powtórzy, napisz do nas.',
     });
+    // Inny kod (np. konflikt transakcji) zostaje przy „Sprawdź połączenie i spróbuj ponownie”.
+    insertFail.code = '40001';
+    const inny = await createManualExpenseAction(OK, TENANT);
+    expect(inny.success).toBe(false);
+    if (!inny.success) expect(inny.error).toMatch(/Sprawdź połączenie i spróbuj ponownie/);
     expect(m.audit).not.toHaveBeenCalled();
     expect(wiersze()).toHaveLength(0);
   });

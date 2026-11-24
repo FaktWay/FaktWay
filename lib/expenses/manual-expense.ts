@@ -54,8 +54,8 @@ const SAVE_FAILED = 'Nie udało się zapisać kosztu. Sprawdź połączenie i sp
  * (dalszy krok #834): 42501 to brak sesji, aktywnej firmy albo roli w firmie (np. firma
  * zmieniona w innej karcie, rola odebrana), 23514 to dane, których baza nie przyjęła.
  */
-const SAVE_FORBIDDEN = 'Nie zapisaliśmy kosztu, bo zmieniła się wybrana firma albo Twoja rola w niej. Odśwież stronę i sprawdź wybraną firmę, a jeśli to się powtórzy, poproś właściciela firmy o sprawdzenie Twojej roli.';
-const SAVE_REJECTED_DATA = 'Nie zapisaliśmy kosztu, bo baza odrzuciła dane dokumentu (data, kwoty albo kolumna KPiR). Sprawdź pola formularza i zapisz ponownie, a jeśli to się powtórzy, napisz do nas.';
+const SAVE_FORBIDDEN = 'Nie zapisaliśmy kosztu, bo baza nie potwierdziła Twojego dostępu do tej firmy, np. zmieniła się wybrana firma albo Twoja rola w niej. Odśwież stronę i sprawdź wybraną firmę, a jeśli to się powtórzy, poproś właściciela firmy o sprawdzenie Twojej roli albo napisz do nas.';
+const SAVE_REJECTED_DATA = 'Nie zapisaliśmy kosztu, bo baza odrzuciła dane dokumentu (np. datę, kwoty albo kolumnę KPiR). Sprawdź pola formularza i zapisz ponownie, a jeśli to się powtórzy, napisz do nas.';
 
 function saveFailedMessage(error: { code?: string | null } | null): string {
   if (error?.code === '42501') return SAVE_FORBIDDEN;
@@ -131,7 +131,7 @@ interface ExpenseCreateRpc {
   rpc(
     name: 'expense_create_manual',
     args: Record<string, string | number | boolean | null>,
-  ): PromiseLike<{ data: unknown; error: { message: string } | null }>;
+  ): PromiseLike<{ data: unknown; error: { message: string; code?: string | null } | null }>;
 }
 
 export interface ManualExpenseContext {
