@@ -49,6 +49,19 @@ export const MANUAL_EXPENSE_DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
 const escapeLike = (c: string) => (c === '\\' || c === '%' || c === '_' ? `\\${c}` : c);
 
 const SAVE_FAILED = 'Nie udało się zapisać kosztu. Sprawdź połączenie i spróbuj ponownie za chwilę.';
+/**
+ * Odmowy funkcji `expense_create_manual` (00212), przy których ponowienie nie pomoże
+ * (dalszy krok #834): 42501 to brak sesji, aktywnej firmy albo roli w firmie (np. firma
+ * zmieniona w innej karcie, rola odebrana), 23514 to dane, których baza nie przyjęła.
+ */
+const SAVE_FORBIDDEN = 'Nie zapisaliśmy kosztu, bo zmieniła się wybrana firma albo Twoja rola w niej. Odśwież stronę i sprawdź wybraną firmę, a jeśli to się powtórzy, poproś właściciela firmy o sprawdzenie Twojej roli.';
+const SAVE_REJECTED_DATA = 'Nie zapisaliśmy kosztu, bo baza odrzuciła dane dokumentu (data, kwoty albo kolumna KPiR). Sprawdź pola formularza i zapisz ponownie, a jeśli to się powtórzy, napisz do nas.';
+
+function saveFailedMessage(error: { code?: string | null } | null): string {
+  if (error?.code === '42501') return SAVE_FORBIDDEN;
+  if (error?.code === '23514') return SAVE_REJECTED_DATA;
+  return SAVE_FAILED;
+}
 
 /** Podpowiedzi kategorii jak w edycji kosztu; można wpisać własną. */
 export const MANUAL_EXPENSE_CATEGORIES = [
@@ -220,6 +233,6 @@ export async function createManualExpense(ctx: ManualExpenseContext, input: unkn
     p_notes: row.notes ?? null,
     p_is_deductible: v.isDeductible,
   });
-  if (error || typeof data !== 'string' || data === '') return { success: false, error: SAVE_FAILED };
+  if (error || typeof data !== 'string' || data === '') return { success: false, error: saveFailedMessage(error) };
   return { success: true, expenseId: data, duplicate: false, row };
 }
