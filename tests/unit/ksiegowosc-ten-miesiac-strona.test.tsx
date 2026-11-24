@@ -312,7 +312,7 @@ describe('strona „Ten miesiąc”', () => {
     ], pozycje);
     const t = tekst(await strona());
     expect(t).not.toContain('do dopłaty zostaje 56,00 zł');
-    expect(t).toContain('Zatwierdzone (wersja 2: 1556,00 zł); wcześniejsza wersja jest zapłacona (1500,00 zł). Bieżące dane mają tu brak, więc dopłaty nie liczymy.');
+    expect(t).toContain('Zatwierdzone (wersja 2: 1556,00 zł); wcześniejsza wersja jest zapłacona (1500,00 zł). Według bieżących danych tej pozycji nie liczymy (powód wyżej), więc dopłaty też nie.');
   });
 
   it('brak jednej pozycji: komunikat zamiast kwoty, kafel z wyjaśnieniem, reszta do zatwierdzenia', async () => {
