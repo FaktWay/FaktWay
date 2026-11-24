@@ -31,7 +31,12 @@ const GENERIC_FAILURE = 'Nie udało się przygotować paczki. Zleć ją ponownie
  * okresu w `lib/archiwum/paczka.ts`), gdy dane okresu zmieniały się w trakcie
  * odczytu: licznik kontrolny inny niż pierwszy, strona krótsza albo dłuższa niż
  * licznik, kolejność się przesunęła. Takie błędy dają ponowienie joba, a po
- * wyczerpaniu prób klient dostaje przyczynę i wyjście (ustalenie 23).
+ * wyczerpaniu prób klient dostaje przyczynę i wyjście (ustalenie 23). Etykiety
+ * nie sprawdzamy: te same powody daje odczyt pozycji i kosztów do JPK_FA w paczce
+ * (`lib/exports/data-fetcher.ts`), a tekst jest prawdziwy i tam. Rzadziej powód
+ * ma inne źródło (cichy limit wierszy serwera), więc tekst mówi „np.” i daje
+ * drugie wyjście (pomoc FaktWay). Pliki faktur (`readAllByIdInList`) mają własne
+ * powody (`KeysetPageError`) i dostają tekst ogólny.
  */
 const CHANGED_DURING_READ_REASONS = [
   'nie można potwierdzić liczby rekordów',

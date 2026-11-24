@@ -58,6 +58,7 @@ vi.mock('@/lib/email/send', () => ({ sendEmail: h.email }));
 import { onDocumentArchiveExhausted, runDocumentArchive } from '@/lib/jobs/runners/document-archive';
 import { ArchiveTooLargeError } from '@/lib/archiwum/paczka';
 import { readCompletePagesByKey } from '@/lib/accounting/read-complete-pages';
+import { readAllByIdInList } from '@/lib/pagination/in-list';
 
 const T = '0178aaaa-0000-4000-8000-000000000001';
 const ID = '0178bbbb-0000-4000-8000-000000000001';
@@ -177,9 +178,15 @@ describe('zadanie archiwum: ponowienie od zera', () => {
       );
     }
 
-    // Inny błąd (np. sieć) dalej daje ogólny tekst z wyjściem.
-    h.order!.status = 'generating';
-    await onDocumentArchiveExhausted(new Error('invoices: fetch failed'), { archiveId: ID });
-    expect(h.order!.error_message).toBe('Nie udało się przygotować paczki. Zleć ją ponownie albo napisz do nas.');
+    // Inny błąd (np. sieć) i błąd odczytu plików faktur bez licznika (`readAllByIdInList`,
+    // własne powody `KeysetPageError`) dalej dają ogólny tekst z wyjściem.
+    const keyset = await readAllByIdInList('xml_documents', ['f-1'], () => Promise.resolve({ data: null, error: null }))
+      .then(() => new Error('odczyt przeszedł'), (error: unknown) => error as Error);
+    expect(keyset.name).toBe('KeysetPageError');
+    for (const failure of [new Error('invoices: fetch failed'), keyset]) {
+      h.order!.status = 'generating';
+      await onDocumentArchiveExhausted(failure, { archiveId: ID });
+      expect(h.order!.error_message).toBe('Nie udało się przygotować paczki. Zleć ją ponownie albo napisz do nas.');
+    }
   });
 });
