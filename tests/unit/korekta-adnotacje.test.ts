@@ -48,6 +48,13 @@ describe('adnotacje faktury korygującej (AUD-23, KOR)', () => {
   it('odczyt z fa3_data faktury pierwotnej — tylko 1 lub 2', () => {
     expect(parentAnnotationsForCorrection({ annotations: { cashMethod: 1, splitPayment: 1 } })).toEqual({ cashMethod: 1, splitPayment: 1 });
     expect(parentAnnotationsForCorrection({ annotations: { cashMethod: 2 } })).toEqual({ cashMethod: 2, splitPayment: 2 });
+    // Plan zero C3: podstawa zwolnienia idzie do korekty; rodzaj tylko z podstawą i tylko P_19A/B/C.
+    expect(parentAnnotationsForCorrection({ annotations: { vatExemptionBasis: ' art. 113 ust. 1 ustawy o VAT ', vatExemptionBasisKind: 'P_19C' } }))
+      .toEqual({ cashMethod: 2, splitPayment: 2, vatExemptionBasis: 'art. 113 ust. 1 ustawy o VAT', vatExemptionBasisKind: 'P_19C' });
+    expect(parentAnnotationsForCorrection({ annotations: { vatExemptionBasisKind: 'P_19B' } })).toEqual({ cashMethod: 2, splitPayment: 2 });
+    expect(parentAnnotationsForCorrection({ annotations: { vatExemptionBasis: 'art. 43 ust. 1 pkt 37', vatExemptionBasisKind: 'P_99' } }))
+      .toEqual({ cashMethod: 2, splitPayment: 2, vatExemptionBasis: 'art. 43 ust. 1 pkt 37' });
+    expect(parentAnnotationsForCorrection({ annotations: { vatExemptionBasis: '   ' } })).toEqual({ cashMethod: 2, splitPayment: 2 });
     expect(parentAnnotationsForCorrection({ annotations: { cashMethod: 'tak' } })).toEqual({ cashMethod: 2, splitPayment: 2 });
     expect(parentAnnotationsForCorrection(null)).toEqual({ cashMethod: 2, splitPayment: 2 });
   });

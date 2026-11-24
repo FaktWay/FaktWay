@@ -27,12 +27,17 @@ export const nabywcaRodzajuSchema = z.strictObject({
   email: z.string(),
 });
 
+/**
+ * Pozycja rozliczenia i korekty. „zw” od planu zero C3 (korekta faktury firmy
+ * zwolnionej z VAT); w rozliczeniu „zw” odrzuca schemat strony swoim zdaniem
+ * (`finalInvoiceSchema`), jak zakłada telefon (`mobile/src/lib/faktura/rodzaje.ts`).
+ */
 export const pozycjaRodzajuSchema = z.strictObject({
   name: z.string(),
   unit: z.string(),
   quantity: z.number(),
   unitPriceNet: z.number(),
-  vatRate: z.enum(['23', '8', '5', '0', 'oo', 'np', 'np_ii']),
+  vatRate: z.enum(['23', '8', '5', '0', 'oo', 'np', 'np_ii', 'zw']),
 });
 
 const dokument = {

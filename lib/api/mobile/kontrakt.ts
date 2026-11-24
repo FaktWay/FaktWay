@@ -760,14 +760,18 @@ export interface ZaliczkaTelefonu extends DokumentRodzajuTelefonu {
   description: string;
 }
 
-/** Pozycja rozliczenia i korekty „przed / po” (`invoiceLineSchema` strony, bez „zw”). */
+/** Pozycja rozliczenia i korekty „przed / po” (`invoiceLineSchema` strony; rozliczenie bez „zw”). */
 export interface PozycjaRodzajuTelefonu {
   name: string;
   unit: string;
   quantity: number;
   unitPriceNet: number;
-  /** Korekta faktury dla firmy z UE dopuszcza też `np_ii`. */
-  vatRate: '23' | '8' | '5' | '0' | 'oo' | 'np' | 'np_ii';
+  /**
+   * Korekta faktury dla firmy z UE dopuszcza też `np_ii`, a korekta faktury
+   * firmy zwolnionej z VAT `zw` (plan zero C3, podstawa zwolnienia z faktury
+   * korygowanej). Rozliczenie z `zw` odrzuca serwer zdaniem strony.
+   */
+  vatRate: '23' | '8' | '5' | '0' | 'oo' | 'np' | 'np_ii' | 'zw';
 }
 
 /**

@@ -345,7 +345,7 @@ function correctionRates(data: CorrectionInvoiceData, rows: readonly InvoiceLine
  * (stara faktura albo plik bez P_19A/B/C). Bez podstawy plik nie powstaje.
  */
 export const CORRECTION_ZW_WITHOUT_BASIS_MESSAGE =
-  'Faktura korygowana ma pozycję zwolnioną z VAT („zw”), ale nie ma zapisanej podstawy zwolnienia, więc korekty nie przygotujemy w aplikacji. Napisz do nas, a przygotujemy korektę z Tobą.';
+  'Korekta ma pozycję zwolnioną z VAT („zw”), a faktura korygowana nie ma zapisanej podstawy zwolnienia, więc korekty nie przygotujemy w aplikacji. Napisz do nas, a przygotujemy korektę z Tobą.';
 
 function buildAdnotacjeMinimal(
   fa: XMLBuilder,
