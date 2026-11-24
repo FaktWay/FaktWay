@@ -25,8 +25,11 @@ import { opcje, PRZYPADKI } from '../generatory/ustawienia';
  *    poniżej strony daje wyjątek, nie niepełną sumę.
  * 2. Bezpieczniki z konkretnym komunikatem: wiersz dopisany albo usunięty
  *    w trakcie odczytu, zignorowana kolejność. Para zmian, która zachowuje
- *    liczbę wierszy (usunięty wiersz już przeczytany i dopisany w części
- *    jeszcze nieprzeczytanej), przechodzi dziś bez wyjątku: FZ-017.
+ *    liczbę wierszy (jeden wiersz usunięty i jeden dopisany, w każdym miejscu
+ *    względem kursora), daje wyjątek albo jeden stan (FZ-017: zakładka przy
+ *    zakresach, jeden wiersz ponad licznik na pełnej ostatniej stronie po
+ *    kluczu). Zmiany po obu stronach kursora naraz przechodzą dziś bez
+ *    wyjątku: FZ-031 (potrzebna migawka).
  * 3. Test strukturalny: każde zapytanie `.from('tabela')` i `.rpc('funkcja')`
  *    w `lib/ksiegowosc`, `lib/reports` i `lib/exports` (nazwa spoza napisu daje
  *    czerwony test) idzie przez helper stronicowania, a funkcja podana helperowi
@@ -103,8 +106,8 @@ const oba = (dane: Wiersz[], limit = POSTGREST_MAX_ROWS) => [
 ];
 
 describe('NZ-WSP-08: odczyt stronami daje te same wiersze i sumy co jeden odczyt', () => {
-  it('strona helpera mieści się w limicie serwera, więc pełnej strony serwer nie utnie', () => {
-    expect(ACCOUNTING_PAGE_SIZE).toBeLessThanOrEqual(POSTGREST_MAX_ROWS);
+  it('strona helpera z wierszem ponad licznik mieści się w limicie serwera, więc pełnej strony serwer nie utnie (FZ-017)', () => {
+    expect(ACCOUNTING_PAGE_SIZE + 1).toBeLessThanOrEqual(POSTGREST_MAX_ROWS);
   });
 
   it.each(GRANICE)('%i wierszy: oba odczyty zwracają każdy wiersz raz, w kolejności, z tą samą sumą', async (n) => {
@@ -139,13 +142,24 @@ describe('NZ-WSP-08: odczyt stronami daje te same wiersze i sumy co jeden odczyt
   }, 120_000);
 });
 
-/** Zmiany po pierwszej stronie, czyli po przeczytaniu wierszy 0–499 z 2500. */
+/** Usuwa wiersz o danym `id`; brak takiego wiersza to błąd testu, nie usunięcie ostatniego. */
+const usun = (d: Wiersz[], id: string) => {
+  const i = d.findIndex((r) => r.id === id);
+  if (i < 0) throw new Error(`brak wiersza ${id} w danych testu`);
+  d.splice(i, 1);
+};
+/** Zmiany po pierwszej stronie, czyli po przeczytaniu wierszy 0–499 (z 1000 i więcej). */
 const ZMIANY = {
   'dopisany na końcu': (d: Wiersz[]) => { d.push({ id: 'id-999999', kwotaGr: 1 }); },
   'dopisany w części nieprzeczytanej': (d: Wiersz[]) => { d.push({ id: 'id-000600a', kwotaGr: 1 }); },
-  'usunięty już przeczytany': (d: Wiersz[]) => { d.splice(d.findIndex((r) => r.id === 'id-000010'), 1); },
-  'usunięty jeszcze nieprzeczytany': (d: Wiersz[]) => { d.splice(d.findIndex((r) => r.id === 'id-001500'), 1); },
+  'usunięty już przeczytany': (d: Wiersz[]) => { usun(d, 'id-000010'); },
+  'usunięty jeszcze nieprzeczytany': (d: Wiersz[]) => { usun(d, 'id-000700'); },
+  'dopisany w części przeczytanej': (d: Wiersz[]) => { d.push({ id: 'id-000250a', kwotaGr: 1 }); },
 };
+/** Pary zmian, które zachowują liczbę wierszy: jeden usunięty i jeden dopisany, w każdym miejscu względem kursora. */
+const PARY: Array<[Zmiana, Zmiana]> = (['usunięty już przeczytany', 'usunięty jeszcze nieprzeczytany'] as const).flatMap((u) =>
+  (['dopisany na końcu', 'dopisany w części nieprzeczytanej', 'dopisany w części przeczytanej'] as const).map((d): [Zmiana, Zmiana] => [u, d]),
+);
 type Zmiana = keyof typeof ZMIANY;
 type Czytnik = 'zakresy' | 'po kluczu';
 
@@ -202,13 +216,17 @@ describe('NZ-WSP-08: bezpieczniki zamiast cichej niepełnej sumy', () => {
     ['zakresy', 'dopisany w części nieprzeczytanej', LICZBA],
     ['zakresy', 'usunięty już przeczytany', LICZBA],
     ['zakresy', 'usunięty jeszcze nieprzeczytany', LICZBA],
-    // Po kluczu: licznik na pierwszej stronie i licznik kontrolny na końcu. Bez
-    // licznika kontrolnego trzy pierwsze przeszłyby bez wyjątku, a przy wierszu
-    // dopisanym w części nieprzeczytanej wynik nie miałby ostatniego wiersza.
-    ['po kluczu', 'dopisany na końcu', LICZBA],
-    ['po kluczu', 'dopisany w części nieprzeczytanej', LICZBA],
+    // Po kluczu: licznik na pierwszej stronie i licznik kontrolny na końcu. Wiersz
+    // dopisany za kursorem daje ostatnią stronę dłuższą niż brakuje do licznika
+    // (przy pełnej ostatniej stronie helper prosi o jeden wiersz więcej, FZ-017),
+    // a usunięty przeczytany łapie licznik kontrolny.
+    ['po kluczu', 'dopisany na końcu', STRONA],
+    ['po kluczu', 'dopisany w części nieprzeczytanej', STRONA],
     ['po kluczu', 'usunięty już przeczytany', LICZBA],
     ['po kluczu', 'usunięty jeszcze nieprzeczytany', STRONA],
+    // Dopisany w części przeczytanej: zakresy widzą zmianę licznika, po kluczu łapie go licznik kontrolny.
+    ['zakresy', 'dopisany w części przeczytanej', LICZBA],
+    ['po kluczu', 'dopisany w części przeczytanej', LICZBA],
   ] as const)('%s, wiersz %s po pierwszej stronie: %s', async (czytnik, zmiana, komunikat) => {
     await expect(odczytZeZmianami(czytnik, wiersze(2500), [zmiana])).rejects.toThrow(komunikat);
   });
@@ -217,12 +235,43 @@ describe('NZ-WSP-08: bezpieczniki zamiast cichej niepełnej sumy', () => {
     await expect(odczyt()).rejects.toThrow(KOLEJNOSC);
   });
 
-  it.fails('FZ-017: zakresy, usunięty wiersz już przeczytany i dopisany na końcu (liczba bez zmian) dają dziś wiersze z dwóch stanów', async () => {
+  it('FZ-017: zakresy, usunięty wiersz już przeczytany i dopisany na końcu (liczba bez zmian): wyjątek albo jeden stan', async () => {
     await jedenStan('zakresy', ['usunięty już przeczytany', 'dopisany na końcu']);
   });
 
-  it.fails('FZ-017: po kluczu, usunięty wiersz już przeczytany i dopisany w części nieprzeczytanej (liczba bez zmian) dają dziś wiersze z dwóch stanów', async () => {
+  it('FZ-017: po kluczu, usunięty wiersz już przeczytany i dopisany w części nieprzeczytanej (liczba bez zmian): wyjątek albo jeden stan', async () => {
     await jedenStan('po kluczu', ['usunięty już przeczytany', 'dopisany w części nieprzeczytanej']);
+  });
+
+  it.each((['zakresy', 'po kluczu'] as const).flatMap((c) => PARY.map(([u, d]) => [c, u, d] as const)))(
+    'FZ-017: %s, wiersz %s i wiersz %s po pierwszej stronie (liczba bez zmian): wyjątek albo jeden stan',
+    async (czytnik, usuniety, dopisany) => {
+      await jedenStan(czytnik, [usuniety, dopisany]);
+    },
+  );
+
+  it.each(['zakresy', 'po kluczu'] as const)(
+    'FZ-017: %s, para zmian przy 1000, 1001 i 1500 wierszach (ostatnia strona pełna albo nie): wyjątek albo jeden stan',
+    async (czytnik) => {
+      for (const n of [1000, 1001, 1500]) {
+        for (const [u, d] of PARY) {
+          const dane = wiersze(n);
+          const przed = ids(dane);
+          const wynik = await odczytZeZmianami(czytnik, dane, [u, d]).then(ids, () => null);
+          if (wynik !== null) expect([przed, ids(poId(dane))], `${n} ${u} ${d}`).toContainEqual(wynik);
+        }
+      }
+    },
+  );
+
+  const POBU_STRONACH: readonly Zmiana[] = ['usunięty już przeczytany', 'dopisany w części przeczytanej', 'usunięty jeszcze nieprzeczytany', 'dopisany w części nieprzeczytanej'];
+
+  it.fails('FZ-031: zakresy, wiersz usunięty i dopisany po obu stronach kursora naraz (liczba bez zmian) dają dziś wiersze z dwóch stanów, potrzebna migawka', async () => {
+    await jedenStan('zakresy', POBU_STRONACH);
+  });
+
+  it.fails('FZ-031: po kluczu, wiersz usunięty i dopisany po obu stronach kursora naraz (liczba bez zmian) dają dziś wiersze z dwóch stanów, potrzebna migawka', async () => {
+    await jedenStan('po kluczu', POBU_STRONACH);
   });
 });
 
