@@ -233,7 +233,7 @@ describe('korekta faktury „zw” w aplikacji: firma zwolniona z VAT (C3)', () 
     });
     const mieszana = await saveCorrectionDraftAction(kwotowa({}), TENANT);
     expect(mieszana.success).toBe(false);
-    if (!mieszana.success) expect(mieszana.error).toMatch(/w tym np\., np\. II, oo lub zw/);
+    if (!mieszana.success) expect(mieszana.error).toBe('Korekta kwotowa bez VAT faktury z różnymi stawkami (w tym np., np. II, oo lub zw) jest niejednoznaczna, więc skoryguj pozycje („przed / po”).');
     expect(db.tables.invoices!.filter((row) => row.invoice_kind === 'correction')).toHaveLength(0);
   });
 

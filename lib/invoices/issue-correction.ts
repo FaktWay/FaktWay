@@ -905,7 +905,7 @@ async function normalizePayload(
 
   let amountChange = parsed.data.amountChange;
   if (parsed.data.correctionType === 'amount_change' && amountChange) {
-    // Stawka bez VAT (np I / np II / oo) nie wynika z kwot — wyznacza ją serwer
+    // Stawka bez VAT (np I / np II / oo / zw) nie wynika z kwot, więc wyznacza ją serwer
     // z pozycji faktury (stan bieżący). Inna wartość od klienta = odrzucenie.
     const original = baseline.lines;
     // Stan przed = pozycje z bazy, nie z formularza — generator liczy z nich
@@ -998,7 +998,7 @@ export async function getCorrectionParentContext(context: CorrectionContextSourc
       buyerVatUe?: string;
       /** Czy w korekcie wolno użyć stawki „np. II” (nabywca z UE poza PL i XI — `isNpIiBuyerVat`). */
       npIiAllowed: boolean;
-      /** Stawka bez VAT korekty kwotowej — wspólna stawka np / np_ii / oo pozycji faktury pierwotnej. */
+      /** Stawka bez VAT korekty kwotowej: wspólna stawka np / np_ii / oo / zw pozycji faktury pierwotnej. */
       amountChangeVatRate?: ZeroVatAmountChangeRate;
       /** Ostatnia przyjęta korekta tej faktury (K4): „stan przed” to stan po niej. */
       previousCorrection?: { internalNumber: string | null; correctionType: string | null };
