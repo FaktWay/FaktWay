@@ -365,6 +365,9 @@ function faktflowOriginalOptions(ctx: FaktflowContext): DuplicateDecisionView {
   };
 }
 
+/** Decyzja o numerze zajętym w KSeF przy fakturze zakupu (RPC i tak odmawia, P0002): powód i wyjście (ustalenie 30). */
+const DUPLICATE_DECISION_PURCHASE = 'Ta faktura jest fakturą zakupu, a decyzja o numerze zajętym w KSeF dotyczy tylko faktur sprzedaży wystawionych w FaktWay. Odśwież listę faktur.';
+
 /**
  * Co klient (albo operator) może zrobić z fakturą przy nierozstrzygniętym 440.
  * Kolejność odmów = blokada SQL (2.1.2), potem nieznane środowisko, inne
@@ -373,8 +376,6 @@ function faktflowOriginalOptions(ctx: FaktflowContext): DuplicateDecisionView {
  * (ponowienie po zgubionej odpowiedzi; RPC odpowiada wtedy `already_decided`).
  * PR C: `faktflow-original` — `faktflowOriginalOptions` (kody 00156, 4.5).
  */
-/** Decyzja o numerze zajętym w KSeF przy fakturze zakupu (RPC i tak odmawia, P0002): powód i wyjście (ustalenie 30). */
-const DUPLICATE_DECISION_PURCHASE = 'Ta faktura jest fakturą zakupu, a decyzja o numerze zajętym w KSeF dotyczy tylko faktur sprzedaży wystawionych w FaktWay. Odśwież listę faktur.';
 
 export function duplicateDecisionOptions(input: DuplicateDecisionOptionsInput): DuplicateDecisionView {
   const { facts, actor, environment } = input;
