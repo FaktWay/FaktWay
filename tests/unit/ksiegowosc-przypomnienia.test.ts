@@ -262,7 +262,7 @@ describe('FZ-030: brak w bieżących danych po zatwierdzeniu', () => {
     expect(wynik).toEqual([{ rodzaj: 'zus_spoleczne', kwotaGr: null }, { rodzaj: 'zdrowotna', kwotaGr: 49_835 }]);
   });
 
-  it('VAT 0 zł zatwierdzony, a VAT w szkicu to brak: przypomnienie o VAT bez kwoty (kwoty i JPK nie znamy)', () => {
+  it('VAT 0 zł zatwierdzony, a VAT w szkicu to brak: przypomnienie o VAT bez kwoty (stanu JPK_V7M przy braku nie sprawdzamy)', () => {
     expect(niezaplacone({ grupy: ['vat'], rozliczenia: [wersja('vat', 0)], pozycje: [brak('vat')], profil: PROFIL })).toEqual([{ rodzaj: 'vat', kwotaGr: null }]);
   });
 });

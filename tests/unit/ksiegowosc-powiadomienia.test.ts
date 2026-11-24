@@ -199,6 +199,9 @@ describe('FZ-030: brak w szkicu po zatwierdzeniu, przez cały runner', () => {
     mocks.dane = { ...POLICZONE, pozycje: [brak, pozycja('zus_spoleczne', 192_676), pozycja('zdrowotna', 83_058)], rozliczenia: [zatwierdzona] };
     expect(await runKsiegowoscTerminy(ctx)).toMatchObject({ wyslane: 1 });
     expect(mocks.pushe[0].payload.body).toContain('ryczałt');
+    // Treść maila i wpisu w dzwonku sprawdzamy niżej, więc najpierw to, że oba wyszły.
+    expect(mocks.maile).toHaveLength(1);
+    expect(mocks.dzwonek).toHaveLength(1);
     const teksty = [JSON.stringify(mocks.pushe[0].payload), JSON.stringify(mocks.maile.map((m) => m.payload)), JSON.stringify(mocks.dzwonek.map((d) => d.args))];
     for (const t of teksty) expect(t).not.toMatch(/1[\s\u00a0\u202f]?536,00/);
   });
