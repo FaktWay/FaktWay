@@ -11,13 +11,16 @@ import {
   type ParsedQuery,
 } from '@/lib/api/v1/pagination';
 import { ApiUpstreamError } from '@/lib/api/v1/responses';
+import { documentGrossPrices } from '@/lib/invoices/document-lines';
+import { roundToDecimals } from '@/lib/xml/invoice-calculator';
 
 /**
  * Faktury w publicznym API (`GET /api/v1/invoices`, `GET /api/v1/invoices/{id}`).
  *
  * Pola po angielsku i stabilne (opis: `lib/api/v1/openapi.json`). Kwoty jako
  * tekst dziesiętny prosto z bazy (`::text`), bez liczb zmiennoprzecinkowych
- * po drodze. Klient bazy to token klucza (`lib/api/v1/auth.ts`), więc RLS
+ * po drodze. Wyjątek: cena brutto pozycji leży tylko w dokumencie faktury
+ * (JSON), więc idzie z liczby do 4 miejsc (`withDocumentGrossPrice`). Klient bazy to token klucza (`lib/api/v1/auth.ts`), więc RLS
  * wpuszcza tylko firmę klucza; filtr `tenant_id` jest drugą warstwą.
  */
 
@@ -77,6 +80,13 @@ export interface ApiInvoiceItem {
   quantity: string | null;
   unit: string | null;
   unit_price_net: string | null;
+  /**
+   * Cena jednostkowa brutto (FA(3) `P_9B`) z dokumentu faktury: faktura FaktWay
+   * w cenach brutto albo plik z KSeF z ceną brutto pozycji (`documentGrossPrices`,
+   * jak PDF i szczegóły faktury). Pozycja w cenach brutto ma pustą cenę netto,
+   * więc bez tego pola klient API nie znał ceny pozycji. Inaczej `null`.
+   */
+  unit_price_gross: string | null;
   net_amount: string | null;
   vat_rate: string | null;
   vat_amount: string | null;
@@ -105,6 +115,16 @@ const INVOICE_SELECT = [
   'buyer_nip', 'buyer_name:buyer_data->>name', 'buyer_data_nip:buyer_data->>nip',
   'fa3_buyer_name:fa3_data->buyer->>name', 'fa3_buyer_nip:fa3_data->buyer->>nip',
   'ksef_status', 'ksef_number', 'ksef_accepted_at', 'ksef_environment', 'parent_invoice_id', 'created_at', 'updated_at',
+].join(',');
+
+/**
+ * Szczegóły faktury czytają dodatkowo ceny brutto pozycji z dokumentu
+ * (`documentGrossPrices`: `pricesGross` i `lines` faktury FaktWay, `ksefLineFields`
+ * pliku z KSeF). Lista ich nie czyta, bo nie oddaje pozycji.
+ */
+const INVOICE_DETAIL_SELECT = [
+  INVOICE_SELECT,
+  'prices_gross:fa3_data->pricesGross', 'document_lines:fa3_data->lines', 'ksef_line_fields:fa3_data->ksefLineFields',
 ].join(',');
 
 const ITEM_SELECT = 'ordinal,name,quantity::text,unit,unit_price_net::text,net_amount::text,vat_rate,vat_amount::text,gross_amount::text';
@@ -151,6 +171,11 @@ export function toApiInvoice(row: Row): ApiInvoice {
   };
 }
 
+/**
+ * Pozycja faktury z wiersza `invoice_line_items`. Ceny brutto z dokumentu
+ * faktury dokłada `readInvoice` (`withDocumentGrossPrice`); faktura wystawiona
+ * przez API (`POST /invoices`) jest w cenach netto, więc tam pole zostaje `null`.
+ */
 export function toApiItem(row: Row): ApiInvoiceItem {
   return {
     position: Number(row.ordinal),
@@ -158,11 +183,22 @@ export function toApiItem(row: Row): ApiInvoiceItem {
     quantity: text(row.quantity),
     unit: text(row.unit),
     unit_price_net: text(row.unit_price_net),
+    unit_price_gross: null,
     net_amount: text(row.net_amount),
     vat_rate: text(row.vat_rate),
     vat_amount: text(row.vat_amount),
     gross_amount: text(row.gross_amount),
   };
+}
+
+/**
+ * Cena brutto pozycji z dokumentu faktury (`documentGrossPrices`, po numerze
+ * pozycji). Zapis z formularza ma najwyżej 4 miejsca (jak NUMERIC(14,4) ceny
+ * netto), a plik z KSeF z dłuższą ceną dostaje 4 miejsca, jak cena netto w bazie.
+ */
+function withDocumentGrossPrice(item: ApiInvoiceItem, grossPrices: ReadonlyMap<number, number>): ApiInvoiceItem {
+  const price = grossPrices.get(item.position);
+  return price === undefined ? item : { ...item, unit_price_gross: roundToDecimals(price, 4).toFixed(4) };
 }
 
 function oneOf<T extends string>(allowed: readonly T[], value: string): T | null {
@@ -236,12 +272,18 @@ export async function listInvoices(db: SupabaseClient, tenantId: string, query: 
 export async function readInvoice(db: SupabaseClient, tenantId: string, id: string): Promise<ApiInvoiceDetail | null> {
   const { data, error } = await db
     .from('invoices')
-    .select(INVOICE_SELECT)
+    .select(INVOICE_DETAIL_SELECT)
     .eq('tenant_id', tenantId)
     .eq('id', id)
     .maybeSingle();
   if (error) throw new ApiUpstreamError('invoices.read');
   if (!data) return null;
+  const row = data as unknown as Row;
+  const grossPrices = documentGrossPrices({
+    pricesGross: row.prices_gross,
+    lines: row.document_lines,
+    ksefLineFields: row.ksef_line_fields,
+  });
 
   const { data: items, error: itemsError } = await db
     .from('invoice_line_items')
@@ -252,7 +294,7 @@ export async function readInvoice(db: SupabaseClient, tenantId: string, id: stri
   if (itemsError) throw new ApiUpstreamError('invoice_line_items.read');
 
   return {
-    ...toApiInvoice(data as unknown as Row),
-    items: ((items ?? []) as unknown as Row[]).map(toApiItem),
+    ...toApiInvoice(row),
+    items: ((items ?? []) as unknown as Row[]).map((item) => withDocumentGrossPrice(toApiItem(item), grossPrices)),
   };
 }

@@ -186,6 +186,8 @@ function itemSummary(item: ApiInvoiceItem) {
     quantity: plainNumber(item.quantity),
     unit: item.unit,
     unit_price_net: plainNumber(item.unit_price_net),
+    // Ustalenie 9: pozycja w cenach brutto ma pustą cenę netto, a cenę brutto z dokumentu.
+    unit_price_gross: plainNumber(item.unit_price_gross),
     net_amount: amount(item.net_amount),
     vat_rate: item.vat_rate,
     vat_amount: amount(item.vat_amount),
