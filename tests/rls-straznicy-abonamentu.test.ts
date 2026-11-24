@@ -13,12 +13,25 @@ import { getRlsTestDatabaseUrl, getRlsTestEnvironment } from './helpers/rls-envi
  * `brak`). Każdy przypadek robi zabroniony zapis rolą, która do strażnika
  * dochodzi, i sprawdza jego komunikat.
  *
- * Fakturę abonamentu, sprawę finansową i jej przegląd zapisuje w aplikacji
- * tylko RPC albo właściciel bazy (strażnik tożsamości faktury abonamentu
- * odmawia także serwisowi), więc cały plik potrzebuje połączenia z bazą
- * (`RLS_TEST_DATABASE_URL`, w CI jest). Przeglądów spraw finansowych nie
- * usuwa nikt, także właściciel bazy, więc identyfikatory Stripe mają losowy
- * przyrostek z każdego przebiegu.
+ * Fakturę abonamentu, subskrypcję, zwrot, sprawę finansową i jej przegląd
+ * zapisuje w aplikacji tylko RPC albo właściciel bazy (strażnik tożsamości
+ * faktury abonamentu odmawia także serwisowi, a do subskrypcji i zwrotów serwis
+ * nie ma zapisu), więc cały plik potrzebuje połączenia z bazą
+ * (`RLS_TEST_DATABASE_URL`, w CI jest). Przeglądów spraw finansowych nie usuwa
+ * nikt, także właściciel bazy, więc identyfikatory Stripe mają losowy przyrostek
+ * z każdego przebiegu; po przebiegu zostają zdarzenie webhooka, sprawa
+ * finansowa i jej przegląd (bez płatności, więc niczego nie blokują), a konta
+ * właściciela z tego pliku nie da się usunąć (autor przeglądu).
+ *
+ * Pokrycie liczy się na funkcję, więc część gałęzi zostaje bez testu:
+ * UPDATE i DELETE faktury i pozycji abonamentu („Billing VAT document is
+ * immutable”), zmiana i ciche zachowanie powiązania płatności z fakturą VAT
+ * („Linked Stripe payment evidence is immutable”), Charge oraz „Paid Stripe
+ * payment has no full reference” i „Failed Stripe payment reference needs
+ * reconciliation”, przepięcie subskrypcji do innej firmy („cannot be rebound”),
+ * zmiana firmy subskrypcji i ciche zignorowanie wznowienia anulowanej,
+ * ciche odrzucenie starego stanu płatności po zwrocie, przegląd na
+ * `stripe_financial_case_reopenings` i INSERT firmy z klientem Stripe przez klienta.
  *
  * Kolejność wyzwalaczy BEFORE (nazwy alfabetycznie): na `stripe_payments`
  * trigger_preserve_stripe_payment_refund_status (UPDATE OF status, tenant_id),
@@ -40,6 +53,8 @@ const admin: SupabaseClient = environment
   : (null as unknown as SupabaseClient);
 
 const ORG = '00024024-0000-4000-8000-000000000003';
+/** Druga firma: subskrypcja innej firmy w teście płatności. */
+const ORG_B = '00024024-0000-4000-8000-000000000005';
 const OWNER_EMAIL = 'rls-fz024-abonament-owner@ksef-saas.test';
 const PASS = 'RlsFz024AbonamentPass2026Aa!';
 /** Fikcyjny NIP z poprawną sumą kontrolną, tylko w tym pliku. */
@@ -117,6 +132,14 @@ async function billingInvoice(stripeInvoiceId: string): Promise<string> {
   return row.id as string;
 }
 
+/** Subskrypcję zapisuje w aplikacji tylko RPC (serwis nie ma uprawnień do zapisu), więc tu właściciel bazy. */
+const subskrypcja = (tenantId: string, klient: string) =>
+  db().executeSql(
+    `INSERT INTO public.subscriptions (tenant_id, stripe_customer_id, stripe_subscription_id, stripe_price_id, plan, status)
+     VALUES ($1, $2, $3, 'price_fz024', 'monthly', 'active') RETURNING id`,
+    [tenantId, klient, stripeId('sub')],
+  );
+
 async function cleanup() {
   // Właściciel bazy: strażnicy abonamentu odmawiają usuwania faktur i pozycji abonamentu także serwisowi.
   await db().executeSql('DELETE FROM public.invoice_line_items WHERE invoice_id IN (SELECT id FROM public.invoices WHERE tenant_id = $1)', [ORG]);
@@ -124,8 +147,8 @@ async function cleanup() {
   await db().executeSql('DELETE FROM public.invoices WHERE tenant_id = $1', [ORG]);
   await db().executeSql('DELETE FROM public.stripe_refund_operations WHERE tenant_id = $1', [ORG]);
   await db().executeSql('DELETE FROM public.stripe_payments WHERE tenant_id = $1 AND NOT EXISTS (SELECT 1 FROM public.stripe_financial_cases c WHERE c.payment_id = stripe_payments.id)', [ORG]);
-  await db().executeSql('DELETE FROM public.subscriptions WHERE tenant_id = $1', [ORG]);
-  await db().executeSql('UPDATE public.tenants SET stripe_customer_id = NULL WHERE id = $1', [ORG]);
+  await db().executeSql('DELETE FROM public.subscriptions WHERE tenant_id = ANY($1::uuid[])', [[ORG, ORG_B]]);
+  await db().executeSql('UPDATE public.tenants SET stripe_customer_id = NULL WHERE id = ANY($1::uuid[])', [[ORG, ORG_B]]);
 }
 
 describe.skipIf(!hasDirectDb)('FZ-024 paczka 3: strażnicy abonamentu (Stripe) mówią swoim komunikatem', () => {
@@ -134,7 +157,10 @@ describe.skipIf(!hasDirectDb)('FZ-024 paczka 3: strażnicy abonamentu (Stripe) m
     await boss.start();
     ownerId = await userId(OWNER_EMAIL);
     await admin.from('memberships').delete().eq('organization_id', ORG);
-    const { error: tErr } = await admin.from('tenants').upsert([{ id: ORG, nip: NIP_FIRMY, name: 'Firma FZ-024 Abonament' }], { onConflict: 'id' });
+    const { error: tErr } = await admin.from('tenants').upsert([
+      { id: ORG, nip: NIP_FIRMY, name: 'Firma FZ-024 Abonament' },
+      { id: ORG_B, nip: NIP_FIRMY, name: 'Firma FZ-024 Abonament B' },
+    ], { onConflict: 'id' });
     if (tErr) throw tErr;
     await cleanup();
     await admin.from('users').upsert([{ id: ownerId, name: 'Owner FZ-024 Abonament' }], { onConflict: 'id' });
@@ -171,20 +197,12 @@ describe.skipIf(!hasDirectDb)('FZ-024 paczka 3: strażnicy abonamentu (Stripe) m
       expect((await admin.from('tenants').select('stripe_customer_id').eq('id', ORG).single()).data?.stripe_customer_id).toBe(pierwszy);
     });
 
-    /** Subskrypcję zapisuje w aplikacji tylko RPC (serwis nie ma uprawnień do zapisu), więc tu właściciel bazy. */
-    const subskrypcja = (tenantId: string, klient: string) =>
-      db().executeSql(
-        `INSERT INTO public.subscriptions (tenant_id, stripe_customer_id, stripe_subscription_id, stripe_price_id, plan, status)
-         VALUES ($1, $2, $3, 'price_fz024', 'monthly', 'active') RETURNING id`,
-        [tenantId, klient, stripeId('sub')],
-      );
-
     it('lock_stripe_subscription_tenant_for_checkout: subskrypcja firmy, której nie ma, odmowa 23503', async () => {
       // Ten wyzwalacz jest na subskrypcjach pierwszy, więc odmawia przed sprawdzeniem klienta Stripe.
       await expect(subskrypcja(randomUUID(), stripeId('cus'))).rejects.toMatchObject({ code: '23503', message: 'Stripe subscription tenant not found' });
     });
 
-    it('enforce_stripe_subscription_customer_tenant: subskrypcja z klientem Stripe innej firmy, odmowa 23514', async () => {
+    it('enforce_stripe_subscription_customer_tenant: subskrypcja z klientem Stripe, który nie należy do firmy, odmowa 23514', async () => {
       await expect(subskrypcja(ORG, stripeId('cus'))).rejects.toMatchObject({ code: '23514', message: 'Stripe subscription customer tenant mismatch' });
     });
 
@@ -199,18 +217,22 @@ describe.skipIf(!hasDirectDb)('FZ-024 paczka 3: strażnicy abonamentu (Stripe) m
   });
 
   describe('płatności Stripe', () => {
-    it('enforce_stripe_payment_subscription_tenant: płatność z subskrypcją spoza firmy, odmowa 23514', async () => {
+    it('enforce_stripe_payment_subscription_tenant: płatność z subskrypcją innej firmy, odmowa 23514', async () => {
+      // Subskrypcja istnieje (klucz obcy przepuszcza), więc odmawia tylko warunek firmy w strażniku.
+      const klientB = stripeId('cus');
+      expect((await admin.from('tenants').update({ stripe_customer_id: klientB }).eq('id', ORG_B)).error).toBeNull();
+      const subskrypcjaB = (await subskrypcja(ORG_B, klientB)).rows[0]!.id as string;
       const { error } = await admin.from('stripe_payments').insert({
-        tenant_id: ORG, amount_cents: 4900, currency: 'pln', status: 'succeeded', subscription_id: randomUUID(), stripe_payment_intent_id: stripeId('pi'),
+        tenant_id: ORG, amount_cents: 4900, currency: 'pln', status: 'succeeded', subscription_id: subskrypcjaB, stripe_payment_intent_id: stripeId('pi'),
       });
       expect(error?.code).toBe('23514');
       expect(error?.message).toBe('Stripe payment subscription tenant mismatch');
     });
 
-    it('preserve_stripe_payment_refund_status: serwis przenosi płatność do innej firmy, odmowa 23514', async () => {
+    it('preserve_stripe_payment_refund_status: serwis przepisuje płatność na inną firmę, odmowa 23514', async () => {
       // Ten wyzwalacz jest na płatnościach pierwszy.
       const id = await payment();
-      const { error } = await admin.from('stripe_payments').update({ tenant_id: randomUUID() }).eq('id', id);
+      const { error } = await admin.from('stripe_payments').update({ tenant_id: ORG_B }).eq('id', id);
       expect(error?.code).toBe('23514');
       expect(error?.message).toBe('Stripe payment tenant is immutable');
     });
@@ -241,10 +263,20 @@ describe.skipIf(!hasDirectDb)('FZ-024 paczka 3: strażnicy abonamentu (Stripe) m
       const row = invoiceRow({ stripe_invoice_id: stripeId('in') });
       const { error } = await owner.from('invoices').insert(row);
       expect(error?.message).toBe('Billing invoice identity is server-managed');
+      // Także serwis: fakturę abonamentu zapisuje tylko RPC.
+      const serwis = await admin.from('invoices').insert(invoiceRow({ stripe_invoice_id: stripeId('in') }));
+      expect(serwis.error?.message).toBe('Billing invoice identity is server-managed');
     });
 
     it('guard_billing_invoice_financial_case: faktura abonamentu bez płatności Stripe, odmowa 23514 nawet dla właściciela bazy', async () => {
-      await expect(billingInvoice(stripeId('in'))).rejects.toThrow('Billing payment reference requires reconciliation');
+      await expect(billingInvoice(stripeId('in'))).rejects.toMatchObject({ code: '23514', message: 'Billing payment reference requires reconciliation' });
+    });
+
+    it('guard_billing_invoice_financial_case: płatność z blokadą finansową (niezweryfikowana), odmowa 23514', async () => {
+      // stripe_payment_has_financial_hold: płatność bez potwierdzonych identyfikatorów Stripe ma blokadę.
+      const stripeInvoiceId = stripeId('in');
+      await payment({ stripe_invoice_id: stripeInvoiceId });
+      await expect(billingInvoice(stripeInvoiceId)).rejects.toMatchObject({ code: '23514', message: 'Stripe financial case requires VAT reconciliation' });
     });
 
     it('guard_billing_invoice_line: pozycji faktury abonamentu nie dopisze serwis', async () => {
@@ -261,12 +293,22 @@ describe.skipIf(!hasDirectDb)('FZ-024 paczka 3: strażnicy abonamentu (Stripe) m
   });
 
   describe('sprawy finansowe', () => {
-    it('guard_admin_refund_financial_case: zwrot do płatności spoza firmy, odmowa 23514', async () => {
-      await expect(db().executeSql(
-        `INSERT INTO public.stripe_refund_operations (tenant_id, payment_id, amount_cents, currency, idempotency_key)
-         VALUES ($1, $2, 100, 'pln', $3)`,
-        [ORG, randomUUID(), `fz024-${RUN}-${randomUUID()}`],
-      )).rejects.toThrow('Refund payment identity requires reconciliation');
+    const zwrot = (paymentId: string, reference: string | null) =>
+      db().executeSql(
+        `INSERT INTO public.stripe_refund_operations (tenant_id, payment_id, amount_cents, currency, idempotency_key, stripe_payment_reference)
+         VALUES ($1, $2, 100, 'pln', $3, $4)`,
+        [ORG, paymentId, `fz024-${RUN}-${randomUUID()}`, reference],
+      );
+
+    it('guard_admin_refund_financial_case: zwrot do płatności, której nie ma w firmie, odmowa 23514', async () => {
+      await expect(zwrot(randomUUID(), null)).rejects.toMatchObject({ code: '23514', message: 'Refund payment identity requires reconciliation' });
+    });
+
+    it('guard_admin_refund_financial_case: zwrot płatności z blokadą finansową (niezweryfikowanej), odmowa 23514', async () => {
+      // Odnośnik do płatności jest, więc CHECK zwrotu przepuszcza; odmawia blokada w strażniku.
+      const intent = stripeId('pi');
+      const id = await payment({ stripe_payment_intent_id: intent });
+      await expect(zwrot(id, intent)).rejects.toMatchObject({ code: '23514', message: 'Stripe financial case requires refund reconciliation' });
     });
 
     it('prevent_financial_case_review_mutation: przeglądu sprawy finansowej nie zmieni ani nie usunie nawet właściciel bazy', async () => {
@@ -284,9 +326,9 @@ describe.skipIf(!hasDirectDb)('FZ-024 paczka 3: strażnicy abonamentu (Stripe) m
         [sprawa, ownerId, zdarzenie],
       );
       await expect(db().executeSql("UPDATE public.stripe_financial_case_reviews SET reason = 'Zmieniony przegląd testowy FZ-024' WHERE stripe_object_id = $1", [sprawa]))
-        .rejects.toThrow('Financial case review history is append-only');
+        .rejects.toMatchObject({ code: '42501', message: 'Financial case review history is append-only' });
       await expect(db().executeSql('DELETE FROM public.stripe_financial_case_reviews WHERE stripe_object_id = $1', [sprawa]))
-        .rejects.toThrow('Financial case review history is append-only');
+        .rejects.toMatchObject({ code: '42501', message: 'Financial case review history is append-only' });
     });
   });
 });
