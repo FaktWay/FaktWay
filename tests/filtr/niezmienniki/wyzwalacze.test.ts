@@ -406,7 +406,7 @@ describe('NZ-SQL-01: strażnicy mają test na bazie', () => {
     expect(bledy).toEqual([]);
   });
 
-  // FZ-024: ostatnie wpisy `brak` zeszły w paczce 3 (abonament); zostają tylko wpisy `kod` z listy wyżej.
+  // FZ-024: lista jest pusta; test pilnuje, żeby nie wrócił żaden wpis `brak` (strażnik bez testu zabronionego zapisu).
   it('każdy strażnik ma na bazie test zabronionego zapisu (FZ-024)', () => {
     const bezTestu = Object.entries(BEZ_KOMUNIKATU)
       .filter(([, wpis]) => wpis.stan === 'brak')

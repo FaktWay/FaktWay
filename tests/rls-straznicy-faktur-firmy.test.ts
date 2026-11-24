@@ -22,6 +22,14 @@ import { getRlsTestEnvironment } from './helpers/rls-environment';
  * guard_roz_advance_single_settlement. Szkic bez historii dostawy przechodzi
  * przez strażników a_* i b_* bez zmian treści i stanu, więc zmiana jednej
  * kolumny dochodzi do strażnika tej kolumny.
+ *
+ * Pokrycie liczy się na funkcję, więc część gałęzi zostaje bez testu: INSERT
+ * z historią dostawy i usunięcie faktury z historią (guard_invoice_delivery_history),
+ * INSERT, „KSeF acceptance is server-managed” i „Accepted invoice delivery data is
+ * server-managed” (guard_invoice_payment_evidence), INSERT z właścicielem wysyłki,
+ * zaliczka rozliczona już inną fakturą („Advance invoice is already settled…”),
+ * INSERT firmy z datą pierwszej faktury albo z kluczem logo, „Zestaw faktur
+ * identyfikatora zbiorczego jest niezmienny…” i przejście stanu identyfikatora.
  */
 
 const hasDatabase = Boolean(
@@ -95,8 +103,6 @@ async function stan(id: string, kolumny: string): Promise<Record<string, unknown
 }
 
 async function cleanup() {
-  await admin.from('invoices').update({ ksef_status: 'draft', ksef_send_owner: null })
-    .eq('tenant_id', ORG).in('ksef_status', ['queued', 'offline_queued', 'sending']);
   await admin.from('invoices').delete().eq('tenant_id', ORG).eq('invoice_kind', 'final');
   await admin.from('invoices').delete().eq('tenant_id', ORG);
   // Firma jest dopisywana, nie odtwarzana: pola z przypadków firmy wracają do pustych (strażnicy działają tylko dla klienta).
@@ -169,12 +175,14 @@ describe.skipIf(!hasDatabase)('FZ-024 paczka 4: strażnicy faktur i firmy mówi�
     const id = await invoice();
     const { error } = await owner.from('invoices').update({ recurring_period: '2026-11' }).eq('id', id).select('id');
     expect(error?.message).toBe('Recurring invoice link is set only when the invoice is created');
+    expect(await stan(id, 'recurring_period')).toMatchObject({ recurring_period: null });
   });
 
   it('guard_invoice_sales_quote_update: klient dopisuje szkicowi numer proformy, odmowa', async () => {
     const id = await invoice();
     const { error } = await owner.from('invoices').update({ sales_quote_seq: 1 }).eq('id', id).select('id');
     expect(error?.message).toBe('Sales quote link is set only when the invoice is created');
+    expect(await stan(id, 'sales_quote_seq')).toMatchObject({ sales_quote_seq: null });
   });
 
   it('guard_invoice_number_series_update: klient zmienia licznik numeracji szkicu, odmowa', async () => {

@@ -486,6 +486,7 @@ describe.skipIf(!hasDatabase)('uprawnienia biura rachunkowego w KSeF (00195)', (
     // FZ-024: komunikat strażnika, nie sam kod (23514 daje też CHECK).
     expect(nip.error?.message).toBe('Firma, środowisko i NIP biura są niezmienne; inne biuro to nowy wiersz.');
     expect(zakres.error?.message).toBe('Nazwę biura i zakres uprawnienia zmienia tylko nowa próba nadania.');
+    expect(skok.error?.message).toBe('Uprawnienie KSeF w stanie granted nie przechodzi w stan grant_in_progress.');
     expect(await wiersz(id)).toMatchObject({ status: 'granted', subject_nip: NIP_BIURA, scopes: ['InvoiceRead'], ksef_environment: 'test' });
     // Ścieżka operatora: usunięcie wiersza kluczem serwisowym; klient zacznie od nowa.
     expect((await admin.from('ksef_permission_grants').delete().eq('id', id)).error).toBeNull();
