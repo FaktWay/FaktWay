@@ -209,7 +209,9 @@ export async function oznaczZaplacone(ctx: RozliczeniaKontekst, wejscie: z.input
  *
  * Ponowienie: bez klucza. Drugie wywołanie dopisuje kolejną wersję, a
  * odliczenie liczy tylko przyrost ponad najwyższą zapłaconą wersję okresu
- * (`przyrostyZaplat`), więc kwota się nie dubluje.
+ * (`przyrostyZaplat`), więc kwota się nie dubluje. Wersje okresu, które różnie
+ * dzielą kwotę między FP i część bez FP (także wersja z niższą kwotą), to brak
+ * okresu w KPiR i w „Ten miesiąc” do „Cofnij” błędnej wersji (`zmianyPodzialu`, FZ-027).
  */
 export async function dodajZaplateReczna(ctx: RozliczeniaKontekst, wejscie: ZaplataRecznaWejscie): Promise<WynikZaplaty> {
   const parsed = zaplataRecznaSchema.safeParse(wejscie);

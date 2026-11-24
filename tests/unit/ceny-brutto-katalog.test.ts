@@ -118,6 +118,17 @@ describe('odczyt katalogu: cena brutto', () => {
     expect(items.map((i) => [i.defaultPriceNet, i.defaultPriceGross])).toEqual([[10, 1537.5], [10, null]]);
   });
 
+  it('podpowiedź: produkt ze stawką bez podatku nie podaje ceny brutto, nawet gdy jest zapisana (osobne ustalenie 14)', async () => {
+    // Stawka zmieniona na „zw” przy ukrytym polu ceny brutto (wyłącznik wyłączony) zostawia zapisaną cenę brutto;
+    // faktura w cenach brutto takiej pozycji nie przyjmie (#880), więc podpowiedź jej nie wstawia.
+    const k = katalog([
+      produkt({ default_vat_rate: 'zw', default_price_gross: '12.30' }),
+      produkt({ id: 'p2', name: 'Kawa duża', default_vat_rate: '23', default_price_gross: '12.30' }),
+    ]);
+    const items = await suggestProducts(k.client, TENANT, 'Kawa');
+    expect(items.map((i) => [i.vatRate, i.priceGross])).toEqual([['zw', null], ['23', 12.3]]);
+  });
+
   it('podpowiedź przy pozycji faktury: cena brutto obok ceny netto, brak to null', async () => {
     const k = katalog([produkt({ default_price_gross: '12.30' }), produkt({ id: 'p2', name: 'Kawa duża', default_price_net: null })]);
     const items = await suggestProducts(k.client, TENANT, 'Kawa');

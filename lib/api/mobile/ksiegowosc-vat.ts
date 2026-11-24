@@ -49,7 +49,8 @@ import { ostatniMiesiacZaplatyRecznej, ZAPLATA_RECZNA_OD } from '@/lib/ksiegowos
  * Ponowienie: odczyt nic nie zapisuje. Plik: drugi raz ten sam plik i drugi
  * wpis audytu. Zapłata spoza wyliczenia: bez klucza, jak na stronie; druga
  * wersja nie dubluje odliczenia (`przyrostyZaplat` liczy przyrost ponad
- * najwyższą zapłaconą wersję okresu).
+ * najwyższą zapłaconą wersję okresu), a druga wersja z innym podziałem
+ * między FP i część bez FP to brak okresu (`zmianyPodzialu`, FZ-027).
  */
 
 type Db = SupabaseClient;

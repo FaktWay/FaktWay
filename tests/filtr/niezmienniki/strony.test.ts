@@ -25,15 +25,18 @@ import { opcje, PRZYPADKI } from '../generatory/ustawienia';
  *    poniżej strony daje wyjątek, nie niepełną sumę.
  * 2. Bezpieczniki z konkretnym komunikatem: wiersz dopisany albo usunięty
  *    w trakcie odczytu, zignorowana kolejność. Para zmian, która zachowuje
- *    liczbę wierszy (usunięty wiersz już przeczytany i dopisany w części
- *    jeszcze nieprzeczytanej), przechodzi dziś bez wyjątku: FZ-017.
+ *    liczbę wierszy (jeden wiersz usunięty i jeden dopisany, w każdym miejscu
+ *    względem kursora), daje wyjątek albo jeden stan (FZ-017: zakładka przy
+ *    zakresach, jeden wiersz ponad licznik na pełnej ostatniej stronie po
+ *    kluczu). Zmiany po obu stronach kursora naraz przechodzą dziś bez
+ *    wyjątku: FZ-031 (potrzebna migawka).
  * 3. Test strukturalny: każde zapytanie `.from('tabela')` i `.rpc('funkcja')`
  *    w `lib/ksiegowosc`, `lib/reports` i `lib/exports` (nazwa spoza napisu daje
  *    czerwony test) idzie przez helper stronicowania, a funkcja podana helperowi
  *    ma jedno zapytanie z `order('id')` i stronicowaniem tego helpera. Poza
  *    helperem tylko zapis, jeden wiersz, sam licznik, `limit(1)` albo lista
- *    `OGRANICZONE` z liczbą zapytań i powodem. Własne stronicowanie bez
- *    licznika w `lib/exports/jpk-fa-readiness.ts`: FZ-018.
+ *    `OGRANICZONE` z liczbą zapytań i powodem. Od naprawy FZ-018 także
+ *    `lib/exports/jpk-fa-readiness.ts` czyta przez helpery, bez wyjątków.
  */
 
 interface Wiersz {
@@ -103,8 +106,8 @@ const oba = (dane: Wiersz[], limit = POSTGREST_MAX_ROWS) => [
 ];
 
 describe('NZ-WSP-08: odczyt stronami daje te same wiersze i sumy co jeden odczyt', () => {
-  it('strona helpera mieści się w limicie serwera, więc pełnej strony serwer nie utnie', () => {
-    expect(ACCOUNTING_PAGE_SIZE).toBeLessThanOrEqual(POSTGREST_MAX_ROWS);
+  it('strona helpera z wierszem ponad licznik mieści się w limicie serwera, więc pełnej strony serwer nie utnie (FZ-017)', () => {
+    expect(ACCOUNTING_PAGE_SIZE + 1).toBeLessThanOrEqual(POSTGREST_MAX_ROWS);
   });
 
   it.each(GRANICE)('%i wierszy: oba odczyty zwracają każdy wiersz raz, w kolejności, z tą samą sumą', async (n) => {
@@ -139,13 +142,24 @@ describe('NZ-WSP-08: odczyt stronami daje te same wiersze i sumy co jeden odczyt
   }, 120_000);
 });
 
-/** Zmiany po pierwszej stronie, czyli po przeczytaniu wierszy 0–499 z 2500. */
+/** Usuwa wiersz o danym `id`; brak takiego wiersza to błąd testu, nie usunięcie ostatniego. */
+const usun = (d: Wiersz[], id: string) => {
+  const i = d.findIndex((r) => r.id === id);
+  if (i < 0) throw new Error(`brak wiersza ${id} w danych testu`);
+  d.splice(i, 1);
+};
+/** Zmiany po pierwszej stronie, czyli po przeczytaniu wierszy 0–499 (z 1000 i więcej). */
 const ZMIANY = {
   'dopisany na końcu': (d: Wiersz[]) => { d.push({ id: 'id-999999', kwotaGr: 1 }); },
   'dopisany w części nieprzeczytanej': (d: Wiersz[]) => { d.push({ id: 'id-000600a', kwotaGr: 1 }); },
-  'usunięty już przeczytany': (d: Wiersz[]) => { d.splice(d.findIndex((r) => r.id === 'id-000010'), 1); },
-  'usunięty jeszcze nieprzeczytany': (d: Wiersz[]) => { d.splice(d.findIndex((r) => r.id === 'id-001500'), 1); },
+  'usunięty już przeczytany': (d: Wiersz[]) => { usun(d, 'id-000010'); },
+  'usunięty jeszcze nieprzeczytany': (d: Wiersz[]) => { usun(d, 'id-000700'); },
+  'dopisany w części przeczytanej': (d: Wiersz[]) => { d.push({ id: 'id-000250a', kwotaGr: 1 }); },
 };
+/** Pary zmian, które zachowują liczbę wierszy: jeden usunięty i jeden dopisany, w każdym miejscu względem kursora. */
+const PARY: Array<[Zmiana, Zmiana]> = (['usunięty już przeczytany', 'usunięty jeszcze nieprzeczytany'] as const).flatMap((u) =>
+  (['dopisany na końcu', 'dopisany w części nieprzeczytanej', 'dopisany w części przeczytanej'] as const).map((d): [Zmiana, Zmiana] => [u, d]),
+);
 type Zmiana = keyof typeof ZMIANY;
 type Czytnik = 'zakresy' | 'po kluczu';
 
@@ -202,13 +216,17 @@ describe('NZ-WSP-08: bezpieczniki zamiast cichej niepełnej sumy', () => {
     ['zakresy', 'dopisany w części nieprzeczytanej', LICZBA],
     ['zakresy', 'usunięty już przeczytany', LICZBA],
     ['zakresy', 'usunięty jeszcze nieprzeczytany', LICZBA],
-    // Po kluczu: licznik na pierwszej stronie i licznik kontrolny na końcu. Bez
-    // licznika kontrolnego trzy pierwsze przeszłyby bez wyjątku, a przy wierszu
-    // dopisanym w części nieprzeczytanej wynik nie miałby ostatniego wiersza.
-    ['po kluczu', 'dopisany na końcu', LICZBA],
-    ['po kluczu', 'dopisany w części nieprzeczytanej', LICZBA],
+    // Po kluczu: licznik na pierwszej stronie i licznik kontrolny na końcu. Wiersz
+    // dopisany za kursorem daje ostatnią stronę dłuższą niż brakuje do licznika
+    // (przy pełnej ostatniej stronie helper prosi o jeden wiersz więcej, FZ-017),
+    // a usunięty przeczytany łapie licznik kontrolny.
+    ['po kluczu', 'dopisany na końcu', STRONA],
+    ['po kluczu', 'dopisany w części nieprzeczytanej', STRONA],
     ['po kluczu', 'usunięty już przeczytany', LICZBA],
     ['po kluczu', 'usunięty jeszcze nieprzeczytany', STRONA],
+    // Dopisany w części przeczytanej: zakresy widzą zmianę licznika, po kluczu łapie go licznik kontrolny.
+    ['zakresy', 'dopisany w części przeczytanej', LICZBA],
+    ['po kluczu', 'dopisany w części przeczytanej', LICZBA],
   ] as const)('%s, wiersz %s po pierwszej stronie: %s', async (czytnik, zmiana, komunikat) => {
     await expect(odczytZeZmianami(czytnik, wiersze(2500), [zmiana])).rejects.toThrow(komunikat);
   });
@@ -217,17 +235,48 @@ describe('NZ-WSP-08: bezpieczniki zamiast cichej niepełnej sumy', () => {
     await expect(odczyt()).rejects.toThrow(KOLEJNOSC);
   });
 
-  it.fails('FZ-017: zakresy, usunięty wiersz już przeczytany i dopisany na końcu (liczba bez zmian) dają dziś wiersze z dwóch stanów', async () => {
+  it('FZ-017: zakresy, usunięty wiersz już przeczytany i dopisany na końcu (liczba bez zmian): wyjątek albo jeden stan', async () => {
     await jedenStan('zakresy', ['usunięty już przeczytany', 'dopisany na końcu']);
   });
 
-  it.fails('FZ-017: po kluczu, usunięty wiersz już przeczytany i dopisany w części nieprzeczytanej (liczba bez zmian) dają dziś wiersze z dwóch stanów', async () => {
+  it('FZ-017: po kluczu, usunięty wiersz już przeczytany i dopisany w części nieprzeczytanej (liczba bez zmian): wyjątek albo jeden stan', async () => {
     await jedenStan('po kluczu', ['usunięty już przeczytany', 'dopisany w części nieprzeczytanej']);
+  });
+
+  it.each((['zakresy', 'po kluczu'] as const).flatMap((c) => PARY.map(([u, d]) => [c, u, d] as const)))(
+    'FZ-017: %s, wiersz %s i wiersz %s po pierwszej stronie (liczba bez zmian): wyjątek albo jeden stan',
+    async (czytnik, usuniety, dopisany) => {
+      await jedenStan(czytnik, [usuniety, dopisany]);
+    },
+  );
+
+  it.each(['zakresy', 'po kluczu'] as const)(
+    'FZ-017: %s, para zmian przy 1000, 1001 i 1500 wierszach (ostatnia strona pełna albo nie): wyjątek albo jeden stan',
+    async (czytnik) => {
+      for (const n of [1000, 1001, 1500]) {
+        for (const [u, d] of PARY) {
+          const dane = wiersze(n);
+          const przed = ids(dane);
+          const wynik = await odczytZeZmianami(czytnik, dane, [u, d]).then(ids, () => null);
+          if (wynik !== null) expect([przed, ids(poId(dane))], `${n} ${u} ${d}`).toContainEqual(wynik);
+        }
+      }
+    },
+  );
+
+  const POBU_STRONACH: readonly Zmiana[] = ['usunięty już przeczytany', 'dopisany w części przeczytanej', 'usunięty jeszcze nieprzeczytany', 'dopisany w części nieprzeczytanej'];
+
+  it.fails('FZ-031: zakresy, wiersz usunięty i dopisany po obu stronach kursora naraz (liczba bez zmian) dają dziś wiersze z dwóch stanów, potrzebna migawka', async () => {
+    await jedenStan('zakresy', POBU_STRONACH);
+  });
+
+  it.fails('FZ-031: po kluczu, wiersz usunięty i dopisany po obu stronach kursora naraz (liczba bez zmian) dają dziś wiersze z dwóch stanów, potrzebna migawka', async () => {
+    await jedenStan('po kluczu', POBU_STRONACH);
   });
 });
 
 const KATALOG = process.cwd();
-const KATALOGI = ['lib/ksiegowosc', 'lib/reports', 'lib/exports'];
+const KATALOGI = ['lib/ksiegowosc', 'lib/reports', 'lib/exports', 'lib/archiwum'];
 type Stronicowanie = 'zakresy' | 'po kluczu';
 /** Helpery, które sprawdzają komplet stron i kolejność po `id`, i jak stronicują. */
 const HELPERY = new Map<string, Stronicowanie>([
@@ -250,6 +299,7 @@ const ZAPIS = new Set(['insert', 'update', 'upsert', 'delete']);
  * takich zapytań stoi w tej funkcji i dlaczego limit serwera ich nie psuje.
  */
 const OGRANICZONE: Readonly<Record<string, { ile: number; powod: string }>> = {
+  'lib/archiwum/zlecenia.ts#readArchiveOrders:document_archives': { ile: 1, powod: '`limit(limit)`, domyślnie 5 ostatnich zleceń paczki; jedyne wywołanie (strona ustawień) nie podaje innego, poniżej limitu serwera' },
   'lib/exports/data-fetcher.ts#attachKsefNumbers:invoices': { ile: 1, powod: 'numery KSeF po `id`, paczki po 200 (`KSEF_LOOKUP_CHUNK`)' },
   'lib/exports/data-fetcher.ts#fetchExpensesForExport:invoices': { ile: 1, powod: 'waluty faktur KSeF po `id`, paczki po 200 z `assertKsefExpensesReadyForPln`' },
   'lib/exports/data-fetcher.ts#fetchParentInvoices:invoices': { ile: 1, powod: 'faktury korygowane po `id`, paczki po 100, licznik równy paczce' },
@@ -267,13 +317,7 @@ const OGRANICZONE: Readonly<Record<string, { ile: number; powod: string }>> = {
   'lib/ksiegowosc/wysylka-jpk/zapis.ts#czytajWysylki:jpk_submissions': { ile: 1, powod: '`limit(100)` od najnowszej, poniżej limitu serwera' },
   'lib/reports/kpir-data.ts#getKpirData:invoices': { ile: 1, powod: 'waluty faktur KSeF po `id`, paczki po 200 z `assertKsefExpensesReadyForPln`' },
 };
-/** Odczyty ze znaleziska FZ-018 (otwarte), pilnowane przez `.fails` niżej. */
-const FZ_018 = [
-  'lib/exports/jpk-fa-readiness.ts#unsupportedDocumentReason:invoice_line_items',
-  'lib/exports/jpk-fa-readiness.ts#unsupportedDocumentReason:invoices',
-];
-
-/** Ścieżki względne zawsze z `/` (`posix.join`), także na Windowsie: klucze `OGRANICZONE` i `FZ_018` są napisami z `/`. */
+/** Ścieżki względne zawsze z `/` (`posix.join`), także na Windowsie: klucze `OGRANICZONE` są napisami z `/`. */
 function pliki(katalog: string): string[] {
   const wynik: string[] = [];
   const idz = (k: string) => {
@@ -363,7 +407,6 @@ function listyBezHelpera(z: readonly Zapytanie[]): Record<string, number> {
   for (const q of z) if (!q.wHelperze && !q.ograniczone) ile[q.klucz] = (ile[q.klucz] ?? 0) + 1;
   return ile;
 }
-const wybrane = (ile: Record<string, number>, czy: (klucz: string) => boolean) => Object.fromEntries(Object.entries(ile).filter(([k]) => czy(k)));
 
 describe('NZ-WSP-08: listy w księgowości, KPiR i eksportach czyta się stronami', () => {
   it('test widzi zapytania w każdym katalogu i w helperach (inaczej nie sprawdza niczego)', () => {
@@ -376,7 +419,7 @@ describe('NZ-WSP-08: listy w księgowości, KPiR i eksportach czyta się stronam
   });
 
   it('każdy odczyt listy idzie przez helper stronicowania albo jest na liście ograniczonych, policzony co do sztuki', () => {
-    expect(wybrane(listyBezHelpera(ZAPYTANIA), (k) => !FZ_018.includes(k))).toEqual(
+    expect(listyBezHelpera(ZAPYTANIA)).toEqual(
       Object.fromEntries(Object.entries(OGRANICZONE).map(([k, v]) => [k, v.ile])),
     );
   });
@@ -400,7 +443,11 @@ describe('NZ-WSP-08: listy w księgowości, KPiR i eksportach czyta się stronam
     expect(zle).toEqual([]);
   });
 
-  it.fails('FZ-018: jpk-fa-readiness czyta faktury i pozycje okresu własnymi stronami po 1000 bez licznika, więc limit serwera poniżej 1000 albo zapis w trakcie dają cichą niepełną listę', () => {
-    expect(wybrane(listyBezHelpera(ZAPYTANIA), (k) => FZ_018.includes(k))).toEqual({});
+  it('FZ-018: jpk-fa-readiness czyta faktury i pozycje okresu przez helpery stronicowania (licznik albo pusta strona na końcu)', () => {
+    const plik = ZAPYTANIA.filter((q) => q.klucz.startsWith('lib/exports/jpk-fa-readiness.ts#unsupportedDocumentReason:'));
+    expect(plik.filter((q) => q.wHelperze).map((q) => q.klucz).sort()).toEqual([
+      'lib/exports/jpk-fa-readiness.ts#unsupportedDocumentReason:invoice_line_items',
+      'lib/exports/jpk-fa-readiness.ts#unsupportedDocumentReason:invoices',
+    ]);
   });
 });

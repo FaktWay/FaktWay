@@ -23,6 +23,9 @@ const EDITOR_ROLES = ['owner', 'admin', 'member'] as const;
 const READER_ROLES = ['owner', 'admin', 'member', 'accountant'] as const;
 
 const NOT_FOUND = 'Nie znaleziono produktu w tej organizacji.';
+/** Błąd bazy przy odczycie to nie brak produktu: klient spróbuje ponownie, a nie szuka produktu, który jest. */
+const READ_FAILED_UPDATE = 'Nie udało się odczytać produktu, więc zmian nie zapisaliśmy. Spróbuj ponownie za chwilę.';
+const READ_FAILED_DELETE = 'Nie udało się odczytać produktu, więc go nie usunęliśmy. Spróbuj ponownie za chwilę.';
 /** Kod Postgresa dla naruszenia unikalnego klucza (nazwa + jednostka, 00186). */
 const UNIQUE_VIOLATION = '23505';
 
@@ -116,7 +119,8 @@ export async function updateProductAction(productId: string, input: ProductFormI
     .eq('id', productId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
-  if (readError || !current) return { success: false, error: NOT_FOUND };
+  if (readError) return { success: false, error: READ_FAILED_UPDATE };
+  if (!current) return { success: false, error: NOT_FOUND };
 
   const next = columnsOf(parsed.data);
   const before = current as unknown as Record<string, unknown>;
@@ -202,7 +206,8 @@ export async function deleteProductAction(productId: string): Promise<ProductAct
     .eq('id', productId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
-  if (readError || !current) return { success: false, error: NOT_FOUND };
+  if (readError) return { success: false, error: READ_FAILED_DELETE };
+  if (!current) return { success: false, error: NOT_FOUND };
 
   const row = current as { name: string; unit: string; use_count: number | null };
   if ((row.use_count ?? 0) > 0) {

@@ -24,15 +24,17 @@ function builder(table: string) {
   let statusIn: unknown[] | undefined;
   let inserted = false;
   let counting = false;
+  let headOnly = false;
   const q: Record<string, unknown> = {};
   Object.assign(q, {
-    select: (_cols?: string, opts?: { count?: string }) => ((counting = !!opts?.count), q),
+    select: (_cols?: string, opts?: { count?: string; head?: boolean }) => ((counting = !!opts?.count), (headOnly = !!opts?.head), q),
     eq: () => q,
     gte: () => q,
     lte: () => q,
-    // W9: sprawdzenie dokumentów z importu w `jpkFaBlocker` (faktury okresu, stawki pozycji).
+    // W9: sprawdzenie dokumentów z importu w `jpkFaBlocker` (faktury okresu po kluczu, stawki pozycji; FZ-018).
     order: () => q,
     range: () => q,
+    gt: () => q,
     not: () => q,
     limit: () => q,
     in: (col: string, vals: unknown[]) => {
@@ -66,7 +68,10 @@ function builder(table: string) {
         : { data: null, error: null },
     then: (ok: (v: { error: null; count?: number }) => unknown) => {
       if (patch) db.updates.push({ table, patch, statusIn });
-      if (counting && table === 'invoices') return Promise.resolve({ error: null, count: db.corrections }).then(ok);
+      if (counting && headOnly && table === 'invoices') return Promise.resolve({ error: null, count: db.corrections }).then(ok);
+      // Faktury okresu (`readCompletePagesByKey`) i pozycje (`readAllByIdInList`): pusty okres.
+      if (counting && table === 'invoices') return Promise.resolve({ data: [], error: null, count: 0 }).then(ok);
+      if (table === 'invoices' || table === 'invoice_line_items') return Promise.resolve({ data: [], error: null }).then(ok);
       return Promise.resolve({ error: null }).then(ok);
     },
   });

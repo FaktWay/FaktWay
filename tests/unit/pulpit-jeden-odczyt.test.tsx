@@ -429,7 +429,7 @@ const SCENARIUSZE: Scenariusz[] = [
     tabele: (now) => duzaFirma(now, 'test', 3600),
     zaklocenia: {
       uciecie: (z) => (czyOdczytSprzedazy(z)
-        && z.calls.some(([m, a]) => (m === 'range' && Number(a[0]) >= 500) || m === 'gt') ? 7 : null),
+        && z.calls.some(([m, a]) => (m === 'range' && Number(a[0]) > 0) || m === 'gt') ? 7 : null),
     },
   },
   {
