@@ -20,8 +20,9 @@ import { roundToDecimals } from '@/lib/xml/invoice-calculator';
  * Pola po angielsku i stabilne (opis: `lib/api/v1/openapi.json`). Kwoty jako
  * tekst dziesiętny prosto z bazy (`::text`), bez liczb zmiennoprzecinkowych
  * po drodze. Wyjątek: cena brutto pozycji leży tylko w dokumencie faktury
- * (JSON), więc idzie z liczby do 4 miejsc (`withDocumentGrossPrice`). Klient bazy to token klucza (`lib/api/v1/auth.ts`), więc RLS
- * wpuszcza tylko firmę klucza; filtr `tenant_id` jest drugą warstwą.
+ * (JSON), więc idzie z liczby do 4 miejsc (`withDocumentGrossPrice`).
+ * Klient bazy to token klucza (`lib/api/v1/auth.ts`), więc RLS wpuszcza tylko
+ * firmę klucza; filtr `tenant_id` jest drugą warstwą.
  */
 
 export const INVOICE_DIRECTIONS = ['outgoing', 'incoming'] as const;
