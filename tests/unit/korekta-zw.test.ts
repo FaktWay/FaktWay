@@ -105,6 +105,17 @@ describe('generator KOR: stawka „zw” z podstawą zwolnienia z faktury korygo
       .toThrow(/podstawy zwolnienia/);
   });
 
+  it('korekta kwotowa faktury „zw” (ustalenie 29): P_13_7 z różnicą, P_19 z podstawą, zgodna z XSD', async () => {
+    const xml = generateCorrectionInvoiceXml(korekta({
+      correctionType: 'amount_change',
+      linesAfter: undefined,
+      amountChange: { netDelta: -100, vatDelta: 0, grossDelta: -100, description: 'Rabat', vatRate: 'zw' },
+    } as Partial<CorrectionInvoiceData>), { prettyPrint: false });
+    expect(xml).toContain('<P_13_7>-100.00</P_13_7>');
+    expect(xml).toContain(`<P_19>1</P_19><P_19A>${PODSTAWA}</P_19A>`);
+    expect((await validateInvoiceXml(xml)).valid).toBe(true);
+  });
+
   it('korekta bez „zw” dalej z P_19N', () => {
     const xml = generateCorrectionInvoiceXml(korekta({
       linesBefore: [{ ...pozycja(1000), vatRate: '23' }],
@@ -172,6 +183,26 @@ describe('korekta faktury „zw” w aplikacji: firma zwolniona z VAT (C3)', () 
     expect(correctionData?.annotations).toMatchObject({ vatExemptionBasis: podstawa });
     const xml = generateCorrectionInvoiceXml(correctionData!, { prettyPrint: false });
     expect(xml).toContain(`<P_19>1</P_19><${rodzaj}>${podstawa}</${rodzaj}>`);
+    expect((await validateInvoiceXml(xml)).valid).toBe(true);
+  });
+
+  it('korekta kwotowa faktury „zw” (ustalenie 29): kontekst daje stawkę „zw”, zapis przechodzi, plik KOR z P_19 przechodzi XSD', async () => {
+    fakturaZw({ annotations: { vatExemptionBasis: PODSTAWA } });
+    const ctx = await getCorrectionParentContextAction(PARENT);
+    expect(ctx.success).toBe(true);
+    if (ctx.success) expect(ctx.amountChangeVatRate).toBe('zw');
+    const r = await saveCorrectionDraftAction({
+      ...(przedPo() as Record<string, unknown>),
+      correctionType: 'amount_change',
+      linesAfter: undefined,
+      amountChange: { netDelta: -100, vatDelta: 0, grossDelta: -100, description: 'Rabat', vatRate: 'zw' },
+    } as never, TENANT);
+    expect(r).toMatchObject({ success: true });
+    const saved = db.tables.invoices!.find((row) => row.invoice_kind === 'correction') as Row | undefined;
+    const correctionData = (saved?.special_data as { correctionData?: CorrectionInvoiceData } | undefined)?.correctionData;
+    const xml = generateCorrectionInvoiceXml(correctionData!, { prettyPrint: false });
+    expect(xml).toContain('<P_13_7>-100.00</P_13_7>');
+    expect(xml).toContain(`<P_19>1</P_19><P_19A>${PODSTAWA}</P_19A>`);
     expect((await validateInvoiceXml(xml)).valid).toBe(true);
   });
 
