@@ -625,12 +625,24 @@ export function settlementRoundingRefusal(
   return null;
 }
 
-/** `settlementRoundingRefusal` dla danych faktury rozliczającej (pozycje jak w generatorze). */
+/**
+ * Zdanie dla szkicu zapisanego przed bramką przy zapisie: nowy zapis odmawia
+ * wcześniej, więc tę odmowę przy wysyłce dostaje tylko stary szkic (karta C4,
+ * uwaga N5 czytelnika #960); po korekcie zaliczki ten szkic dalej ma stare rozbicie.
+ */
+export const ROUNDING_REFUSAL_OLD_DRAFT =
+  'Szkic tej faktury zapisano przed tą kontrolą, więc usuń go, a fakturę rozliczającą wystaw od nowa.';
+
+/**
+ * `settlementRoundingRefusal` dla danych faktury rozliczającej przed wysyłką
+ * (`submitInvoiceFullFlow`), z pozycjami jak w generatorze i zdaniem o starym szkicu.
+ */
 export function finalInvoiceRoundingRefusal(
   data: FinalInvoiceData,
   advances: readonly AdvanceInvoiceSettlementRow[],
 ): string | null {
-  return settlementRoundingRefusal(toPreparedLineItems(data.lines), advances);
+  const refusal = settlementRoundingRefusal(toPreparedLineItems(data.lines), advances);
+  return refusal === null ? null : `${refusal} ${ROUNDING_REFUSAL_OLD_DRAFT}`;
 }
 
 const zl = (grosze: number) => formatPlMoney(grosze / 100);
