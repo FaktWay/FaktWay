@@ -32,7 +32,9 @@ import {
 // v9 (17.11): wiersz „Zamówienie” przy fakturze z numerem zamówienia (plan
 // kompletnej aplikacji, krok 2.8). Faktura bez numeru ma ten sam wydruk, a wersja
 // w kluczu zapobiega oddaniu z pamięci PDF sprzed zmiany renderera.
-const PDF_RENDERER_VERSION = 9;
+// v10 (24.11): numer VAT UE sprzedawcy (NIP z prefiksem PL) przy usłudze „np II”
+// (plan zero, karta C2, W8). Faktura bez „np II” ma ten sam wydruk.
+const PDF_RENDERER_VERSION = 10;
 
 function parseYearMonth(issueDate: string): { year: string; month: string } {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(issueDate)) {
