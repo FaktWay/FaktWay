@@ -31,7 +31,8 @@ function git(cwd: string, ...args: string[]): void {
 
 describe('sprzataj-worktree.sh --zainstaluj-harmonogram', () => {
   it('harmonogram uruchamia skrypt z origin/main, nie z katalogu roboczego', () => {
-    dir = realpathSync(mkdtempSync(join(tmpdir(), 'sprzataj-')));
+    // `.native` pisze ścieżkę jak git w skrypcie: na Windowsie pełne nazwy zamiast krótkich 8.3 i wielkość liter z dysku.
+    dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'sprzataj-')));
     const repo = join(dir, 'repo');
     const home = join(dir, 'home');
     const bin = join(dir, 'bin');
@@ -60,7 +61,8 @@ describe('sprzataj-worktree.sh --zainstaluj-harmonogram', () => {
     const plist = readFileSync(join(home, 'Library/LaunchAgents/pl.faktway.sprzataj-worktree.plist'), 'utf8');
     expect(plist).toContain('git show origin/main:scripts/dev/sprzataj-worktree.sh');
     expect(plist).toContain('--usun');
-    expect(plist).toContain(`<key>WorkingDirectory</key><string>${repo}</string>`);
+    // Skrypt bierze katalog z gita, który pisze ścieżki z `/` także na Windowsie (`join` daje tam `\`).
+    expect(plist).toContain(`<key>WorkingDirectory</key><string>${repo.replaceAll('\\', '/')}</string>`);
     expect(plist).not.toMatch(/<string>[^<]*\/scripts\/dev\/sprzataj-worktree\.sh<\/string>/);
   });
 });

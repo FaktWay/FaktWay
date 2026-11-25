@@ -56,8 +56,9 @@ function walk(dir: string): string[] {
 const sources = ['app', 'lib', 'components'].flatMap(walk).concat(['proxy.ts', 'instrumentation.ts'].filter((f) => existsSync(join(ROOT, f))));
 const known = new Set(sources);
 
+/** Klucze `known` są z `/` (`walk` skleja je szablonem), więc cel importu względnego też, także na Windowsie, gdzie `relative` daje `\`. */
 function resolve(from: string, spec: string): string | null {
-  const base = spec.startsWith('@/') ? spec.slice(2) : spec.startsWith('.') ? relative(ROOT, normalize(join(ROOT, dirname(from), spec))) : null;
+  const base = spec.startsWith('@/') ? spec.slice(2) : spec.startsWith('.') ? relative(ROOT, normalize(join(ROOT, dirname(from), spec))).replaceAll('\\', '/') : null;
   if (base === null) return null;
   for (const candidate of [`${base}.ts`, `${base}.tsx`, `${base}/index.ts`, base]) {
     if (known.has(candidate)) return candidate;
@@ -95,6 +96,12 @@ describe('nieaktywne moduły agenta FLO', () => {
   it.each(INACTIVE)('%s ma znacznik i nie ma importera produkcyjnego', (file) => {
     expect(readFileSync(join(ROOT, file), 'utf8').slice(0, 400)).toContain(MARKER);
     expect(reachable.has(file)).toBe(false);
+  });
+
+  // Skaner widzi importy względne (inaczej „nieosiągalny” nic nie znaczy). Do AKTYWNEGO (S14) `payment-chase-handler.ts`
+  // prowadzi tylko `import './payment-chase-handler'` w `lib/flo/functions/index.ts`; na Windowsie, gdy `relative` dawał cel z `\`, tej krawędzi nie było.
+  it('skaner widzi importy względne: aktywny payment-chase-handler.ts (S14) jest osiągalny', () => {
+    expect(reachable.has('lib/flo/functions/payment-chase-handler.ts')).toBe(true);
   });
 
   it('żaden inny plik nie nosi znacznika', () => {

@@ -72,7 +72,8 @@ function znaczniki(zrodlo: string, nazwa: string): string[] {
   return wynik;
 }
 
-const ekrany = plikiTsx(SRC).map((p) => ({ plik: relative(MOBILE, p), zrodlo: readFileSync(p, 'utf8') }));
+/** `plik` zawsze z `/`, także na Windowsie: wyjątek `src/komponenty/przycisk-paska.tsx` niżej jest napisem z `/`. */
+const ekrany = plikiTsx(SRC).map((p) => ({ plik: relative(MOBILE, p).replaceAll('\\', '/'), zrodlo: readFileSync(p, 'utf8') }));
 
 describe('pasek u góry na Androidzie: przyciski i menu', () => {
   it('przycisk paska z samym napisem idzie przez PrzyciskPaska (Android nie rysuje Stack.Toolbar.Button bez ikony)', () => {
