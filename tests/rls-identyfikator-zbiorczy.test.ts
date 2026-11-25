@@ -344,6 +344,8 @@ describe.skipIf(!hasDatabase)('identyfikatory zbiorcze KSeF (00191)', () => {
 
     expect(zmiana.error?.code).toBe('23514');
     expect(powrot.error?.code).toBe('23514');
+    // FZ-024: komunikat strażnika, nie sam kod (23514 daje też CHECK).
+    expect(zmiana.error?.message).toBe('Gotowy identyfikator zbiorczy jest niezmienny; do wymiany wiersz usuwa operator.');
     expect(await wiersz(r.id!)).toMatchObject({ status: 'ready', identifier: WEKTOR });
   });
 });

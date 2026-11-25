@@ -58,34 +58,7 @@ const TESTY = join(process.cwd(), 'tests');
 
 type BezKomunikatu = { stan: 'kod'; test: string; uwaga: string } | { stan: 'brak'; uwaga: string };
 
-const BEZ_KOMUNIKATU: Record<string, BezKomunikatu> = {
-  // Faktury i cykl KSeF
-  guard_invoice_delivery_history: {
-    stan: 'kod',
-    test: 'rls-cykl-wyzwalacze.test.ts',
-    uwaga: 'klient: draft na queued, diagnostyka, treść failed (42501); INSERT z historią dostawy bez testu',
-  },
-  guard_invoice_payment_evidence: {
-    stan: 'kod',
-    test: 'rls-isolation.test.ts',
-    uwaga: 'klient zmienia paid_amount, payment_status, paid_at (42501); gałąź faktury przyjętej łapie wcześniej guard_invoice_delivery_history',
-  },
-  guard_invoice_send_owner: { stan: 'kod', test: 'rls-uprawnienia.test.ts', uwaga: 'administrator ustawia ksef_send_owner na fakturze w wysyłce (42501)' },
-  guard_invoice_number_series_update: { stan: 'kod', test: 'rls-numeracja.test.ts', uwaga: 'klient zmienia licznik i serię po zapisie (42501)' },
-  guard_invoice_recurring_link: { stan: 'kod', test: 'rls-faktury-cykliczne.test.ts', uwaga: 'klient przepina cykl i okres na szkicu (42501)' },
-  guard_invoice_sales_quote_update: { stan: 'kod', test: 'rls-proformy.test.ts', uwaga: 'właściciel zmienia powiązanie z proformą na szkicu (42501)' },
-  guard_roz_advance_single_settlement: {
-    stan: 'kod',
-    test: 'rls-uprawnienia.test.ts',
-    uwaga: 'druga faktura rozliczeniowa z tą samą zaliczką i zdublowana zaliczka (23505), serwis i klient',
-  },
-  // KSeF: uprawnienia i identyfikatory zbiorcze
-  guard_ksef_permission_grant: { stan: 'kod', test: 'rls-uprawnienia-ksef.test.ts', uwaga: 'serwis: skok stanu, zmiana NIP, zakresu i środowiska (23514), trzy gałęzie' },
-  guard_ksef_collective_identifier: { stan: 'kod', test: 'rls-identyfikator-zbiorczy.test.ts', uwaga: 'serwis zmienia gotowy identyfikator (23514); zestaw faktur i przejścia stanów bez testu' },
-  // Firma
-  guard_tenant_first_invoice_accepted_at: { stan: 'kod', test: 'rls-lejek-analityka.test.ts', uwaga: 'właściciel ustawia i zmienia datę pierwszej faktury (42501)' },
-  guard_tenant_logo_storage_key: { stan: 'kod', test: 'rls-logo-firmy.test.ts', uwaga: 'właściciel zmienia i czyści klucz logo (42501)' },
-};
+const BEZ_KOMUNIKATU: Record<string, BezKomunikatu> = {};
 
 /** Wyzwalacze bez wyjątku: funkcja, test na bazie (plik w `tests/`) albo powód braku. */
 const SKUTKI: Record<string, { test?: string; uwaga: string }> = {
@@ -108,7 +81,7 @@ const SKUTKI: Record<string, { test?: string; uwaga: string }> = {
  * etykiety (usunięta linia w `tests/filtr`).
  */
 // prettier-ignore
-const ZAPADKA_BEZ_KOMUNIKATU = 'guard_invoice_delivery_history guard_invoice_number_series_update guard_invoice_payment_evidence guard_invoice_recurring_link guard_invoice_sales_quote_update guard_invoice_send_owner guard_ksef_collective_identifier guard_ksef_permission_grant guard_roz_advance_single_settlement guard_tenant_first_invoice_accepted_at guard_tenant_logo_storage_key';
+const ZAPADKA_BEZ_KOMUNIKATU = '';
 // prettier-ignore
 const ZAPADKA_SKUTKI_BEZ_TESTU = 'handle_new_user reopen_reviewed_financial_cases_for_payment set_updated_at';
 
@@ -417,7 +390,7 @@ describe('NZ-SQL-01: strażnicy mają test na bazie', () => {
 
   it('zapadka: listy bez testu zgadzają się z linią zapadki, więc nie rosną bez etykiety zgoda:zmiana-filtra', () => {
     const posortowane = (xs: Iterable<string>) => [...xs].sort();
-    expect(posortowane(Object.keys(BEZ_KOMUNIKATU))).toEqual(posortowane(ZAPADKA_BEZ_KOMUNIKATU.split(' ')));
+    expect(posortowane(Object.keys(BEZ_KOMUNIKATU))).toEqual(posortowane(ZAPADKA_BEZ_KOMUNIKATU.split(' ').filter(Boolean)));
     expect(posortowane(Object.entries(SKUTKI).filter(([, w]) => !w.test).map(([n]) => n))).toEqual(posortowane(ZAPADKA_SKUTKI_BEZ_TESTU.split(' ')));
   });
 
@@ -433,7 +406,7 @@ describe('NZ-SQL-01: strażnicy mają test na bazie', () => {
     expect(bledy).toEqual([]);
   });
 
-  // FZ-024: ostatnie wpisy `brak` zeszły w paczce 3 (abonament); zostają tylko wpisy `kod` z listy wyżej.
+  // FZ-024: lista jest pusta; test pilnuje, żeby nie wrócił żaden wpis `brak` (strażnik bez testu zabronionego zapisu).
   it('każdy strażnik ma na bazie test zabronionego zapisu (FZ-024)', () => {
     const bezTestu = Object.entries(BEZ_KOMUNIKATU)
       .filter(([, wpis]) => wpis.stan === 'brak')
