@@ -1,5 +1,6 @@
 import 'server-only';
 
+import * as Sentry from '@sentry/nextjs';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
@@ -74,6 +75,41 @@ function koniecMiesiaca(rok: number, miesiac: number): string {
   return monthRange(`${rok}-${String(miesiac).padStart(2, '0')}`).to;
 }
 
+type PlikJpk = 'JPK_EWP' | 'JPK_PKPIR';
+
+/**
+ * NIP i urząd skarbowy firmy do pliku, z błędem odczytu osobno. JPK-01: błąd
+ * odczytu to nie brak NIP-u ani urzędu (jak F11-A4 przy JPK_V7M, `vat-plik.ts`).
+ * `kodUrzedu` `null` bez błędu znaczy „nieustawiony” (`readTenantTaxOffice`
+ * rzuca przy błędzie odczytu). Kolejność sprawdzeń zostaje: najpierw NIP, potem urząd.
+ */
+async function daneFirmyPliku(client: SupabaseClient, tenantId: string) {
+  const [{ data: firma, error: bladNip }, urzad] = await Promise.all([
+    client.from('tenants').select('nip').eq('id', tenantId).maybeSingle(),
+    readTenantTaxOffice(client, tenantId).then(
+      (kod) => ({ kod, blad: null as unknown }),
+      (e: unknown) => ({ kod: null, blad: e instanceof Error ? e : new Error(`Nie można odczytać urzędu skarbowego firmy: ${String(e)}`) }),
+    ),
+  ]);
+  return {
+    nip: String((firma as { nip?: unknown } | null)?.nip ?? '').replace(/\D/g, ''),
+    bladNip: bladNip ?? null,
+    kodUrzedu: urzad.kod,
+    bladUrzedu: urzad.blad,
+  };
+}
+
+/** Błąd odczytu danych firmy: klient nie ma czego poprawiać w Ustawieniach, a operator dostaje alarm w Sentry. */
+function odmowaOdczytuFirmy(plik: PlikJpk, tenantId: string, blad: unknown): WynikPobrania {
+  Sentry.captureException(blad, { tags: { area: 'ksiegowosc.jpk' }, extra: { tenantId, plik, etap: 'dane_firmy' } });
+  return {
+    success: false,
+    error:
+      `Nie udało się odczytać NIP-u albo urzędu skarbowego firmy, więc pliku ${plik} teraz nie wydajemy. ` +
+      'To błąd odczytu po naszej stronie; plik można pobrać za chwilę.',
+  };
+}
+
 /** JPK_EWP(4) za ryczałt; rola sprawdzona przez wywołującego. */
 export async function pobierzJpkEwp(ctx: KontekstPliku, wejscie: z.input<typeof pobranieSchema>): Promise<WynikPobrania> {
   const parsed = pobranieSchema.safeParse(wejscie);
@@ -107,14 +143,13 @@ export async function pobierzJpkEwp(ctx: KontekstPliku, wejscie: z.input<typeof 
     };
   }
 
-  const [{ data: firma }, kodUrzedu] = await Promise.all([
-    client.from('tenants').select('nip').eq('id', ctx.tenantId).maybeSingle(),
-    readTenantTaxOffice(client, ctx.tenantId).catch(() => null),
-  ]);
-  const nip = String((firma as { nip?: unknown } | null)?.nip ?? '').replace(/\D/g, '');
+  const firma = await daneFirmyPliku(client, ctx.tenantId);
+  if (firma.bladNip) return odmowaOdczytuFirmy('JPK_EWP', ctx.tenantId, firma.bladNip);
+  const { nip, kodUrzedu } = firma;
   if (!/^[1-9]((\d[1-9])|([1-9]\d))\d{7}$/.test(nip)) {
     return { success: false, error: 'Plik JPK_EWP potrzebuje poprawnego NIP firmy. NIP jest w Ustawieniach, w danych firmy.' };
   }
+  if (firma.bladUrzedu) return odmowaOdczytuFirmy('JPK_EWP', ctx.tenantId, firma.bladUrzedu);
   if (!kodUrzedu) {
     return { success: false, error: 'Plik JPK_EWP potrzebuje urzędu skarbowego firmy. Urząd ustawia się w Ustawieniach, w części Księgowa.' };
   }
@@ -181,14 +216,13 @@ export async function pobierzJpkPkpir(ctx: KontekstPliku, wejscie: z.input<typeo
     return { success: false, error: `W KPiR nie ma wpisów od ${formatIsoDatePl(od)} do ${formatIsoDatePl(doDnia)}, więc plik JPK_PKPIR byłby pusty.` };
   }
 
-  const [{ data: firma }, kodUrzedu] = await Promise.all([
-    client.from('tenants').select('nip').eq('id', ctx.tenantId).maybeSingle(),
-    readTenantTaxOffice(client, ctx.tenantId).catch(() => null),
-  ]);
-  const nip = String((firma as { nip?: unknown } | null)?.nip ?? '').replace(/\D/g, '');
+  const firma = await daneFirmyPliku(client, ctx.tenantId);
+  if (firma.bladNip) return odmowaOdczytuFirmy('JPK_PKPIR', ctx.tenantId, firma.bladNip);
+  const { nip, kodUrzedu } = firma;
   if (!/^[1-9]((\d[1-9])|([1-9]\d))\d{7}$/.test(nip)) {
     return { success: false, error: 'Plik JPK_PKPIR potrzebuje poprawnego NIP firmy. NIP jest w Ustawieniach, w danych firmy.' };
   }
+  if (firma.bladUrzedu) return odmowaOdczytuFirmy('JPK_PKPIR', ctx.tenantId, firma.bladUrzedu);
   if (!kodUrzedu) {
     return { success: false, error: 'Plik JPK_PKPIR potrzebuje urzędu skarbowego firmy. Urząd ustawia się w Ustawieniach, w części Księgowa.' };
   }
