@@ -536,10 +536,13 @@ export function toGrosze(value: number): number {
  * dokładności przy dużych kwotach. Przykład MF nr 20: 3118,80 × 4,5005 = 14 036,16.
  */
 export function vatInPln(vatInCurrency: number, rate: number): number {
+  // BigInt(…) zamiast literałów `0n`: cel kompilacji projektu jest niższy niż ES2020.
+  const zero = BigInt(0);
+  const milion = BigInt(1_000_000);
   const iloczyn = BigInt(toGrosze(vatInCurrency)) * BigInt(Math.round(rate * 1_000_000));
-  const modul = iloczyn < 0n ? -iloczyn : iloczyn;
-  const grosze = (modul + 500_000n) / 1_000_000n;
-  return Number(iloczyn < 0n ? -grosze : grosze) / 100;
+  const modul = iloczyn < zero ? -iloczyn : iloczyn;
+  const grosze = (modul + BigInt(500_000)) / milion;
+  return Number(iloczyn < zero ? -grosze : grosze) / 100;
 }
 
 /** Kurs w pliku FA(3) (`TIlosci`): najwyżej 6 miejsc po przecinku, bez zer na końcu. */
@@ -556,7 +559,7 @@ export function formatExchangeRate(rate: number): string {
 function currencyErrors(invoice: Invoice): string[] {
   const currency = invoice.payment.currency;
   if (!/^[A-Z]{3}$/.test(currency)) {
-    return [`„${currency}” nie jest kodem waluty ISO 4217 (np. EUR, USD). Wybierz walutę z listy.`];
+    return [`„${currency}” nie jest kodem waluty ISO 4217. Wpisz trzyliterowy kod, np. EUR albo USD.`];
   }
   if (currency === 'PLN') {
     return invoice.exchangeRate ? ['Faktura w złotych nie ma kursu waluty. Usuń kurs albo wybierz walutę obcą.'] : [];

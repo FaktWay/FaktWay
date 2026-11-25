@@ -45,7 +45,8 @@ describe('FA(3) w walucie obcej (D56)', () => {
     expect(xml).toContain('<KodWaluty>EUR</KodWaluty>');
     expect(xml).toContain('<P_13_1>13560.00</P_13_1><P_14_1>3118.80</P_14_1><P_14_1W>14036.16</P_14_1W>');
     expect(xml).toContain('<P_15>16678.80</P_15>');
-    expect(xml).toMatch(/<GTU>[^<]*<\/GTU><KursWaluty>4\.5005<\/KursWaluty><\/FaWiersz>|<P_12>23<\/P_12><KursWaluty>4\.5005<\/KursWaluty><\/FaWiersz>/);
+    // Jedna pozycja bez GTU: kurs zaraz po stawce, na końcu wiersza (XSD: …, P_12, …, GTU, Procedura, KursWaluty).
+    expect(xml.match(/<P_12>23<\/P_12><KursWaluty>4\.5005<\/KursWaluty><\/FaWiersz>/g)).toHaveLength(1);
     expect((await validateFA3(xml)).errors).toEqual([]);
   });
 

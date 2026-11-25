@@ -70,9 +70,10 @@ function calkowite(tekst: string, miejsca: number): bigint {
 /** Podatek w groszach waluty razy kurs, do grosza, od 0,5 grosza w górę (od zera). */
 function wPln(vatTekst: string, kursTekst: string): bigint {
   const iloczyn = calkowite(vatTekst, 2) * calkowite(kursTekst, 6);
-  const znak = iloczyn < 0n ? -1n : 1n;
-  const modul = iloczyn < 0n ? -iloczyn : iloczyn;
-  return znak * ((modul + 500_000n) / 1_000_000n);
+  const zero = BigInt(0);
+  const znak = iloczyn < zero ? BigInt(-1) : BigInt(1);
+  const modul = iloczyn < zero ? -iloczyn : iloczyn;
+  return znak * ((modul + BigInt(500_000)) / BigInt(1_000_000));
 }
 const tekstPola = (xml: string, pole: string) => new RegExp(`<${pole}>(-?[\\d.]+)</${pole}>`).exec(xml)?.[1];
 const grosze = (tekst: string) => calkowite(tekst, 2);
@@ -102,7 +103,7 @@ describe('NZ-FA-06: faktura w walucie obcej, VAT w złotych (D56)', () => {
           }
         }
 
-        const suma = (re: RegExp) => [...xml.matchAll(re)].reduce((a, d) => a + grosze(d[1]!), 0n);
+        const suma = (re: RegExp) => [...xml.matchAll(re)].reduce((a, d) => a + grosze(d[1]!), BigInt(0));
         const p15 = grosze(tekstPola(xml, 'P_15')!);
         expect(p15).toBe(suma(/<P_13_[0-9_]+>(-?[\d.]+)<\/P_13_[0-9_]+>/g) + suma(/<P_14_\d+>(-?[\d.]+)<\/P_14_\d+>/g));
       }),
