@@ -3,6 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { JobContext } from '@/lib/jobs/registry';
 import type { Invoice } from '@/types/invoice';
+import { todayInWarsaw } from '@/lib/format/warsaw-date';
+
+// B2a: zwykła faktura wychodzi do KSeF do końca następnego dnia roboczego po dacie
+// wystawienia, a bezpiecznik runnera i haka sesji liczy od prawdziwego zegara —
+// faktura przechodząca przez wysyłkę ma więc datę „dziś” w Polsce (stała data by się zestarzała).
+const TODAY_PL = todayInWarsaw();
 
 /**
  * Krok 4 planu automatyzacji (AUD-01, AUD-10, AUD-11, AUD-17).
@@ -98,7 +104,7 @@ vi.mock('@/lib/supabase/server', () => ({
           : {
               id: '11111111-1111-4111-8111-111111111111', ksef_status: 'sending', ksef_number: null,
               ksef_environment: 'test', invoice_kind: 'regular', invoice_type: 'VAT', internal_number: 'FV 1/2026',
-              fa3_data: { internalNumber: 'FV 1/2026', type: 'VAT', issueDate: '2026-10-01' },
+              fa3_data: { internalNumber: 'FV 1/2026', type: 'VAT', issueDate: TODAY_PL },
             },
         error: null,
       }),
@@ -237,7 +243,7 @@ describe('job wysyłki — uzgadnianie zamiast ponownej wysyłki', () => {
     tenantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     nip: '1234567890',
     environment: 'test' as const,
-    invoice: { internalNumber: 'FV 1/2026', type: 'VAT', issueDate: '2026-10-01' } as Invoice,
+    invoice: { internalNumber: 'FV 1/2026', type: 'VAT', issueDate: TODAY_PL } as Invoice,
   };
   const upoEvent = () =>
     mocks.sendEvent.mock.calls.find((c) => c[0] === 'trigger-upo-download')?.[1] as
@@ -313,7 +319,7 @@ describe('job wysyłki — odpowiedź 440 „duplikat”', () => {
     tenantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     nip: '1234567890',
     environment: 'test' as const,
-    invoice: { internalNumber: 'FV 1/2026', type: 'VAT', issueDate: '2026-10-01' } as Invoice,
+    invoice: { internalNumber: 'FV 1/2026', type: 'VAT', issueDate: TODAY_PL } as Invoice,
   };
 
   it('duplikat NASZEJ wcześniejszej wysyłki tego samego pliku → przyjmujemy jej numer KSeF', async () => {

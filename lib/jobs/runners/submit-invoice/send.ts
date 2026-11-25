@@ -4,8 +4,7 @@
  */
 import * as Sentry from '@sentry/nextjs';
 import { NonRetriableError, RetryAfterError } from '../../errors';
-import { todayInWarsaw } from '@/lib/format/warsaw-date';
-import { IssueDatePassedError, issueDatePassedMessage } from '@/lib/ksef/special-issue-date';
+import { assertIssueDateSendable, IssueDatePassedError, issueDateRuleOf } from '@/lib/ksef/special-issue-date';
 import type { JobContext } from '@/lib/jobs/registry';
 import { submitInvoiceFullFlow } from '@/lib/ksef/submit-invoice-full';
 import { assertSubmitReferences } from '@/lib/ksef/submit-reference-boundary';
@@ -88,17 +87,17 @@ export async function submitToKsef(ctx: SubmitRunContext): Promise<SubmitOutcome
     finalData: parsed.data.finalData,
     finalAdvanceSettlementRows: parsed.data.finalAdvanceSettlementRows,
   });
-  // Decyzja Bartosza 06.10.2026 (00147): KOR/ZAL/ROZ tylko w dniu wystawienia.
-  // Ponowienie pg-boss albo oczekiwanie na przejęcie może przenieść POST za
-  // północ — w KSeF dokument wystawia się w dniu wysyłki. Tu, przed
-  // `submitInvoiceFullFlow`: uzgodnienie (wyżej) nie wysyła, więc działa dalej.
-  // Drugie sprawdzenie — w haku sesji tuż przed plikiem (`IssueDatePassedError`).
-  // Zwykła faktura bez zmian (B1/B2); do zdjęcia, gdy B2 obejmie wszystkie rodzaje.
-  if (documentKind !== 'regular') {
-    const today = todayInWarsaw();
-    if (invoice.issueDate !== today) {
-      throw new NonRetriableError(issueDatePassedMessage(invoice.issueDate, today));
-    }
+  // Bezpiecznik daty (`lib/ksef/special-issue-date.ts`): KOR/ZAL/ROZ tylko w dniu
+  // wystawienia (00147), zwykła faktura do końca następnego dnia roboczego po nim
+  // (B2a). Ponowienie pg-boss albo oczekiwanie na przejęcie może przenieść POST
+  // za tę granicę. Tu, przed `submitInvoiceFullFlow`: uzgodnienie (wyżej) nie
+  // wysyła, więc działa dalej. Drugie sprawdzenie — w haku sesji tuż przed
+  // plikiem (`IssueDatePassedError`, zamiana na `NonRetriableError` niżej).
+  try {
+    assertIssueDateSendable(issueDateRuleOf(documentKind), invoice.issueDate);
+  } catch (error) {
+    if (error instanceof IssueDatePassedError) throw new NonRetriableError(error.message, { cause: error });
+    throw error;
   }
   const credentials = await getTenantKsefCredentials(tenantId);
 

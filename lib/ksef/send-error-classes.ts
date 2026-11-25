@@ -84,7 +84,8 @@ export const SEND_ERROR_CLASS: Record<SendErrorCode, SendErrorClass> = {
   TRANSIENT_EXHAUSTED: 'transient',
   // A2b (00141): „tylko uzgodnij” stwierdził, że KSeF nie ma faktury od nas
   // (zamiar porzucony, wpis STALE, brak dowodu kontaktu). Bez automatu —
-  // ponowna wysyłka to decyzja klienta (data wystawienia, B1/B2).
+  // ponowna wysyłka to decyzja klienta, w terminie daty wystawienia (zwykła
+  // faktura do końca następnego dnia roboczego — B2a; dokument specjalny dziś).
   NOT_IN_KSEF: 'transient',
   KSEF_PAUSED: 'hold',
   KOR_HOLD: 'hold',
@@ -96,7 +97,8 @@ export const SEND_ERROR_CLASS: Record<SendErrorCode, SendErrorClass> = {
   // tylko szkic, klient decyduje, czy wysłać ją tutaj.
   ENV_MISMATCH: 'terminal',
   // 00147 (decyzja 06.10.2026): dokument specjalny z datą wystawienia sprzed
-  // dzisiaj — worker nie wysyła go po północy; tylko szkic (bez automatu).
+  // dzisiaj — worker nie wysyła go po północy; B2a: zwykłej faktury po końcu
+  // następnego dnia roboczego po dacie wystawienia. Tylko szkic (bez automatu).
   ISSUE_DATE_PASSED: 'terminal',
   INVALID_EVENT: 'reconcile',
   ENQUEUE_LOST: 'reconcile',
