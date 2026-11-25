@@ -6,6 +6,7 @@ import { listaDoZaplaty, type WierszKosztuDoZaplaty } from '@/lib/expenses/do-za
 import { canChangeExpensePayment } from '@/lib/expenses/zaplata-kosztu';
 import { todayInWarsaw } from '@/lib/format/warsaw-date';
 import { getPageContext } from '@/lib/supabase/page-context';
+import { loadKsefCopyView } from '@/lib/expenses/kopia-faktury-ksef-view';
 import { loadReceiptMatchView } from '@/lib/expenses/receipt-invoice-match-view';
 import { createClient } from '@/lib/supabase/server';
 import { getExpensePhotoUrl } from '@/lib/storage/expenses';
@@ -48,6 +49,8 @@ export default async function ExpenseDetailPage({
 
   // Krok 1.3 (00175): faktura do paragonu i paragon z NIP (ostrzeżenie albo połączenie).
   const receiptMatch = await loadReceiptMatchView(supabase, expense.tenant_id, expense.id);
+  // FZ-022, D29 (00215): kopia faktury z KSeF (zadanie „Połącz koszty” albo połączenie).
+  const ksefCopy = await loadKsefCopyView(supabase, expense.tenant_id, expense.id);
 
   let photoUrl: string | null = null;
   if (
@@ -65,6 +68,7 @@ export default async function ExpenseDetailPage({
         photoUrl={photoUrl}
         ksefCurrency={ksefCurrency}
         receiptMatch={receiptMatch}
+        ksefCopy={ksefCopy}
         paymentSection={await paymentSection(expense, ksefInvoice)}
       />
       <ExpenseAcceptance expenseId={expense.id} />

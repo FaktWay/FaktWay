@@ -78,6 +78,21 @@ function ReceiptMatchNote({ row }: { row: Pick<InboxRow, 'receiptMatch'> }) {
   );
 }
 
+/** FZ-022, D29 (00215): w kosztach jest też kopia tej faktury spoza KSeF, zadanie „Połącz koszty”. */
+export const KSEF_COPY_TASK_NOTE = 'Kopia w kosztach: do połączenia';
+
+function KsefCopyNote({ row }: { row: Pick<InboxRow, 'ksefCopyTask'> }) {
+  if (!row.ksefCopyTask) return null;
+  return (
+    <span
+      className="text-xs text-amber-700 dark:text-amber-400"
+      title="W kosztach jest też kopia tej faktury spoza KSeF (zdjęcie albo wpis ręczny). Decyzja na stronie wydatku."
+    >
+      {KSEF_COPY_TASK_NOTE}
+    </span>
+  );
+}
+
 function RowAction({ row }: { row: InboxRow }) {
   if (!row.expenseId) {
     return (
@@ -175,6 +190,7 @@ export const inboxColumns: ColumnDef<InboxRow>[] = [
       <div className="flex flex-col items-start gap-1">
         <StatusBadge status={row.original.status} history={isHistoryArchive(row.original)} />
         <ReceiptMatchNote row={row.original} />
+        <KsefCopyNote row={row.original} />
       </div>
     ),
     size: 100,
@@ -254,6 +270,7 @@ function InboxCard({ row, statusUnavailable }: { row: InboxRow; statusUnavailabl
           {row.number ? <span className="font-mono">{row.number}</span> : null}
           {statusUnavailable ? null : <StatusBadge status={row.status} history={isHistoryArchive(row)} />}
           {statusUnavailable ? null : <ReceiptMatchNote row={row} />}
+          {statusUnavailable ? null : <KsefCopyNote row={row} />}
         </div>
         <p className="text-muted-foreground mt-1 truncate font-mono text-xs">{row.ksefNumber ?? '—'}</p>
       </div>

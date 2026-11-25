@@ -17,7 +17,11 @@ import { shortenLegalForm } from '@/lib/format/legal-form';
 import { cn } from '@/lib/utils';
 import type { Database } from '@/types/database';
 
-export type ExpenseRow = Database['public']['Tables']['expenses']['Row'];
+/** Wiersz kosztu; `ksef_copy`: kopia połączona z fakturą z KSeF (FZ-022, D29, 00215), poza KPiR. */
+export type ExpenseRow = Database['public']['Tables']['expenses']['Row'] & { ksef_copy?: boolean };
+
+/** Dopisek przy kopii połączonej z fakturą z KSeF (lista kosztów, D29). */
+export const KSEF_COPY_LABEL = 'Kopia faktury z KSeF';
 
 /**
  * Lista wydatków na telefonie (plan Finora §7.2: poniżej `lg` zostają karty
@@ -135,7 +139,10 @@ function ExpenseCard({ expense }: { expense: ExpenseRow }) {
             </Badge>
             {!expense.is_reviewed ? <Badge className={cn(REVIEW_STYLES.unreviewed)}>{REVIEW_LABELS.unreviewed}</Badge> : null}
           </div>
-          <span className="text-muted-foreground font-mono text-xs">{expense.document_number ?? '—'}</span>
+          <span className="flex flex-col items-end">
+            <span className="text-muted-foreground font-mono text-xs">{expense.document_number ?? '—'}</span>
+            {expense.ksef_copy ? <span className="text-muted-foreground text-xs">{KSEF_COPY_LABEL}</span> : null}
+          </span>
         </div>
       </div>
     </Link>

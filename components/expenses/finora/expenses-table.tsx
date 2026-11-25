@@ -5,7 +5,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { RiCheckLine, RiTimeLine } from '@remixicon/react'
 
 import { CaptureButton } from '@/components/expenses/capture-button'
-import { ExpenseDayCards, ExpensesEmptyState, type ExpenseRow } from '@/components/expenses/expenses-list'
+import { ExpenseDayCards, ExpensesEmptyState, KSEF_COPY_LABEL, type ExpenseRow } from '@/components/expenses/expenses-list'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { amountUnit, expenseAmountsCurrency } from '@/lib/expenses/ocr-currency-review'
@@ -109,6 +109,7 @@ export const expenseColumns: ColumnDef<ExpenseRow>[] = [
       <div className='flex flex-col'>
         <span className='text-muted-foreground'>{documentLabel(row.original.document_type)}</span>
         <span className='text-muted-foreground font-mono text-xs'>{row.original.document_number ?? '—'}</span>
+        {row.original.ksef_copy ? <span className='text-muted-foreground text-xs'>{KSEF_COPY_LABEL}</span> : null}
       </div>
     ),
     size: 160

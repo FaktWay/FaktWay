@@ -37,8 +37,10 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { KopiaKsefAlert } from '@/components/expenses/kopia-ksef-alert';
 import { ReceiptMatchAlert } from '@/components/expenses/receipt-match-alert';
 import { hasKsefCurrencyRate } from '@/lib/expenses/ksef-currency-review';
+import type { KsefCopyView } from '@/lib/expenses/kopia-faktury-ksef-view';
 import type { ReceiptMatchView } from '@/lib/expenses/receipt-invoice-match-view';
 import { costDocumentType, vatDeductionForDocument } from '@/lib/expenses/vat-deduction-document';
 import { ocrAmountsAwaitingPln, ocrDocumentGross } from '@/lib/expenses/ocr-currency-review';
@@ -90,6 +92,8 @@ interface ExpenseEditFormProps {
   paymentSection?: ReactNode;
   /** Krok 1.3 (00175): połączenie faktury do paragonu z paragonem z NIP. */
   receiptMatch?: ReceiptMatchView | null;
+  /** FZ-022, D29 (00215): kopia faktury z KSeF (zadanie „Połącz koszty” albo połączenie). */
+  ksefCopy?: KsefCopyView | null;
 }
 
 interface FormState {
@@ -122,7 +126,7 @@ function buildInitialForm(expense: ExpenseRow): FormState {
   };
 }
 
-export function ExpenseEditForm({ expense, photoUrl, ksefCurrency, paymentSection, receiptMatch = null }: ExpenseEditFormProps) {
+export function ExpenseEditForm({ expense, photoUrl, ksefCurrency, paymentSection, receiptMatch = null, ksefCopy = null }: ExpenseEditFormProps) {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(() => buildInitialForm(expense));
   const [confirmedForeignCurrency, setConfirmedForeignCurrency] = useState(false);
@@ -216,6 +220,8 @@ export function ExpenseEditForm({ expense, photoUrl, ksefCurrency, paymentSectio
   // Paragon zastąpiony fakturą do paragonu (00175): prośba o fakturę jest już
   // zbędna, a powrót do KPiR tylko przez rozłączenie na stronie faktury.
   const linkedReceipt = receiptMatch?.role === 'receipt' && receiptMatch.state === 'linked';
+  // Kopia połączona z fakturą z KSeF (00215): powrót do KPiR tylko przez „Rozłącz” na stronie faktury z KSeF.
+  const linkedCopy = ksefCopy?.role === 'copy' && ksefCopy.state === 'linked';
   const vatRule = vatDeductionForDocument({
     documentType: costDocumentType(expense),
     issueDate: form.issue_date,
@@ -229,6 +235,7 @@ export function ExpenseEditForm({ expense, photoUrl, ksefCurrency, paymentSectio
     (foreignKsef && !hasKsefRate && !form.is_deductible) ||
     (ksefCurrencyUnknown && !form.is_deductible) ||
     (linkedReceipt && !form.is_deductible) ||
+    (linkedCopy && !form.is_deductible) ||
     (ocrCurrency !== null && !confirmedPln && !form.is_deductible);
   const savesOutsideKpir =
     ((foreignKsef || ksefCurrencyUnknown) && !form.is_deductible && !confirmedForeignCurrency) ||
@@ -333,6 +340,7 @@ export function ExpenseEditForm({ expense, photoUrl, ksefCurrency, paymentSectio
       ) : null}
 
       {receiptMatch ? <ReceiptMatchAlert match={receiptMatch} /> : null}
+      {ksefCopy ? <KopiaKsefAlert copy={ksefCopy} /> : null}
 
       {wasAutoClassified ? (
         <Alert
