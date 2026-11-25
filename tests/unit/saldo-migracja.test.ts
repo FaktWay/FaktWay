@@ -124,7 +124,8 @@ describe('migracja 00216 (tekst; zachowanie na bazie w tests/rls-saldo.test.ts)'
     const tekst = sql();
     for (const fn of INTERNAL) {
       expect(tekst).toContain(`REVOKE ALL ON FUNCTION public.${fn} FROM PUBLIC, anon, authenticated, service_role;`);
-      expect(tekst).not.toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn.replace(/[()]/g, '\\$&')}`));
+      // Zwykły napis, nie wyrażenie regularne z nazwy funkcji (CodeQL js/incomplete-sanitization).
+      expect(tekst).not.toContain(`GRANT EXECUTE ON FUNCTION public.${fn}`);
     }
   });
 
