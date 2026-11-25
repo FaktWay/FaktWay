@@ -335,10 +335,20 @@ describe('service-role job boundaries', () => {
     expect(writes()).toEqual([]);
     expect(mocks.submit).not.toHaveBeenCalled();
     expect(mocks.health).not.toHaveBeenCalled();
+    // Kontrola: ten sam wiersz i to samo zdarzenie jako zwykła faktura mijają granicę
+    // odwołań i kończą się dopiero na `load-credentials-meta` (NIP firmy niezweryfikowany).
+    // Granica ma jeden komunikat dla każdej odmowy, więc dopiero kontrola pokazuje, że
+    // pierwszą odmowę dał rodzaj dokumentu (albo wstrzymanie ROZ), a nie brak wiersza
+    // czy dokument inny niż w zdarzeniu.
+    tables.tenants = [{ id: A }];
+    tables.invoices[0].invoice_kind = 'regular';
+    await expect(runSubmitInvoice(submitEvent, ctx)).rejects.toThrow('Nie można użyć credentials KSeF');
+    expect(writes()).toEqual([]);
   });
-  // Offline24 wstrzymany (decyzja 02.10.2026, #71): bez sondy zdrowia
-  // i bez Offline24, zaliczka idzie zwykłą wysyłką, którą job ponawia.
-  it('takes the ordinary send path for an advance on KSeF outage, without an Offline24 detour', async () => {
+  // Offline24 wstrzymany (decyzja 02.10.2026, #71): przy awarii KSeF zaliczka nie dostaje
+  // sondy zdrowia ani dokumentu Offline24. Bieg celowo kończy się na `load-credentials-meta`,
+  // więc test pilnuje bramki Offline24 przed poświadczeniami, a nie samej wysyłki i ponowienia.
+  it('does not probe KSeF health or park an advance in Offline24 during a KSeF outage', async () => {
     const address = { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' };
     const seller = { nip: '1234567890', name: 'Firma testowa', address };
     const taxAnnotations = { cashMethod: 2, splitPayment: 2 };
@@ -368,6 +378,9 @@ describe('service-role job boundaries', () => {
     expect(mocks.offlineAdd).not.toHaveBeenCalled();
     expect(writes()).toEqual([]);
   });
+  // Zakres: bramka Offline24 przed poświadczeniami (`submit-invoice.ts`, warunek z
+  // `isOffline24Enabled`). Kroku wysyłki test nie widzi; ścieżkę PROD po wyczerpaniu
+  // ponowień sprawdza test „marks a regular PROD submit failed after retries…” niżej.
   it('does not create an Offline24 document for an ordinary PROD submit (AUD-14)', async () => {
     vi.stubEnv('KSEF_ENV', 'production');
     const regularInvoice = { type: 'VAT', internalNumber: 'TEST-1' } as Invoice;
