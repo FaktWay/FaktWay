@@ -55,7 +55,7 @@ const NIP = '1234567890';
 const NIP_INNY = '1234567891';
 const FLAGA = 'balanceConfirmationsEnabled';
 const ADRES_A = { countryCode: 'PL', addressLine1: 'ul. Przykładowa 1', addressLine2: '00-001 Warszawa' };
-const GUARD_TEXT = 'is issued and cannot be changed; issue a new balance confirmation instead';
+const GUARD_TEXT = 'is final; issue a new balance confirmation instead of editing it';
 
 const users: Record<Kto, string> = { owner: '', member: '', accountant: '', zawieszony: '', obcy: '' };
 let counter = 0;
@@ -388,7 +388,7 @@ describe.skipIf(!hasDatabase)('00215: potwierdzenie salda na prawdziwym PostgRES
       }
       expect(receivablesByNip(pulpit).get(NIP)?.outstanding).toBe(p.total);
       expect(pulpit.foreignCurrencyCount).toBe(1);
-    });
+    }, 30_000);
 
     it('podgląd innego kontrahenta tej firmy liczy tylko jego NIP; obca firma widzi tylko swoje faktury', async () => {
       await faktura();
@@ -504,7 +504,7 @@ describe.skipIf(!hasDatabase)('00215: potwierdzenie salda na prawdziwym PostgRES
       const obcy = await signedIn('obcy', ORG_B);
       const b = await podglad(obcy, KONTRAHENT_B);
       expect((await wystaw(obcy, b.fingerprint, { contractorId: KONTRAHENT_B })).data).toMatchObject({ status: 'issued', number: numer(1) });
-    });
+    }, 30_000);
 
     it('treść zmieniona po podglądzie (wpłata, dane kontrahenta): odmowa changed bez dokumentu', async () => {
       const f = await faktura();

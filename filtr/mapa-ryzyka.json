@@ -1014,7 +1014,8 @@
       "poziom": "R1",
       "opis": "SQL: status zapłaty, kwota zapłacona, należności po terminie (update_invoice_payment_status, recalculate_invoice_paid_amount, invoices_overdue, mark_invoice_paid).",
       "sciezki": [
-        "supabase/migrations/{00012,00014,00023,00068,00073,00082,00126,00145,00158,00176,00180,00183,00189,00191,00194,00200}_*.sql"
+        "supabase/migrations/{00012,00014,00023,00068,00073,00082,00126,00145,00158,00176,00180,00183,00189,00191,00194,00200}_*.sql",
+        "supabase/migrations/00215_*.sql"
       ]
     },
     {

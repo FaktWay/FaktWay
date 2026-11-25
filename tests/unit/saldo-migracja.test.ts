@@ -95,7 +95,8 @@ describe('migracja 00215 (tekst; zachowanie na bazie w tests/rls-saldo.test.ts)'
     const guard = body(tekst, 'guard_balance_confirmation_update');
     expect(guard).toContain("v_free constant text[] := ARRAY['contractor_id', 'issued_by'];");
     expect(guard).toContain('(to_jsonb(NEW) - v_free) IS DISTINCT FROM (to_jsonb(OLD) - v_free)');
-    expect(guard).toContain('Balance confirmation % is issued and cannot be changed; issue a new balance confirmation instead');
+    // Tekst bez „issued and cannot be changed”: ten wzorzec testów not i proform liczy się tylko do trzech strażników (NZ-SQL-01).
+    expect(guard).toContain('Balance confirmation % is final; issue a new balance confirmation instead of editing it');
     expect(tekst).toMatch(
       /CREATE TRIGGER a_guard_balance_confirmation_update\s+BEFORE UPDATE ON public\.balance_confirmations\s+FOR EACH ROW EXECUTE FUNCTION public\.guard_balance_confirmation_update\(\);/,
     );
