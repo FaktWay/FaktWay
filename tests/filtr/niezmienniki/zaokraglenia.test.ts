@@ -54,9 +54,8 @@ describe('NZ-ZAOKR-04: jedna reguła, ta sama kwota zaokrągla się tak samo w k
   });
 
   // FZ-001 (docs/filtr/USTALENIA.md): dla kwot ujemnych z końcówką dokładnie 50 gr
-  // doPelnychZlotych zaokrągla w stronę plus nieskończoności (-1,50 zł → -1 zł),
-  // a doZlotych od zera (-1,50 zł → -2 zł). Dziś ryczałt nie dostaje ujemnej podstawy, więc klient
-  // tego nie widzi; test zostaje czerwony do jednej wspólnej funkcji.
+  // doPelnychZlotych zaokrąglał w stronę plus nieskończoności (-1,50 zł → -1 zł), a doZlotych
+  // od zera (-1,50 zł → -2 zł). Teraz jedna funkcja (połówka od zera, RP-ZAOKR-01) i bez -0.
   it('kwoty ujemne poza końcówką 50 gr: ten sam wynik', () => {
     fc.assert(
       fc.property(groszeZeZnakiem().filter((gr) => Math.abs(gr) % 100 !== 50), (gr) => {
@@ -66,7 +65,7 @@ describe('NZ-ZAOKR-04: jedna reguła, ta sama kwota zaokrągla się tak samo w k
     );
   });
 
-  it.fails('FZ-001: kwoty ujemne z końcówką 50 gr zaokrąglają się tak samo', () => {
+  it('FZ-001: kwoty ujemne z końcówką 50 gr zaokrąglają się tak samo', () => {
     fc.assert(
       fc.property(fc.integer({ min: 0, max: 1_000_000 }).map((n) => -(n * 100 + 50)), (gr) => {
         expect(doPelnychZlotych(gr) === doZlotych(gr)).toBe(true);
