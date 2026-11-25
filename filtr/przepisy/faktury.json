@@ -494,6 +494,51 @@
       "zrodlo_planu": "D2 (docs/koordynacja/DECYZJE-2026-11-25.md), FILTR-RT-FA3-04",
       "stan": "dziala",
       "uwagi": "Kod bez zmian (D2)."
+    },
+    {
+      "id": "RP-FA-METODA-01",
+      "regula": "Faktura w cenach netto: VAT liczony od każdej pozycji i sumowany po stawkach tylko wtedy, gdy faktura pokazuje kwotę VAT każdej pozycji (FA(3): P_11Vat, PDF: kolumna z kwotą VAT pozycji), a bez tego podatek od sumy wartości netto stawki; faktura w cenach brutto: podatek każdej stawki ze wzoru od sumy brutto stawki, bez P_11Vat (RP-FA-BRUTTO-01). P_13_x i P_14_x wynikają z tej metody, a P_15 = Σ(P_13_x + P_14_x).",
+      "podstawa": [
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106e ust. 1 pkt 14 (kwota podatku od sumy wartości sprzedaży netto, z podziałem na stawki)"
+        },
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106e ust. 10 (kwoty podatku przy pozycjach, łączna kwota jako ich suma) i ust. 7 (wzór od wartości brutto)"
+        },
+        {
+          "akt": "schemat FA(3) Ministerstwa Finansów (lib/xml/schemas/fa3/schemat.xsd)",
+          "przepis": "P_11Vat („Kwota podatku w przypadku, o którym mowa w art. 106e ust. 10 ustawy”)"
+        }
+      ],
+      "obowiazuje": {
+        "od": "2026-01-01",
+        "do": null
+      },
+      "obszary": [
+        "faktury.fa3",
+        "faktury.kwoty"
+      ],
+      "kod": [
+        "lib/xml/invoice-calculator.ts#calculateLineItem",
+        "lib/xml/invoice-calculator.ts#summarizeVatPerRate"
+      ],
+      "testy": [],
+      "parametry": [],
+      "niezmienniki": [],
+      "pewnosc": "wysoka",
+      "wzorzec": null,
+      "interpretacja": "D1 (25.11.2026, pewność wysoka): zostaje VAT od każdej pozycji sumowany po stawkach (kwoty już wystawionych faktur się nie zmieniają, nabywca widzi VAT każdej pozycji), ale faktura musi te kwoty pokazywać: P_11Vat przy każdej pozycji zwykłej faktury, FP, korekty i faktury rozliczającej oraz kolumna VAT pozycji w PDF (NZ-FA-11). Dziś FaktWay sumuje VAT pozycji (calculateLineItem, summarizeVatPerRate), ale plik nie ma P_11Vat, a PDF kwoty VAT pozycji, więc przy kilku pozycjach faktura nie spełnia ani pkt 14, ani warunku ust. 10 (FZ-040). Broszura MF o FA(3) (s. 92) powtarza ust. 10. Metoda NZ-ZAOKR-06.",
+      "do_rozstrzygniecia": null,
+      "sprawdzil": {
+        "ksiegowa": null,
+        "prawnik": null
+      },
+      "odczyt": "2026-11-25",
+      "zrodlo_planu": "D1 (docs/koordynacja/DECYZJE-2026-11-25.md), FA3-03, NZ-ZAOKR-06, FZ-040",
+      "stan": "poza-v1",
+      "uwagi": "P_11Vat w generatorach (lib/xml/fa3-generator.ts, lib/ksef/fa3-correction-generator.ts, faktura rozliczająca), kolumna VAT w PDF (lib/pdf/invoice-renderer.ts), brama oryginału i walidator wysyłki według D1 robi plan kompletnej aplikacji osobnym PR R1; wtedy stan „dziala” i testy (wśród nich tests/unit/fz-040-p11vat.test.ts bez .fails)."
     }
   ]
 }
