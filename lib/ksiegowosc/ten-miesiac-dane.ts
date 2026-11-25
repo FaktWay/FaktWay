@@ -11,6 +11,7 @@
 
 import { createHash } from 'node:crypto';
 
+import * as Sentry from '@sentry/nextjs';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { readCompletePages } from '@/lib/accounting/read-complete-pages';
@@ -177,7 +178,11 @@ export async function czytajTenMiesiac(client: SupabaseClient, tenantId: string,
 
   // VAT (K7.1) za obszarem `vat`; wołający sprawdził już globalny stop i flagę firmy.
   const odczytVat: Promise<DaneVat | null> = statusObszaru('vat').wlaczony
-    ? czytajVat(client, tenantId, miesiac, opcje.nadwyzkaVat ?? null).catch(() => ({ ok: false as const, komunikat: BLAD_ODCZYTU_VAT }))
+    ? czytajVat(client, tenantId, miesiac, opcje.nadwyzkaVat ?? null).catch((e: unknown) => {
+        // Błąd spoza obsługi w `czytajVat` (tam wpis w Sentry jest): ślad dla operatora (docs/runbooks/ksiegowosc-przypomnienia.md).
+        Sentry.captureException(e, { tags: { area: 'ksiegowosc.vat' }, extra: { tenantId, miesiac, krok: 'czytaj-vat' } });
+        return { ok: false as const, komunikat: BLAD_ODCZYTU_VAT };
+      })
     : Promise.resolve(null);
   const [odczyt, wersjeOdczyt, daneVat] = await Promise.all([
     czytajRozliczenia(client, tenantId, miesiac).then(
