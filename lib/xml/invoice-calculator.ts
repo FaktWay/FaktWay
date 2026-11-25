@@ -270,6 +270,8 @@ export interface InvoiceInput {
   receipt?: Invoice['receipt'];
   /** Faktura w cenach brutto: pozycje z `unitPriceGross`, VAT od sumy brutto stawki (`grossPricedLines`). */
   pricesGross?: true;
+  /** Kurs faktury w walucie obcej (krok 2.1, D56). */
+  exchangeRate?: Invoice['exchangeRate'];
 }
 
 /**
@@ -315,6 +317,8 @@ export function finalizeInvoice(input: InvoiceInput): Invoice {
     ...(input.receipt ? { receipt: input.receipt } : {}),
     // Klucz tylko przy cenach brutto: faktura w cenach netto ma kształt jak dotąd.
     ...(input.pricesGross ? { pricesGross: true as const } : {}),
+    // Klucz tylko przy kursie (waluta obca): faktura w złotych ma kształt jak dotąd.
+    ...(input.exchangeRate ? { exchangeRate: input.exchangeRate } : {}),
   };
 }
 
@@ -522,6 +526,56 @@ export function issueDateRangeErrors(issueDateIso: string, now: Date = new Date(
  */
 export function toGrosze(value: number): number {
   return roundToDecimals(roundToCents(value) * 100, 0);
+}
+
+/**
+ * Podatek stawki przeliczony na złote (`P_14_xW`, art. 106e ust. 11 ustawy o VAT,
+ * decyzja D56): kwota podatku w walucie razy kurs, do grosza, końcówka od 0,5
+ * grosza w górę (od zera). Liczy na liczbach całkowitych (grosze razy kurs
+ * w milionowych), więc bez błędu liczb zmiennoprzecinkowych i bez utraty
+ * dokładności przy dużych kwotach. Przykład MF nr 20: 3118,80 × 4,5005 = 14 036,16.
+ */
+export function vatInPln(vatInCurrency: number, rate: number): number {
+  const iloczyn = BigInt(toGrosze(vatInCurrency)) * BigInt(Math.round(rate * 1_000_000));
+  const modul = iloczyn < 0n ? -iloczyn : iloczyn;
+  const grosze = (modul + 500_000n) / 1_000_000n;
+  return Number(iloczyn < 0n ? -grosze : grosze) / 100;
+}
+
+/** Kurs w pliku FA(3) (`TIlosci`): najwyżej 6 miejsc po przecinku, bez zer na końcu. */
+export function formatExchangeRate(rate: number): string {
+  return rate.toFixed(6).replace(/\.?0+$/, '');
+}
+
+/**
+ * Faktura w walucie obcej (krok 2.1, D56). Pierwsza wersja: tylko zwykła faktura
+ * VAT w cenach netto, bez faktury do paragonu, z jednym kursem NBP na fakturę.
+ * Zaliczka, rozliczenie i korekta w walucie czekają na złoty przypadek G29
+ * (kurs przy zaliczce i korekcie). Odmowa podaje przyczynę i wyjście.
+ */
+function currencyErrors(invoice: Invoice): string[] {
+  const currency = invoice.payment.currency;
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    return [`„${currency}” nie jest kodem waluty ISO 4217 (np. EUR, USD). Wybierz walutę z listy.`];
+  }
+  if (currency === 'PLN') {
+    return invoice.exchangeRate ? ['Faktura w złotych nie ma kursu waluty. Usuń kurs albo wybierz walutę obcą.'] : [];
+  }
+  const errors: string[] = [];
+  const rate = invoice.exchangeRate?.rate;
+  if (rate === undefined || !Number.isFinite(rate) || rate <= 0 || Math.abs(rate * 1_000_000 - Math.round(rate * 1_000_000)) > 1e-6) {
+    errors.push(`Faktura w ${currency} potrzebuje kursu NBP większego od zera, najwyżej z 6 miejscami po przecinku. Pobierz kurs ponownie albo wpisz go z tabeli NBP.`);
+  }
+  if (invoice.type !== 'VAT') {
+    errors.push('FaktWay wystawia w walucie obcej tylko zwykłą fakturę VAT. Ten dokument wystaw w złotych.');
+  }
+  if (invoice.receipt !== undefined) {
+    errors.push('Faktury do paragonu nie wystawimy w walucie obcej, bo paragon jest w złotych. Wystaw ją w złotych.');
+  }
+  if (invoice.pricesGross === true) {
+    errors.push('Fakturę w walucie obcej wystawimy tylko w cenach netto. Wybierz ceny netto.');
+  }
+  return errors;
 }
 
 /** Grosze z powrotem na złote do komunikatu (jak reszta komunikatów: liczba, np. 20.99). */
@@ -855,6 +909,9 @@ export function validateInvoice(invoice: Invoice, now: Date = new Date()): strin
       errors.push(issue.message);
     }
   }
+
+  // ── Waluta obca (krok 2.1, D56) ────────────────────────────
+  errors.push(...currencyErrors(invoice));
 
   return errors;
 }
