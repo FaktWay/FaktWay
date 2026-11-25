@@ -126,17 +126,23 @@ export function niezaplacone(w: {
     const ostatnia = aktualne(w.rozliczenia).get(rodzaj) ?? null;
     const szkic = w.pozycje?.find((p) => p.rodzaj === rodzaj && p.ok);
     // FZ-030: brak w szkicu pozycji (np. braki ewidencji albo strażnik F13 po zatwierdzeniu): „Ten miesiąc” pokazuje
-    // przy niej brak, więc przypomnienie bez kwoty, a nie kwota zatwierdzonej wersji. Miesiąc, który się nie liczy w ogóle
-    // (`pozycje: null`), zostaje przy kwocie zatwierdzonej wersji, jak w K5 (do decyzji, zob. PR z FZ-030).
-    const bezKwoty = w.pozycje?.some((p) => p.rodzaj === rodzaj && !p.ok) ?? false;
+    // przy niej brak, więc przypomnienie bez kwoty, a nie kwota zatwierdzonej wersji. D31: tak samo, gdy miesiąc się nie
+    // liczy w ogóle (`pozycje: null`: brak ustawień, błąd ksiąg, wyłącznik KPiR, D7), bo strona pisze wtedy „Kwot … nie liczymy”.
+    const brakWSzkicu = w.pozycje?.some((p) => p.rodzaj === rodzaj && !p.ok) ?? false;
+    const bezKwoty = w.pozycje === null || brakWSzkicu;
     // F11-B2: dane zmienione po zatwierdzeniu: kwota według bieżących danych.
     const zmienione = !!ostatnia && !!szkic?.ok && szkic.wejsciaHash !== ostatnia.wejsciaHash;
     const kwotaGr = bezKwoty ? null : zmienione && szkic?.ok ? szkic.kwotaGr : ostatnia ? ostatnia.kwotaGr : szkic?.ok ? szkic.kwotaGr : null;
     const zaplaconoGr = zaplacono(w.rozliczenia, rodzaj);
     if (kwotaGr === null) {
       // Bez kwoty: przypomnienie, gdy nic nie jest oznaczone jako zapłacone albo najnowsza wersja czeka na zapłatę
-      // (FZ-030: dopłata po zapłaconej wcześniejszej wersji nie może zniknąć razem z kwotą).
-      if (zaplaconoGr === 0 || (ostatnia !== null && ostatnia.status !== 'zaplacone')) wynik.push({ rodzaj, kwotaGr: null });
+      // (FZ-030: dopłata po zapłaconej wcześniejszej wersji nie może zniknąć razem z kwotą). D32: także gdy najnowsza
+      // zapłacona wersja jest wyliczona przez moduł, a szkic ma brak z danych (po zmianie danych może zostać dopłata);
+      // przy zapłacie spoza wyliczenia (`reczna`, kwota z PUE ZUS) cisza.
+      const zaplaconaWyliczona = ostatnia !== null && ostatnia.status === 'zaplacone' && !ostatnia.reczna;
+      if (zaplaconoGr === 0 || (ostatnia !== null && ostatnia.status !== 'zaplacone') || (brakWSzkicu && zaplaconaWyliczona)) {
+        wynik.push({ rodzaj, kwotaGr: null });
+      }
       continue;
     }
     // F11-B5: VAT 0 zł nie ma zapłaty, ale JPK_V7M obowiązuje; kwota 0 zostaje w pozycji.

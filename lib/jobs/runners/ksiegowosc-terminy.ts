@@ -36,6 +36,7 @@ import { czytajWersjeProfilu, wersjaNa } from '@/lib/ksiegowosc/profil';
 import { isSubjectiveVatExemption, readTenantVatExemption } from '@/lib/invoices/vat-exemption';
 import { grupyFormy, niezaplacone, terminyNaDzis, trescTerminu, type TerminNaDzis } from '@/lib/ksiegowosc/przypomnienia';
 import { BLAD_ODCZYTU_ROZLICZEN, czytajTenMiesiac } from '@/lib/ksiegowosc/ten-miesiac-dane';
+import { BLAD_ODCZYTU_VAT } from '@/lib/ksiegowosc/vat-dane';
 import { srodowiskoMf } from '@/lib/ksiegowosc/wysylka-jpk/certyfikaty';
 import { czytajWysylki, nadwyzkaPrzyjetej } from '@/lib/ksiegowosc/wysylka-jpk/zapis';
 import { czyKsiegowoscWlaczona, statusObszaru } from '@/lib/ksiegowosc/wylacznik';
@@ -77,6 +78,8 @@ export async function przypomnijOTerminie(admin: SupabaseClient, tenantId: strin
   const dane = await czytajTenMiesiac(admin, tenantId, t.miesiac);
   // Bez odczytu zapłat nie wiadomo, co jest zapłacone: ponowienie zamiast przypomnienia „bez zapłaty”.
   if (!dane.ok && dane.braki.includes(BLAD_ODCZYTU_ROZLICZEN)) throw new Error(`Nie udało się odczytać rozliczeń firmy ${tenantId} za ${t.miesiac}`);
+  // D32 (FZ-030): przejściowy błąd odczytu danych VAT to ponowienie, nie przypomnienie bez kwoty.
+  if (dane.ok && dane.pozycje.some((p) => !p.ok && p.brak === BLAD_ODCZYTU_VAT)) throw new Error(`Nie udało się odczytać danych VAT firmy ${tenantId} za ${t.miesiac}`);
   const wejscie = { grupy, rozliczenia: dane.rozliczenia, pozycje: dane.ok ? dane.pozycje : null, profil };
   let pozycje = niezaplacone(wejscie);
   // F11-B5: VAT 0 zł przypomina o JPK_V7M, o ile MF nie przyjął już pliku z FaktWay za ten miesiąc.

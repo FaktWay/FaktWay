@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { JobContext } from '@/lib/jobs/registry';
+import { BLAD_ODCZYTU_VAT } from '@/lib/ksiegowosc/vat-dane';
 
 /**
  * Crony modułu księgowości (plan księgowości JDG, K5, sekcja 9): push
@@ -204,6 +205,14 @@ describe('FZ-030: brak w szkicu po zatwierdzeniu, przez cały runner', () => {
     expect(mocks.dzwonek).toHaveLength(1);
     const teksty = [JSON.stringify(mocks.pushe[0].payload), JSON.stringify(mocks.maile.map((m) => m.payload)), JSON.stringify(mocks.dzwonek.map((d) => d.args))];
     for (const t of teksty) expect(t).not.toMatch(/1[\s\u00a0\u202f]?536,00/);
+  });
+
+  it('D32: błąd odczytu danych VAT w szkicu: bez przypomnienia bez kwoty, zadanie do ponowienia', async () => {
+    mocks.dzis = '2026-11-15';
+    const bladVat = { ok: false, rodzaj: 'vat', termin: null, brak: BLAD_ODCZYTU_VAT };
+    mocks.dane = { ...POLICZONE, pozycje: [pozycja('ryczalt', 153_600), pozycja('zus_spoleczne', 192_676), pozycja('zdrowotna', 83_058), bladVat], rozliczenia: [] };
+    await expect(runKsiegowoscTerminy(ctx)).rejects.toThrow('do ponowienia');
+    expect([mocks.pushe, mocks.maile, mocks.dzwonek]).toEqual([[], [], []]);
   });
 });
 
