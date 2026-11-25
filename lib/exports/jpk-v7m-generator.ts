@@ -334,7 +334,8 @@ function money(n: number): string {
  */
 export function wholeZloty(n: number): number {
   const cents = Math.round(Math.abs(n) * 100);
-  return Math.sign(n) * Math.floor((cents + 50) / 100);
+  // FZ-002: `+ 0` zamienia ujemne zero (kwota ujemna poniżej 50 gr, np. -0,03 zł) na zwykłe 0.
+  return Math.sign(n) * Math.floor((cents + 50) / 100) + 0;
 }
 
 /**

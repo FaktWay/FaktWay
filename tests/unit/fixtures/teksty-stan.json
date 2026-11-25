@@ -795,10 +795,6 @@
     "myslniki": 1,
     "plakietki": 0
   },
-  "lib/xml/fa3-annotations.ts": {
-    "myslniki": 3,
-    "plakietki": 0
-  },
   "lib/xml/fa3-generator.ts": {
     "myslniki": 2,
     "plakietki": 0

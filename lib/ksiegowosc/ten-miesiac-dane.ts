@@ -11,6 +11,7 @@
 
 import { createHash } from 'node:crypto';
 
+import * as Sentry from '@sentry/nextjs';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { readCompletePages } from '@/lib/accounting/read-complete-pages';
@@ -177,7 +178,11 @@ export async function czytajTenMiesiac(client: SupabaseClient, tenantId: string,
 
   // VAT (K7.1) za obszarem `vat`; wołający sprawdził już globalny stop i flagę firmy.
   const odczytVat: Promise<DaneVat | null> = statusObszaru('vat').wlaczony
-    ? czytajVat(client, tenantId, miesiac, opcje.nadwyzkaVat ?? null).catch(() => ({ ok: false as const, komunikat: BLAD_ODCZYTU_VAT }))
+    ? czytajVat(client, tenantId, miesiac, opcje.nadwyzkaVat ?? null).catch((e: unknown) => {
+        // Błąd spoza obsługi w `czytajVat` (tam wpis w Sentry jest): ślad dla operatora (docs/runbooks/ksiegowosc-przypomnienia.md).
+        Sentry.captureException(e, { tags: { area: 'ksiegowosc.vat' }, extra: { tenantId, miesiac, krok: 'czytaj-vat' } });
+        return { ok: false as const, komunikat: BLAD_ODCZYTU_VAT };
+      })
     : Promise.resolve(null);
   const [odczyt, wersjeOdczyt, daneVat] = await Promise.all([
     czytajRozliczenia(client, tenantId, miesiac).then(
@@ -196,7 +201,11 @@ export async function czytajTenMiesiac(client: SupabaseClient, tenantId: string,
     return { ok: false, braki: [BLAD_ODCZYTU_ROZLICZEN], rozliczenia: [], zaplatyReczne: [] };
   }
   const tegoMiesiaca = odczyt.r.filter((r) => r.miesiac === miesiac);
-  const zaplatyReczne = odczyt.r.filter((r) => r.reczna && (r.status === 'zatwierdzone' || r.zaplaconeO?.slice(0, 7) === miesiac));
+  // FZ-036: strony sprzed pierwszego miesiąca (styczeń 2026, `miesiacZParametrow` od 2026 r.) nie ma, więc zapłata
+  // z wcześniejszą datą stoi na liście pierwszego miesiąca (inaczej nie widać jej nigdzie i nie da się jej cofnąć).
+  const PIERWSZY_MIESIAC_STRONY = '2026-01';
+  const miesiacListy = (dzien: string) => (dzien.slice(0, 7) < PIERWSZY_MIESIAC_STRONY ? PIERWSZY_MIESIAC_STRONY : dzien.slice(0, 7));
+  const zaplatyReczne = odczyt.r.filter((r) => r.reczna && (r.status === 'zatwierdzone' || (r.zaplaconeO !== null && miesiacListy(r.zaplaconeO) === miesiac)));
   if (!wersjeOdczyt.ok) {
     console.error('[ten-miesiac] profil', wersjeOdczyt.e instanceof Error ? wersjeOdczyt.e.message : wersjeOdczyt.e);
     return { ok: false, braki: [BLAD_ODCZYTU_ROZLICZEN], rozliczenia: tegoMiesiaca, zaplatyReczne };

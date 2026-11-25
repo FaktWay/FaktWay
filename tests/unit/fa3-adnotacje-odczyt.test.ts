@@ -127,8 +127,8 @@ describe('annotationsJpkCannotExpress', () => {
   it.each([
     [{ simplifiedProcedure: 1 }, ['procedura trójstronna (P_23)']],
     [{ newMeansOfTransport: 1 }, ['dostawa nowych środków transportu (P_22)']],
-    [{ marginScheme: 'P_PMarzy_2' }, ['procedura marży dla biur podróży (P_PMarzy_2)']],
-    [{ marginScheme: 'P_PMarzy_3_1' }, ['procedura marży — towary używane (P_PMarzy_3_1)']],
+    [{ marginScheme: 'P_PMarzy_2' }, ['procedura marży dla biur podróży']],
+    [{ marginScheme: 'P_PMarzy_3_1' }, ['procedura marży - towary używane']],
     [{ simplifiedProcedure: 2, newMeansOfTransport: 2 }, []],
     [undefined, []],
   ])('%j → %j', (a, labels) => {
