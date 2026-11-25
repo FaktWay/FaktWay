@@ -20,6 +20,8 @@ export type RateLimitBucket =
   | 'accounting_note_email'
   // Proforma i oferta mailem (00198, krok 2.4): limit na firmę jak przy fakturach i notach.
   | 'sales_quote_email'
+  // Potwierdzenie salda mailem (00215, krok 2.9 cz. 2): limit na firmę jak przy notach.
+  | 'balance_confirmation_email'
   | 'invitation'
   // Portal księgowej: strony i pliki (`lib/rate-limit/accountant-portal.ts`, krok 6.2).
   | 'accountant_portal'
