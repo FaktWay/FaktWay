@@ -58,7 +58,8 @@ wystawienia) i:
 - nie łączy przy dwóch kosztach z KSeF z tym samym numerem, kopii wyłączonej
   już przez klienta i koszcie z KSeF poza KPiR (np. przegląd waluty).
 
-Miesiąc złożony: rozliczenie w module (`tax_settlements`), wysyłka JPK_V7M
+Miesiąc złożony: rozliczenie w module zależne od kosztów (`tax_settlements`:
+zaliczka PIT, VAT, składka zdrowotna), wysyłka JPK_V7M
 z FaktWay na bramkę produkcyjną (bez odrzuconej i przerwanej) albo udany
 eksport KPiR lub JPK_V7M za okres z tym miesiącem, jak w zapytaniu operatora
 niżej.

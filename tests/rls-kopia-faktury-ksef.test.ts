@@ -256,12 +256,21 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
       await zadanie(ksef, kopia);
     });
 
-    it('rozliczenie w module za miesiąc kopii (kopia ze stycznia, faktura z KSeF z lutego)', async () => {
-      const { error } = await admin.from('tax_settlements').insert({
-        tenant_id: ORG, okres: '2027-01-01', rodzaj: 'pit', wersja: 1, kwota_gr: 10000, termin: '2027-02-20',
-        migawka: { wejscia: { lancuch: [] }, spoleczneBezFpGr: 0 }, parametry_wersja: 'abcd1234abcd1234', wejscia_hash: 'a'.repeat(64),
-      });
-      if (error) throw new Error(`tax_settlements: ${error.message}`);
+    it('rozliczenie w module zależne od kosztów za miesiąc kopii (kopia ze stycznia, faktura z KSeF z lutego); ryczałt nie blokuje', async () => {
+      const rozliczenie = (rodzaj: string) =>
+        admin.from('tax_settlements').insert({
+          tenant_id: ORG, okres: '2027-01-01', rodzaj, wersja: 1, kwota_gr: 10000, termin: '2027-02-20',
+          migawka: { wejscia: { lancuch: [] }, spoleczneBezFpGr: 0 }, parametry_wersja: 'abcd1234abcd1234', wejscia_hash: 'a'.repeat(64),
+        });
+      const ryczalt = await rozliczenie('ryczalt');
+      if (ryczalt.error) throw new Error(`tax_settlements: ${ryczalt.error.message}`);
+      const ksefRyczalt = await zKsef(ORG, NUMER, '2027-02-05');
+      await koszt(ORG, NUMER, '2027-01-31');
+      expect(await polacz(ORG, ksefRyczalt)).toBe('linked');
+
+      await cleanup();
+      const pit = await rozliczenie('pit');
+      if (pit.error) throw new Error(`tax_settlements: ${pit.error.message}`);
       const ksef = await zKsef(ORG, NUMER, '2027-02-05');
       const kopia = await koszt(ORG, NUMER, '2027-01-31');
       await zadanie(ksef, kopia);

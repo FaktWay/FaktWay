@@ -26,7 +26,8 @@
 --              runnera nie odtwarza ani zadania, ani połączenia.
 --
 -- Bezpiecznik D29, miesiąc złożony (dla miesiąca wystawienia obu kosztów):
--- rozliczenie w module (`tax_settlements`), wysyłka JPK_V7M z FaktWay na
+-- rozliczenie w module zależne od kosztów (`tax_settlements`: zaliczka PIT,
+-- VAT, składka zdrowotna), wysyłka JPK_V7M z FaktWay na
 -- bramkę produkcyjną MF (bez odrzuconej i przerwanej) albo udany eksport KPiR
 -- lub JPK_V7M za okres z tym miesiącem (jak „okresy złożone” w
 -- scripts/ops/koszt-dwa-razy.sql). Wtedy bez łączenia, tylko zadanie.
@@ -116,6 +117,9 @@ REVOKE ALL ON FUNCTION public.expense_document_key(text, text, date) FROM PUBLIC
 GRANT EXECUTE ON FUNCTION public.expense_document_key(text, text, date) TO service_role;
 
 -- Miesiąc złożony (bezpiecznik D29) dla pierwszego dnia miesiąca `p_okres`.
+-- Z rozliczeń modułu liczą się te, których kwota zależy od kosztów: zaliczka
+-- PIT, VAT i składka zdrowotna (na skali i liniowym od dochodu); ryczałt
+-- i składki społeczne od kosztów nie zależą, więc połączenie ich nie zmieni.
 CREATE OR REPLACE FUNCTION public.expense_period_filed(p_tenant_id uuid, p_okres date)
 RETURNS boolean
 LANGUAGE sql
@@ -126,6 +130,7 @@ AS $$
   SELECT EXISTS (
       SELECT 1 FROM public.tax_settlements AS s
        WHERE s.tenant_id = p_tenant_id AND s.okres = p_okres
+         AND s.rodzaj IN ('pit', 'vat', 'zdrowotna')
     )
     OR EXISTS (
       SELECT 1 FROM public.jpk_submissions AS j
