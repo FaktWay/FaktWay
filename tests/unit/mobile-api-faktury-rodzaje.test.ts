@@ -588,6 +588,22 @@ describe('zaliczka z telefonu', () => {
     expect(writes.filter((w) => w.table === 'invoices')).toEqual([]);
   });
 
+  it('rozliczenie z zaliczką, której rozbicie nie wynika ze stawki: 422 z odmową z numerem zaliczki i wyjściem, bez zapisu (ustalenie 19, D8)', async () => {
+    // Zaliczka 1230 zł z rozbiciem 1030 + 200 (wzór: 1000 + 230), zamówienie 1000 zł netto przy 23 %:
+    // reszta netto -30 zł, a zaokrąglenia dają najwyżej -0,02 zł.
+    Object.assign(invoices.find((i) => i.id === ADVANCE)!, { net_total: 1030, vat_total: 200 });
+    const response = await wystaw({
+      wyslij: false,
+      rozliczenie: rozliczenie({ lines: [{ name: 'Projekt strony', unit: 'szt', quantity: 1, unitPriceNet: 1000, vatRate: '23' }] }),
+    });
+    expect(response.status).toBe(422);
+    const blad = await errorOf(response);
+    expect(blad.code).toBe('invoice_invalid');
+    expect(blad.message).toContain('Faktury rozliczającej nie wystawimy z tymi zaliczkami: w stawce 23% reszta netto wychodzi -30,00 zł');
+    expect(blad.message).toContain('Faktura zaliczkowa FZ/9/11/2026 ma VAT 200,00 zł, a ze wzoru z art. 106f ust. 1 pkt 3 ustawy o VAT wychodzi 230,00 zł.');
+    expect(writes.filter((w) => w.table === 'invoices')).toEqual([]);
+  });
+
   it('treść spoza kontraktu (dwa rodzaje naraz, pole spoza): 400 invalid_request', async () => {
     for (const body of [
       { wyslij: false, zaliczka: zaliczka(), korekta: korekta() },
