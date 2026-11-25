@@ -8,8 +8,9 @@
 
 /**
  * Rodzaje wpisów; ta sama lista jest w CHECK `app_notifications_kind_check`
- * (ostatnia definicja: 00197, wpłata do faktury z kolejki
- * `invoice.payment.received.bell`; wcześniej 00192, komentarz i prośba
+ * (ostatnia definicja: 00214, koszt „Do poprawy” od księgowej, zapisywany przez
+ * funkcję bazy `expense_acceptance_decide`; wcześniej 00197, wpłata do faktury
+ * z kolejki `invoice.payment.received.bell`, i 00192, komentarz i prośba
  * o dokument przy koszcie, zapisywane przez funkcję bazy `expense_comment_add`).
  */
 export const APP_NOTIFICATION_KINDS = [
@@ -20,6 +21,7 @@ export const APP_NOTIFICATION_KINDS = [
   'expense_comment',
   'expense_document_request',
   'payment_received',
+  'expense_needs_changes',
 ] as const;
 
 export type AppNotificationKind = (typeof APP_NOTIFICATION_KINDS)[number];

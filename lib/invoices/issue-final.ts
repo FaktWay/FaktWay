@@ -15,6 +15,7 @@ import {
 import { ROZ_SUBMISSION_HOLD_MESSAGE } from '@/lib/ksef/roz-submission-hold';
 import { formatJobSendError } from '@/lib/jobs/error-message';
 import {
+  settlementRoundingRefusal,
   settlementVatSummaries,
   type AdvanceInvoiceSettlementRow,
 } from '@/lib/ksef/fa3-advance-generator';
@@ -394,6 +395,10 @@ async function resolveFinalPayload(
   } catch (e) {
     return { error: e instanceof Error ? e.message.replace(/^FA\(3\) ROZ: /, '') : 'Nie można rozliczyć zaliczek.' };
   }
+  // Ustalenie 19 (D8): ujemna reszta stawki tylko w granicy zaokrągleń, inaczej odmowa
+  // z numerem zaliczki spoza wzoru i wyjściem, zanim powstanie szkic.
+  const rounding = settlementRoundingRefusal(invoiceLineItemsFromDomain(envelope.lines), settlement);
+  if (rounding) return { error: rounding };
 
   return { envelope, settlement };
 }

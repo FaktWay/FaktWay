@@ -2,6 +2,9 @@ import { z } from 'zod';
 import {
   calculateInvoiceTotals,
   calculateLineItem,
+  GROSS_PRICES_UNTAXED_RATES,
+  grossPricedLines,
+  grossPricesUntaxedRateMessage,
   issueDateRangeErrors,
   validateIban,
   validateNipChecksum,
@@ -17,6 +20,7 @@ import {
   xsdLength,
 } from '@/lib/xml/fa3-limits';
 
+import { czyFakturaWCenachBrutto, tekstOdmowyCenBrutto } from '@/lib/invoices/ceny-brutto-wylacznik-wspolne';
 import {
   normalizeCashRegisterNumber,
   receiptInvoiceIssues,
@@ -31,10 +35,19 @@ import {
   PKWIU_PATTERN,
   PKWIU_PATTERN_MESSAGE,
 } from '@/lib/invoices/line-codes';
+import {
+  isOrderCalendarDay,
+  ORDER_DATE_INVALID_MESSAGE,
+  ORDER_DATE_MAX,
+  ORDER_DATE_MIN,
+  ORDER_DATE_TOO_LATE_MESSAGE,
+  ORDER_DATE_WITHOUT_NUMBER_MESSAGE,
+  ORDER_NUMBER_MAX,
+} from '@/lib/invoices/order-reference';
 import { isSaleDateWithinLimit, SALE_DATE_TOO_LATE_MESSAGE } from '@/lib/invoices/sale-date';
 import { addressCountryForKodUE, parseVatUe, type KodUE, isNpIiBuyerVat } from '@/lib/invoices/vat-ue';
 import { numberingFormFields } from '@/lib/numeracja/pola';
-import type { ReceiptInvoiceData } from '@/types/invoice';
+import type { InvoiceLineItem, ReceiptInvoiceData, VatRate } from '@/types/invoice';
 
 /**
  * Kraje adresu nabywcy z UE (AUD-70) — polskie nazwy do formularza.
@@ -206,6 +219,13 @@ export const pkwiuCodeSchema = z
   .refine((v) => v === undefined || v.trim().length <= PKWIU_MAX_LENGTH, PKWIU_LENGTH_MESSAGE)
   .refine((v) => v === undefined || v.trim() === '' || v.trim().length > PKWIU_MAX_LENGTH || PKWIU_PATTERN.test(v.trim()), PKWIU_PATTERN_MESSAGE);
 
+/**
+ * Oznaczenie GTU pozycji (krok 2.6, część 2b): tylko kod z listy; puste pole
+ * = brak oznaczenia. Jeden schemat dla zwykłej faktury i pozycji korekty
+ * (`correctionLineSchema`, część 2b-3).
+ */
+export const gtuCodeSchema = z.union([z.literal(''), z.enum(GTU_CODES)], { message: GTU_CODE_MESSAGE }).optional();
+
 export const lineItemSchema = z.object({
   name: z
     .string()
@@ -234,8 +254,60 @@ export const lineItemSchema = z.object({
   pkwiuCode: pkwiuCodeSchema,
   // Krok 2.6, część 2b-2: oznaczenie GTU pozycji (FA(3) `GTU`, wiersz faktury
   // w JPK_V7M), tylko kod z listy; puste pole = brak oznaczenia.
-  gtuCode: z.union([z.literal(''), z.enum(GTU_CODES)], { message: GTU_CODE_MESSAGE }).optional(),
+  gtuCode: gtuCodeSchema,
 });
+
+/** Pozycja faktury w cenach brutto bez ceny brutto (formularz, przy polu ceny pozycji). */
+export const GROSS_PRICE_REQUIRED_MESSAGE = 'Podaj cenę brutto pozycji';
+
+/**
+ * Cena jednostkowa brutto pozycji (plan cen brutto, PR (b); art. 106e ust. 8
+ * ustawy o VAT, FA(3) `P_9B`): te same granice co cena netto (nieujemna, do
+ * 10 mld zł, najwyżej 4 miejsca jak NUMERIC(14,4)). Puste pole formularz
+ * zapisuje jako brak (`undefined`). Przy cenach brutto brak zgłasza schemat
+ * faktury (`GROSS_PRICE_REQUIRED_MESSAGE`), przy cenach netto pole nie wchodzi
+ * do faktury (zostaje po przełączeniu metody, żeby powrót pokazał wpisaną cenę).
+ */
+export const unitPriceGrossSchema = z
+  .number({ message: GROSS_PRICE_REQUIRED_MESSAGE })
+  .nonnegative('Cena brutto nie może być ujemna')
+  .max(MAX_INVOICE_AMOUNT, 'Cena brutto za duża')
+  .refine((v) => hasAtMostDecimals(v, 4), 'Cena brutto: najwyżej 4 miejsca po przecinku')
+  .optional();
+
+/** Pozycja zwykłej faktury: pozycja jak w proformie (`lineItemSchema`) i cena brutto. */
+const invoiceLineItemSchema = lineItemSchema.extend({ unitPriceGross: unitPriceGrossSchema });
+
+/** Pozycja formularza potrzebna do liczenia w cenach brutto. */
+interface GrossPricedFormLine {
+  name: string;
+  unit: string;
+  quantity: number;
+  unitPriceGross?: number;
+  vatRate: VatRate;
+}
+
+/**
+ * Pozycje faktury w cenach brutto z pozycji formularza (plan cen brutto, PR (b);
+ * RP-FA-BRUTTO-01): numer z kolejności pozycji, cena netto pusta, VAT od sumy
+ * brutto stawki (`grossPricedLines`). Jedno liczenie dla schematu (kwota
+ * faktury do paragonu), budowania faktury (`buildInvoiceFromForm`) i podglądu
+ * sum w formularzu (`toLineItems`). Pozycja bez ceny brutto zostaje bez niej
+ * (brutto 0, bramka wysyłki odmawia), nie dostaje ceny 0 zł.
+ */
+export function grossPricedFormLines(lines: ReadonlyArray<GrossPricedFormLine>): InvoiceLineItem[] {
+  return grossPricedLines(
+    lines.map((line, idx) => ({
+      ordinal: idx + 1,
+      name: line.name,
+      unit: line.unit,
+      quantity: line.quantity,
+      unitPriceNet: 0,
+      ...(line.unitPriceGross !== undefined ? { unitPriceGross: line.unitPriceGross } : {}),
+      vatRate: line.vatRate,
+    })),
+  );
+}
 
 export const invoiceFormSchema = z
   .object({
@@ -288,11 +360,25 @@ export const invoiceFormSchema = z
     buyerVatUe: z.string().optional(),
     /** Kraj adresu nabywcy z UE (`TKodKraju`, Grecja `GR`) — z `EU_BUYER_COUNTRIES`. */
     buyerCountryCode: z.string().optional(),
-    lines: z.array(lineItemSchema).min(1, 'Dodaj co najmniej jedną pozycję'),
+    lines: z.array(invoiceLineItemSchema).min(1, 'Dodaj co najmniej jedną pozycję'),
+    /**
+     * Ceny brutto dla całej faktury (plan cen brutto, PR (b); RP-FA-BRUTTO-01):
+     * pozycje z ceną brutto (`unitPriceGross`), VAT od sumy brutto stawki
+     * (art. 106e ust. 7-9). Jedna metoda na fakturę. Brak albo `false` = ceny
+     * netto, jak dotąd.
+     */
+    pricesGross: z.boolean().optional(),
     paymentMethod: z.enum(['transfer', 'cash', 'card', 'other']),
     paymentDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     bankAccount: z.string().optional(),
     notes: z.string().max(FA3_TEXT_LIMITS.stopkaFaktury.max).refine(xmlSafe, NO_CONTROL_CHARS_MESSAGE).optional(),
+    /**
+     * Numer zamówienia (krok 2.8, FA(3) `Fa/WarunkiTransakcji/Zamowienia`):
+     * opcjonalny, jeden na fakturę; pusty albo z samych spacji to brak.
+     */
+    orderNumber: z.string().max(ORDER_NUMBER_MAX, maxMessage(ORDER_NUMBER_MAX)).refine(xmlSafe, NO_CONTROL_CHARS_MESSAGE).optional(),
+    /** Data zamówienia (`DataZamowienia`): tylko razem z numerem; reguły w `superRefine` niżej. */
+    orderDate: z.string().optional(),
     /** P_18A — mechanizm podzielonej płatności (art. 106e ust. 1 pkt 18a). */
     splitPayment: z.boolean().optional(),
     /**
@@ -346,10 +432,26 @@ export const invoiceFormSchema = z
   })
   .refine(
     (d) =>
-      d.lines.reduce((sum, l) => sum + l.quantity * l.unitPriceNet * (VAT_FACTOR[l.vatRate] ?? 1), 0) <=
+      (d.pricesGross === true
+        ? d.lines.reduce((sum, l) => sum + l.quantity * (l.unitPriceGross ?? 0), 0)
+        : d.lines.reduce((sum, l) => sum + l.quantity * l.unitPriceNet * (VAT_FACTOR[l.vatRate] ?? 1), 0)) <=
       MAX_INVOICE_AMOUNT,
     { message: 'Kwota faktury przekracza 10 mld zł — podziel ją na kilka faktur', path: ['lines'] },
   )
+  // Ceny brutto (plan cen brutto, PR (b); RP-FA-BRUTTO-01): każda pozycja z ceną
+  // brutto, a stawka bez podatku (zw, oo, np, np II) dostaje przy polu stawki to
+  // samo zdanie co w bramce wysyłki (`validateInvoice`), z wyjściem: ceny netto.
+  .superRefine((d, ctx) => {
+    if (!czyFakturaWCenachBrutto(d)) return;
+    d.lines.forEach((l, i) => {
+      if (l.unitPriceGross === undefined) {
+        ctx.addIssue({ code: 'custom', message: GROSS_PRICE_REQUIRED_MESSAGE, path: ['lines', i, 'unitPriceGross'] });
+      }
+      if (GROSS_PRICES_UNTAXED_RATES.has(l.vatRate)) {
+        ctx.addIssue({ code: 'custom', message: grossPricesUntaxedRateMessage(l.vatRate), path: ['lines', i, 'vatRate'] });
+      }
+    });
+  })
   .refine((d) => !d.splitPayment || (d.paymentMethod === 'transfer' && !!d.bankAccount?.trim()), {
     message: 'Mechanizm podzielonej płatności wymaga przelewu — podaj numer rachunku',
     path: ['splitPayment'],
@@ -487,8 +589,11 @@ export const invoiceFormSchema = z
   .superRefine((d, ctx) => {
     if (d.receiptInvoice !== true) return;
     const buyerKind = receiptBuyerKindOfForm(d);
-    // Tylko sumy: puste pole GTU (tekst '') to brak oznaczenia.
-    const lines = d.lines.map((l, i) => ({ ...l, ordinal: i + 1, gtuCode: l.gtuCode || undefined, ...calculateLineItem(l) }));
+    // Tylko sumy: puste pole GTU (tekst '') to brak oznaczenia. Ceny brutto: sumy
+    // jak w fakturze (`grossPricedFormLines`).
+    const lines = d.pricesGross === true
+      ? grossPricedFormLines(d.lines)
+      : d.lines.map((l, i) => ({ ...l, ordinal: i + 1, gtuCode: l.gtuCode || undefined, ...calculateLineItem(l) }));
     const reported = new Set<string>();
     for (const issue of receiptInvoiceIssues({
       receipt: receiptFromFormValues(d, buyerKind),
@@ -504,6 +609,46 @@ export const invoiceFormSchema = z
       reported.add(path);
       ctx.addIssue({ code: 'custom', message: issue.message, path: [path] });
     }
+  })
+  // Numer i data zamówienia (krok 2.8): data bez numeru nie ma sensu w pliku
+  // (`DataZamowienia` bez `NrZamowienia`), a data musi być prawdziwa.
+  .superRefine((d, ctx) => {
+    const date = d.orderDate?.trim() ?? '';
+    if (date === '') return;
+    if ((d.orderNumber?.trim() ?? '') === '') {
+      ctx.addIssue({ code: 'custom', message: ORDER_DATE_WITHOUT_NUMBER_MESSAGE, path: ['orderNumber'] });
+    }
+    if (!isOrderCalendarDay(date) || date < ORDER_DATE_MIN) {
+      ctx.addIssue({ code: 'custom', message: ORDER_DATE_INVALID_MESSAGE, path: ['orderDate'] });
+    } else if (date > ORDER_DATE_MAX) {
+      ctx.addIssue({ code: 'custom', message: ORDER_DATE_TOO_LATE_MESSAGE, path: ['orderDate'] });
+    }
   });
 
 export type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
+
+/** Schemat formularza zwykłej faktury przy danym stanie wyłącznika cen brutto. */
+export interface InvoiceFormSchemaOptions {
+  /**
+   * Wyłącznik faktury w cenach brutto (RP-FA-BRUTTO-01, B4.0 zasada 2): wynik
+   * `cenyBruttoDostepne()` z serwera strony formularza. Przy `false` faktura
+   * w cenach brutto dostaje odmowę z wyjściem (ceny netto), tym samym zdaniem co
+   * odmowa zapisu (`insertInvoiceAndLines`).
+   */
+  cenyBrutto: boolean;
+}
+
+/**
+ * `invoiceFormSchema` (wspólny dla klienta i serwera, przyjmuje ceny brutto)
+ * z wyłącznikiem cen brutto. Schemat nie czyta bazy: formularz dostaje stan
+ * wyłącznika ze strony, a zapis na serwerze i tak sprawdza go sam
+ * (`insertInvoiceAndLines`, `lib/invoices/ceny-brutto-wylacznik.ts`).
+ */
+export function invoiceFormSchemaFor({ cenyBrutto }: InvoiceFormSchemaOptions): typeof invoiceFormSchema {
+  if (cenyBrutto) return invoiceFormSchema;
+  return invoiceFormSchema.superRefine((d, ctx) => {
+    if (czyFakturaWCenachBrutto(d)) {
+      ctx.addIssue({ code: 'custom', message: tekstOdmowyCenBrutto('zapis', 'wylaczone'), path: ['pricesGross'] });
+    }
+  });
+}

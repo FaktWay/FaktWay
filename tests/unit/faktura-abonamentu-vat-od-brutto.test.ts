@@ -259,6 +259,16 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('FZ-008: faktura za abonament od brutto przechodzi wysyłkę do KSeF', () => {
+  // B2a: job wysyłki wysyła zwykłą fakturę tylko do końca następnego dnia roboczego po
+  // dacie wystawienia (`lib/ksef/special-issue-date.ts`), a data faktury za abonament to
+  // dzień płatności (00162). Zegar stoi więc w dniu płatności, jak na produkcji, gdzie
+  // wysyłka idzie zaraz po płatności. Na prawdziwym zegarze test byłby czerwony od 17.11.2026.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-14T12:00:00.000Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
   it('20,99 zł (29,99 zł z kodem rabatowym 30 %): runner wystawia fakturę 17,07 + 3,92, a job wysyłki przyjmuje ją do KSeF', async () => {
     const { rpcInvoice, sentInvoice } = await wystawIWyslij(2099);
 
@@ -316,7 +326,7 @@ describe('FZ-008: niezmiennik faktury za abonament na kwotach brutto', () => {
       }),
       { numRuns: 2000 },
     );
-  });
+  }, 600_000);
 });
 
 /** Faktura z jedną pozycją o podanych kwotach (bez przeliczania) — tylko do sprawdzania walidatora. */

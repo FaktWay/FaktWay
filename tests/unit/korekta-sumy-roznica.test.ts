@@ -47,7 +47,7 @@ vi.mock('@/lib/supabase/server', () => ({
                 seller_data: { nip: '1234567890', name: 'Firma testowa', address: { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' } },
                 buyer_data: { nip: '1234567890', name: 'Nabywca testowy', address: { countryCode: 'PL', addressLine1: 'ul. Testowa 2', addressLine2: '00-002 Warszawa' } },
               }
-            : { id: '11111111-1111-4111-8111-111111111111', nip: '1234567890', name: 'Firma testowa', address_json: null },
+            : { id: '11111111-1111-4111-8111-111111111111', nip: '1234567890', name: 'Firma testowa', address_json: { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' } },
           error: null,
         }),
         // Pozycje faktury pierwotnej (#63 czyta je z bazy, nie z formularza).

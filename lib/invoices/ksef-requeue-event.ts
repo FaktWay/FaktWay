@@ -16,7 +16,9 @@
  *
  * Decyzja Bartosza 06.10.2026 (b): pełna wysyłka KOR/ZAL/ROZ z kopii tylko
  * w dniu wystawienia (lustro bezpiecznika 00147 przy zleceniu; worker odmawia
- * po północy sam). Uzgodnienie („Tylko uzgodnij”, I5) datę pomija — nie wysyła.
+ * po północy sam); B2a: zwykła faktura do końca następnego dnia roboczego po
+ * dacie wystawienia (worker odmawia po terminie sam). Uzgodnienie („Tylko
+ * uzgodnij”, I5) datę pomija — nie wysyła.
  *
  * Każdy `select`, z którego powstaje wiersz źródłowy, zawiera
  * `KSEF_RESEND_SOURCE_COLUMNS`; kolumna niepobrana (`undefined`, w odróżnieniu
@@ -26,7 +28,7 @@
 import type { JobEvent } from '@/lib/jobs/enqueue';
 import type { AdvanceInvoiceSettlementRow } from '@/lib/ksef/fa3-advance-generator';
 import { isKindHeldForEnv } from '@/lib/ksef/kind-holds';
-import { specialIssueDateIsToday } from '@/lib/ksef/special-issue-date';
+import { issueDateRuleOf, issueDateSendable } from '@/lib/ksef/special-issue-date';
 import type { Invoice } from '@/types/invoice';
 import type { AdvanceInvoiceData, CorrectionInvoiceData, FinalInvoiceData } from '@/types/invoice-types';
 import type { KsefEnvironment } from '@/types/ksef';
@@ -129,17 +131,19 @@ export function ksefSendDataStatus(row: KsefResendSourceRow): 'stored' | 'missin
 
 export function ksefResendFacts(row: KsefResendSourceRow, env: KsefEnvironment | null, now: Date = new Date()): KsefResendFacts {
   const payload = storedSendPayload(row);
-  // Decyzja Bartosza 06.10.2026 (b): lustro bezpiecznika 00147 przy zleceniu — runner czyta
-  // fa3_data.issueDate, hak sesji datę P_1 z danych dokumentu; tu oba i kolumna.
-  // Usunąć razem z nim, gdy B2 obejmie wszystkie rodzaje.
-  const dates = payload
-    ? [row.issue_date, payload.invoice.issueDate,
-      payload.correctionData?.issueDate ?? payload.advanceData?.issueDate ?? payload.finalData?.issueDate]
-    : [row.issue_date];
+  // Lustro bezpiecznika daty przy zleceniu (`lib/ksef/special-issue-date.ts`): runner
+  // czyta fa3_data.issueDate, hak sesji datę P_1 (dokument specjalny: z jego danych,
+  // 00147; zwykła faktura: fa3_data.issueDate, B2a); tu wszystkie i kolumna.
+  const rule = issueDateRuleOf(row.invoice_kind);
+  const dates = [row.issue_date];
+  if (payload) dates.push(payload.invoice.issueDate);
+  if (payload && rule === 'special') {
+    dates.push(payload.correctionData?.issueDate ?? payload.advanceData?.issueDate ?? payload.finalData?.issueDate);
+  }
   return {
     sendData: payload ? 'stored' : 'missing',
     kindHeld: isKindHeldForEnv(row.invoice_kind, env),
-    issueDatePassed: row.invoice_kind !== 'regular' && !dates.every((date) => specialIssueDateIsToday(date, now)),
+    issueDatePassed: !dates.every((date) => issueDateSendable(rule, date, now)),
   };
 }
 

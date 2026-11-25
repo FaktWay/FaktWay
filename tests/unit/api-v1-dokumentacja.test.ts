@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import spec from '@/lib/api/v1/openapi.json';
 import { EXPENSE_LIST_PARAMS } from '@/lib/api/v1/expenses';
-import { INVOICE_LIST_PARAMS } from '@/lib/api/v1/invoices';
+import { INVOICE_LIST_PARAMS, toApiItem } from '@/lib/api/v1/invoices';
 import { API_KEY_SCOPES } from '@/lib/api/v1/keys';
 import { API_ERROR_CODES } from '@/lib/api/v1/responses';
 import { INVOICE_CREATE_FIELDS } from '@/lib/api/v1/invoice-create';
@@ -105,6 +105,15 @@ describe('opis OpenAPI 3.1', () => {
     expect(Object.keys(create.properties ?? {}).sort()).toEqual([...INVOICE_CREATE_FIELDS.invoice].sort());
     expect(Object.keys(schemas.InvoiceCreateItem!.properties ?? {}).sort()).toEqual([...INVOICE_CREATE_FIELDS.item].sort());
     expect(Object.keys(schemas.InvoiceCreateBuyer!.properties ?? {}).sort()).toEqual([...INVOICE_CREATE_FIELDS.buyer].sort());
+  });
+
+  it('pozycja faktury w odpowiedzi: pola w opisie to dokładnie pola z kodu, z ceną brutto (ustalenie 9)', () => {
+    const schemas = spec.components.schemas as unknown as Record<string, SchemaObject>;
+    const item = schemas.InvoiceItem!;
+    const fields = Object.keys(toApiItem({ ordinal: 1 })).sort();
+    expect(fields).toContain('unit_price_gross');
+    expect(Object.keys(item.properties ?? {}).sort()).toEqual(fields);
+    expect([...(item.required ?? [])].sort()).toEqual(fields);
   });
 });
 

@@ -68,6 +68,13 @@ export function isPolishBusinessDay(isoDate: string): boolean {
   return !polishHolidays(Number(isoDate.slice(0, 4))).has(isoDate);
 }
 
+/** Ostatni dzień roboczy przed `isoDate` (`YYYY-MM-DD`), bez samego `isoDate`. */
+export function lastBusinessDayBefore(isoDate: string): string {
+  let day = addDays(isoDate, -1);
+  while (!isPolishBusinessDay(day)) day = addDays(day, -1);
+  return day;
+}
+
 /** Koniec dnia (23:59:59.999) w czasie Europe/Warsaw jako chwila UTC. */
 function endOfWarsawDay(isoDate: string): Date {
   const [y, m, d] = isoDate.split('-').map(Number) as [number, number, number];

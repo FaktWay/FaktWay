@@ -5,6 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { cenyBruttoDostepne } from '@/lib/invoices/ceny-brutto-wylacznik';
 import { sanitizeSearch } from '@/lib/invoices/list-query';
 import { listProducts } from '@/lib/produkty/baza';
 import type { ProductListItem } from '@/lib/produkty/model';
@@ -23,7 +24,9 @@ function first(value: string | string[] | undefined): string {
  * Produkty i usługi (plan kompletnej aplikacji, krok 2.6, część 1): katalog
  * firmy na tabeli `products`. Szukanie po nazwie (`?q=`) i „pokaż
  * zarchiwizowane” (`?zarchiwizowane=1`) są w adresie. Błąd odczytu to
- * komunikat, nie pusta lista („nie wiem” to nie „brak”).
+ * komunikat, nie pusta lista („nie wiem” to nie „brak”). Cena brutto produktu
+ * (plan cen brutto, PR (d)) tylko przy włączonym wyłączniku `grossPricesEnabled`
+ * (`cenyBruttoDostepne`, błąd odczytu = wyłączony).
  */
 export default async function ProductsPage({
   searchParams,
@@ -35,6 +38,8 @@ export default async function ProductsPage({
   const q = sanitizeSearch(first(sp.q));
   const archived = first(sp.zarchiwizowane) === '1';
 
+  // Odczyt wyłącznika równolegle z listą; `cenyBruttoDostepne` nie rzuca.
+  const grossPricesRead = cenyBruttoDostepne();
   let rows: ProductListItem[] = [];
   let readFailed = false;
   try {
@@ -43,6 +48,7 @@ export default async function ProductsPage({
     console.error('[produkty] lista:', error);
     readFailed = true;
   }
+  const grossPrices = await grossPricesRead;
 
   const qParam = q ? `q=${encodeURIComponent(q)}` : '';
   const toggleHref = archived
@@ -55,10 +61,13 @@ export default async function ProductsPage({
         <div>
           <h1 className='text-2xl font-semibold tracking-tight'>Produkty i usługi</h1>
           <p className='text-muted-foreground text-sm'>
-            Katalog pozycji, które wystawiasz najczęściej: nazwa, jednostka, cena netto i stawka VAT.
+            {grossPrices
+              ? 'Katalog pozycji, które wystawiasz najczęściej: nazwa, jednostka, cena netto, cena brutto i stawka VAT.'
+              : 'Katalog pozycji, które wystawiasz najczęściej: nazwa, jednostka, cena netto i stawka VAT.'}
           </p>
         </div>
         <ProductFormDialog
+          grossPrices={grossPrices}
           trigger={
             <Button>
               <RiAddLine />
@@ -99,7 +108,7 @@ export default async function ProductsPage({
         </Card>
       ) : (
         <Card className='flex-1 shadow-none'>
-          <ProductsList rows={rows} />
+          <ProductsList rows={rows} grossPrices={grossPrices} />
         </Card>
       )}
     </div>

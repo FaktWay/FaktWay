@@ -140,7 +140,20 @@ export default async function TenMiesiacPage({ searchParams }: { searchParams: P
 
       {canEdit || dane.zaplatyReczne.length > 0 ? <ZaplatySpozaWyliczenia zaplaty={dane.zaplatyReczne} canEdit={canEdit} dzis={dzis} miesiac={miesiac} /> : null}
 
-      {dane.rozliczenia.length > 0 ? <Historia rozliczenia={dane.rozliczenia} canEdit={canEdit} dzis={dzis} /> : null}
+      {dane.rozliczenia.length > 0 ? (
+        <Historia
+          rozliczenia={dane.rozliczenia}
+          canEdit={canEdit}
+          dzis={dzis}
+          // FZ-034: kontrolkę wyżej ma najnowsza wersja przy swojej pozycji w „Do zapłaty” i każda zapłata spoza wyliczenia z listy.
+          zKontrolkaWyzej={
+            new Set([
+              ...(dane.ok ? dane.pozycje.flatMap((p) => aktualne(dane.rozliczenia).get(p.rodzaj)?.id ?? []) : []),
+              ...dane.zaplatyReczne.map((r) => r.id),
+            ])
+          }
+        />
+      ) : null}
     </div>
   );
 }
@@ -245,8 +258,12 @@ function StatusRozliczenia({
     ostatnia.status === 'zaplacone' && ostatnia.zaplaconeO
       ? `Zapłacono ${formatIsoDatePl(ostatnia.zaplaconeO)} (${wersja}: ${zl(ostatnia.kwotaGr)}).`
       : zaplaconoGr > 0
-        ? `Zatwierdzone (${wersja}: ${zl(ostatnia.kwotaGr)}); wcześniejsza wersja jest zapłacona (${zl(zaplaconoGr)}), ` +
-          `więc do dopłaty zostaje ${zl(Math.max(0, ostatnia.kwotaGr - zaplaconoGr))}.`
+        ? p.ok
+          ? `Zatwierdzone (${wersja}: ${zl(ostatnia.kwotaGr)}); wcześniejsza wersja jest zapłacona (${zl(zaplaconoGr)}), ` +
+            `więc do dopłaty zostaje ${zl(Math.max(0, ostatnia.kwotaGr - zaplaconoGr))}.`
+          : // FZ-030: przy braku w bieżących danych dopłata z kwoty zatwierdzonej wersji byłaby nieaktualna.
+            `Zatwierdzone (${wersja}: ${zl(ostatnia.kwotaGr)}); wcześniejsza wersja jest zapłacona (${zl(zaplaconoGr)}). ` +
+            'Według bieżących danych tej pozycji nie liczymy (powód wyżej), więc dopłaty też nie.'
         : `Zatwierdzone (${wersja}).`;
   const zmiana =
     p.ok && ostatnia.wejsciaHash !== p.wejsciaHash
@@ -336,7 +353,8 @@ function NadwyzkaVat({ vat, miesiac }: { vat: VatWyniku; miesiac: string }) {
 /**
  * Zapłaty spoza wyliczenia (K7.2, D15): składki za okres, którego moduł nie
  * liczy, z kwotą z PUE ZUS. Lista pokazuje zapłacone w tym miesiącu i te,
- * którym brakuje daty zapłaty (wtedy datę ustawia się tutaj).
+ * którym brakuje daty zapłaty (wtedy datę ustawia się tutaj); w pierwszym
+ * miesiącu ekranu także zapłacone wcześniej, bo strony za 2025 r. nie ma (FZ-036).
  */
 function ZaplatySpozaWyliczenia({ zaplaty, canEdit, dzis, miesiac }: { zaplaty: Rozliczenie[]; canEdit: boolean; dzis: string; miesiac: string }) {
   const koniec = monthRange(miesiac).to;
@@ -382,9 +400,21 @@ function ZaplatySpozaWyliczenia({ zaplaty, canEdit, dzis, miesiac }: { zaplaty: 
   );
 }
 
-function Historia({ rozliczenia, canEdit, dzis }: { rozliczenia: Rozliczenie[]; canEdit: boolean; dzis: string }) {
-  // Starszą wersję da się oznaczyć albo poprawić tutaj; najnowszą przy rozliczeniu wyżej.
-  const najnowsze = new Set([...aktualne(rozliczenia).values()].map((r) => r.id));
+function Historia({
+  rozliczenia,
+  canEdit,
+  dzis,
+  zKontrolkaWyzej,
+}: {
+  rozliczenia: Rozliczenie[];
+  canEdit: boolean;
+  dzis: string;
+  /** Id wersji, które mają kontrolkę wyżej: najnowsza przy swojej pozycji w „Do zapłaty” i zapłaty spoza wyliczenia z listy. */
+  zKontrolkaWyzej: ReadonlySet<string>;
+}) {
+  // Każda wersja ma dokładnie jedną kontrolkę: tutaj, gdy nie ma jej wyżej. Najnowsza bez pozycji wyżej (miesiąc się nie
+  // liczy, pozycji tego rozliczenia już nie ma) też tutaj, inaczej jej zapłaty nie da się cofnąć (FZ-034).
+  const najnowsze = zKontrolkaWyzej;
   return (
     <Card>
       <CardContent className="flex flex-col gap-3">

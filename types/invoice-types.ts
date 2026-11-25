@@ -101,8 +101,11 @@ export interface BuyerEU {
 /** Nabywca korekty — ten sam co na fakturze pierwotnej, także firma z UE. */
 export type CorrectionBuyer = BuyerData | BuyerEU;
 
-/** Stawki bez VAT, które korekta kwotowa przejmuje z faktury pierwotnej. */
-export type ZeroVatAmountChangeRate = 'np' | 'np_ii' | 'oo';
+/**
+ * Stawki bez VAT, które korekta kwotowa przejmuje z faktury pierwotnej; „zw” od
+ * ustalenia 29 (faktura firmy zwolnionej z VAT, podstawa z faktury korygowanej).
+ */
+export type ZeroVatAmountChangeRate = 'np' | 'np_ii' | 'oo' | 'zw';
 
 // ============================================================================
 // Pozycja faktury
@@ -117,6 +120,23 @@ export interface InvoiceLine {
   vatRate: '23' | '8' | '5' | '0' | 'oo' | 'np' | 'np_ii' | 'zw';
   pkwiuCode?: string;
   gtuCode?: string;
+  /**
+   * Cena brutto pozycji faktury liczonej od brutto (korekta faktury za
+   * abonament): znak, że korekta pozycji („przed/po”) tej faktury liczyłaby
+   * stan po inną metodą niż faktura (odmowa), a VAT korekty kwotowej może
+   * być od brutto. Kwoty stanu przed ma `recordedAmounts`. Nadaje ją tylko
+   * serwer korekty z kwot zapisanej pozycji.
+   */
+  unitPriceGross?: number;
+  /**
+   * Kwoty pozycji z zapisu faktury korygowanej (`invoice_line_items`): stan
+   * przed korekty to faktura, jak ją wystawiono, a nie liczona od nowa. Faktury
+   * sprzed naprawy ilość × cena mają czasem grosz mniej (VAT 8,16 od 35,50 zł
+   * zamiast 8,17), faktura za abonament liczy od brutto. Nadaje je tylko serwer
+   * korekty stanowi przed; pozycja „po” bez zmian bierze kwoty swojej pozycji
+   * „przed” (`correctionStateAmounts` w `lib/invoices/calculator.ts`).
+   */
+  recordedAmounts?: { netAmount: number; vatAmount: number; grossAmount: number };
 }
 
 // ============================================================================
@@ -158,8 +178,15 @@ export interface CorrectionInvoiceData extends InvoiceCommonFields {
   /**
    * Adnotacje faktury pierwotnej przejmowane przez korektę (AUD-23):
    * P_16 metoda kasowa, P_18A mechanizm podzielonej płatności (1 = tak, 2 = nie).
+   * Plan zero C3: podstawa zwolnienia z VAT (P_19A, z pliku KSeF także P_19B
+   * albo P_19C) dla pozycji „zw”, jak w fakturze korygowanej.
    */
-  annotations?: { cashMethod?: 1 | 2; splitPayment?: 1 | 2 };
+  annotations?: {
+    cashMethod?: 1 | 2;
+    splitPayment?: 1 | 2;
+    vatExemptionBasis?: string;
+    vatExemptionBasisKind?: 'P_19A' | 'P_19B' | 'P_19C';
+  };
 
   // Korekty typu amount_change (zwroty/rabaty)
   amountChange?: {

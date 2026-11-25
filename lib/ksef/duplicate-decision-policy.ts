@@ -365,6 +365,9 @@ function faktflowOriginalOptions(ctx: FaktflowContext): DuplicateDecisionView {
   };
 }
 
+/** Decyzja o numerze zajętym w KSeF przy fakturze zakupu (RPC i tak odmawia, P0002): powód i wyjście (ustalenie 30). */
+const DUPLICATE_DECISION_PURCHASE = 'Ta faktura jest fakturą zakupu, a decyzja o numerze zajętym w KSeF dotyczy tylko faktur sprzedaży wystawionych w FaktWay. Odśwież listę faktur.';
+
 /**
  * Co klient (albo operator) może zrobić z fakturą przy nierozstrzygniętym 440.
  * Kolejność odmów = blokada SQL (2.1.2), potem nieznane środowisko, inne
@@ -373,6 +376,7 @@ function faktflowOriginalOptions(ctx: FaktflowContext): DuplicateDecisionView {
  * (ponowienie po zgubionej odpowiedzi; RPC odpowiada wtedy `already_decided`).
  * PR C: `faktflow-original` — `faktflowOriginalOptions` (kody 00156, 4.5).
  */
+
 export function duplicateDecisionOptions(input: DuplicateDecisionOptionsInput): DuplicateDecisionView {
   const { facts, actor, environment } = input;
   const inv = facts.invoice;
@@ -402,8 +406,10 @@ export function duplicateDecisionOptions(input: DuplicateDecisionOptionsInput): 
     };
   };
 
-  // 1. not-found (RPC: P0002 przed wszystkim innym).
-  if (!inv || inv.direction !== 'outgoing') return refused('not-found', KSEF_SEND_MESSAGES.notFound);
+  // 1. not-found (RPC: P0002 przed wszystkim innym). Faktura zakupu istnieje, więc dostaje
+  // własne zdanie zamiast „mogła zostać usunięta” (ustalenie 30); kod blokady ten sam.
+  if (!inv) return refused('not-found', KSEF_SEND_MESSAGES.notFound);
+  if (inv.direction !== 'outgoing') return refused('not-found', DUPLICATE_DECISION_PURCHASE);
 
   // Idempotencja (RPC krok 2): zapisana decyzja — nie odmowa, tylko jej widok.
   const taken = retiredRow(subs);

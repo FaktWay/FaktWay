@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { JobContext } from '@/lib/jobs/registry';
+import { BLAD_ODCZYTU_VAT } from '@/lib/ksiegowosc/vat-dane';
 
 /**
  * Crony modułu księgowości (plan księgowości JDG, K5, sekcja 9): push
@@ -126,7 +127,7 @@ const baza = {
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => baza }));
 
 const { runKsiegowoscMiesiac } = await import('@/lib/jobs/runners/ksiegowosc-miesiac');
-const { runKsiegowoscTerminy } = await import('@/lib/jobs/runners/ksiegowosc-terminy');
+const { PONOWIENIA_TERMINOW, runKsiegowoscTerminy } = await import('@/lib/jobs/runners/ksiegowosc-terminy');
 
 const ctx = { step: { run: (_n: string, fn: () => unknown) => fn() }, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } } as unknown as JobContext;
 
@@ -182,6 +183,97 @@ describe('F11-B1: składki społeczne po końcu ulgi na start', () => {
     mocks.dane = { ...POLICZONE, pozycje: [pozycja('ryczalt', 120_000), pozycja('zus_spoleczne', 0), pozycja('zdrowotna', 49_835)] };
     expect(await runKsiegowoscTerminy(ctx)).toMatchObject({ wyslane: 1 });
     expect(mocks.pushe[0].payload.body).not.toContain('składki społeczne');
+  });
+});
+
+describe('FZ-030: brak w szkicu po zatwierdzeniu, przez cały runner', () => {
+  // Ryczałt za październik zatwierdzony (1536 zł), potem bieżące dane dają przy nim brak: push, mail i dzwonek
+  // wymieniają ryczałt bez kwoty zatwierdzonej wersji, bo „Ten miesiąc” pokazuje brak.
+  const zatwierdzona = {
+    id: 'r1', miesiac: '2026-10', rodzaj: 'ryczalt', wersja: 1, kwotaGr: 153_600, termin: '2026-11-20', status: 'zatwierdzone',
+    wejsciaHash: H, zatwierdzoneO: '2026-11-02T10:00:00Z', zaplaconeO: null, spoleczneBezFpGr: 0, reczna: false,
+  };
+  const brak = { ok: false, rodzaj: 'ryczalt', termin: null, brak: 'Ewidencja przychodów ma braki w miesiącach: październik 2026.' };
+
+  it('push, mail i dzwonek wymieniają ryczałt bez kwoty zatwierdzonej wersji', async () => {
+    mocks.dzis = '2026-11-15';
+    mocks.dane = { ...POLICZONE, pozycje: [brak, pozycja('zus_spoleczne', 192_676), pozycja('zdrowotna', 83_058)], rozliczenia: [zatwierdzona] };
+    expect(await runKsiegowoscTerminy(ctx)).toMatchObject({ wyslane: 1 });
+    expect(mocks.pushe[0].payload.body).toContain('ryczałt');
+    // Treść maila i wpisu w dzwonku sprawdzamy niżej, więc najpierw to, że oba wyszły.
+    expect(mocks.maile).toHaveLength(1);
+    expect(mocks.dzwonek).toHaveLength(1);
+    const teksty = [JSON.stringify(mocks.pushe[0].payload), JSON.stringify(mocks.maile.map((m) => m.payload)), JSON.stringify(mocks.dzwonek.map((d) => d.args))];
+    for (const t of teksty) expect(t).not.toMatch(/1[\s\u00a0\u202f]?536,00/);
+  });
+
+  describe('D32: błąd odczytu danych VAT', () => {
+    const bladVat = { ok: false, rodzaj: 'vat', termin: null, brak: BLAD_ODCZYTU_VAT };
+    const zBledemVat = { ...POLICZONE, pozycje: [...POLICZONE.pozycje, bladVat], rozliczenia: [] };
+
+    it('20.11 (VAT za październik, termin 25.11): bez przypomnienia bez kwoty, zadanie do ponowienia; po udanym odczycie jedno przypomnienie z kwotą', async () => {
+      mocks.dzis = '2026-11-20';
+      mocks.dane = zBledemVat;
+      await expect(runKsiegowoscTerminy(ctx)).rejects.toThrow('do ponowienia');
+      expect([mocks.pushe, mocks.maile, mocks.dzwonek, mocks.wpisy.size]).toEqual([[], [], [], 0]);
+
+      mocks.dane = { ...POLICZONE, pozycje: [...POLICZONE.pozycje, pozycja('vat', 374_500)] };
+      expect(await runKsiegowoscTerminy(ctx)).toMatchObject({ wyslane: 1 });
+      expect([mocks.pushe.length, mocks.maile.length, [...mocks.wpisy.keys()]]).toEqual([1, 1, ['t1|2026-10|termin-5:2026-11-25']]);
+      expect(String(mocks.pushe[0].payload.body)).toMatch(/VAT 3\s?745,00 zł/);
+    });
+
+    it('15.11 (ryczałt i ZUS, termin 20.11): błąd odczytu VAT niczego nie zatrzymuje', async () => {
+      mocks.dzis = '2026-11-15';
+      mocks.dane = zBledemVat;
+      expect(await runKsiegowoscTerminy(ctx)).toMatchObject({ wyslane: 1 });
+      expect(String(mocks.pushe[0].payload.body)).toContain('ryczałt');
+      expect(String(mocks.pushe[0].payload.body)).not.toContain('VAT');
+    });
+
+    it('ostatnia próba (stały błąd odczytu): przypomnienie o VAT bez kwoty i wpis w Sentry, nie utrata etapu', async () => {
+      const Sentry = await import('@sentry/nextjs');
+      vi.mocked(Sentry.captureException).mockClear();
+      mocks.dzis = '2026-11-20';
+      mocks.dane = zBledemVat;
+      expect(await runKsiegowoscTerminy({ ...ctx, attempt: PONOWIENIA_TERMINOW })).toMatchObject({ wyslane: 1 });
+      expect(String(mocks.pushe[0].payload.body)).toContain('Bez oznaczonej zapłaty: VAT.');
+      expect(mocks.wpisy.get('t1|2026-10|termin-5:2026-11-25')).toMatchObject({ status: 'sent' });
+      expect(vi.mocked(Sentry.captureException)).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('po ponowieniach') }),
+        expect.objectContaining({ extra: expect.objectContaining({ krok: 'vat-ostatnia-proba' }) }),
+      );
+      // Przedostatnia próba nadal czeka na ponowienie.
+      mocks.wpisy = new Map();
+      await expect(runKsiegowoscTerminy({ ...ctx, attempt: PONOWIENIA_TERMINOW - 1 })).rejects.toThrow('do ponowienia');
+    });
+
+    it('ostatnia próba przy VAT oznaczonym jako zapłacony: bez zdania po zapłacie (błąd odczytu to nie brak z danych), wpis w Sentry', async () => {
+      const Sentry = await import('@sentry/nextjs');
+      vi.mocked(Sentry.captureException).mockClear();
+      mocks.dzis = '2026-11-20';
+      const zaplaconyVat = {
+        id: 'v1', miesiac: '2026-10', rodzaj: 'vat', wersja: 1, kwotaGr: 374_500, termin: '2026-11-25', status: 'zaplacone',
+        wejsciaHash: H, zatwierdzoneO: '2026-11-02T10:00:00Z', zaplaconeO: '2026-11-03', spoleczneBezFpGr: 0, reczna: false,
+      };
+      mocks.dane = { ...zBledemVat, rozliczenia: [zaplaconyVat] };
+      expect(await runKsiegowoscTerminy({ ...ctx, attempt: PONOWIENIA_TERMINOW })).toMatchObject({ wyslane: 0, pominiete: 1 });
+      expect([mocks.pushe, mocks.maile, mocks.dzwonek, mocks.wpisy.size]).toEqual([[], [], [], 0]);
+      expect(vi.mocked(Sentry.captureException)).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('po ponowieniach') }),
+        expect.objectContaining({ extra: expect.objectContaining({ krok: 'vat-ostatnia-proba' }) }),
+      );
+    });
+  });
+
+  it('D31: miesiąc się nie liczy w ogóle: push, mail i dzwonek wymieniają ryczałt bez kwoty zatwierdzonej wersji', async () => {
+    mocks.dzis = '2026-11-15';
+    mocks.dane = { ok: false, braki: ['Brak ustawień firmy w module.'], rozliczenia: [zatwierdzona] };
+    expect(await runKsiegowoscTerminy(ctx)).toMatchObject({ wyslane: 1 });
+    expect([mocks.pushe.length, mocks.maile.length, mocks.dzwonek.length]).toEqual([1, 1, 1]);
+    expect(String(mocks.pushe[0].payload.body)).toContain('ryczałt');
+    const teksty = [JSON.stringify(mocks.pushe[0].payload), JSON.stringify(mocks.maile.map((m) => m.payload)), JSON.stringify(mocks.dzwonek.map((d) => d.args))];
+    for (const t of teksty) expect(t).not.toMatch(/1\s?536,00/);
   });
 });
 

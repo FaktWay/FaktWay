@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { RiErrorWarningLine } from '@remixicon/react';
 
 import { buttonVariants } from '@/components/ui/button';
+import { ODMOWA_DUBLA_KOSZTU } from '@/lib/expenses/jeden-koszt-dokumentu';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 
 const PREFIX = 'Raport wstrzymany: ';
@@ -43,8 +44,9 @@ export function KpirBlocked({
   period: string;
   blockingInvoices: readonly { id: string; number: string }[];
 }) {
-  // Bez faktur na liście jedyną możliwą przyczyną jest koszt KSeF.
-  const costCause = KSEF_COST_CAUSE.test(message) || blockingInvoices.length === 0;
+  // Bez faktur na liście jedyną możliwą przyczyną jest koszt KSeF; ten sam dokument
+  // kosztu dwa razy (FZ-022) ma wyjście w kosztach miesiąca także obok faktur z listy.
+  const costCause = KSEF_COST_CAUSE.test(message) || message.startsWith(ODMOWA_DUBLA_KOSZTU) || blockingInvoices.length === 0;
 
   return (
     <div className="flex flex-1 items-center justify-center p-6">

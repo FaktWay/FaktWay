@@ -51,7 +51,10 @@ interface DraftRow {
 
 export type NumberTakenRow = Pick<DuplicateDecisionSubmissionRow, 'id' | 'status' | 'original_ksef_number' | 'original_check' | 'completed_at'>;
 
-export const DRAFT_NOT_FOUND = 'Nie znaleziono faktury w tej organizacji.';
+/** Brak faktury w firmie: powód i wyjście (ustalenie 25). */
+export const DRAFT_NOT_FOUND = 'Nie znaleziono faktury w tej firmie. Mogła zostać usunięta albo w innej karcie wybrano inną firmę. Odśwież listę faktur.';
+/** Błąd bazy przy odczycie szkicu to nie brak faktury: klient spróbuje ponownie. */
+export const DRAFT_READ_FAILED = 'Nie udało się odczytać faktury, więc jej nie wysłaliśmy. Spróbuj ponownie za chwilę.';
 export const ONLY_DRAFT_CAN_BE_SENT = 'Do KSeF można wysłać tylko szkic.';
 
 /**
@@ -82,7 +85,8 @@ export async function sendRegularDraft(ctx: DraftSendContext, invoiceId: string)
     .eq('id', invoiceId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
-  if (error || !row) return refused(DRAFT_NOT_FOUND, 'not_found');
+  if (error) return refused(DRAFT_READ_FAILED);
+  if (!row) return refused(DRAFT_NOT_FOUND, 'not_found');
 
   const draft = row as DraftRow;
   if (draft.ksef_status !== 'draft') return refused(ONLY_DRAFT_CAN_BE_SENT, 'not_draft');

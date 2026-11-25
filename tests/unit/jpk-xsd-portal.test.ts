@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ breakXml: false }));
+const mocks = vi.hoisted(() => ({ breakXml: false, bladDanych: null as Error | null }));
 
 vi.mock('@sentry/nextjs', () => ({ captureException: () => 'err-1' }));
 vi.mock('@/lib/audit/log-system', () => ({ logAuditSystem: vi.fn() }));
@@ -20,7 +20,9 @@ vi.mock('@/lib/supabase/admin', () => ({
   }),
 }));
 vi.mock('@/lib/exports/data-fetcher', () => ({
-  fetchInvoicesForExport: async () => ({
+  fetchInvoicesForExport: async () => {
+    if (mocks.bladDanych) throw mocks.bladDanych;
+    return {
     issuer: { nip: '5260001246', name: 'ACME' },
     issuedInvoices: [
       {
@@ -31,7 +33,8 @@ vi.mock('@/lib/exports/data-fetcher', () => ({
     ],
     receivedInvoices: [],
     expenses: [],
-  }),
+    };
+  },
 }));
 vi.mock('@/lib/exports/issuer-address', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/exports/issuer-address')>()),
@@ -71,6 +74,7 @@ const pobierz = () =>
 
 beforeEach(() => {
   mocks.breakXml = false;
+  mocks.bladDanych = null;
 });
 
 describe('portal: JPK_FA tylko zgodny ze schematem MF', () => {
@@ -86,5 +90,23 @@ describe('portal: JPK_FA tylko zgodny ze schematem MF', () => {
     expect(odp.status).toBe(422);
     const body = (await odp.json()) as { error: string };
     expect(body.error).toMatch(/schematem Ministerstwa Finansów/);
+  });
+});
+
+describe('portal: KPiR z tym samym dokumentem kosztu dwa razy (FZ-022)', () => {
+  it('422 z numerem dokumentu i wyjściem, bez pliku', async () => {
+    const { ZdublowanyKosztError } = await import('@/lib/expenses/jeden-koszt-dokumentu');
+    mocks.bladDanych = new ZdublowanyKosztError({ numer: 'FV/7/02/2027', sprzedawca: 'Sklep Przykład', ile: 2, zKsef: true });
+
+    const odp = await POST(new NextRequest('https://app.example.test/api/portal/exports/generate', {
+      method: 'POST',
+      headers: { 'x-accountant-token': 'token-ksiegowej' },
+      body: JSON.stringify({ tenantId: TENANT, format: 'kpir_excel', periodStart: '2026-09-01', periodEnd: '2026-09-30' }),
+    }));
+
+    expect(odp.status).toBe(422);
+    const body = (await odp.json()) as { error: string };
+    expect(body.error).toContain('FV/7/02/2027');
+    expect(body.error).toContain('Uwzględnij w KPiR');
   });
 });

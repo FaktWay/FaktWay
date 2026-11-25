@@ -238,8 +238,9 @@ describe('klucz PDF w pamięci podręcznej', () => {
     const bez = buildInvoicePdfKey('ten-1', 'inv-1', '2026-11-02', WZOR_QR, NUMER_KSEF);
     expect(buildInvoicePdfKey('ten-1', 'inv-1', '2026-11-02', WZOR_QR, NUMER_KSEF, null)).toBe(bez);
     const z = buildInvoicePdfKey('ten-1', 'inv-1', '2026-11-02', WZOR_QR, NUMER_KSEF, 'tenants/ten-1/logo/a.png');
-    // v8 (krok 2.6, część 2b-3c): PKWiU i GTU pod nazwą pozycji; zmiana wydruku podbija wersję (pdf-storage.ts).
-    expect(z).toMatch(/^ten-1\/2026\/11\/inv-1\.v8\.[0-9a-f]{32}\.l[0-9a-f]{16}\.pdf$/);
+    // v9 (krok 2.8): wiersz „Zamówienie” przy fakturze z numerem zamówienia; zmiana wydruku podbija wersję (pdf-storage.ts).
+    // v10 (plan zero C2, W8): numer VAT UE sprzedawcy przy usłudze „np II”.
+    expect(z).toMatch(/^ten-1\/2026\/11\/inv-1\.v10\.[0-9a-f]{32}\.l[0-9a-f]{16}\.pdf$/);
     expect(z).not.toBe(bez);
     expect(buildInvoicePdfKey('ten-1', 'inv-1', '2026-11-02', WZOR_QR, NUMER_KSEF, 'tenants/ten-1/logo/b.png')).not.toBe(z);
     expect(invoicePdfQrStateKey(z)).toBe(bez);

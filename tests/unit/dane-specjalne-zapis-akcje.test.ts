@@ -93,7 +93,7 @@ vi.mock('@/lib/supabase/server', () => ({
                 seller_data: { nip: '1234567890', name: 'Firma testowa', address: { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' } },
                 buyer_data: { nip: '1234567890', name: 'Nabywca testowy', address: { countryCode: 'PL', addressLine1: 'ul. Testowa 2', addressLine2: '00-002 Warszawa' } },
               }
-            : { id: TENANT, nip: '1234567890', name: 'Firma testowa', address_json: null },
+            : { id: TENANT, nip: '1234567890', name: 'Firma testowa', address_json: { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' } },
           error: null,
         }),
         then: (ok: (v: unknown) => unknown) => Promise.resolve(table === 'invoice_line_items'

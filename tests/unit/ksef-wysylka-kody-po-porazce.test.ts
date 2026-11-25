@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { JobContext } from '@/lib/jobs/registry';
 import type { Invoice } from '@/types/invoice';
+import { todayInWarsaw } from '@/lib/format/warsaw-date';
 import { KsefApiError } from '@/lib/ksef/client';
 
 /**
@@ -140,6 +141,11 @@ const ctx: JobContext = {
   step: { run: async (_n, fn) => fn(), sleep: vi.fn(), sendEvent: mocks.sendEvent, scheduleAfter: vi.fn() },
 };
 
+// B2a: zwykła faktura wychodzi do KSeF do końca następnego dnia roboczego po dacie
+// wystawienia, a bezpiecznik runnera i haka sesji liczy od prawdziwego zegara —
+// faktura przechodząca przez wysyłkę ma więc datę „dziś” w Polsce (stała data by się zestarzała).
+const TODAY_PL = todayInWarsaw();
+
 function event(environment: 'test' | 'production' = 'test') {
   return {
     invoiceId: ID,
@@ -147,7 +153,7 @@ function event(environment: 'test' | 'production' = 'test') {
     nip: '1234567890',
     environment,
     sendAttemptId: ATTEMPT,
-    invoice: { type: 'VAT', internalNumber: 'FV/1', issueDate: '2026-10-01' } as Invoice,
+    invoice: { type: 'VAT', internalNumber: 'FV/1', issueDate: TODAY_PL } as Invoice,
   };
 }
 
@@ -176,7 +182,7 @@ beforeEach(() => {
   mocks.invoice = {
     id: ID, direction: 'outgoing', ksef_status: 'queued', ksef_number: null, ksef_environment: 'test',
     invoice_type: 'VAT', invoice_kind: 'regular', internal_number: 'FV/1',
-    fa3_data: { type: 'VAT', internalNumber: 'FV/1', issueDate: '2026-10-01' },
+    fa3_data: { type: 'VAT', internalNumber: 'FV/1', issueDate: TODAY_PL },
   };
   mocks.updates = [];
   mocks.claim = '2026-10-03T12:00:00.000000+00:00';

@@ -97,6 +97,12 @@ describe('JPK_FA(4): „np_ii” i nabywca z UE', () => {
     expect(PLIK).not.toContain('np_ii');
   });
 
+  it('W8: faktura z np II ma P_4A = PL przed P_4B (NIP sprzedawcy z prefiksem, jak FA(3)); faktura bez np II bez P_4A', () => {
+    expect(f).toMatch(/<P_3D>[^<]*<\/P_3D>\s*<P_4A>PL<\/P_4A>\s*<P_4B>5260001246<\/P_4B>/);
+    const krajowa = fragment(PLIK, '<P_2A>FV/1/09</P_2A>', '</Faktura>');
+    expect(krajowa).not.toContain('<P_4A>');
+  });
+
   it('nabywca z UE: P_5A = kod kraju, P_5B = numer bez prefiksu (w tej kolejności)', () => {
     expect(f).toMatch(/<P_4B>5260001246<\/P_4B>\s*<P_5A>DE<\/P_5A>\s*<P_5B>123456789<\/P_5B>/);
   });

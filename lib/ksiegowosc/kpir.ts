@@ -22,7 +22,9 @@
  *
  * Fundusz Pracy i FS z zapłaconych składek ZUS (K7.3, D21) FaktWay dopisuje
  * sam: wiersz kolumny 13 w dniu zapłaty, z przyrostu jak odliczenia
- * (`zaplatyFunduszuPracy`).
+ * (`zaplatyFunduszuPracy`). Okres, którego wersje różnie dzielą zapłaconą
+ * kwotę między FP i część bez FP, to brak w dniu każdej jego zapłaty
+ * (`zmianyPodzialu`, FZ-027).
  *
  * Każdy problem to brak z nazwą dokumentu i wyjściem; okres z brakiem nie ma
  * sum ani pliku (fail-closed).
@@ -142,6 +144,96 @@ export function zaplatyFunduszuPracy(zaplaty: readonly ZaplaconeSkladki[]): Zapl
   return wynik.sort((a, b) => a.data.localeCompare(b.data) || a.id.localeCompare(b.id));
 }
 
+/** Zapłacona wersja składek społecznych w komunikacie zmiany podziału (FZ-027). */
+export interface WersjaPodzialu {
+  wersja: number;
+  /** RRRR-MM-DD: dzień zapłaty. */
+  data: string;
+  kwotaGr: number;
+  bezFpGr: number;
+}
+
+/** Okres składek społecznych, którego zapłacone wersje różnie dzielą kwotę między FP i część bez FP (FZ-027). */
+export interface ZmianaPodzialu {
+  /** RRRR-MM: okres składek. */
+  okres: string;
+  /** Dni zapłaty wszystkich zapłaconych wersji okresu, rosnąco: każdy liczy się z podziału okresu, więc każdy dostaje brak. */
+  dni: string[];
+  /** Dwie wersje, które się nie zgadzają (numerem wcześniejsza pierwsza), do komunikatu. */
+  wersje: [WersjaPodzialu, WersjaPodzialu];
+}
+
+const wersjaPodzialu = (z: ZaplaconeSkladki): WersjaPodzialu => ({ wersja: z.wersja, data: z.zaplaconeO, kwotaGr: z.kwotaGr, bezFpGr: z.spoleczneBezFpGr });
+
+/**
+ * Okresy, w których zapłacone wersje składek społecznych dzielą kwotę różnie
+ * między FP i część bez FP (FZ-027). Przyrosty (`zaplatyFunduszuPracy`,
+ * `przyrostyZaplat`) liczą kwotę i część bez FP osobno, każde ponad najwyższą
+ * wcześniejszą wartość, a podział okresu ustala wersja najwyższa (ostatnia
+ * numerem z największą kwotą). Okres się nie zgadza, gdy:
+ * - któraś wersja zwiększa część bez FP bardziej niż kwotę (także wersja
+ *   z niższą kwotą): FP i odliczenie z tych samych pieniędzy;
+ * - któraś wersja ma część bez FP albo FP większe niż wersja najwyższa
+ *   (np. ta sama kwota z innym podziałem): FP w odliczeniu albo odliczenie
+ *   z podziału, którego nie ma.
+ * Nadpłata (wersja niższa w obu częściach) i dopłata (obie części nie maleją)
+ * to zwykłe przyrosty. Taki okres to brak w dniu każdej jego zapłaty (KPiR
+ * i każda kwota „Ten miesiąc”, która liczy się z odliczeń tych miesięcy),
+ * z wyjściem: „Cofnij” wersji z błędnym podziałem.
+ */
+export function zmianyPodzialu(zaplaty: readonly ZaplaconeSkladki[]): ZmianaPodzialu[] {
+  const grupy = new Map<string, ZaplaconeSkladki[]>();
+  for (const z of zaplaty) grupy.set(z.okres, [...(grupy.get(z.okres) ?? []), z]);
+  const wynik: ZmianaPodzialu[] = [];
+  for (const [okres, lista] of grupy) {
+    const wersje = [...lista].sort((a, b) => a.wersja - b.wersja);
+    let para: [ZaplaconeSkladki, ZaplaconeSkladki] | null = null;
+    // Przyrost części bez FP większy niż przyrost kwoty, liczone jak w przyrostach.
+    let kwota = 0;
+    let bezFp = 0;
+    let ustalila: ZaplaconeSkladki | null = null;
+    for (const z of wersje) {
+      if (!para && Math.max(0, z.spoleczneBezFpGr - bezFp) > Math.max(0, z.kwotaGr - kwota)) para = [ustalila ?? z, z];
+      if (z.kwotaGr >= kwota) ustalila = z;
+      kwota = Math.max(kwota, z.kwotaGr);
+      bezFp = Math.max(bezFp, z.spoleczneBezFpGr);
+    }
+    // Wersja, która nie mieści się w podziale wersji najwyższej.
+    const najwyzsza = wersje.filter((z) => z.kwotaGr === kwota).at(-1);
+    if (!para && najwyzsza) {
+      const fp = najwyzsza.kwotaGr - najwyzsza.spoleczneBezFpGr;
+      const inna = wersje.find((z) => z.spoleczneBezFpGr > najwyzsza.spoleczneBezFpGr || z.kwotaGr - z.spoleczneBezFpGr > fp);
+      if (inna) para = inna.wersja < najwyzsza.wersja ? [inna, najwyzsza] : [najwyzsza, inna];
+    }
+    if (!para) continue;
+    wynik.push({
+      okres,
+      dni: [...new Set(wersje.map((z) => z.zaplaconeO))].sort(),
+      wersje: [wersjaPodzialu(para[0]), wersjaPodzialu(para[1])],
+    });
+  }
+  return wynik.sort((a, b) => a.okres.localeCompare(b.okres));
+}
+
+/** Komunikat braku przy zmianie podziału (FZ-027); `skutek` mówi, czego nie liczymy. */
+export function brakZmianyPodzialu(z: ZmianaPodzialu, skutek: string): string {
+  const okres = monthLabel(z.okres);
+  const opis = (w: WersjaPodzialu) =>
+    `wersja ${w.wersja} zapłacona ${formatIsoDatePl(w.data)} (${kwotaTekst(w.kwotaGr)} zł, w tym bez Funduszu Pracy i FS ${kwotaTekst(w.bezFpGr)} zł)`;
+  const [a, b] = z.wersje;
+  const wersje =
+    a.wersja === b.wersja
+      ? `${opis(a)} ma część bez Funduszu Pracy i FS większą niż cała kwota`
+      : `${opis(a)} i ${opis(b)} dzielą kwotę inaczej między Fundusz Pracy i FS a pozostałe składki`;
+  return (
+    `Składki ZUS za ${okres}: ${wersje}, więc ${skutek}. Właściwy podział jest w deklaracji DRA w PUE ZUS. ` +
+    `Wersję z błędnym podziałem cofa się na stronie FaktWay przyciskiem „Cofnij” w „Ten miesiąc” za ${okres} (przy składkach albo w historii wersji), ` +
+    'a zapłatę spoza wyliczenia w „Ten miesiąc” za miesiąc jej zapłaty.'
+  );
+}
+
+const dowodSkladek = (okres: string) => `Składki ZUS za ${okres.slice(5, 7)}/${okres.slice(0, 4)}`;
+
 export interface WejscieKpir {
   rok: number;
   /** Faktury sprzedaży; `kontrahent.nazwa` i `adres` z danych nabywcy. */
@@ -150,6 +242,8 @@ export interface WejscieKpir {
   wpisy: readonly WpisKpir[];
   /** Fundusz Pracy i FS z zapłaconych składek (K7.3); bez pola: brak takich zapłat. */
   zaplatyFp?: readonly ZaplataFp[];
+  /** Okresy składek, których wersje różnie dzielą kwotę (`zmianyPodzialu`, FZ-027): brak w dniu każdej zapłaty okresu; bez pola: brak takich okresów. */
+  zmianyPodzialu?: readonly ZmianaPodzialu[];
   wersje: readonly WersjaProfilu[];
   kursy: ReadonlyMap<string, KursPrzychodu>;
 }
@@ -378,7 +472,7 @@ export function zbudujKpir(wejscie: WejscieKpir): Kpir {
 
   for (const z of wejscie.zaplatyFp ?? []) {
     if (!wRoku(z.data, rok)) continue;
-    const dowod = `Składki ZUS za ${z.zaMiesiac.slice(5, 7)}/${z.zaMiesiac.slice(0, 4)}`;
+    const dowod = dowodSkladek(z.zaMiesiac);
     const nalezy = dzienKsiegi(wersje, z.data, dowod);
     if (!nalezy.tak) {
       if (nalezy.brak) braki.push({ dzien: z.data, dokument: dowod, komunikat: nalezy.brak });
@@ -398,6 +492,20 @@ export function zbudujKpir(wejscie: WejscieKpir): Kpir {
       uwagi: null,
       zrodlo: { typ: 'zaplata', id: z.id },
     });
+  }
+
+  // FZ-027: okres, którego wersje różnie dzielą zapłaconą kwotę, to brak w dniu każdej jego zapłaty (wiersze FP zostają, sum okresu nie ma).
+  for (const z of wejscie.zmianyPodzialu ?? []) {
+    const dowod = dowodSkladek(z.okres);
+    for (const dzien of z.dni) {
+      if (!wRoku(dzien, rok)) continue;
+      const nalezy = dzienKsiegi(wersje, dzien, dowod);
+      const komunikat = nalezy.tak ? brakZmianyPodzialu(z, 'KPiR za okres z tym dniem nie ma sum ani pliku') : nalezy.brak;
+      // Dzień bez ustawień: ten sam brak mógł już dopisać wiersz FP z tego dnia.
+      if (komunikat && !braki.some((b) => b.dzien === dzien && b.dokument === dowod && b.komunikat === komunikat)) {
+        braki.push({ dzien, dokument: dowod, komunikat });
+      }
+    }
   }
 
   // Przychody przed kosztami w tym samym dniu, jak KPiR w aplikacji.

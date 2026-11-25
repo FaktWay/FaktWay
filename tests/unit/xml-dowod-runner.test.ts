@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { JobContext } from '@/lib/jobs/registry';
 import type { Invoice } from '@/types/invoice';
+import { addDaysToIsoDate, todayInWarsaw } from '@/lib/format/warsaw-date';
 
 /**
  * C-12 na prawdziwym runnerze: wiersz `xml_documents` dostaje skrót pliku,
@@ -102,15 +103,20 @@ import { runSubmitInvoice } from '@/lib/jobs/runners/submit-invoice';
 import { KsefInvoiceRejectedError } from '@/lib/ksef/submit';
 import { finalizeInvoice } from '@/lib/xml/invoice-calculator';
 
+// B2a: zwykła faktura wychodzi do KSeF do końca następnego dnia roboczego po dacie
+// wystawienia, a bezpiecznik runnera i haka sesji liczy od prawdziwego zegara —
+// faktura przechodząca przez wysyłkę ma więc datę „dziś” w Polsce (stała data by się zestarzała).
+const TODAY_PL = todayInWarsaw();
+
 const faktura = () => finalizeInvoice({
   internalNumber: 'FV 2026/10/001',
   type: 'VAT',
-  issueDate: '2026-10-01',
-  saleDate: '2026-10-01',
+  issueDate: TODAY_PL,
+  saleDate: TODAY_PL,
   seller: { nip: '5260001246', name: 'ACME', address: { countryCode: 'PL', addressLine1: 'ul. A 1', addressLine2: '00-001 Warszawa' } },
   buyer: { nip: '5252241585', name: 'Klient', address: { countryCode: 'PL', addressLine1: 'ul. B 2', addressLine2: '02-001 Warszawa' } },
   lines: [{ ordinal: 1, name: 'Usługa', unit: 'usł.', quantity: 1, unitPriceNet: 100, vatRate: '23' }],
-  payment: { currency: 'PLN', dueDate: '2026-10-15', method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
+  payment: { currency: 'PLN', dueDate: addDaysToIsoDate(TODAY_PL, 14)!, method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
 });
 
 const ctx: JobContext = {

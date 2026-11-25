@@ -11,6 +11,8 @@ import type { JobContext } from '@/lib/jobs/registry';
 
 import { categorizeExpense } from '@/lib/categorization';
 import { createProposal } from '@/lib/flo/proposals';
+import { polaczKopieFakturyKsef } from '@/lib/expenses/kopia-faktury-ksef';
+import { configuredKsefEnvironment } from '@/lib/ksef/claim-environment';
 import {
   buildExpenseReviewProposal,
   buildOcrFailedProposal,
@@ -311,6 +313,24 @@ export async function runProcessOcr(data: Parameters<typeof ocrProcessPhotoReque
         | { kind: 'fresh'; trace: Database['public']['Tables']['ocr_jobs']['Update'] }
         | { kind: 'saved'; isReviewed: boolean },
     ) => {
+      // FZ-022, D29 (00215): zdjęcie faktury, która jest już w Kosztach z KSeF, łączy się z kosztem z KSeF, także po
+      // ponowieniu (drugie wywołanie nic nie zmienia). Fail-open: koszt ze zdjęcia jest zapisany, a odczyt okresu i tak
+      // odmawia przy dublu (#839), więc błąd idzie do logu i Sentry bez porażki zadania OCR. Bez przełącznika
+      // `KOSZTY_LACZ_KOPIE_KSEF` nic się nie dzieje.
+      await step.run('link-ksef-copy', async () => {
+        try {
+          const wynik = await polaczKopieFakturyKsef(supabase, { tenantId, expenseId, environment: configuredKsefEnvironment() });
+          if (wynik !== 'wylaczone') logger.info('OCR: kopia faktury z KSeF', { ocrJobId, expenseId, wynik });
+        } catch (e) {
+          logger.warn('OCR: nie udało się połączyć kopii faktury z kosztem z KSeF', {
+            ocrJobId,
+            expenseId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+          Sentry.captureException(e, { tags: { job: 'process-ocr', step: 'link-ksef-copy' }, extra: { ocrJobId, tenantId, expenseId } });
+        }
+      });
+
       await step.run('mark-completed', async () => {
         const { error } = await supabase
           .from('ocr_jobs')

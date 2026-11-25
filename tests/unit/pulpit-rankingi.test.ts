@@ -239,11 +239,11 @@ describe('getTopProducts — najlepiej sprzedające się (§2.4 pkt 13)', () => 
     const reads: Read[] = [];
     const result = await products(invs, lines, NOW, reads);
     expect(result).toEqual([expect.objectContaining({ name: 'Abonament', net: 1500 })]);
-    // Paczka 100 faktur: strony 0–499 i 500–999; paczka 50 faktur: jedna strona.
+    // Paczka 100 faktur: strony 0–499 i 499–998 (druga od zakładki, FZ-017); paczka 50 faktur: jedna strona.
     // Sesja 19 (QRY-05): paczki idą naraz, więc pierwsza strona drugiej paczki
     // wychodzi przed drugą stroną pierwszej; strony jednej paczki dalej po kolei.
     expect(pagedReads(reads, 'invoice_line_items').map((r) => [r.inSize, r.range]))
-      .toEqual([[100, [0, 499]], [50, [0, 499]], [100, [500, 999]]]);
+      .toEqual([[100, [0, 499]], [50, [0, 499]], [100, [499, 998]]]);
   });
 
   it('501 faktur: faktury na 2 stronach, pozycje w 6 paczkach .in, suma pełna', async () => {
@@ -252,7 +252,7 @@ describe('getTopProducts — najlepiej sprzedające się (§2.4 pkt 13)', () => 
     const reads: Read[] = [];
     const result = await products(invs, lines, NOW, reads);
     expect(result).toEqual([expect.objectContaining({ name: 'Serwis', net: 1002 })]);
-    expect(pagedReads(reads, 'invoices').map((r) => r.range)).toEqual([[0, 499], [500, 999]]);
+    expect(pagedReads(reads, 'invoices').map((r) => r.range)).toEqual([[0, 499], [499, 998]]);
     expect(pagedReads(reads, 'invoice_line_items').map((r) => r.inSize))
       .toEqual([100, 100, 100, 100, 100, 1]);
   });
@@ -312,7 +312,7 @@ describe('getTopClients — najwięksi klienci', () => {
     const result = await clients(invs, NOW, reads);
     expect(result).toEqual([expect.objectContaining({ key: 'nip:1234567890', net: 12030 })]);
     expect(pagedReads(reads, 'invoices').map((r) => r.range))
-      .toEqual([[0, 499], [500, 999], [1000, 1499]]);
+      .toEqual([[0, 499], [499, 998], [998, 1497]]);
   });
 
   it('korekta in minus obniża klienta w swoim miesiącu', async () => {

@@ -31,7 +31,9 @@ import { ActionAuthError, requireOrgRole } from '@/lib/supabase/auth-context';
  * Zapłata spoza wyliczenia (K7.2, D15) dopisuje wersję rozliczenia z kwotą
  * z PUE ZUS i od razu ją oznacza jako zapłaconą. Nie ma klucza: drugi klik
  * dopisuje kolejną wersję, a odliczenie liczy tylko przyrost ponad najwyższą
- * zapłaconą wersję tego okresu (`przyrostyZaplat`), więc kwota się nie dubluje.
+ * zapłaconą wersję tego okresu (`przyrostyZaplat`), więc kwota się nie dubluje;
+ * wersja z innym podziałem między FP i część bez FP to brak okresu do
+ * „Cofnij” błędnej wersji (`zmianyPodzialu`, FZ-027).
  */
 
 export type { WynikZatwierdzenia, WynikZaplaty } from '@/lib/ksiegowosc/ten-miesiac-zapis';

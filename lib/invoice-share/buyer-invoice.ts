@@ -50,6 +50,8 @@ export interface BuyerInvoiceLine {
   /** Krok 2.6, część 2b-3c: poprawne PKWiU i GTU pozycji z dokumentu faktury (jak w pliku FA(3)). */
   pkwiu_code?: string;
   gtu_code?: string;
+  /** Ceny brutto (00211): cena jednostkowa brutto (P_9B) z dokumentu faktury w cenach brutto. */
+  unit_price_gross?: number;
 }
 
 export interface BuyerInvoiceView {
@@ -122,6 +124,8 @@ const lineSchema = z.object({
   // 00210: kody pozycji z `fa3_data.lines`; widok sprzed migracji ich nie ma.
   pkwiu_code: text.optional(),
   gtu_code: text.optional(),
+  // 00211: cena brutto pozycji faktury w cenach brutto (jsonb z dokumentu; tylko liczba się liczy).
+  unit_price_gross: z.unknown().optional(),
 });
 
 /** Kształt odpowiedzi `invoice_share_link_view`; inny kształt to błąd (strona niedostępna), nie pusta faktura. */
@@ -174,12 +178,13 @@ function party(raw: z.infer<typeof partySchema>): BuyerParty {
 
 /** Pozycja dla strony: kody tylko poprawne (jak w pliku FA(3)), bez pustych pól. */
 function buyerLine(raw: ViewRow['invoice']['lines'][number]): BuyerInvoiceLine {
-  const { pkwiu_code: pkwiu, gtu_code: gtu, ...line } = raw;
+  const { pkwiu_code: pkwiu, gtu_code: gtu, unit_price_gross: gross, ...line } = raw;
   const codes = documentLineCodes([{ ordinal: line.ordinal, pkwiuCode: pkwiu, gtuCode: gtu }]).get(line.ordinal);
   return {
     ...line,
     ...(codes?.pkwiuCode ? { pkwiu_code: codes.pkwiuCode } : {}),
     ...(codes?.gtuCode ? { gtu_code: codes.gtuCode } : {}),
+    ...(line.unit_price_net == null && typeof gross === 'number' && Number.isFinite(gross) ? { unit_price_gross: gross } : {}),
   };
 }
 

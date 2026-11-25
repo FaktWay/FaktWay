@@ -25,11 +25,18 @@
         "faktury.fa3"
       ],
       "kod": [
-        "lib/ksef/fa3-correction-generator.ts#generateCorrectionInvoiceXml"
+        "lib/ksef/fa3-correction-generator.ts#generateCorrectionInvoiceXml",
+        "lib/invoices/calculator.ts#correctionStateAmounts",
+        "lib/invoices/issue-correction.ts#saveCorrectionDraft",
+        "lib/exports/data-fetcher.ts#fetchInvoicesForExport"
       ],
       "testy": [
         "tests/unit/korekta-sumy-roznica.test.ts > przed/po: różnica, nie wartość po korekcie",
-        "tests/filtr/xsd/fa3-korekta.test.ts > „przed/po”: XSD"
+        "tests/filtr/xsd/fa3-korekta.test.ts > „przed/po”: XSD",
+        "tests/unit/korekta-stara-faktura.test.ts > korekta „przed/po” 1 → 2",
+        "tests/unit/korekta-stara-faktura.test.ts > anulowanie: różnica to kwoty faktury z minusem",
+        "tests/unit/korekta-stara-faktura.test.ts > „przed/po” z pozycją bez zmian",
+        "tests/unit/korekta-stara-faktura.test.ts > 6,75 × 4216,86 z netto 28 463,80"
       ],
       "parametry": [],
       "niezmienniki": [],
@@ -39,7 +46,7 @@
         "opis": "opis P_13_1 i P_14_1 w schemacie FA(3): dla faktur korygujących „kwota różnicy, o której mowa w art. 106j ust. 2 pkt 5 ustawy”",
         "sprawdzono": "2026-11-09"
       },
-      "interpretacja": null,
+      "interpretacja": "Stan przed to faktura korygowana, jak ją wystawiono: kwoty pozycji z jej zapisu (invoice_line_items: net_amount, vat_amount, gross_amount; w kopercie korekty recordedAmounts, nadaje je tylko serwer, z żądania usuwane), nie liczone od nowa z ilości × ceny. Faktury sprzed naprawy ilość × cena mają czasem grosz mniej niż dzisiejsze liczenie (VAT 8,16 od 35,50 zł zamiast 8,17, art. 106e ust. 11), a faktura za abonament liczy od brutto. Stan po: pozycja bez zmian (ta sama nazwa, j.m., ilość, cena netto i stawka, parowanie jak w correctionLinePairs) ma kwoty swojej pozycji „przed”, więc nie robi różnicy; pozycja zmieniona albo dopisana liczy się od ilości × ceny netto (calculateLineItem). Jedno liczenie (correctionStateAmounts) dla pliku FA(3) KOR, sum korekty, pozycji korekty w bazie (stan przed kolejnej korekty), stanów korekty w JPK i podglądu w formularzu. Koperta korekty sprzed zapisu kwot (bez recordedAmounts) liczy stan przed od ilości × ceny.",
       "do_rozstrzygniecia": null,
       "sprawdzil": {
         "ksiegowa": null,
@@ -234,6 +241,249 @@
       "zrodlo_planu": "F10 (wiedza dla funkcji działających dziś)",
       "stan": "dziala",
       "uwagi": "NZ-FA-01 i NZ-FA-10 na losowych fakturach sprawdza tests/filtr/xsd/fa3.test.ts."
+    },
+    {
+      "id": "RP-FA-KOR-02",
+      "regula": "Korekta faktury liczonej od brutto (faktura za abonament FaktWay) liczy stan przed tak jak faktura: VAT pozycji od wartości brutto, wartość netto jako brutto minus podatek, każda kwota do grosza, więc anulowanie wykazuje kwoty faktury z minusem co do grosza. Korekta kwotowa takiej faktury przyjmuje VAT różnicy liczony od brutto, gdy żadna stawka nie pasuje od netto. Korekty pozycji („przed/po”) faktury od brutto FaktWay nie wystawia (stan po liczyłby od netto): odmowa z wyjściem (anulowanie albo korekta kwotowa).",
+      "podstawa": [
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106e ust. 7, 9, 10 i 11 (faktura w cenach brutto: kwota podatku od wartości sprzedaży brutto, wartość netto jako różnica, zaokrąglenie do grosza)"
+        },
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106j ust. 2 pkt 5 (kwota korekty podstawy opodatkowania i podatku)"
+        },
+        {
+          "akt": "schemat FA(3) Ministerstwa Finansów (lib/xml/schemas/fa3/schemat.xsd)",
+          "przepis": "opis pól P_13_1 i P_14_1 faktury korygującej (kwota różnicy)"
+        }
+      ],
+      "obowiazuje": {
+        "od": "2026-01-01",
+        "do": null
+      },
+      "obszary": [
+        "faktury.korekty",
+        "faktury.kwoty",
+        "faktury.fa3"
+      ],
+      "kod": [
+        "lib/xml/invoice-calculator.ts#calculateLineItem",
+        "lib/xml/invoice-calculator.ts#vatFromGrossGrosze",
+        "lib/invoices/correction-amount-change.ts#resolveAmountChangeVatRate",
+        "lib/invoices/issue-correction.ts#saveCorrectionDraft",
+        "lib/invoices/issue-correction.ts#getCorrectionParentContext",
+        "lib/ksef/fa3-correction-generator.ts#generateCorrectionInvoiceXml",
+        "lib/xml/invoice-calculator.ts#amountsFollowNetPrice",
+        "lib/xml/invoice-calculator.ts#vatFromNetCents",
+        "lib/invoices/calculator.ts#correctionStateAmounts"
+      ],
+      "testy": [
+        "tests/unit/korekta-od-brutto.test.ts > anulowanie: różnica to kwoty faktury z minusem co do grosza",
+        "tests/unit/korekta-od-brutto.test.ts > korekta kwotowa zwrotu liczonego od brutto",
+        "tests/unit/korekta-od-brutto.test.ts > korekta pozycji („przed / po”) faktury od brutto: odmowa z wyjściem",
+        "tests/unit/korekta-od-brutto.test.ts > VAT korekty kwotowej od brutto do faktury liczonej od netto: odmowa",
+        "tests/unit/korekta-od-brutto.test.ts > cena brutto z żądania w pozycji „po” faktury od netto się nie liczy",
+        "tests/unit/korekta-od-brutto.test.ts > dla każdej ceny brutto 0,01-10 000 zł",
+        "tests/unit/korekta-od-brutto.test.ts > pozycja od netto z netto ≠ ilość × cena",
+        "tests/unit/korekta-od-brutto.test.ts > drobne korekty kwotowe od netto mają jedną stawkę",
+        "tests/unit/korekta-od-brutto.test.ts > przegląd do 2000 zł",
+        "tests/unit/vat-od-netto-reszta.test.ts > FZ-025: korekta kwotowa rozpoznaje stawkę",
+        "tests/unit/vat-od-netto-reszta.test.ts > FZ-025: akcja korekty kwotowej",
+        "tests/unit/korekta-od-brutto.test.ts > pozycja z importu z ceną brutto z pliku (P_9B)",
+        "tests/unit/korekta-od-brutto.test.ts > JPK_V7M: anulowanie faktury od brutto",
+        "tests/unit/korekta-od-brutto.test.ts > pozycje liczone od netto (ilość × cena, VAT od netto)",
+        "tests/filtr/xsd/fa3-korekta.test.ts > pozycje z ceną brutto: XSD",
+        "tests/unit/korekta-stara-faktura.test.ts > kontekst formularza: bez odmowy",
+        "tests/unit/korekta-stara-faktura.test.ts > połówka grosza w dół z innego programu"
+      ],
+      "parametry": [],
+      "niezmienniki": [],
+      "pewnosc": "wysoka",
+      "wzorzec": {
+        "poziom": 4,
+        "opis": "art. 106e ust. 7, 9, 10 i 11 ustawy o VAT (faktura w cenach brutto: podatek od wartości brutto, netto jako różnica, grosze) i opis P_13_1 i P_14_1 w schemacie FA(3) dla faktury korygującej (kwota różnicy, art. 106j ust. 2 pkt 5)",
+        "sprawdzono": "2026-11-17"
+      },
+      "interpretacja": "Pozycja faktury jest od brutto, gdy jej zapisanych kwot (invoice_line_items: net_amount, vat_amount, gross_amount) nie odtwarza wzór od netto, także z połówką grosza zaokrągloną w dowolną stronę (amountsFollowNetPrice: dawne liczenie na liczbach zmiennoprzecinkowych i zaokrąglenia innych programów na połówce), a odtwarza je wzór od brutto z ceną brutto = brutto / ilość (fetchParentInvoiceLines). Taka pozycja niesie w kopercie korekty znak metody: cenę brutto (unitPriceGross, nadaje ją tylko serwer, z żądania usuwana). Kwoty stanu przed każdej pozycji (od netto i od brutto) są z zapisu (recordedAmounts, RP-FA-KOR-01): w pliku FA(3) KOR, w sumach korekty, w dokumencie korekty i w stanach korekty w JPK, więc anulowanie wykazuje kwoty faktury z minusem co do grosza. Pozycja, której kwoty odtwarzają oba wzory, zostaje od netto. Przy ilości 1 wzór od brutto odtwarza każdą spójną pozycję z VAT od brutto, więc cenę brutto dostaje też pozycja od netto, której netto nie wynika z ilości × ceny poza połówką grosza (np. import z ceną 10,13 i netto 10,12, zaokrąglenia z innego programu): anulowanie i korekta kwotowa odtwarzają jej kwoty, a korekta pozycji odmawia neutralnym komunikatem („kwoty nie wynikają z ilości i ceny netto”, wyjście: anulowanie albo korekta kwotowa); formularz nie proponuje wtedy korekty pozycji (beforeAfterRefusal). Korekta kwotowa: najpierw VAT różnicy od netto w groszach całkowitych, od 0,5 grosza w górę (vatFromNetCents, FZ-025; dawne liczenie na liczbach zmiennoprzecinkowych zaokrąglało część połówek w dół, więc 5 % od 80,30 zł dawało 4,01, a serwer odrzucał poprawne 4,02 jako „VAT od brutto”), od brutto (vatFromGrossGrosze) tylko, gdy żadna stawka nie pasuje od netto, żeby drobne kwoty nie stały się niejednoznaczne (resolveAmountChangeVatRate); VAT tylko od brutto serwer przyjmuje wyłącznie, gdy pozycje faktury w tej stawce są od brutto, inaczej komunikat „Podaj VAT od netto” (po odmowie stawki spoza faktury). Korekta „przed/po” faktury z pozycją od brutto: odmowa z wyjściem (anuluj fakturę albo wystaw korektę kwotową), bo formularz edytuje cenę netto. Cena brutto pozycji idzie do calculateLineItem jawnym argumentem, więc unitPriceGross pozycji z importu (P_9B) nie zmienia wzoru.",
+      "do_rozstrzygniecia": null,
+      "sprawdzil": {
+        "ksiegowa": null,
+        "prawnik": null
+      },
+      "odczyt": "2026-11-17",
+      "zrodlo_planu": "PLAN-KOMPLETNA-APLIKACJA, ustalenie z #760 (korekta faktury liczonej od brutto)",
+      "stan": "dziala",
+      "uwagi": "Kształt FA(3) faktury za abonament (P_9A i P_11 przy VAT od brutto) czeka na księgową (wiersz #760 dziennika planu); korekta zachowuje ten sam kształt (P_9A cena netto z faktury, P_11 netto z brutto)."
+    },
+    {
+      "id": "RP-FA-BRUTTO-01",
+      "regula": "Faktura w cenach brutto: kwota podatku każdej stawki od sumy wartości sprzedaży brutto stawki, KP = WB × SP / (100 + SP), do grosza; suma wartości netto stawki = WB − KP; pozycje mają cenę jednostkową brutto i wartość sprzedaży brutto zamiast ceny i wartości netto (FA(3): P_9B i P_11A zamiast P_9A i P_11); P_13_x i P_14_x to sumy stawek, P_15 suma wartości brutto.",
+      "podstawa": [
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106e ust. 7 (kwota podatku od wartości sprzedaży brutto pozycji jednej stawki, wzór KP = WB × SP / (100 + SP)), ust. 8 (cena jednostkowa brutto i wartość sprzedaży brutto zamiast netto), ust. 9 (suma wartości netto = brutto − podatek, z podziałem na stawki), ust. 10 (kwoty podatku przy pozycjach, opcjonalnie) i ust. 11 (zaokrąglenie do grosza)"
+        },
+        {
+          "akt": "schemat FA(3) Ministerstwa Finansów (lib/xml/schemas/fa3/schemat.xsd)",
+          "przepis": "FaWiersz: P_9B i P_11A „w przypadku zastosowania art. 106e ust. 7 i 8 ustawy”, P_11Vat (ust. 10), P_9A i P_11 (ceny netto)"
+        }
+      ],
+      "obowiazuje": {
+        "od": "2026-01-01",
+        "do": null
+      },
+      "obszary": [
+        "faktury.fa3",
+        "faktury.kwoty"
+      ],
+      "kod": [
+        "lib/xml/invoice-calculator.ts#grossPricedLines",
+        "lib/xml/invoice-calculator.ts#allocateLargestRemainder",
+        "lib/xml/invoice-calculator.ts#finalizeInvoice",
+        "lib/xml/invoice-calculator.ts#validateInvoice",
+        "lib/xml/invoice-calculator.ts#vatFromGrossGrosze",
+        "lib/xml/fa3-generator.ts#generateFA3Xml",
+        "lib/xml/invoice-calculator.ts#multiplyToGrosze",
+        "lib/bezpieczniki/fa3.ts#sprawdzFa3",
+        "lib/ksef/duplicate-original-gate.ts#evaluateOriginalGate",
+        "lib/xml/invoice-calculator.ts#grossPricesUntaxedRateMessage",
+        "lib/schemas/invoice-form.ts#invoiceFormSchema",
+        "lib/schemas/invoice-form.ts#grossPricedFormLines",
+        "lib/invoices/build-from-form.ts#buildInvoiceFromForm",
+        "lib/invoices/build-from-form.ts#draftLineRows",
+        "components/invoices/invoice-form-parts/calculations.ts#toLineItems",
+        "lib/invoices/document-lines.ts#documentGrossPrices",
+        "lib/invoices/ceny-brutto-wylacznik.ts#odmowaCenBrutto",
+        "lib/invoices/ceny-brutto-wylacznik.ts#cenyBruttoDostepne",
+        "lib/invoices/ceny-brutto-wylacznik-wspolne.ts#czyFakturaWCenachBrutto",
+        "lib/schemas/invoice-form.ts#invoiceFormSchemaFor"
+      ],
+      "testy": [
+        "tests/unit/faktura-ceny-brutto.test.ts > trzy pozycje po 1,00 zł brutto przy 23 %",
+        "tests/unit/faktura-ceny-brutto.test.ts > dwie stawki jak na paragonie z kasy",
+        "tests/unit/faktura-ceny-brutto.test.ts > faktura w cenach netto bez zmian",
+        "tests/unit/faktura-ceny-brutto.test.ts > każda stawka: P_14 = VAT od sumy P_11A",
+        "tests/unit/faktura-ceny-brutto.test.ts > VAT policzony przy pozycjach",
+        "tests/unit/faktura-ceny-brutto.test.ts > pozycja bez ceny brutto albo z brutto innym niż ilość × cena brutto",
+        "tests/unit/faktura-ceny-brutto.test.ts > pozycja ze stawką spoza listy",
+        "tests/unit/faktura-ceny-brutto.test.ts > prawdziwa faktura do paragonu (FP) w cenach brutto",
+        "tests/unit/faktura-ceny-brutto.test.ts > pozycja bez ceny brutto (wejście z samą ceną netto)",
+        "tests/unit/faktura-ceny-brutto.test.ts > VAT pozycji poza jej udziałem w VAT stawki",
+        "tests/unit/faktura-ceny-brutto.test.ts > pozycja ze stawką %s: odmowa z numerem pozycji i wyjściem",
+        "tests/unit/faktura-ceny-brutto.test.ts > stawka 0 % w cenach brutto przechodzi",
+        "tests/unit/bezpieczniki-fa3.test.ts > P_13_1 o złotówkę więcej, P_14_1 o złotówkę mniej",
+        "tests/unit/bezpieczniki-fa3.test.ts > P_11A pozycji o grosz inne",
+        "tests/unit/zapis-oryginalu-brama.test.ts > importable, bez problemów, reguły ORIGINAL_GATE_RULES",
+        "tests/unit/ceny-brutto-formularz-schemat.test.ts > trzy pozycje po 1,00 zł brutto przy 23 %: VAT stawki 0,56 od 3,00",
+        "tests/unit/ceny-brutto-formularz-schemat.test.ts > faktura do paragonu (FP) z formularza w cenach brutto",
+        "tests/unit/ceny-brutto-formularz-schemat.test.ts > pozycja bez ceny brutto przy cenach brutto",
+        "tests/unit/ceny-brutto-formularz-schemat.test.ts > stawka %s w cenach brutto: przy polu stawki ten sam komunikat co bramka wysyłki",
+        "tests/unit/ceny-brutto-formularz-schemat.test.ts > faktura w cenach netto bez zmian",
+        "tests/unit/ceny-brutto-formularz-schemat.test.ts > losowe pozycje: podgląd (pozycje, stawki, sumy) = faktura z serwera",
+        "tests/unit/ceny-brutto-formularz.test.tsx > wybór „Ceny brutto”",
+        "tests/unit/ceny-brutto-formularz.test.tsx > zaznaczenie FP przy pustych cenach przechodzi na ceny brutto",
+        "tests/unit/ceny-brutto-podklad.test.ts > „Duplikuj” i „Wystaw teraz”: metoda i ceny brutto z dokumentu",
+        "tests/unit/ceny-brutto-podklad.test.ts > „Duplikuj”: ceny netto, puste ceny pozycji (nigdy 0 zł)",
+        "tests/unit/ceny-brutto-formularz.test.tsx > bez wyboru metody cen i z polem „Cena netto”",
+        "tests/unit/ceny-brutto-formularz.test.tsx > faktura do paragonu przy pustych cenach zostaje w cenach netto",
+        "tests/unit/ceny-brutto-formularz-schemat.test.ts > wyłączony: faktura w cenach brutto dostaje odmowę z wyjściem",
+        "tests/unit/ceny-brutto-wylacznik.test.ts > brak wiersza i false: wyłączony; true: włączony",
+        "tests/unit/ceny-brutto-wylacznik.test.ts > dla formularza i podkładu (b): błąd odczytu = niedostępne",
+        "tests/unit/ceny-brutto-wylacznik-zapis.test.ts > szkic przy wyłączonym wyłączniku (brak wiersza flagi): odmowa z wyjściem",
+        "tests/unit/ceny-brutto-wylacznik-zapis.test.ts > „Duplikuj” faktury FaktWay w cenach brutto: ceny netto puste (nigdy 0 zł)",
+        "tests/unit/ceny-brutto-wylacznik-zapis.test.ts > „Duplikuj” faktury FaktWay w cenach brutto: metoda i ceny brutto z dokumentu",
+        "tests/unit/ceny-brutto-wylacznik-kolejka.test.ts > przy wyłączonym wyłączniku (brak wiersza flagi): odmowa z wyjściem, szkic zostaje",
+        "tests/unit/ceny-brutto-wylacznik-job.test.ts > brak wiersza flagi (domyślnie wyłączony): odmowa przed plikiem, archiwum i POST"
+      ],
+      "parametry": [],
+      "niezmienniki": [],
+      "pewnosc": "niska",
+      "wzorzec": {
+        "poziom": 5,
+        "opis": "brak przykładu urzędowego (poziom 4) i podpisu księgowej (poziom 3): wzór art. 106e ust. 7 i 11 sprawdza niezależna wyrocznia na liczbach całkowitych w tests/unit/faktura-ceny-brutto.test.ts; treść przepisu ze strony branżowej ksiegowosc.infor.pl („Ustawa o VAT tekst jednolity, Dział XI”, stan prawny na 1.02.2022), nie z tekstu jednolitego Dz.U. 2026 poz. 1263 (tylko PDF); opisy pól P_9B, P_11A, P_11Vat w schemacie FA(3) Ministerstwa Finansów",
+        "sprawdzono": "2026-11-17"
+      },
+      "interpretacja": "Jedna metoda na fakturę (Invoice.pricesGross): pozycja ma ilość, cenę jednostkową brutto (P_9B) i stawkę; wartość brutto pozycji = ilość × cena brutto do grosza, liczona dokładnie na liczbach całkowitych (multiplyToGrosze, P_11A). W każdej stawce WB = suma P_11A, KP = WB × SP / (100 + SP) do grosza, połówka od zera (vatFromGrossGrosze), netto stawki = WB − KP; P_13_x = netto stawki, P_14_x = KP, P_15 = suma WB. VAT stawki dzielony na pozycje tym samym podziałem największej reszty co import faktur od brutto i netto (C5c, allocateLargestRemainder): netto i VAT pozycji służą JPK i KPiR, na fakturze ich nie ma (bez P_9A, P_11 i P_11Vat). VAT od sumy stawki zgadza się z PTU paragonu z kasy (faktura do paragonu). Bramka wysyłki (validateInvoice) sprawdza brutto pozycji z ceny brutto, VAT pozycji jako jej udział w VAT stawki (brutto × SP / (100 + SP)) w dół albo w górę i VAT każdej stawki od jej sumy brutto, z kwotą, która powinna być. Pozycja bez ceny brutto zostaje bez niej (cena nie staje się 0 zł): bramka odmawia z numerem pozycji, a generator FA(3) nie tworzy pliku. Stawki bez podatku (zw, oo, np, np II) w cenach brutto: bramka odmawia z numerem pozycji i wyjściem (faktura w cenach netto), do odpowiedzi księgowej; stawka 0 % zostaje (podatek od brutto 0 zł). Strażnik FA(3) (FILTR-RT-FA3-02 i 03) sprawdza fakturę w cenach brutto: suma P_11A pozycji stawki = P_13_x + P_14_x, P_14_x w granicy zaokrąglenia od P_13_x; brama oryginału z oznaczeniem FaktWay uznaje plik z P_9B i P_11A w każdej pozycji (bez P_9A, P_11, P_11Vat) za plik generatora FaktWay (reguły bramy 2). Faktura za abonament (lib/billing/self-invoice.ts, VAT od brutto przy P_9A i P_11) tej reguły nie używa do odpowiedzi księgowej. Formularz zwykłej faktury i faktury do paragonu (PR (b)): jeden wybór „Ceny netto / Ceny brutto” dla całej faktury, domyślnie ceny netto; faktura do paragonu przy pozycjach bez ceny netto i bez stawki bez podatku przechodzi na ceny brutto (paragon ma kwoty brutto), a odznaczenie paragonu to cofa, jeśli nikt nie wpisał ceny brutto. Przy cenach brutto cena brutto pozycji jest wymagana („Podaj cenę brutto pozycji”), ma granice ceny netto, a stawka bez podatku dostaje przy polu stawki to samo zdanie co bramka (grossPricesUntaxedRateMessage). Schemat (invoiceFormSchema, ten sam na kliencie i serwerze), budowanie faktury (buildInvoiceFromForm) i podgląd sum w formularzu (toLineItems) liczą tą samą funkcją (grossPricedFormLines nad grossPricedLines). Ceny nie są przeliczane między metodami. W bazie cena netto pozycji pusta (NULL, draftLineRows), jak import od brutto; PDF, szczegóły, strona nabywcy i JPK_FA biorą cenę brutto z dokumentu (documentGrossPrices, PR (c)). Podkład z dokumentu w cenach brutto (faktura z pricesGross albo każda pozycja bez ceny netto z P_9B; Duplikuj, Wystaw teraz z faktury cyklicznej, Wypełnij z ostatniej) przy włączonym wyłączniku wraca w cenach brutto z ceną brutto z dokumentu; w pozostałych przypadkach podkład jest w cenach netto, a pozycja bez ceny netto ma puste pole ceny i komunikat (nigdy 0 zł), a baner Wypełnij takiego podkładu nie podsuwa. Wyłącznik (B4.0, zasada 2; flaga grossPricesEnabled, domyślnie wyłączona, docs/runbooks/ceny-brutto-wylacznik.md): przy wyłączonym formularz nie ma wyboru cen brutto, faktura do paragonu zostaje w cenach netto, schemat (invoiceFormSchemaFor) odmawia faktury w cenach brutto, a serwer odmawia zapisu (insertInvoiceAndLines), zlecenia wysyłki i wysyłki w jobie (odmowaCenBrutto), z wyjściem: faktura w cenach netto. Katalog z ceną brutto i korekta faktury w cenach brutto: kolejne PR (ceny-brutto-plan); korekta takiej faktury dziś odmawia z wyjściem (fetchParentInvoiceLines: pozycja bez ceny, napisz do nas).",
+      "do_rozstrzygniecia": {
+        "kto": "księgowa",
+        "pytanie": "Faktura w cenach brutto (art. 106e ust. 7 i 8): czy plik ma mieć same P_9B i P_11A (cena i wartość brutto zamiast netto), czy także P_9A i P_11 z wyliczonym netto? Czy VAT liczyć od sumy brutto stawki (ust. 7, zgodnie z paragonem z kasy), czy przy pozycjach (ust. 10, P_11Vat)? Ta sama odpowiedź rozstrzyga kształt faktury za abonament (dziś P_9A i P_11 przy VAT od brutto). Do pytania: w schemacie FA(3) opisy P_9A i P_11 dają je jako opcjonalne tylko w przypadkach z art. 106e ust. 2, 3 i 5 pkt 3 (bez ust. 7 i 8), więc nie wiadomo, czy plik w cenach brutto może ich nie mieć. JPK_FA: P_9B ma typ TKwotowy (2 miejsca po przecinku), więc cena brutto z 3 albo 4 miejscami zaokrągli się w JPK, a WartoscWierszyFaktur liczy tylko P_11, więc dla faktury w cenach brutto (bez P_11) wychodzi 0,00; tak samo przy imporcie faktur od brutto (C5c). Jak wykazać taką fakturę w JPK_FA? Czy cenę brutto (P_9B, P_11A) wolno podać w pozycji ze stawką bez podatku: zwolnionej (zw), z odwrotnym obciążeniem (oo) albo niepodlegającej opodatkowaniu w kraju (np, np II)? Dziś FaktWay takiej faktury nie wystawia (odmowa z wyjściem: ceny netto).",
+        "przypadki": [
+          "trzy pozycje po 1,00 zł brutto przy 23 %: VAT od sumy brutto stawki 0,56 (KP = 3,00 × 23 / 123), przy pozycjach 3 × 0,19 = 0,57; netto 2,44",
+          "dwie stawki jak na paragonie z kasy: 8 % WB 54,48 (2 × 20,99 + 12,50), KP 4,04, netto 50,44; 23 % WB 16,47 (3 × 5,49), KP 3,08, netto 13,39; P_15 70,95",
+          "faktura do paragonu (FP) w cenach brutto: 23 % WB 499,98 (2 × 249,99), KP 93,49, netto 406,49; 5 % WB 12,50, KP 0,60, netto 11,90; P_15 512,48",
+          "faktura w cenach brutto z pozycją zw 100,00 zł (bez podatku): dziś odmowa, wyjście: faktura w cenach netto"
+        ]
+      },
+      "sprawdzil": {
+        "ksiegowa": null,
+        "prawnik": null
+      },
+      "odczyt": "2026-11-17",
+      "zrodlo_planu": "PLAN-KOMPLETNA-APLIKACJA, ustalenie z #760 i krok 2.6 (cena brutto), ceny-brutto-plan (a)",
+      "stan": "dziala",
+      "uwagi": "PR (a): liczenie i plik; PR (c): wydruk, widoki i JPK_FA (P_9B, P_11A jak przy imporcie); PR (b): formularz, od którego da się wystawić taką fakturę. Wzorzec poziomu 5 (bez przykładu urzędowego i podpisu księgowej): faktura w cenach brutto działa dla klientów tylko za wyłącznikiem (B4.0, zasada 2): flaga grossPricesEnabled, domyślnie wyłączona (brak wiersza, false albo błąd odczytu), pilnowana w formularzu, schemacie, zapisie, kolejce i jobie wysyłki; włącza Bartosz po odpowiedzi księgowej, poprawce telefonu i próbie na KSeF TEST (docs/runbooks/ceny-brutto-wylacznik.md). Telefon (mobile/), API v1 i MCP nie wystawiają faktury w cenach brutto (ścisłe schematy tylko z ceną netto), a fakturę w cenach brutto pokazują z pustą ceną netto: osobne ustalenie."
+    },
+    {
+      "id": "RP-FA-VATUE-01",
+      "regula": "Dokument z usługą, dla której miejsce świadczenia ustala się według art. 28b, na rzecz podatnika z innego państwa UE (stawka „np II”), ma NIP sprzedawcy z prefiksem PL: FA(3) Podmiot1/PrefiksPodatnika = PL, JPK_FA P_4A = PL, a PDF pokazuje numer VAT UE sprzedawcy (PL i NIP). Dokument bez pozycji „np II” prefiksu nie ma, także przy nabywcy z UE i stawce krajowej.",
+      "podstawa": [
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 97 ust. 10 pkt 3"
+        },
+        {
+          "akt": "schemat FA(3) Ministerstwa Finansów (lib/xml/schemas/fa3/schemat.xsd)",
+          "przepis": "opis pola Podmiot1/PrefiksPodatnika"
+        },
+        {
+          "akt": "schemat JPK_FA(4) Ministerstwa Finansów (lib/exports/schemas/jpk-fa4/schemat.xsd)",
+          "przepis": "opis pola P_4A"
+        }
+      ],
+      "obowiazuje": {
+        "od": "2026-01-01",
+        "do": null
+      },
+      "obszary": [
+        "faktury.fa3",
+        "faktury.korekty",
+        "jpk.vat-fa",
+        "faktury.pdf"
+      ],
+      "kod": [
+        "lib/invoices/vat-ue.ts#sellerNeedsVatUePrefix",
+        "lib/xml/fa3-generator.ts#generateFA3Xml",
+        "lib/ksef/fa3-correction-generator.ts#generateCorrectionInvoiceXml",
+        "lib/exports/jpk-fa-generator.ts#generateJpkFa",
+        "lib/pdf/invoice-renderer.ts#renderInvoicePdf"
+      ],
+      "testy": [
+        "tests/unit/fa3-np-ii.test.ts > W8: np II, NIP sprzedawcy z prefiksem PL",
+        "tests/unit/fa3-np-ii.test.ts > W8: faktura bez np II (23 % dla firmy z UE, np I) bez PrefiksPodatnika",
+        "tests/unit/fa3-np-ii.test.ts > W8: KOR z pozycją np II (nabywca z UE)",
+        "tests/unit/jpk-np-ii.test.ts > W8: faktura z np II ma P_4A = PL przed P_4B",
+        "tests/unit/pdf-precyzja-vatue.test.ts > usługa np II: sprzedawca z numerem „VAT UE: PL…”"
+      ],
+      "parametry": [],
+      "niezmienniki": [],
+      "pewnosc": "wysoka",
+      "wzorzec": {
+        "poziom": 4,
+        "opis": "opis pól Podmiot1/PrefiksPodatnika w schemacie FA(3) i P_4A w schemacie JPK_FA(4): „Kod (prefiks) podatnika VAT UE dla przypadków określonych w art. 97 ust. 10 pkt 2 i 3 ustawy oraz w przypadku, o którym mowa w art. 136 ust. 1 pkt 3 ustawy”",
+        "sprawdzono": "2026-11-24"
+      },
+      "interpretacja": "Stawka „np II” w FaktWay to usługa z art. 100 ust. 1 pkt 4 (art. 28b) dla podatnika z innego państwa UE, a art. 97 ust. 10 pkt 3 każe przy takiej usłudze posługiwać się numerem VAT UE z prefiksem PL. Jedna pozycja „np II” wystarcza; w korekcie liczą się stawki stanu przed, stanu po i wierszy korekty, a w JPK_FA także stany korekty. W FA(3) prefiks to pierwszy element Podmiot1 (przed DaneIdentyfikacyjne), w JPK_FA P_4A przed P_4B, w PDF etykieta „VAT UE” z numerem PL i NIP zamiast „NIP”. WDT (pkt 2) i transakcji trójstronnej (art. 136 ust. 1 pkt 3) FaktWay nie wystawia, więc reguła ich nie obejmuje; import FA(3) z innego programu zostaje bez zmian.",
+      "do_rozstrzygniecia": null,
+      "sprawdzil": {
+        "ksiegowa": null,
+        "prawnik": null
+      },
+      "odczyt": "2026-11-24",
+      "zrodlo_planu": "plan zero zgubionych faktur, karta C2, W8",
+      "stan": "dziala",
+      "uwagi": "Szczegóły faktury w aplikacji i strona faktury dla nabywcy pokazują NIP sprzedawcy bez prefiksu (poza zakresem W8, który obejmuje PDF, plik FA(3) i JPK_FA)."
     }
   ]
 }

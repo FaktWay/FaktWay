@@ -14,7 +14,8 @@
  */
 
 import { describeMissingRate, stampRate, type RateLookup, type RateStamp } from '@/lib/flo/nbp';
-import { roundToCents } from '@/lib/xml/invoice-calculator';
+import { przeliczNaPln } from '@/lib/ksiegowosc/ewidencja';
+import { toGrosze } from '@/lib/xml/invoice-calculator';
 
 export const HOME_CURRENCY = 'PLN';
 
@@ -71,10 +72,13 @@ export function costInPln(doc: DocumentAmounts, issueDate: string, lookup: RateL
   }
 
   const { rate } = lookup;
-  const net = roundToCents(doc.net_amount * rate.mid);
-  const gross = roundToCents(doc.gross_amount * rate.mid);
-  // VAT jako różnica — suma w złotych zgadza się co do grosza.
-  const vat = roundToCents(gross - net);
+  // Kwota razy kurs jedną funkcją na groszach (`przeliczNaPln`, NZ-KURS-03): połówka grosza od zera, bez błędu float (FZ-019).
+  const netGr = przeliczNaPln(toGrosze(doc.net_amount), rate.mid);
+  const grossGr = przeliczNaPln(toGrosze(doc.gross_amount), rate.mid);
+  const net = netGr / 100;
+  const gross = grossGr / 100;
+  // VAT jako różnica, w groszach: suma w złotych zgadza się co do grosza.
+  const vat = (grossGr - netGr) / 100;
   return {
     kind: 'pln',
     net,

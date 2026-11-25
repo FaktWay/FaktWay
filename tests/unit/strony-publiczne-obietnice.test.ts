@@ -108,8 +108,6 @@ const BEZ_POKRYCIA: Regula[] = [
     ],
   },
   { wzor: /po angielsku|dwujęzyczn/i, co: 'faktury po angielsku' },
-  { wzor: /proform/i, co: 'proforma' },
-  { wzor: /faktur\w* do paragonu/i, co: 'faktura do paragonu' },
   {
     wzor: /App Store|Google Play|aplikacj\w* w sklepach/i,
     co: 'aplikacje w sklepach',

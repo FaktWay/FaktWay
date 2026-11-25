@@ -113,11 +113,12 @@ export interface InvoiceLineItem {
   /** Cena jednostkowa netto - do 4 miejsc po przecinku */
   unitPriceNet: number;
   /**
-   * Import KSeF z cenami brutto (art. 106e ust. 7 i 8; P_9B bez P_9A): pliku nie ma ceny netto,
-   * więc `unitPriceNet` (0) nie jest ceną z faktury. Tylko dla PDF; generatory XML tego nie czytają.
+   * Ceny brutto (art. 106e ust. 7 i 8; P_9B bez P_9A): import KSeF albo faktura FaktWay
+   * w cenach brutto (`Invoice.pricesGross`). Faktura nie ma ceny netto, więc
+   * `unitPriceNet` (0) nie jest ceną z faktury.
    */
   unitPriceNetMissing?: true;
-  /** Cena jednostkowa brutto z pliku (P_9B), gdy `unitPriceNetMissing`. */
+  /** Cena jednostkowa brutto (P_9B): z pliku importu albo pozycji faktury w cenach brutto. */
   unitPriceGross?: number;
   /** Wartość netto pozycji (= quantity * unitPriceNet, zaokrąglone do 2 miejsc) */
   netAmount: number;
@@ -143,8 +144,11 @@ export type PaymentMethod =
 export interface PaymentInfo {
   /** Kwota do zapłaty (P_15 = suma brutto wszystkich pozycji) */
   amountDue: number;
-  /** Waluta (MVP: tylko PLN) */
-  currency: 'PLN';
+  /**
+   * Kod waluty ISO 4217 (XSD FA(3) `TKodWaluty`). Inna niż PLN tylko na zwykłej
+   * fakturze VAT z kursem `Invoice.exchangeRate` (krok 2.1, decyzja D56).
+   */
+  currency: string;
   /** Termin płatności (data) */
   dueDate: string; // ISO YYYY-MM-DD
   /** Metoda płatności */
@@ -153,6 +157,23 @@ export interface PaymentInfo {
   bankAccount?: string;
   /** Nazwa banku - opcjonalnie */
   bankName?: string;
+}
+
+/**
+ * Kurs przeliczenia faktury w walucie obcej (krok 2.1, decyzja D56): średni kurs
+ * NBP ogłoszony na ostatni dzień roboczy przed dniem powstania obowiązku
+ * podatkowego, a przy fakturze wystawionej przed obowiązkiem przed dniem
+ * wystawienia (art. 31a ust. 1 i 2 ustawy o VAT). Generator FA(3) wpisuje go
+ * w `FaWiersz/KursWaluty` każdej pozycji i przelicza nim podatek stawek na złote
+ * (`P_14_xW`, art. 106e ust. 11). Pierwsza wersja: jeden kurs na fakturę.
+ */
+export interface InvoiceExchangeRate {
+  /** Kurs średni, najwyżej 6 miejsc po przecinku (XSD `TIlosci`); NBP podaje 4. */
+  rate: number;
+  /** Numer tabeli NBP, np. „228/A/NBP/2026”. */
+  tableNo: string;
+  /** Dzień, na który NBP ogłosił tabelę (ISO YYYY-MM-DD). */
+  tableDate: string;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -222,6 +243,18 @@ export interface ReceiptInvoiceData {
   buyerNipOnReceipt?: true;
 }
 
+/**
+ * Zamówienie, którego dotyczy zwykła faktura VAT (krok 2.8): FA(3)
+ * `Fa/WarunkiTransakcji/Zamowienia`. Jeden numer na fakturę (XSD dopuszcza
+ * do 100 zamówień, FaktWay wystawia jedno), z opcjonalną datą zamówienia.
+ */
+export interface InvoiceOrder {
+  /** Numer zamówienia (`NrZamowienia`, TZnakowy do 256 znaków). */
+  number: string;
+  /** Data zamówienia, RRRR-MM-DD (`DataZamowienia`). */
+  date?: string;
+}
+
 export interface Invoice {
   /** Wewnętrzny numer faktury (np. FV 2026/04/001) */
   internalNumber: string;
@@ -247,6 +280,12 @@ export interface Invoice {
 
   payment: PaymentInfo;
 
+  /**
+   * Kurs faktury w walucie obcej (krok 2.1, D56); tylko przy walucie innej niż PLN.
+   * Klucz tylko wtedy, więc faktura w złotych ma kształt jak dotąd.
+   */
+  exchangeRate?: InvoiceExchangeRate;
+
   /** Adnotacje (P_16, P_17, P_18, P_18A, P_23). Brakujące pola = 2 (nie dotyczy). */
   annotations?: InvoiceAnnotations;
 
@@ -255,6 +294,18 @@ export interface Invoice {
 
   /** Faktura do paragonu (FP). Brak = faktura bez paragonu. Tylko zwykła faktura VAT. */
   receipt?: ReceiptInvoiceData;
+
+  /** Numer i data zamówienia (krok 2.8). Brak = faktura bez zamówienia. Tylko zwykła faktura VAT. */
+  order?: InvoiceOrder;
+
+  /**
+   * Faktura w cenach brutto (art. 106e ust. 7-9 ustawy o VAT): pozycje z ceną
+   * i wartością brutto (FA(3) `P_9B`, `P_11A` zamiast `P_9A`, `P_11`), VAT
+   * stawki od sumy brutto stawki (KP = WB × SP / (100 + SP)), netto stawki =
+   * WB − KP. Kwoty netto i VAT pozycji to podział VAT stawki (największa reszta),
+   * do JPK i KPiR; na fakturze ich nie ma. Brak = ceny netto, jak dotąd.
+   */
+  pricesGross?: true;
 
   /** Frozen source for ZAL XML; the worker must reject a different queued envelope. */
   advanceEnvelope?: AdvanceInvoiceData;

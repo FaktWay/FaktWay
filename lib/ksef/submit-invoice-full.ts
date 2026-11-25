@@ -4,6 +4,7 @@ import type { AdvanceInvoiceSettlementRow } from '@/lib/ksef/fa3-advance-generat
 import { alarmujFa3 } from '@/lib/bezpieczniki/fa3';
 import { generateCorrectionInvoiceXml } from '@/lib/ksef/fa3-correction-generator';
 import {
+  finalInvoiceRoundingRefusal,
   generateAdvanceInvoiceXml,
   generateFinalInvoiceXml,
 } from '@/lib/ksef/fa3-advance-generator';
@@ -11,8 +12,9 @@ import { generateFA3Xml, InvoiceValidationError } from '@/lib/xml/fa3-generator'
 import { claimXmlGeneratedAt } from '@/lib/ksef/xml-generated-at';
 import { assertSpecialInvoiceData } from '@/lib/ksef/special-invoice-data';
 import { isRozSubmission, ROZ_SUBMISSION_HOLD_MESSAGE } from '@/lib/ksef/roz-submission-hold';
+import { CENY_BRUTTO_WYLACZONE, czyCenyBruttoWlaczone, czyFakturaWCenachBrutto } from '@/lib/invoices/ceny-brutto-wylacznik';
 import { RECEIPT_ONLY_REGULAR_MESSAGE } from '@/lib/invoices/receipt-invoice';
-import { assertSpecialIssueDateToday } from '@/lib/ksef/special-issue-date';
+import { assertIssueDateSendable } from '@/lib/ksef/special-issue-date';
 import { InvoiceXmlSchemaError, validateInvoiceXml } from '@/lib/xml/validator';
 import { describeFa3SchemaErrors } from '@/lib/xml/fa3-pola';
 import { uploadInvoiceXml } from '@/lib/storage/r2';
@@ -85,11 +87,27 @@ export async function submitInvoiceFullFlow(
   })) {
     throw new InvoiceValidationError([ROZ_SUBMISSION_HOLD_MESSAGE]);
   }
+  // Ustalenie 19 (D8): ostatnia bramka przed wysyłką faktury rozliczającej, której szkic
+  // zapisano przed bramką przy zapisie. Dziś wysyłkę ROZ zatrzymuje hamulec wyżej, więc
+  // bramka działa po jego zdjęciu (karta C4). Odmowa przed plikiem, archiwum i POST.
+  if (finalPayload != null && finalPayload.advanceSettlementRows.length > 0) {
+    const rounding = finalInvoiceRoundingRefusal(finalPayload.finalData, finalPayload.advanceSettlementRows);
+    if (rounding) throw new InvoiceValidationError([rounding]);
+  }
   // Krok 1.2: generatory korekty, zaliczki i rozliczenia nie piszą `FP`, więc
   // paragon przy danych specjalnych zniknąłby z XML po cichu. Odmowa przed
   // generowaniem XML, archiwum i wysyłką (zdarzenie z formularza tego nie ma).
   if (invoice.receipt !== undefined && (correctionData != null || advanceData != null || finalPayload != null)) {
     throw new InvoiceValidationError([RECEIPT_ONLY_REGULAR_MESSAGE]);
+  }
+  // Wyłącznik cen brutto (RP-FA-BRUTTO-01, B4.0 zasada 2): jedyne miejsce, przez
+  // które idzie każda nowa wysyłka, także ponowienie z kopii z crona i od operatora
+  // (zdarzenie bez kolejki klienta). Uzgodnienie wcześniejszej wysyłki tu nie
+  // dochodzi. Odmowa przed plikiem, archiwum i POST; runner kończy ją bez ponowień
+  // (INVALID_DOCUMENT, powrót do szkicu). Błąd odczytu flagi rzuca zwykły błąd, więc
+  // job ponawia próbę zamiast wysłać.
+  if (czyFakturaWCenachBrutto(invoice) && !(await czyCenyBruttoWlaczone())) {
+    throw new InvoiceValidationError([CENY_BRUTTO_WYLACZONE]);
   }
 
   const configuredEnv = requireMatchingKsefEnvironment(env);
@@ -140,8 +158,10 @@ export async function submitInvoiceFullFlow(
   //    samej próby zastaje 412 i `r2.uploadXmlDocument` porównuje bajty: te same
   //    idą dalej, inne dają `XmlArchiveConflictError` PRZED otwarciem sesji KSeF.
   const attemptId = sendAttemptId ?? null;
-  // Data w `P_1` dokumentu specjalnego (z jego danych, jak generator); zwykła faktura — bez sprawdzenia (B1/B2).
+  // Data w `P_1` z tego samego źródła co generator (wyżej): dokument specjalny — z jego
+  // danych (00147), zwykła faktura — `invoice.issueDate` (B2a).
   const specialIssueDate = correctionData?.issueDate ?? advanceData?.issueDate ?? finalPayload?.finalData.issueDate;
+  const regularInvoice = correctionData == null && advanceData == null && finalPayload == null;
   const uploadResult = await uploadInvoiceXml(
     tenantId,
     invoiceId,
@@ -164,10 +184,12 @@ export async function submitInvoiceFullFlow(
     { tenantId, invoiceId },
     {
       onSessionOpened: async ({ sessionReferenceNumber }) => {
-        // 00147: dokument specjalny tylko w dniu wystawienia — drugie sprawdzenie
-        // tuż przed plikiem i przed zamiarem (uwierzytelnienie i sesja trwają
-        // do kilkudziesięciu sekund). Błąd = bez wysyłki, sesja zamykana.
-        if (specialIssueDate !== undefined) assertSpecialIssueDateToday(specialIssueDate);
+        // Bezpiecznik daty (00147: dokument specjalny tylko w dniu wystawienia;
+        // B2a: zwykła faktura do końca następnego dnia roboczego po nim) — drugie
+        // sprawdzenie tuż przed plikiem i przed zamiarem (uwierzytelnienie i sesja
+        // trwają do kilkudziesięciu sekund). Błąd = bez wysyłki, sesja zamykana.
+        if (regularInvoice) assertIssueDateSendable('regular', invoice.issueDate);
+        else if (specialIssueDate !== undefined) assertIssueDateSendable('special', specialIssueDate);
         await recordKsefSubmissionIntent({
           tenantId,
           invoiceId,

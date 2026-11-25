@@ -4,7 +4,7 @@
 //
 // Faza 21 (sekcja 21.3) — bez tego audit_logs rosną w nieskończoność,
 // w prior projektach widzieliśmy >5GB po roku produkcji. RODO retention dla
-// faktur to 10 lat (tenants.retention_years), ale audit_logs to nie dane
+// faktur to 10 lat (`LATA_PRZECHOWYWANIA_FAKTUR` w lib/retention/terminy.ts), ale audit_logs to nie dane
 // podatkowe, więc 12mc jest legalnie OK.
 //
 // Dlaczego paczkami (plan skalowania, sesja 20, DB-01): dawny jeden DELETE

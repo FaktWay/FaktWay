@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { JobContext } from '@/lib/jobs/registry';
 import type { Invoice } from '@/types/invoice';
+import { addDaysToIsoDate, todayInWarsaw } from '@/lib/format/warsaw-date';
 import type { FakeKsef, MemoryDb, Row } from './helpers/ksef-pelna-sciezka';
 
 /**
@@ -138,15 +139,22 @@ import {
 } from '@/lib/ksef/duplicate-check';
 import { DUPLICATE_DECISION_TEXTS, duplicateOriginalOffer } from '@/lib/ksef/duplicate-decision';
 
+// B2a: zwykła faktura wychodzi do KSeF do końca następnego dnia roboczego po dacie
+// wystawienia, a bezpiecznik runnera i haka sesji liczy od prawdziwego zegara —
+// faktura przechodząca przez wysyłkę ma więc datę „dziś” w Polsce (stała data by się zestarzała).
+const TODAY_PL = todayInWarsaw();
+/** Okres (MM.RRRR) w podglądzie oryginału liczony z jego daty wystawienia. */
+const TODAY_PERIOD = `${TODAY_PL.slice(5, 7)}.${TODAY_PL.slice(0, 4)}`;
+
 const faktura = (unitPriceNet = 100) => finalizeInvoice({
   internalNumber: NUMBER,
   type: 'VAT',
-  issueDate: '2026-10-01',
-  saleDate: '2026-10-01',
+  issueDate: TODAY_PL,
+  saleDate: TODAY_PL,
   seller: { nip: '5260001246', name: 'ACME', address: { countryCode: 'PL', addressLine1: 'ul. A 1', addressLine2: '00-001 Warszawa' } },
   buyer: { nip: '5252241585', name: 'Klient', address: { countryCode: 'PL', addressLine1: 'ul. B 2', addressLine2: '02-001 Warszawa' } },
   lines: [{ ordinal: 1, name: 'Usługa', unit: 'usł.', quantity: 1, unitPriceNet, vatRate: '23' }],
-  payment: { currency: 'PLN', dueDate: '2026-10-15', method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
+  payment: { currency: 'PLN', dueDate: addDaysToIsoDate(TODAY_PL, 14)!, method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
 });
 
 /** Dokładnie ten plik, który runner wygeneruje dla faktury (ta sama data wytworzenia). */
@@ -171,7 +179,7 @@ const failing = (run: Promise<unknown>) => run.then(() => { throw new Error('ocz
 const submissions = () => (m.mem.db.ksef_submissions ?? []) as Row[];
 const accepted = () => m.updateStatus.mock.calls.find(([, p]) => (p as Row).ksef_status === 'accepted')?.[1] as Row | undefined;
 const evidence = () => submissions().some((r) => ['intent', 'sent', 'accepted', 'duplicate'].includes(String(r.status)));
-const ATTEMPT_KEY = () => invoiceXmlKeyFor({ tenantId: T, invoiceId: ID, issueDate: '2026-10-01', attemptId: ATTEMPT });
+const ATTEMPT_KEY = () => invoiceXmlKeyFor({ tenantId: T, invoiceId: ID, issueDate: TODAY_PL, attemptId: ATTEMPT });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -450,7 +458,7 @@ describe('D-A4-1b-3 (A): dane oryginału przy nierozstrzygniętym 440 — zapisa
       v: 1, env: 'test', reason: 'faktflow-original', sha256: sha256Hex(original), archivePath: archiveKey,
       sameContentExceptHeader: false, ownHistory: false, acquiredAt: '2026-09-28T07:15:00.000Z', httpStatus: null,
       knownInvoice: null,
-      summary: expect.objectContaining({ number: NUMBER, issueDate: '2026-10-01', buyerNip: '5252241585', systemInfo: 'KSeF SaaS v1.0' }),
+      summary: expect.objectContaining({ number: NUMBER, issueDate: TODAY_PL, buyerNip: '5252241585', systemInfo: 'KSeF SaaS v1.0' }),
     });
     // Dokładne bajty z KSeF pod kluczem importu historii (ten sam obiekt zobaczy Magiczny import).
     expect(m.storage.get(archiveKey)).toBe(original);
@@ -813,9 +821,9 @@ describe('D-A4-1b-3 PR C: runner zapisuje bramę pochodzenia na znaczniku faktfl
         kind: 'importable',
         problems: [],
         preview: expect.objectContaining({
-          issueDate: '2026-10-01',
-          saleDate: '2026-10-01',
-          period: '10.2026',
+          issueDate: TODAY_PL,
+          saleDate: TODAY_PL,
+          period: TODAY_PERIOD,
           buyerIdKind: 'nip',
           annotations: [],
           exemptionBasis: null,

@@ -46,8 +46,10 @@ import type { Invoice } from '@/types/invoice';
  *   (pyt. 3); faktura korygująca dostaje GTU, gdy dotyczy towaru albo usługi
  *   z GTU, a korekta samych pozycji bez GTU nie (pyt. 8).
  *
- * Korekta w FaktWay nie zapisuje GTU pozycji (część 2b-3), więc korekta
- * faktury z GTU to odmowa z wyjściem, a nie zgadywanie.
+ * Korekta dostaje kody pozycji, których dotyczy (część 2b-3,
+ * `tests/unit/jpk-v7m-gtu-korekta.test.ts`). Tu korekta bez koperty i korekta
+ * faktury z importu, których oznaczeń pozycji FaktWay nie zna: odmowa
+ * z wyjściem, a nie zgadywanie.
  *
  * Prawdziwa ścieżka: wartości formularza przez schemat (`invoiceFormSchema`)
  * i budowanie faktury (`buildInvoiceFromForm`) do `fa3_data`, odczyt eksportu
@@ -124,7 +126,10 @@ function zFormularza(numer: string, lines: Pozycja[], o: Partial<InvoiceFormValu
   };
 }
 
-/** Korekta kwotowa z FaktWay: pozycja korekty bez GTU (tak zapisuje ją dziś `createCorrectionInvoiceAction`). */
+/**
+ * Korekta kwotowa bez koperty (`special_data` NULL, jak korekty sprzed 00137):
+ * pozycja korekty bez GTU, a stanu przed FaktWay nie zna.
+ */
 function korekta(numer: string, rodzic: Row): Row {
   const line = { ordinal: 1, name: 'Rabat', unit: 'szt.', quantity: 1, unitPriceNet: -100, vatRate: '23', netAmount: -100, vatAmount: -23, grossAmount: -123 };
   return {
@@ -287,7 +292,7 @@ describe('JPK_V7M(3): GTU z pliku KSeF faktury z importu', () => {
   });
 });
 
-describe('JPK_V7M(3): korekta faktury z GTU (korekta w FaktWay nie zapisuje GTU pozycji)', () => {
+describe('JPK_V7M(3): korekta faktury z GTU, której oznaczeń pozycji FaktWay nie zna', () => {
   /** Ta sama odmowa w pliku i w rozliczeniu modułu VAT (moduł i plik mówią to samo). */
   async function odmowa(): Promise<string> {
     const { issuedInvoices } = await dane();
@@ -303,7 +308,7 @@ describe('JPK_V7M(3): korekta faktury z GTU (korekta w FaktWay nie zapisuje GTU 
     return komunikat;
   }
 
-  it('korekta faktury FaktWay z GTU w pozycjach: odmowa z numerem korekty, faktury korygowanej i kodami, z wyjściem', async () => {
+  it('korekta kwotowa bez koperty faktury FaktWay z GTU w pozycjach: odmowa z numerem korekty, faktury korygowanej i kodami, z wyjściem', async () => {
     const rodzic = zFormularza('FV/5/10/2026', [pozycja({ gtuCode: 'GTU_12' }), pozycja({ name: 'Dojazd', unitPriceNet: 50 })], {
       issueDate: '2026-10-10',
       paymentDueDate: '2026-10-24',
@@ -317,7 +322,7 @@ describe('JPK_V7M(3): korekta faktury z GTU (korekta w FaktWay nie zapisuje GTU 
     expect(komunikat).toMatch(/poza FaktWay/);
   });
 
-  it('korekta faktury z importu z GTU w pliku KSeF: ta sama odmowa', async () => {
+  it('korekta faktury z importu z GTU w pliku KSeF (oznaczenia całej faktury, nie pozycji): ta sama odmowa', async () => {
     const rodzic: Row = {
       id: 'imp-1', tenant_id: T, direction: 'outgoing', invoice_kind: 'regular', invoice_type: 'VAT', origin: 'ksef_import',
       ksef_status: 'accepted', ksef_environment: 'test', currency: 'PLN', internal_number: 'FA/77/2026', ksef_number: KSEF(77),
@@ -439,5 +444,5 @@ describe('JPK_V7M(3): niezmiennik oznaczeń GTU', () => {
       }),
       { numRuns: 40 },
     );
-  });
+  }, 600_000);
 });

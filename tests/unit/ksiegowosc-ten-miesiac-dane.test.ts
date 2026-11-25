@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { miesiacZParametrow } from '@/lib/ksiegowosc/miesiac-strony';
 
 import type { Ewidencja, WierszEwidencji } from '@/lib/ksiegowosc/ewidencja';
 import type { Brak } from '@/lib/ksiegowosc/parametry';
@@ -222,6 +223,24 @@ describe('zapłata spoza wyliczenia (K7.2, D15)', () => {
     mocks.brakujace = (_rok, sekcje) => sekcje.map((x) => ({ sekcja: x as 'zus', powod: 'niesprawdzone' as const, komunikat: `czeka: ${x}`, operator: '' }));
     const zBrakami = await czytajTenMiesiac(client, 't1', '2027-01');
     expect(zBrakami).toMatchObject({ ok: false, zaplatyReczne: [{ miesiac: '2025-12' }, { miesiac: '2026-11' }] });
+  });
+
+  it('FZ-036: zapłata z datą sprzed pierwszego miesiąca strony (2025 r.) stoi na liście stycznia 2026, więc da się ją cofnąć; w lutym jej nie ma', async () => {
+    // Strony za 2025 r. nie ma (`miesiacZParametrow` od 2026 r.), a formularz przyjmuje datę z 2025 r.
+    mocks.wiersze = [
+      { ...rozliczenie('2025-11-01', 'zus_spoleczne', 192_676, '2025-12-10', 178_829), reczna: true },
+      { ...rozliczenie('2025-12-01', 'zdrowotna', 43_254, '2026-01-12'), reczna: true },
+      { ...rozliczenie('2025-12-01', 'zus_spoleczne', 192_676, '2026-02-05', 178_829), reczna: true },
+    ];
+    const lista = (d: Awaited<ReturnType<typeof czytajTenMiesiac>>) => d.zaplatyReczne.map((r) => [r.miesiac, r.rodzaj, r.zaplaconeO]);
+    expect(lista(await czytajTenMiesiac(client, 't1', '2026-01'))).toEqual([
+      ['2025-11', 'zus_spoleczne', '2025-12-10'],
+      ['2025-12', 'zdrowotna', '2026-01-12'],
+    ]);
+    expect(lista(await czytajTenMiesiac(client, 't1', '2026-02'))).toEqual([['2025-12', 'zus_spoleczne', '2026-02-05']]);
+    // Pierwszy miesiąc listy to pierwszy miesiąc ekranu: strony za grudzień 2025 r. nie ma (adres daje wtedy domyślny miesiąc).
+    expect(miesiacZParametrow({ month: '12', year: '2025' }, '2026-03-10')).toBe('2026-02');
+    expect(miesiacZParametrow({ month: '1', year: '2026' }, '2026-03-10')).toBe('2026-01');
   });
 });
 

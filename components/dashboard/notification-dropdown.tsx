@@ -29,6 +29,7 @@ import {
   RiCheckboxCircleLine,
   RiCheckDoubleLine,
   RiErrorWarningLine,
+  RiFileEditLine,
   RiFileSearchLine,
   RiHandCoinLine,
   RiInboxArchiveLine,
@@ -70,7 +71,9 @@ const KIND_ICONS: Record<AppNotificationKind, typeof RiNotification3Line> = {
   expense_comment: RiChat3Line,
   expense_document_request: RiFileSearchLine,
   // Wpłata do faktury (krok 8.1, część 3, 00197).
-  payment_received: RiHandCoinLine
+  payment_received: RiHandCoinLine,
+  // Koszt „Do poprawy” od księgowej (krok 6.2, część 5a, 00214).
+  expense_needs_changes: RiFileEditLine
 }
 
 /** „1 nowe”, „3 nowe”, „5 nowych”, „22 nowe” (polska odmiana liczebnika). */

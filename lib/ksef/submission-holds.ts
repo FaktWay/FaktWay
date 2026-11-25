@@ -33,11 +33,12 @@ export const KOR_HOLD_MESSAGE =
 /**
  * Hamulec napotkany już W JOBIE: faktura ma status `failed` z kodem hamulca.
  * Cron cyklu życia (I7) wznawia sam tylko KSEF_PAUSED — dokumenty specjalne
- * tylko w dniu wystawienia (A4b PR2a); KOR_HOLD zostaje operatorowi do C4.
+ * tylko w dniu wystawienia (A4b PR2a), zwykłą fakturę do końca następnego dnia
+ * roboczego po dacie wystawienia (B2a); KOR_HOLD zostaje operatorowi do C4.
  * Komunikat mówi prawdę o tym, co się stanie (decyzja Bartosza 07.10.2026).
  */
 export const KSEF_PAUSED_JOB_MESSAGE =
-  'Wysyłka faktur do KSeF jest chwilowo wstrzymana przez operatora. Faktura wyjdzie automatycznie po przywróceniu wysyłki.';
+  'Wysyłka faktur do KSeF jest chwilowo wstrzymana przez operatora, więc tej próby wysyłki nie wykonaliśmy. Spróbujemy wysłać fakturę automatycznie, jeśli wysyłka wróci do końca następnego dnia roboczego po dacie wystawienia (co dalej: na dole strony).';
 
 /** KSEF_PAUSED dokumentu specjalnego: automat wznowi go tylko w dniu wystawienia. */
 export const KSEF_PAUSED_SPECIAL_JOB_MESSAGE =
