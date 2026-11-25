@@ -144,8 +144,11 @@ export type PaymentMethod =
 export interface PaymentInfo {
   /** Kwota do zapłaty (P_15 = suma brutto wszystkich pozycji) */
   amountDue: number;
-  /** Waluta (MVP: tylko PLN) */
-  currency: 'PLN';
+  /**
+   * Kod waluty ISO 4217 (XSD FA(3) `TKodWaluty`). Inna niż PLN tylko na zwykłej
+   * fakturze VAT z kursem `Invoice.exchangeRate` (krok 2.1, decyzja D56).
+   */
+  currency: string;
   /** Termin płatności (data) */
   dueDate: string; // ISO YYYY-MM-DD
   /** Metoda płatności */
@@ -154,6 +157,23 @@ export interface PaymentInfo {
   bankAccount?: string;
   /** Nazwa banku - opcjonalnie */
   bankName?: string;
+}
+
+/**
+ * Kurs przeliczenia faktury w walucie obcej (krok 2.1, decyzja D56): średni kurs
+ * NBP ogłoszony na ostatni dzień roboczy przed dniem powstania obowiązku
+ * podatkowego, a przy fakturze wystawionej przed obowiązkiem przed dniem
+ * wystawienia (art. 31a ust. 1 i 2 ustawy o VAT). Generator FA(3) wpisuje go
+ * w `FaWiersz/KursWaluty` każdej pozycji i przelicza nim podatek stawek na złote
+ * (`P_14_xW`, art. 106e ust. 11). Pierwsza wersja: jeden kurs na fakturę.
+ */
+export interface InvoiceExchangeRate {
+  /** Kurs średni, najwyżej 6 miejsc po przecinku (XSD `TIlosci`); NBP podaje 4. */
+  rate: number;
+  /** Numer tabeli NBP, np. „228/A/NBP/2026”. */
+  tableNo: string;
+  /** Dzień, na który NBP ogłosił tabelę (ISO YYYY-MM-DD). */
+  tableDate: string;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -259,6 +279,12 @@ export interface Invoice {
   grossTotal: number;
 
   payment: PaymentInfo;
+
+  /**
+   * Kurs faktury w walucie obcej (krok 2.1, D56); tylko przy walucie innej niż PLN.
+   * Klucz tylko wtedy, więc faktura w złotych ma kształt jak dotąd.
+   */
+  exchangeRate?: InvoiceExchangeRate;
 
   /** Adnotacje (P_16, P_17, P_18, P_18A, P_23). Brakujące pola = 2 (nie dotyczy). */
   annotations?: InvoiceAnnotations;
