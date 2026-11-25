@@ -203,7 +203,7 @@
         },
         {
           "akt": "Ordynacja podatkowa",
-          "przepis": "art. 12 § 5 (termin kończący się w sobotę przesuwa się na następny dzień roboczy)"
+          "przepis": "art. 12 § 5 (termin kończący się w sobotę przesuwa się na następny dzień roboczy; podstawa przyjętej analogii, nie definicja dnia roboczego)"
         },
         {
           "akt": "ustawa o podatku od towarów i usług",
@@ -241,7 +241,7 @@
       "odczyt": "2026-11-25",
       "zrodlo_planu": "D16 (docs/koordynacja/DECYZJE-2026-11-25.md), NZ-TERM-05, plan zero zgubionych faktur (B2a #797, B2b)",
       "stan": "poza-v1",
-      "uwagi": "Odmowa wysyłki po terminie: #797 (B2a, w toku); alarm i mail: B2b; włączenie trybu offline u klientów po odpowiedzi prawnika. Wtedy stan „dziala”, kod odmowy i testy."
+      "uwagi": "Odmowa wysyłki po terminie: #797 (B2a, w toku); alarm i mail: B2b; włączenie trybu offline u klientów po odpowiedzi prawnika. Wtedy stan „dziala”, kod odmowy i testy. Niezmiennik NZ-TERM-05 i numerację ust. w art. 106nf i art. 106nh potwierdzić przy przeglądzie prawnika (tekstu ustawy nie ma w repozytorium); test niezmiennika dojdzie z kodem odmowy."
     }
   ]
 }

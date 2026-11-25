@@ -550,7 +550,7 @@
         },
         {
           "akt": "ustawa o podatku od towarów i usług",
-          "przepis": "art. 106na ust. 1 (data wystawienia przy wysyłce tego samego dnia) i art. 106nda ust. 2 i 10 (wysyłka faktury z trybu offline)"
+          "przepis": "art. 106na ust. 1 (data wystawienia przy wysyłce tego samego dnia) i art. 106nda ust. 2, 10 i 16 (wysyłka faktury z trybu offline, data z P_1)"
         },
         {
           "akt": "Kodeks karny skarbowy",
@@ -571,7 +571,7 @@
       "niezmienniki": [],
       "pewnosc": "wysoka",
       "wzorzec": null,
-      "interpretacja": "D9 (25.11.2026, pewność wysoka): ostrzeżenie, nie blokada, w rodzaju „Termin wystawienia z art. 106i ust. 1 ustawy o VAT dla tej daty sprzedaży minął 15.XX.RRRR, chyba że dla tej sprzedaży przepis przewiduje inny termin. Faktura wystawiona po terminie nadal jest fakturą.”; przy zaliczce „ust. 2” i „dla tej daty otrzymania zapłaty”. Blokada odmówiłaby faktur w terminie z ust. 3 (np. 30 dni dla usług budowlanych), a brak faktury to czyn z art. 62 § 1 KKS. Przy wysyłce później niż w dniu P_1 faktura jest fakturą z trybu offline z datą z P_1 (art. 106nda ust. 10 i ust. 16, D17).",
+      "interpretacja": "D9 (25.11.2026, pewność wysoka): ostrzeżenie, nie blokada, w rodzaju „Termin wystawienia z art. 106i ust. 1 ustawy o VAT dla tej daty sprzedaży minął 15.XX.RRRR, chyba że dla tej sprzedaży przepis przewiduje inny termin. Faktura wystawiona po terminie nadal jest fakturą.”; przy zaliczce „ust. 2” i „dla tej daty otrzymania zapłaty”. Blokada odmówiłaby faktur w terminie z ust. 3 (np. 30 dni dla usług budowlanych), a brak faktury to czyn z art. 62 § 1 KKS. Przy wysyłce później niż w dniu P_1 faktura jest fakturą z trybu offline z datą z P_1 (art. 106nda ust. 10 i ust. 16, D17). Pewność wysoka dotyczy terminu z art. 106i; ostrzeżenie o wysyłce później niż w następnym dniu roboczym zależy od pojęcia dnia roboczego z RP-TERM-05 (pewność średnia, pytanie do prawnika, D16).",
       "do_rozstrzygniecia": null,
       "sprawdzil": {
         "ksiegowa": null,
@@ -580,7 +580,7 @@
       "odczyt": "2026-11-25",
       "zrodlo_planu": "D9 (docs/koordynacja/DECYZJE-2026-11-25.md), NZ-FA-07",
       "stan": "poza-v1",
-      "uwagi": "Ostrzeżenie przy wysyłce (zwykła, FP, zaliczka), bez trybu rozkazującego, robi plan kompletnej aplikacji; wtedy stan „dziala”, kod i testy."
+      "uwagi": "Ostrzeżenie przy wysyłce (zwykła, FP, zaliczka), bez trybu rozkazującego, robi plan kompletnej aplikacji; wtedy stan „dziala”, kod i testy. Część o wysyłce do KSeF dotyczy faktur od obowiązku KSeF (od 1.02.2026, jak RP-TERM-05)."
     }
   ]
 }
