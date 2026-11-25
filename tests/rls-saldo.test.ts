@@ -303,10 +303,14 @@ describe.skipIf(!hasDatabase)('00215: potwierdzenie salda na prawdziwym PostgRES
 
   describe('saldo liczy baza tym samym warunkiem co Pulpit', () => {
     it('pozycje i kwota co do grosza jak getReceivables po NIP kontrahenta; pominięte z powodem; reszta nie wchodzi', async () => {
-      // Wchodzą: zwykła, częściowo zapłacona (NIP z myślnikami), uproszczona z NIP tylko w danych nabywcy
-      // (0,30 − 0,10), zaliczka bez rozliczenia, ROZ (reszta po zaliczkach z payment_data.amountDue).
+      // Wchodzą: zwykła, częściowo zapłacona (NIP z myślnikami w danych nabywcy: kolumna buyer_nip to
+      // varchar(10), więc zapis z myślnikami bywa tylko w buyer_data), uproszczona z NIP ze spacjami
+      // w danych nabywcy (0,30 − 0,10), zaliczka bez rozliczenia, ROZ (reszta po zaliczkach z payment_data.amountDue).
       const f1 = await faktura({ issue_date: '2026-09-01' });
-      const f2 = await faktura({ issue_date: '2026-09-02', gross_total: 500, net_total: 406.5, vat_total: 93.5, buyer_nip: '123-456-78-90' });
+      const f2 = await faktura({
+        issue_date: '2026-09-02', gross_total: 500, net_total: 406.5, vat_total: 93.5,
+        buyer_nip: null, buyer_data: { nip: '123-456-78-90', name: 'Kontrahent Testowy' },
+      });
       await wplata(f2, 200);
       const f3 = await faktura({
         issue_date: '2026-09-03', invoice_type: 'UPR', gross_total: 0.3, net_total: 0.24, vat_total: 0.06,
@@ -337,13 +341,15 @@ describe.skipIf(!hasDatabase)('00215: potwierdzenie salda na prawdziwym PostgRES
       const imp1 = await faktura({ issue_date: '2026-09-11', origin: 'ksef_import', gross_total: 400, net_total: 325.2, vat_total: 74.8 });
       const fx1 = await faktura({ issue_date: '2026-09-12', currency: 'EUR', gross_total: 100, net_total: 81.3, vat_total: 18.7 });
       // Nie wchodzą wcale: import zapłacony według FA(3), faktura do paragonu, zapłacona, inne środowisko,
-      // inny NIP, szkic, faktura zakupu, faktura innej firmy.
+      // inny NIP (także gdy dane nabywcy mają NIP kontrahenta: buyer_nip ma pierwszeństwo, jak buyerNipOf),
+      // szkic, faktura zakupu, faktura innej firmy.
       await faktura({ origin: 'file_import', fa3_data: { parsed: { paidDate: '2026-09-20' } } });
       await faktura({ fa3_data: { internalNumber: 'FP/1', type: 'VAT', receipt: { receiptNumber: 'P/1', receiptDate: '2026-09-30', cashRegisterNumber: 'ABC1234567890' } } });
       const zaplacona = await faktura({ gross_total: 50, net_total: 40.65, vat_total: 9.35 });
       await wplata(zaplacona, 50);
       await faktura({ ksef_environment: 'production' });
       await faktura({ buyer_nip: NIP_INNY, buyer_data: { nip: NIP_INNY, name: 'Inny kontrahent' } });
+      await faktura({ buyer_nip: NIP_INNY, buyer_data: { nip: NIP, name: 'Kontrahent Testowy' } });
       await faktura(SZKIC);
       await faktura({ direction: 'incoming', origin: 'ksef_inbox', ksef_status: 'received', xml_storage_path: null });
       await faktura({}, ORG_B);
