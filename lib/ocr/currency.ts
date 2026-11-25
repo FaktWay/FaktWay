@@ -55,6 +55,16 @@ function plMoney(n: number, digits = 2): string {
 }
 
 /**
+ * Kurs NBP do notatki kosztu: wszystkie miejsca, którymi liczy `przeliczNaPln`
+ * (do ośmiu: IDR ma osiem, HUF, JPY i KRW sześć, FZ-020), i co najmniej cztery,
+ * jak w tabeli A. Dotąd cztery na sztywno: notatka „po kursie 0,0110” przy koszcie
+ * policzonym kursem 0,011023 nie była śladem kursu (KWN-01).
+ */
+function kursTekst(mid: number): string {
+  return mid.toLocaleString('pl-PL', { minimumFractionDigits: 4, maximumFractionDigits: 8, useGrouping: false });
+}
+
+/**
  * Kwoty wydatku w złotych. `vatDeductible: null` przy złotówkach znaczy
  * „reguła jak dotąd” (decyduje wołający, np. zwolnienie z VAT).
  */
@@ -86,6 +96,6 @@ export function costInPln(doc: DocumentAmounts, issueDate: string, lookup: RateL
     gross,
     vatDeductible: 0,
     fx: stampRate(rate, issueDate),
-    note: `Przeliczono z ${plMoney(doc.gross_amount)} ${currency} brutto po kursie ${plMoney(rate.mid, 4)} (tabela ${rate.tableNo} z ${rate.effectiveDate}). VAT z dokumentu w walucie nie jest odliczany automatycznie — sprawdź.`,
+    note: `Przeliczono z ${plMoney(doc.gross_amount)} ${currency} brutto po kursie ${kursTekst(rate.mid)} (tabela ${rate.tableNo} z ${rate.effectiveDate}). VAT z dokumentu w walucie nie jest odliczany automatycznie — sprawdź.`,
   };
 }
