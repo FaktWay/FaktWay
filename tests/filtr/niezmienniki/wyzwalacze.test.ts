@@ -82,14 +82,6 @@ const BEZ_KOMUNIKATU: Record<string, BezKomunikatu> = {
   // KSeF: uprawnienia i identyfikatory zbiorcze
   guard_ksef_permission_grant: { stan: 'kod', test: 'rls-uprawnienia-ksef.test.ts', uwaga: 'serwis: skok stanu, zmiana NIP, zakresu i środowiska (23514), trzy gałęzie' },
   guard_ksef_collective_identifier: { stan: 'kod', test: 'rls-identyfikator-zbiorczy.test.ts', uwaga: 'serwis zmienia gotowy identyfikator (23514); zestaw faktur i przejścia stanów bez testu' },
-  // Koszty, wpłaty, wyciągi, kasa
-  guard_expense_payment_columns: { stan: 'kod', test: 'rls-koszty-do-zaplaty.test.ts', uwaga: 'klient zmienia paid_at i termin płatności kosztu (42501)' },
-  guard_expense_provenance: { stan: 'brak', uwaga: 'klient edytuje tylko zwykły koszt (notes); brak zmiany źródła ani kosztu z KSeF' },
-  guard_ksef_expense_provenance: { stan: 'brak', uwaga: 'brak zapisu ani usunięcia kosztu z KSeF sesją klienta' },
-  guard_payment_voided: { stan: 'kod', test: 'rls-wplaty-czesciowe.test.ts', uwaga: 'serwis zmienia cofniętą wpłatę, test sprawdza tylko, że jest błąd; klucz i autor bez testu' },
-  guard_payment_import_update: { stan: 'kod', test: 'rls-wyciag-koszty.test.ts', uwaga: 'serwis zmienia koszty operacji z wyciągu (42501); gałąź usuniętych danych bez testu' },
-  guard_cash_document_update: { stan: 'kod', test: 'rls-kasa.test.ts', uwaga: 'zmiana wystawionego dokumentu kasowego, wzorzec /cannot be changed/ wspólny z sześcioma innymi strażnikami' },
-  guard_cash_register_update: { stan: 'kod', test: 'rls-kasa.test.ts', uwaga: 'zmiana salda początkowego, wzorzec /locked/ (jedno słowo); zmiana danych kasy bez testu' },
   // Firma
   guard_tenant_first_invoice_accepted_at: { stan: 'kod', test: 'rls-lejek-analityka.test.ts', uwaga: 'właściciel ustawia i zmienia datę pierwszej faktury (42501)' },
   guard_tenant_logo_storage_key: { stan: 'kod', test: 'rls-logo-firmy.test.ts', uwaga: 'właściciel zmienia i czyści klucz logo (42501)' },
@@ -130,7 +122,7 @@ const SKUTKI: Record<string, { test?: string; uwaga: string }> = {
  * etykiety (usunięta linia w `tests/filtr`).
  */
 // prettier-ignore
-const ZAPADKA_BEZ_KOMUNIKATU = 'enforce_stripe_payment_subscription_tenant enforce_stripe_subscription_customer_tenant guard_admin_refund_financial_case guard_billing_invoice_financial_case guard_billing_invoice_identity guard_billing_invoice_line guard_cash_document_update guard_cash_register_update guard_expense_payment_columns guard_expense_provenance guard_invoice_delivery_history guard_invoice_number_series_update guard_invoice_payment_evidence guard_invoice_recurring_link guard_invoice_sales_quote_update guard_invoice_send_owner guard_ksef_collective_identifier guard_ksef_expense_provenance guard_ksef_permission_grant guard_payment_import_update guard_payment_voided guard_roz_advance_single_settlement guard_stripe_payment_financial_refs guard_stripe_payment_vat_invoice_link guard_tenant_first_invoice_accepted_at guard_tenant_logo_storage_key guard_tenant_stripe_customer_id lock_stripe_subscription_tenant_for_checkout preserve_canceled_stripe_subscription preserve_stripe_payment_refund_status prevent_financial_case_review_mutation';
+const ZAPADKA_BEZ_KOMUNIKATU = 'enforce_stripe_payment_subscription_tenant enforce_stripe_subscription_customer_tenant guard_admin_refund_financial_case guard_billing_invoice_financial_case guard_billing_invoice_identity guard_billing_invoice_line guard_invoice_delivery_history guard_invoice_number_series_update guard_invoice_payment_evidence guard_invoice_recurring_link guard_invoice_sales_quote_update guard_invoice_send_owner guard_ksef_collective_identifier guard_ksef_permission_grant guard_roz_advance_single_settlement guard_stripe_payment_financial_refs guard_stripe_payment_vat_invoice_link guard_tenant_first_invoice_accepted_at guard_tenant_logo_storage_key guard_tenant_stripe_customer_id lock_stripe_subscription_tenant_for_checkout preserve_canceled_stripe_subscription preserve_stripe_payment_refund_status prevent_financial_case_review_mutation';
 // prettier-ignore
 const ZAPADKA_SKUTKI_BEZ_TESTU = 'handle_new_user reopen_reviewed_financial_cases_for_payment set_updated_at';
 
