@@ -536,18 +536,34 @@ export function toGrosze(value: number): number {
  * dokładności przy dużych kwotach. Przykład MF nr 20: 3118,80 × 4,5005 = 14 036,16.
  */
 export function vatInPln(vatInCurrency: number, rate: number): number {
+  const mikro = rateMicro(rate);
+  if (mikro === null) throw new RangeError(`Kurs waluty „${rate}” spoza zapisu FA(3) (dodatni, najwyżej 6 miejsc po przecinku).`);
   // BigInt(…) zamiast literałów `0n`: cel kompilacji projektu jest niższy niż ES2020.
   const zero = BigInt(0);
-  const milion = BigInt(1_000_000);
-  const iloczyn = BigInt(toGrosze(vatInCurrency)) * BigInt(Math.round(rate * 1_000_000));
+  const iloczyn = BigInt(toGrosze(vatInCurrency)) * mikro;
   const modul = iloczyn < zero ? -iloczyn : iloczyn;
-  const grosze = (modul + BigInt(500_000)) / milion;
+  const grosze = (modul + BigInt(500_000)) / BigInt(1_000_000);
   return Number(iloczyn < zero ? -grosze : grosze) / 100;
+}
+
+/** Zapis kursu w FA(3) (`TIlosci`): dodatni, najwyżej 6 miejsc po przecinku. */
+const RATE_TEXT = /^(\d{1,16})(?:\.(\d{1,6}))?$/;
+
+/**
+ * Kurs jako liczba całkowita milionowych, z jego zapisu dziesiętnego (bez mnożenia
+ * na liczbach zmiennoprzecinkowych); `null` dla kursu zerowego, ujemnego albo
+ * z więcej niż 6 miejscami po przecinku.
+ */
+function rateMicro(rate: number): bigint | null {
+  if (!Number.isFinite(rate) || rate <= 0) return null;
+  const zapis = RATE_TEXT.exec(String(rate));
+  return zapis ? BigInt(zapis[1]! + (zapis[2] ?? '').padEnd(6, '0')) : null;
 }
 
 /** Kurs w pliku FA(3) (`TIlosci`): najwyżej 6 miejsc po przecinku, bez zer na końcu. */
 export function formatExchangeRate(rate: number): string {
-  return rate.toFixed(6).replace(/\.?0+$/, '');
+  if (rateMicro(rate) === null) throw new RangeError(`Kurs waluty „${rate}” spoza zapisu FA(3) (dodatni, najwyżej 6 miejsc po przecinku).`);
+  return String(rate);
 }
 
 /**
@@ -566,7 +582,7 @@ function currencyErrors(invoice: Invoice): string[] {
   }
   const errors: string[] = [];
   const rate = invoice.exchangeRate?.rate;
-  if (rate === undefined || !Number.isFinite(rate) || rate <= 0 || Math.abs(rate * 1_000_000 - Math.round(rate * 1_000_000)) > 1e-6) {
+  if (rate === undefined || rateMicro(rate) === null) {
     errors.push(`Faktura w ${currency} potrzebuje kursu NBP większego od zera, najwyżej z 6 miejscami po przecinku. Pobierz kurs ponownie albo wpisz go z tabeli NBP.`);
   }
   if (invoice.type !== 'VAT') {
