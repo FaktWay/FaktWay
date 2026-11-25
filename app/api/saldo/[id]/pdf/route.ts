@@ -12,7 +12,7 @@ const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 /**
  * GET /api/saldo/[id]/pdf: PDF wystawionego potwierdzenia salda (krok 2.9,
  * część 2). Firma ze zweryfikowanego członkostwa (`resolveApiUserAndActiveOrg`),
- * dokument czyta klient z sesji, więc RLS 00215 i filtr `tenant_id` dają „nie
+ * dokument czyta klient z sesji, więc RLS 00216 i filtr `tenant_id` dają „nie
  * znaleziono” dla dokumentu innej firmy. PDF powstaje za każdym razem
  * z migawki dokumentu: wystawionego nie zmienia nikt, a plik jest powtarzalny.
  * Pobranie już wystawionego dokumentu działa także przy zdjętym wyłączniku.

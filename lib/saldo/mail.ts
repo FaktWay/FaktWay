@@ -16,7 +16,7 @@ import { BALANCE_REQUEST, BALANCE_SCOPE_NOTICE, BALANCE_TITLE, balanceSummarySen
  * sam klucz, więc Resend nie wyśle drugi raz; świadome „Wyślij ponownie” po
  * zapisanej wysyłce daje nowy. Adres tylko jako skrót (klucz trafia do
  * dzienników dostawcy), logo jako skrót klucza logo (inne logo to inny PDF).
- * Przedrostek `saldo/<id>/` sprawdza RPC `record_balance_confirmation_email` (00215).
+ * Przedrostek `saldo/<id>/` sprawdza RPC `record_balance_confirmation_email` (00216).
  */
 export function balanceEmailIdempotencyKey(
   confirmationId: string,

@@ -3,13 +3,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { balanceConfirmationFromRow, type BalanceConfirmation, type BalanceEmailRecord } from '@/lib/saldo/model';
 
 /**
- * Odczyty potwierdzeń salda (00215) klientem z sesji: RLS zawęża do aktywnej
+ * Odczyty potwierdzeń salda (00216) klientem z sesji: RLS zawęża do aktywnej
  * firmy, a każde zapytanie filtruje jeszcze `tenant_id` firmy z sesji, więc
  * dokument innej firmy to „nie znaleziono”. Błąd bazy rzuca: „nie wiem” to
  * nie „brak dokumentu”. Wiersz w nieznanym kształcie też rzuca: dokumentu dla
  * kontrahenta nie składamy z części.
  *
- * Tabele 00215 nie są jeszcze w `types/database.ts` (typy z produkcji po
+ * Tabele 00216 nie są jeszcze w `types/database.ts` (typy z produkcji po
  * wgraniu migracji), stąd klient bez typów bazy.
  */
 

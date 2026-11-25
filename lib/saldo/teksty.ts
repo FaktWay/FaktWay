@@ -40,7 +40,7 @@ export const OMITTED_REASON_LABELS: Record<OmittedReason, string> = {
   foreign_currency: 'Faktura w walucie obcej: zestawienie obejmuje tylko faktury w złotych.',
 };
 
-/** Odmowy z bazy (00215): przyczyna i wyjście (protokół napraw, pkt 4). */
+/** Odmowy z bazy (00216): przyczyna i wyjście (protokół napraw, pkt 4). */
 export const BALANCE_REFUSALS: Record<BalanceRefusalCode, string> = {
   disabled:
     'Potwierdzenie salda nie jest jeszcze dostępne w FaktWay. Jeśli potrzebujesz zestawienia dla kontrahenta, napisz do nas przez Pomoc.',

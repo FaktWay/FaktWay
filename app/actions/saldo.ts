@@ -31,7 +31,7 @@ import { ActionAuthError, requireUserAndActiveOrg, type AuthContext } from '@/li
  * w PR C.
  *
  * Firma i rola z sesji, klient z sesji, więc te same reguły egzekwuje baza
- * (RLS i funkcje 00215). Saldo liczy baza; akcja sprawdza je jeszcze
+ * (RLS i funkcje 00216). Saldo liczy baza; akcja sprawdza je jeszcze
  * z należnościami Pulpitu (`matchesReceivables`): różnica zatrzymuje dokument
  * z wyjściem (Pomoc). Całość za wyłącznikiem `balanceConfirmationsEnabled`
  * (`lib/saldo/wylacznik.ts`), który sprawdza też baza.
@@ -58,7 +58,7 @@ const FINGERPRINT_SHAPE = /^[0-9a-f]{32}$/;
 /** Ile potwierdzeń salda firma może wysłać mailem w godzinie (jak noty i faktury, AUD-102). */
 const BALANCE_EMAILS_PER_HOUR = 30;
 
-/** Funkcje 00215 nie są jeszcze w `types/database.ts` (typy z produkcji po wgraniu migracji). */
+/** Funkcje 00216 nie są jeszcze w `types/database.ts` (typy z produkcji po wgraniu migracji). */
 function rpcClient(supabase: AuthContext['supabase']): SupabaseClient {
   return supabase as unknown as SupabaseClient;
 }

@@ -8,7 +8,7 @@ import { toGrosze } from '@/lib/xml/invoice-calculator';
 
 /**
  * Obliczenie salda (krok 2.9, część 2, PR B; D26 i D27). Saldo liczy baza
- * (`balance_confirmation_preview`, 00215) z tym samym warunkiem co Pulpit;
+ * (`balance_confirmation_preview`, 00216) z tym samym warunkiem co Pulpit;
  * aplikacja:
  *  1. czyta wynik i sprawdza jego arytmetykę w groszach (każda pozycja:
  *     do zapłaty po wpłatach = do zapłaty z faktury minus wpłaty, saldo =
@@ -19,7 +19,7 @@ import { toGrosze } from '@/lib/xml/invoice-calculator';
  *     wystawienie (dwa sposoby liczenia nie mogą się rozjechać po cichu).
  */
 
-/** Funkcje 00215 nie są jeszcze w `types/database.ts` (typy z produkcji po wgraniu migracji). */
+/** Funkcje 00216 nie są jeszcze w `types/database.ts` (typy z produkcji po wgraniu migracji). */
 function untyped(client: unknown): SupabaseClient {
   return client as SupabaseClient;
 }

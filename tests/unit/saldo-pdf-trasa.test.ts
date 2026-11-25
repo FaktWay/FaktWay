@@ -5,7 +5,7 @@ import { fakeSupabase, memoryDb, type MemoryDb, type Row } from '../helpers/fake
 /**
  * GET /api/saldo/[id]/pdf (krok 2.9, część 2, PR B): PDF wystawionego
  * potwierdzenia salda dla członka aktywnej firmy. Firma ze zweryfikowanego
- * członkostwa, odczyt klientem z sesji (RLS 00215); dokument innej firmy
+ * członkostwa, odczyt klientem z sesji (RLS 00216); dokument innej firmy
  * i zły identyfikator to 404, zepsuty wiersz to 500 bez PDF.
  */
 

@@ -8,7 +8,7 @@ import { fakeSupabase, memoryDb, type MemoryDb, type Row } from '../helpers/fake
  * z należnościami Pulpitu, wystawienie tylko odcisku z podglądu, PDF i wysyłka
  * przez `sendEmail` i Resend z kluczem idempotencji. Atrapy tylko dla sesji,
  * bazy (w pamięci, z RPC), wyłącznika, należności i HTTP do Resend. Funkcje
- * 00215 na prawdziwym Postgresie: tests/rls-saldo.test.ts.
+ * 00216 na prawdziwym Postgresie: tests/rls-saldo.test.ts.
  */
 
 const TENANT = 'ten-1';
@@ -86,7 +86,7 @@ function pulpit(outstanding = 1000) {
 let podglad: Row = podgladBazy();
 let wystawienie: { data: unknown; error: unknown } = { data: { status: 'issued', id: DOK, number: 'PS/1/2026' }, error: null };
 
-/** Zapis historii jak RPC `record_balance_confirmation_email` (00215): raz na klucz w firmie. */
+/** Zapis historii jak RPC `record_balance_confirmation_email` (00216): raz na klucz w firmie. */
 function zapisHistorii(args: Record<string, unknown>) {
   const emails = (db.tables.balance_confirmation_emails ??= []);
   if (emails.some((e) => e.idempotency_key === args.p_idempotency_key)) return { data: { status: 'already_recorded' }, error: null };

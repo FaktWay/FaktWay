@@ -5,7 +5,7 @@ import type { GlobalFlag } from '@/lib/feature-flags/types';
  * Wyłącznik potwierdzenia salda (krok 2.9, część 2; D27 i D28 mają średnią
  * pewność: zakres potwierdza księgowa, tekst prawnik). WŁĄCZNIK, nie hamulec:
  * flaga `balanceConfirmationsEnabled` w `global_feature_flags` (wiersz
- * wyłączony z migracji 00215). Brak wiersza, `false` albo zły typ znaczą, że
+ * wyłączony z migracji 00216). Brak wiersza, `false` albo zły typ znaczą, że
  * FaktWay nie wystawia ani nie wysyła potwierdzeń salda; tę samą flagę
  * sprawdzają funkcje bazy (podgląd i wystawienie odmawiają `disabled`).
  * Odczyt wprost z bazy (`getGlobalFlagForExecution`, bez pamięci podręcznej),

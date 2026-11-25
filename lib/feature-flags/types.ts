@@ -34,7 +34,7 @@ export type GlobalFlag =
   | 'grossPricesEnabled'
   /**
    * WŁĄCZNIK potwierdzenia salda z kontrahentem (krok 2.9 cz. 2, D27 i D28 ze średnią
-   * pewnością). Wiersz wyłączony z 00215; brak wiersza, `false` albo błąd odczytu =
+   * pewnością). Wiersz wyłączony z 00216; brak wiersza, `false` albo błąd odczytu =
    * wyłączone, a funkcje bazy odmawiają `disabled`. Odczyt: `lib/saldo/wylacznik.ts`.
    */
   | 'balanceConfirmationsEnabled';

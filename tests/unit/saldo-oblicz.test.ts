@@ -5,7 +5,7 @@ import { balanceArithmeticHolds, matchesReceivables, readBalancePreview } from '
 
 /**
  * Obliczenie potwierdzenia salda (krok 2.9, część 2, PR B; D26 i D27): wynik
- * podglądu z bazy (00215) w ścisłym kształcie, arytmetyka w groszach i ta sama
+ * podglądu z bazy (00216) w ścisłym kształcie, arytmetyka w groszach i ta sama
  * lista i kwota co należności kontrahenta na Pulpicie. Zgodność warunku bazy
  * z `getReceivables` na prawdziwym Postgresie: tests/rls-saldo.test.ts.
  */

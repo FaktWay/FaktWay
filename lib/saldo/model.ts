@@ -1,32 +1,32 @@
 /**
  * Potwierdzenie salda z kontrahentem (plan kompletnej aplikacji, krok 2.9,
  * część 2; decyzje D26-D28 w docs/koordynacja/DECYZJE-2026-11-25.md): typy
- * i reguły wspólne dla bazy (00215), obliczenia, PDF, maila i ekranów. Moduł
+ * i reguły wspólne dla bazy (00216), obliczenia, PDF, maila i ekranów. Moduł
  * bez importów serwerowych, więc nadaje się i do klienta.
  *
- * Saldo liczy baza (`balance_confirmation_preview`, 00215) tym samym warunkiem
+ * Saldo liczy baza (`balance_confirmation_preview`, 00216) tym samym warunkiem
  * co Pulpit; tu tylko kształt danych. Wiersz w nieznanym kształcie to `null`:
  * treści dokumentu dla kontrahenta nie zgadujemy.
  */
 
-/** Przedrostek serii, ten sam co w CHECK `balance_confirmations_number_check` (00215). */
+/** Przedrostek serii, ten sam co w CHECK `balance_confirmations_number_check` (00216). */
 export const BALANCE_NUMBER_PREFIX = 'PS';
 
 /** W tej wersji tylko złote (CHECK `balance_confirmations_currency_check`). */
 export const BALANCE_CURRENCY = 'PLN';
 
-/** Kto wystawia i wysyła: każdy aktywny członek firmy, jak przy notach (00193) i w funkcjach 00215. */
+/** Kto wystawia i wysyła: każdy aktywny członek firmy, jak przy notach (00193) i w funkcjach 00216. */
 export const BALANCE_WRITER_ROLES = ['owner', 'admin', 'member', 'accountant'] as const;
 
 export function canIssueBalanceConfirmations(role: string | null | undefined): boolean {
   return typeof role === 'string' && (BALANCE_WRITER_ROLES as readonly string[]).includes(role);
 }
 
-/** Powody pominięcia faktury (CHECK `balance_confirmation_omitted_valid`, 00215). */
+/** Powody pominięcia faktury (CHECK `balance_confirmation_omitted_valid`, 00216). */
 export const OMITTED_REASONS = ['corrected', 'correction_due', 'advance_settlement', 'imported', 'foreign_currency'] as const;
 export type OmittedReason = (typeof OMITTED_REASONS)[number];
 
-/** Kody odmów funkcji 00215 (nagłówek migracji). */
+/** Kody odmów funkcji 00216 (nagłówek migracji). */
 export const BALANCE_REFUSAL_CODES = [
   'disabled',
   'contractor_not_found',
@@ -120,7 +120,7 @@ export interface BalanceEmailRecord {
   sentAt: string;
 }
 
-/** Numer w kształcie z bazy (00215): `PS/1/2026`. */
+/** Numer w kształcie z bazy (00216): `PS/1/2026`. */
 export function formatBalanceNumber(seq: number, year: number): string {
   return `${BALANCE_NUMBER_PREFIX}/${seq}/${year}`;
 }
@@ -241,7 +241,7 @@ export type BalancePreviewResult =
 
 /**
  * Wynik `balance_confirmation_preview` albo odmowy `issue_balance_confirmation`
- * (00215). Nieznany kształt albo nieznany kod to null (błąd, nie odmowa).
+ * (00216). Nieznany kształt albo nieznany kod to null (błąd, nie odmowa).
  */
 export function balancePreviewFromRpc(data: unknown): BalancePreviewResult | null {
   if (!isRecord(data)) return null;
