@@ -65,10 +65,6 @@ const BEZ_KOMUNIKATU: Record<string, BezKomunikatu> = {
     test: 'rls-cykl-wyzwalacze.test.ts',
     uwaga: 'klient: draft na queued, diagnostyka, treść failed (42501); INSERT z historią dostawy bez testu',
   },
-  guard_invoice_pending_content: {
-    stan: 'brak',
-    uwaga: 'zapis klienta z rls-cykl-wyzwalacze.test.ts zatrzymuje najpierw guard_invoice_delivery_history (kolejność nazw); INSERT nie-szkicu i edycja treści w queued bez testu',
-  },
   guard_invoice_payment_evidence: {
     stan: 'kod',
     test: 'rls-isolation.test.ts',
@@ -83,14 +79,6 @@ const BEZ_KOMUNIKATU: Record<string, BezKomunikatu> = {
     test: 'rls-uprawnienia.test.ts',
     uwaga: 'druga faktura rozliczeniowa z tą samą zaliczką i zdublowana zaliczka (23505), serwis i klient',
   },
-  guard_invoice_correction_parent: { stan: 'brak', uwaga: 'korekty tylko z przyjętym rodzicem; nikt nie zmienia rodzaju, rodzica ani podstaw prawnych przyjętej faktury' },
-  guard_invoice_ksef_environment: { stan: 'brak', uwaga: 'serwis ustawia accepted ze środowiskiem (ścieżka dozwolona); brak zmiany środowiska, statusu przyjętej faktury ani accepted bez środowiska' },
-  guard_accepted_ksef_invoice_line: { stan: 'brak', uwaga: 'pozycje wstawia tylko serwis w przygotowaniu; brak zapisu pozycji przyjętej faktury sesją klienta' },
-  guard_historical_ksef_invoice_lines: { stan: 'brak', uwaga: 'brak zapisu pozycji faktury z historią dostawy sesją klienta' },
-  guard_pending_invoice_lines: { stan: 'brak', uwaga: 'brak zapisu pozycji faktury w queued albo sending sesją klienta' },
-  guard_upo_ksef_environment: { stan: 'brak', uwaga: 'UPO wstawia tylko serwis z przyjętą fakturą i środowiskiem (ścieżka dozwolona)' },
-  guard_ksef_offline_queue_environment: { stan: 'brak', uwaga: 'kolejkę Offline24 zapisuje test surowym SQL jako właściciel bazy; brak odmowy' },
-  guard_tenant_ksef_claim_fields: { stan: 'brak', uwaga: 'pola KSeF firmy zapisuje tylko serwis w przygotowaniu; brak zapisu klienta ani zmiany NIP przy poświadczeniach' },
   // KSeF: uprawnienia i identyfikatory zbiorcze
   guard_ksef_permission_grant: { stan: 'kod', test: 'rls-uprawnienia-ksef.test.ts', uwaga: 'serwis: skok stanu, zmiana NIP, zakresu i środowiska (23514), trzy gałęzie' },
   guard_ksef_collective_identifier: { stan: 'kod', test: 'rls-identyfikator-zbiorczy.test.ts', uwaga: 'serwis zmienia gotowy identyfikator (23514); zestaw faktur i przejścia stanów bez testu' },
@@ -142,7 +130,7 @@ const SKUTKI: Record<string, { test?: string; uwaga: string }> = {
  * etykiety (usunięta linia w `tests/filtr`).
  */
 // prettier-ignore
-const ZAPADKA_BEZ_KOMUNIKATU = 'enforce_stripe_payment_subscription_tenant enforce_stripe_subscription_customer_tenant guard_accepted_ksef_invoice_line guard_admin_refund_financial_case guard_billing_invoice_financial_case guard_billing_invoice_identity guard_billing_invoice_line guard_cash_document_update guard_cash_register_update guard_expense_payment_columns guard_expense_provenance guard_historical_ksef_invoice_lines guard_invoice_correction_parent guard_invoice_delivery_history guard_invoice_ksef_environment guard_invoice_number_series_update guard_invoice_payment_evidence guard_invoice_pending_content guard_invoice_recurring_link guard_invoice_sales_quote_update guard_invoice_send_owner guard_ksef_collective_identifier guard_ksef_expense_provenance guard_ksef_offline_queue_environment guard_ksef_permission_grant guard_payment_import_update guard_payment_voided guard_pending_invoice_lines guard_roz_advance_single_settlement guard_stripe_payment_financial_refs guard_stripe_payment_vat_invoice_link guard_tenant_first_invoice_accepted_at guard_tenant_ksef_claim_fields guard_tenant_logo_storage_key guard_tenant_stripe_customer_id guard_upo_ksef_environment lock_stripe_subscription_tenant_for_checkout preserve_canceled_stripe_subscription preserve_stripe_payment_refund_status prevent_financial_case_review_mutation';
+const ZAPADKA_BEZ_KOMUNIKATU = 'enforce_stripe_payment_subscription_tenant enforce_stripe_subscription_customer_tenant guard_admin_refund_financial_case guard_billing_invoice_financial_case guard_billing_invoice_identity guard_billing_invoice_line guard_cash_document_update guard_cash_register_update guard_expense_payment_columns guard_expense_provenance guard_invoice_delivery_history guard_invoice_number_series_update guard_invoice_payment_evidence guard_invoice_recurring_link guard_invoice_sales_quote_update guard_invoice_send_owner guard_ksef_collective_identifier guard_ksef_expense_provenance guard_ksef_permission_grant guard_payment_import_update guard_payment_voided guard_roz_advance_single_settlement guard_stripe_payment_financial_refs guard_stripe_payment_vat_invoice_link guard_tenant_first_invoice_accepted_at guard_tenant_logo_storage_key guard_tenant_stripe_customer_id lock_stripe_subscription_tenant_for_checkout preserve_canceled_stripe_subscription preserve_stripe_payment_refund_status prevent_financial_case_review_mutation';
 // prettier-ignore
 const ZAPADKA_SKUTKI_BEZ_TESTU = 'handle_new_user reopen_reviewed_financial_cases_for_payment set_updated_at';
 
