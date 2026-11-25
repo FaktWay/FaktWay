@@ -842,7 +842,8 @@
         "app/(dashboard)/settings/accountant/**",
         "app/accountant/**",
         "components/settings/accountant-actions.ts",
-        "supabase/migrations/00192_*.sql"
+        "supabase/migrations/00192_*.sql",
+        "supabase/migrations/00214_*.sql"
       ]
     },
     {
