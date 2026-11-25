@@ -8,7 +8,7 @@ import { getReceivables } from '@/lib/dashboard/receivables';
 import { getRlsTestDatabaseUrl, getRlsTestEnvironment } from './helpers/rls-environment';
 
 /**
- * 00215 na prawdziwym Postgresie i PostgREST: potwierdzenie salda
+ * 00216 na prawdziwym Postgresie i PostgREST: potwierdzenie salda
  * z kontrahentem (plan kompletnej aplikacji, krok 2.9, część 2, PR A;
  * decyzje D26-D28).
  *
@@ -37,11 +37,11 @@ const admin: SupabaseClient = environment
   ? createClient(environment.url, environment.serviceRoleKey)
   : (null as unknown as SupabaseClient);
 
-const ORG_A = '00215215-0000-4000-8000-00000000000a';
-const ORG_B = '00215215-0000-4000-8000-00000000000b';
-const KONTRAHENT_A = '00215215-1111-4000-8000-00000000000a';
-const KONTRAHENT_INNY = '00215215-1111-4000-8000-0000000000a2';
-const KONTRAHENT_B = '00215215-1111-4000-8000-00000000000b';
+const ORG_A = '00216216-0000-4000-8000-00000000000a';
+const ORG_B = '00216216-0000-4000-8000-00000000000b';
+const KONTRAHENT_A = '00216216-1111-4000-8000-00000000000a';
+const KONTRAHENT_INNY = '00216216-1111-4000-8000-0000000000a2';
+const KONTRAHENT_B = '00216216-1111-4000-8000-00000000000b';
 const EMAILS = {
   owner: 'rls-saldo-owner@ksef-saas.test',
   member: 'rls-saldo-member@ksef-saas.test',
@@ -152,8 +152,8 @@ type Pola = Record<string, unknown>;
 /** Faktura sprzedaży przyjęta w KSeF TEST, termin minął 5 dni temu: 1230 zł brutto, nic nie wpłacono. */
 async function faktura(fields: Pola = {}, org: string = ORG_A): Promise<string> {
   counter += 1;
-  const id = `00215215-2222-4000-8000-${String(counter).padStart(12, '0')}`;
-  const number = `FV/215/${counter}`;
+  const id = `00216216-2222-4000-8000-${String(counter).padStart(12, '0')}`;
+  const number = `FV/216/${counter}`;
   const { error } = await admin.from('invoices').insert({
     id,
     tenant_id: org,
@@ -234,7 +234,7 @@ async function audyt(id: string, action: string) {
 
 /** Pięciu kontrahentów do serii naraz; NIP-y inne niż NIP i NIP_INNY (UNIQUE tenant_id, nip). */
 const KONTRAHENCI_SERII = [1, 2, 3, 4, 5].map((n) => ({
-  id: `00215215-1111-4000-8000-0000000000c${n}`,
+  id: `00216216-1111-4000-8000-0000000000c${n}`,
   nip: `98765432${10 + n}`,
 }));
 
@@ -253,7 +253,7 @@ async function cleanup() {
   await kontrahent(KONTRAHENT_B, NIP, {}, ORG_B);
 }
 
-describe.skipIf(!hasDatabase)('00215: potwierdzenie salda na prawdziwym PostgREST', () => {
+describe.skipIf(!hasDatabase)('00216: potwierdzenie salda na prawdziwym PostgREST', () => {
   beforeAll(async () => {
     for (const who of Object.keys(EMAILS) as Kto[]) users[who] = await userId(EMAILS[who]);
     await admin.from('memberships').delete().in('organization_id', [ORG_A, ORG_B]);
@@ -363,7 +363,7 @@ describe.skipIf(!hasDatabase)('00215: potwierdzenie salda na prawdziwym PostgRES
       expect(p.items.find((i) => i.invoiceId === r2)).toMatchObject({ kind: 'final', type: 'ROZ', gross: 10000, amountDue: 7000, paid: 0, outstanding: 7000 });
       expect(p.items.find((i) => i.invoiceId === f2)).toMatchObject({ gross: 500, amountDue: 500, paid: 200, outstanding: 300 });
       expect(p.items.find((i) => i.invoiceId === f1)).toMatchObject({
-        number: expect.stringMatching(/^FV\/215\/\d+$/), ksefNumber: expect.stringMatching(/^1234567890-20261001-\d{12}-15$/),
+        number: expect.stringMatching(/^FV\/216\/\d+$/), ksefNumber: expect.stringMatching(/^1234567890-20261001-\d{12}-15$/),
         issueDate: '2026-09-01', dueDate: shiftDays(warsawToday(), -5), kind: 'regular', type: 'VAT',
       });
       expect(p.total).toBe(9530.2);
@@ -569,7 +569,7 @@ describe.skipIf(!hasDatabase)('00215: potwierdzenie salda na prawdziwym PostgRES
     it('kontrahent innej firmy wygląda jak brak kontrahenta; kontrahent bez NIP: odmowa', async () => {
       const owner = await signedIn('owner');
       expect(await podglad(owner, KONTRAHENT_B)).toEqual({ status: 'refused', code: 'contractor_not_found' });
-      const bezNip = '00215215-1111-4000-8000-0000000000d1';
+      const bezNip = '00216216-1111-4000-8000-0000000000d1';
       await kontrahent(bezNip, ' - ');
       expect(await podglad(owner, bezNip)).toEqual({ status: 'refused', code: 'contractor_nip_missing' });
       expect((await wystaw(owner, 'a'.repeat(32), { contractorId: bezNip })).data).toEqual({ status: 'refused', code: 'contractor_nip_missing' });
@@ -610,16 +610,16 @@ describe.skipIf(!hasDatabase)('00215: potwierdzenie salda na prawdziwym PostgRES
 
       it('przyjęta faktura kontrahenta bez środowiska: odmowa environment_unknown, nie saldo bez niej', async () => {
         await faktura();
-        const id = '00215215-2222-4000-8000-0000000000e1';
+        const id = '00216216-2222-4000-8000-0000000000e1';
         await db().executeSql(
           `INSERT INTO public.invoices (id, tenant_id, direction, origin, internal_number, invoice_type, invoice_kind, issue_date,
              payment_due_date, seller_nip, buyer_nip, gross_total, net_total, vat_total, fa3_data, seller_data, buyer_data,
              ksef_status, ksef_environment, xml_storage_path, ksef_number)
-           VALUES ($1, $2, 'outgoing', 'app', 'FV/215/STARA', 'VAT', 'regular', '2026-01-10', '2026-01-24', $3, $3,
+           VALUES ($1, $2, 'outgoing', 'app', 'FV/216/STARA', 'VAT', 'regular', '2026-01-10', '2026-01-24', $3, $3,
              100, 81.3, 18.7, $4::jsonb, $5::jsonb, $6::jsonb, 'accepted', NULL, 'x.xml', $7)`,
           [
             id, ORG_A, NIP,
-            JSON.stringify({ internalNumber: 'FV/215/STARA', type: 'VAT' }),
+            JSON.stringify({ internalNumber: 'FV/216/STARA', type: 'VAT' }),
             JSON.stringify({ nip: NIP }),
             JSON.stringify({ nip: NIP, name: 'Kontrahent Testowy' }),
             `${NIP}-20260110-000000021599-15`,
@@ -732,7 +732,7 @@ describe.skipIf(!hasDatabase)('00215: potwierdzenie salda na prawdziwym PostgRES
 
   describe('treść dokumentu pilnowana w bazie (CHECK)', () => {
     const POZYCJA = {
-      invoiceId: '00215215-2222-4000-8000-0000000000f1', number: 'FV/1', ksefNumber: null, issueDate: '2026-10-01', dueDate: null,
+      invoiceId: '00216216-2222-4000-8000-0000000000f1', number: 'FV/1', ksefNumber: null, issueDate: '2026-10-01', dueDate: null,
       kind: 'regular', type: 'VAT', gross: 100, amountDue: 100, paid: 40, outstanding: 60,
     };
     const STRONA = { name: 'Firma', nip: NIP, countryCode: 'PL', addressLine1: 'ul. A 1', addressLine2: '00-001 Warszawa' };
@@ -797,7 +797,7 @@ describe.skipIf(!hasDatabase)('00215: potwierdzenie salda na prawdziwym PostgRES
 
     it('klucz innego dokumentu i cudzy dokument: odmowa bez zapisu', async () => {
       const { owner, id } = await wystawiony();
-      const inny = '00215215-3333-4000-8000-000000000001';
+      const inny = '00216216-3333-4000-8000-000000000001';
       expect((await owner.rpc('record_balance_confirmation_email', {
         p_confirmation_id: id, p_recipient: 'a@b.pl', p_idempotency_key: `saldo/${inny}/x/0`, p_provider_message_id: null,
       })).data).toEqual({ status: 'refused', code: 'invalid_key' });

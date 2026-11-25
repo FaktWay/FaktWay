@@ -4,14 +4,14 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Migracja 00215 (plan kompletnej aplikacji, krok 2.9, część 2, PR A;
+ * Migracja 00216 (plan kompletnej aplikacji, krok 2.9, część 2, PR A;
  * decyzje D26-D28 w docs/koordynacja/DECYZJE-2026-11-25.md): potwierdzenie
  * salda z kontrahentem. Tekst migracji (uprawnienia, search_path, firma i rola
  * z sesji, wyłącznik, warunek należności, numeracja, niezmienność); zachowanie
  * na prawdziwej bazie sprawdza `tests/rls-saldo.test.ts` w jobie „RLS isolation”.
  */
 
-const sql = () => readFileSync(join(process.cwd(), 'supabase/migrations/00215_balance_confirmations.sql'), 'utf8');
+const sql = () => readFileSync(join(process.cwd(), 'supabase/migrations/00216_balance_confirmations.sql'), 'utf8');
 /** Kod wykonywany przy wgraniu: bez komentarzy i bez ciał funkcji. */
 const outsideBodies = (text: string) => text.replace(/--[^\n]*/g, '').replace(/\$(\w*)\$[\s\S]*?\$\1\$/g, '');
 /** Ciało funkcji `name` (między `$$`). */
@@ -40,7 +40,7 @@ const INTERNAL = [
   'balance_confirmation_build(uuid, uuid, text)',
 ] as const;
 
-describe('migracja 00215 (tekst; zachowanie na bazie w tests/rls-saldo.test.ts)', () => {
+describe('migracja 00216 (tekst; zachowanie na bazie w tests/rls-saldo.test.ts)', () => {
   it('nagłówek: PRZED wdrożeniem; bez DROP tabel i kolumn, bez zmiany danych; jedyny INSERT to wyłączony wiersz wyłącznika', () => {
     const tekst = sql();
     expect(tekst).toMatch(/-- KIEDY WGRAĆ: PRZED wdrożeniem/);

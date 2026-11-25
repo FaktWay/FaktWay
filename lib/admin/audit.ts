@@ -149,7 +149,7 @@ export const KNOWN_AUDIT_ACTIONS = [
   'accounting_note.draft_deleted',
   'accounting_note.issued',
   'accounting_note.emailed',
-  // Potwierdzenie salda (00215)
+  // Potwierdzenie salda (00216)
   'balance_confirmation.issued',
   'balance_confirmation.emailed',
   // Proforma i oferta (00198)

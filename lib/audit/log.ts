@@ -140,7 +140,7 @@ export type AuditAction =
   | 'accounting_note.draft_deleted'
   | 'accounting_note.issued'
   | 'accounting_note.emailed'
-  // Potwierdzenie salda (00215, krok 2.9 cz. 2): wystawienie (numer, dzień salda, saldo,
+  // Potwierdzenie salda (00216, krok 2.9 cz. 2): wystawienie (numer, dzień salda, saldo,
   // liczba pozycji i pominiętych) i wysyłkę mailem (adres, id wiadomości) zapisuje baza
   // (RPC `issue_balance_confirmation`, `record_balance_confirmation_email`) w tej samej transakcji.
   | 'balance_confirmation.issued'

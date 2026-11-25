@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════
--- 00215: potwierdzenie salda z kontrahentem (plan kompletnej aplikacji,
+-- 00216: potwierdzenie salda z kontrahentem (plan kompletnej aplikacji,
 -- docs/koordynacja/PLAN-KOMPLETNA-APLIKACJA.md, krok 2.9, część 2, PR A;
 -- decyzje D26, D27 i D28 w docs/koordynacja/DECYZJE-2026-11-25.md).
 --
@@ -102,7 +102,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.balance_confirmation_strip_space(text) IS
-  '00215: usuwa białe znaki z tego samego zbioru co \s w JavaScript (normalizeNip).';
+  '00216: usuwa białe znaki z tego samego zbioru co \s w JavaScript (normalizeNip).';
 
 CREATE OR REPLACE FUNCTION public.balance_confirmation_nip(p_value text)
 RETURNS text
@@ -114,7 +114,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.balance_confirmation_nip(text) IS
-  '00215: NIP do porównań jak normalizeNip: bez białych znaków i myślników, wielkie litery; pusty to NULL.';
+  '00216: NIP do porównań jak normalizeNip: bez białych znaków i myślników, wielkie litery; pusty to NULL.';
 
 -- NIP nabywcy faktury jak buyerNipOf (lib/dashboard/receivables.ts):
 -- buyer_nip, gdy nie jest pusty, a bez niego buyer_data.nip (tylko tekst).
@@ -131,7 +131,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.balance_confirmation_buyer_nip(text, jsonb) IS
-  '00215: znormalizowany NIP nabywcy faktury jak buyerNipOf i normalizeNip w aplikacji.';
+  '00216: znormalizowany NIP nabywcy faktury jak buyerNipOf i normalizeNip w aplikacji.';
 
 -- ─── Funkcje sprawdzające treść dokumentu (CHECK) ───────────────
 -- CASE pilnuje kolejności: najpierw typ, dopiero potem rzutowanie na liczbę,
@@ -196,7 +196,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.balance_confirmation_items_valid(jsonb) IS
-  '00215: pozycje potwierdzenia salda: 1-1000 faktur {invoiceId, number, ksefNumber, issueDate, dueDate, kind, type, gross, amountDue, paid, outstanding}; rodzaje VAT/UPR, ZAL, ROZ; kwoty do grosza; outstanding = amountDue - paid > 0.';
+  '00216: pozycje potwierdzenia salda: 1-1000 faktur {invoiceId, number, ksefNumber, issueDate, dueDate, kind, type, gross, amountDue, paid, outstanding}; rodzaje VAT/UPR, ZAL, ROZ; kwoty do grosza; outstanding = amountDue - paid > 0.';
 
 CREATE OR REPLACE FUNCTION public.balance_confirmation_items_total(p_items jsonb)
 RETURNS numeric
@@ -215,7 +215,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.balance_confirmation_items_total(jsonb) IS
-  '00215: saldo dokumentu: suma kwot do zapłaty pozycji (CHECK balance_confirmations_total_check).';
+  '00216: saldo dokumentu: suma kwot do zapłaty pozycji (CHECK balance_confirmations_total_check).';
 
 CREATE OR REPLACE FUNCTION public.balance_confirmation_omitted_valid(p_omitted jsonb)
 RETURNS boolean
@@ -258,7 +258,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.balance_confirmation_omitted_valid(jsonb) IS
-  '00215: faktury pominięte w potwierdzeniu salda: do 5000 {invoiceId, number, ksefNumber, issueDate, kind, type, currency, gross, reason} z powodem corrected, correction_due, advance_settlement, imported albo foreign_currency.';
+  '00216: faktury pominięte w potwierdzeniu salda: do 5000 {invoiceId, number, ksefNumber, issueDate, kind, type, currency, gross, reason} z powodem corrected, correction_due, advance_settlement, imported albo foreign_currency.';
 
 CREATE OR REPLACE FUNCTION public.balance_confirmation_party_valid(p_party jsonb)
 RETURNS boolean
@@ -277,7 +277,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.balance_confirmation_party_valid(jsonb) IS
-  '00215: migawka strony dokumentu (firma, kontrahent): nazwa i NIP niepuste, adres do 512 znaków na wiersz, e-mail do 254.';
+  '00216: migawka strony dokumentu (firma, kontrahent): nazwa i NIP niepuste, adres do 512 znaków na wiersz, e-mail do 254.';
 
 REVOKE ALL ON FUNCTION public.balance_confirmation_strip_space(text) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.balance_confirmation_nip(text) FROM PUBLIC, anon;
@@ -343,15 +343,15 @@ CREATE TABLE public.balance_confirmations (
 );
 
 COMMENT ON TABLE public.balance_confirmations IS
-  '00215 (krok 2.9 cz. 2): wystawione potwierdzenie salda z kontrahentem (należności na dzień salda). Nie jest fakturą ani notą, nie trafia do KSeF, KPiR ani raportów. Powstaje tylko przez issue_balance_confirmation; wystawionego nie zmienia nikt (wyzwalacz a_guard_balance_confirmation_update).';
+  '00216 (krok 2.9 cz. 2): wystawione potwierdzenie salda z kontrahentem (należności na dzień salda). Nie jest fakturą ani notą, nie trafia do KSeF, KPiR ani raportów. Powstaje tylko przez issue_balance_confirmation; wystawionego nie zmienia nikt (wyzwalacz a_guard_balance_confirmation_update).';
 COMMENT ON COLUMN public.balance_confirmations.items IS
-  '00215: migawka pozycji z chwili wystawienia: invoiceId, number, ksefNumber, issueDate, dueDate, kind, type, gross, amountDue (dla ROZ reszta po zaliczkach), paid, outstanding.';
+  '00216: migawka pozycji z chwili wystawienia: invoiceId, number, ksefNumber, issueDate, dueDate, kind, type, gross, amountDue (dla ROZ reszta po zaliczkach), paid, outstanding.';
 COMMENT ON COLUMN public.balance_confirmations.omitted IS
-  '00215: faktury kontrahenta, których saldo nie obejmuje, z powodem (corrected, correction_due, advance_settlement, imported, foreign_currency); wystawione świadomie (p_without_omitted).';
+  '00216: faktury kontrahenta, których saldo nie obejmuje, z powodem (corrected, correction_due, advance_settlement, imported, foreign_currency); wystawione świadomie (p_without_omitted).';
 COMMENT ON COLUMN public.balance_confirmations.counterparty IS
-  '00215: migawka kontrahenta z bazy firmy w chwili wystawienia: name, nip, countryCode, addressLine1, addressLine2, email.';
+  '00216: migawka kontrahenta z bazy firmy w chwili wystawienia: name, nip, countryCode, addressLine1, addressLine2, email.';
 COMMENT ON COLUMN public.balance_confirmations.issuer IS
-  '00215: migawka danych firmy (tenants) w chwili wystawienia: name, nip, countryCode, addressLine1, addressLine2.';
+  '00216: migawka danych firmy (tenants) w chwili wystawienia: name, nip, countryCode, addressLine1, addressLine2.';
 
 CREATE INDEX idx_balance_confirmations_tenant_issued
   ON public.balance_confirmations (tenant_id, issued_at DESC);
@@ -426,7 +426,7 @@ CREATE TABLE public.balance_confirmation_emails (
 );
 
 COMMENT ON TABLE public.balance_confirmation_emails IS
-  '00215 (krok 2.9 cz. 2): wysyłki potwierdzenia salda mailem do kontrahenta. Zapis tylko RPC record_balance_confirmation_email, raz na klucz idempotencji maila.';
+  '00216 (krok 2.9 cz. 2): wysyłki potwierdzenia salda mailem do kontrahenta. Zapis tylko RPC record_balance_confirmation_email, raz na klucz idempotencji maila.';
 
 CREATE INDEX idx_balance_confirmation_emails_confirmation
   ON public.balance_confirmation_emails (tenant_id, confirmation_id, sent_at);
@@ -470,7 +470,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.balance_confirmation_session_tenant() IS
-  '00215: aktywna firma z sesji (nagłówek x-active-org) dla aktywnego członka z rolą owner, admin, member albo accountant; inaczej 42501.';
+  '00216: aktywna firma z sesji (nagłówek x-active-org) dla aktywnego członka z rolą owner, admin, member albo accountant; inaczej 42501.';
 
 -- Pozycje i pominięte faktury jednej firmy dla jednego NIP (warunek jak
 -- getReceivables; opis w nagłówku, pkt 1 i 2). Kolejność: data wystawienia,
@@ -608,7 +608,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.balance_confirmation_lines(uuid, text, text) IS
-  '00215: pozycje (należności jak getReceivables) i pominięte faktury jednej firmy dla jednego NIP nabywcy; tylko wewnątrz funkcji SECURITY DEFINER tej migracji.';
+  '00216: pozycje (należności jak getReceivables) i pominięte faktury jednej firmy dla jednego NIP nabywcy; tylko wewnątrz funkcji SECURITY DEFINER tej migracji.';
 
 -- Cała treść dokumentu z odciskiem albo odmowa z kodem; dla podglądu
 -- i wystawienia ta sama droga, więc odcisk podglądu zgadza się z wystawieniem,
@@ -728,7 +728,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.balance_confirmation_build(uuid, uuid, text) IS
-  '00215: treść potwierdzenia salda (kontrahent, firma, dzień salda, pozycje, pominięte, saldo) z odciskiem md5 albo odmowa z kodem; tylko wewnątrz funkcji SECURITY DEFINER tej migracji.';
+  '00216: treść potwierdzenia salda (kontrahent, firma, dzień salda, pozycje, pominięte, saldo) z odciskiem md5 albo odmowa z kodem; tylko wewnątrz funkcji SECURITY DEFINER tej migracji.';
 
 REVOKE ALL ON FUNCTION public.balance_confirmation_session_tenant() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.balance_confirmation_lines(uuid, text, text) FROM PUBLIC, anon, authenticated, service_role;
@@ -764,7 +764,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.balance_confirmation_preview(uuid, text) IS
-  '00215: podgląd potwierdzenia salda kontrahenta aktywnej firmy: pozycje, pominięte, saldo i odcisk treści do wystawienia. Bez zapisu.';
+  '00216: podgląd potwierdzenia salda kontrahenta aktywnej firmy: pozycje, pominięte, saldo i odcisk treści do wystawienia. Bez zapisu.';
 
 REVOKE ALL ON FUNCTION public.balance_confirmation_preview(uuid, text) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.balance_confirmation_preview(uuid, text) TO authenticated;
@@ -875,7 +875,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.issue_balance_confirmation(uuid, text, text, boolean) IS
-  '00215: wystawia potwierdzenie salda z treści liczonej w bazie, tylko dla odcisku z podglądu; kolejny numer PS/n/rok, migawka i audyt balance_confirmation.issued w jednej transakcji. Ta sama treść drugi raz oddaje ten sam dokument.';
+  '00216: wystawia potwierdzenie salda z treści liczonej w bazie, tylko dla odcisku z podglądu; kolejny numer PS/n/rok, migawka i audyt balance_confirmation.issued w jednej transakcji. Ta sama treść drugi raz oddaje ten sam dokument.';
 
 REVOKE ALL ON FUNCTION public.issue_balance_confirmation(uuid, text, text, boolean) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.issue_balance_confirmation(uuid, text, text, boolean) TO authenticated;
@@ -945,7 +945,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.record_balance_confirmation_email(uuid, text, text, text) IS
-  '00215: zapisuje wysyłkę potwierdzenia salda mailem (raz na klucz idempotencji) i audyt balance_confirmation.emailed w jednej transakcji.';
+  '00216: zapisuje wysyłkę potwierdzenia salda mailem (raz na klucz idempotencji) i audyt balance_confirmation.emailed w jednej transakcji.';
 
 REVOKE ALL ON FUNCTION public.record_balance_confirmation_email(uuid, text, text, text) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.record_balance_confirmation_email(uuid, text, text, text) TO authenticated;
@@ -958,7 +958,7 @@ INSERT INTO public.global_feature_flags (flag, enabled, note)
 VALUES (
   'balanceConfirmationsEnabled',
   false,
-  'Potwierdzenie salda z kontrahentem (krok 2.9 cz. 2 planu kompletnej aplikacji, migracja 00215). '
+  'Potwierdzenie salda z kontrahentem (krok 2.9 cz. 2 planu kompletnej aplikacji, migracja 00216). '
   'Włączyć po potwierdzeniu zakresu przez księgową (D27) i tekstu dokumentu przez prawnika (D28).'
 )
 ON CONFLICT (flag) DO NOTHING;
