@@ -35,6 +35,8 @@ export const SNAPSHOT_KEYS: ReadonlyMap<string, readonly string[]> = new Map([
   ['billing_invoice_counters', ['operator_tenant_id', 'period']],
   // Adres kalendarza (00182, krok 7.3): jeden wiersz na firmę, kluczem jest firma.
   ['calendar_feed_tokens', ['tenant_id']],
+  // Akceptacja kosztu przez księgową (00214, krok 6.2 część 5a): jeden wiersz na koszt, kluczem jest koszt.
+  ['expense_acceptances', ['expense_id']],
   ['flo_decisions', ['tenant_id', 'kind']],
   ['flo_kind_flags', ['tenant_id', 'kind']],
   ['flo_prefs', ['tenant_id']],
