@@ -4,9 +4,11 @@ import type { XMLBuilder } from 'xmlbuilder2/lib/interfaces';
 import type { Invoice, InvoiceLineItem, VatRate, BuyerParty } from '@/types/invoice';
 import {
   calculateInvoiceTotals,
+  formatExchangeRate,
   normalizeIban,
   summarizeVatPerRate,
   validateInvoice,
+  vatInPln,
   ZW_WITHOUT_BASIS_MESSAGE,
 } from './invoice-calculator';
 import { RECEIPT_ONLY_REGULAR_MESSAGE, RECEIPT_XML_KEYS } from '@/lib/invoices/receipt-invoice';
@@ -383,6 +385,10 @@ function buildFa(
 ): void {
   const fa = root.ele('Fa');
 
+  // Waluta obca (krok 2.1, decyzja D56): P_13_x i P_14_x w walucie, podatek
+  // stawek także w złotych (P_14_xW) i kurs w każdej pozycji (FaWiersz/KursWaluty).
+  const rate = foreignCurrencyRate(invoice);
+
   fa.ele('KodWaluty').txt(invoice.payment.currency);
   fa.ele('P_1').txt(formatDate(invoice.issueDate));
   // P_1M (miejsce wystawienia) – pomijamy w MVP.
@@ -394,7 +400,7 @@ function buildFa(
   }
 
   // Sumy per stawka w kolejności XSD-sequence.
-  buildVatSummaries(fa, invoice.lines);
+  buildVatSummaries(fa, invoice.lines, rate);
 
   // Suma brutto faktury (P_15 jest obowiązkowe).
   const totals = calculateInvoiceTotals(invoice.lines);
@@ -408,7 +414,7 @@ function buildFa(
   buildFakturaDoParagonu(fa, invoice);
 
   for (const line of invoice.lines) {
-    buildFaWiersz(fa, line, invoice.pricesGross === true);
+    buildFaWiersz(fa, line, invoice.pricesGross === true, rate);
   }
 
   buildPlatnosc(fa, invoice);
@@ -416,7 +422,27 @@ function buildFa(
   buildWarunkiTransakcji(fa, invoice);
 }
 
-function buildVatSummaries(fa: XMLBuilder, lines: InvoiceLineItem[]): void {
+/**
+ * Kurs faktury w walucie obcej; `undefined` przy złotych. Bez kursu nie ma pliku:
+ * `validateInvoice` odmawia wcześniej z przyczyną i wyjściem, tu ostatnia linia
+ * obrony przy `validate: false` (zamiast pliku bez P_14_xW).
+ */
+function foreignCurrencyRate(invoice: Invoice): number | undefined {
+  if (invoice.payment.currency === 'PLN') return undefined;
+  const rate = invoice.exchangeRate?.rate;
+  if (rate === undefined || !Number.isFinite(rate) || rate <= 0) {
+    throw new Error(`FA(3): faktura w ${invoice.payment.currency} bez kursu waluty (FaWiersz/KursWaluty, P_14_xW).`);
+  }
+  return rate;
+}
+
+/**
+ * Sumy stawek: P_13_x i P_14_x w walucie faktury; przy walucie obcej zaraz po
+ * P_14_x jego kwota w złotych P_14_xW (XSD: P_14_1W, P_14_2W, P_14_3W), podatek
+ * w walucie razy kurs do grosza (art. 106e ust. 11, `vatInPln`). P_15 dalej
+ * sumuje tylko P_13_x i P_14_x.
+ */
+function buildVatSummaries(fa: XMLBuilder, lines: InvoiceLineItem[], rate?: number): void {
   const summaries = summarizeVatPerRate(lines);
 
   // Zbieramy wszystkie emisje, a potem iterujemy w kolejności XSD.
@@ -441,6 +467,9 @@ function buildVatSummaries(fa: XMLBuilder, lines: InvoiceLineItem[]): void {
     fa.ele(em.netElement).txt(formatDecimal(em.netSum));
     if (em.vatElement) {
       fa.ele(em.vatElement).txt(formatDecimal(em.vatSum));
+      if (rate !== undefined) {
+        fa.ele(`${em.vatElement}W`).txt(formatDecimal(vatInPln(em.vatSum, rate)));
+      }
     }
   }
 }
@@ -557,6 +586,7 @@ function buildFaWiersz(
   fa: XMLBuilder,
   line: InvoiceLineItem,
   pricesGross = false,
+  rate?: number,
 ): void {
   const wiersz = fa.ele('FaWiersz');
 
@@ -608,6 +638,12 @@ function buildFaWiersz(
   // oznaczenie trafia do wiersza tej faktury w JPK_V7M (`gtuOfRow`).
   if (line.gtuCode) {
     wiersz.ele('GTU').txt(line.gtuCode);
+  }
+
+  // Kurs przy każdej pozycji, także gdy jest jeden (D56, jak przykłady MF 20 i 21);
+  // XSD FaWiersz: …, GTU, Procedura, KursWaluty, StanPrzed.
+  if (rate !== undefined) {
+    wiersz.ele('KursWaluty').txt(formatExchangeRate(rate));
   }
 }
 

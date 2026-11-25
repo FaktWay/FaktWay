@@ -4,6 +4,7 @@ import type { AdvanceInvoiceSettlementRow } from '@/lib/ksef/fa3-advance-generat
 import { alarmujFa3 } from '@/lib/bezpieczniki/fa3';
 import { generateCorrectionInvoiceXml } from '@/lib/ksef/fa3-correction-generator';
 import {
+  finalInvoiceRoundingRefusal,
   generateAdvanceInvoiceXml,
   generateFinalInvoiceXml,
 } from '@/lib/ksef/fa3-advance-generator';
@@ -85,6 +86,13 @@ export async function submitInvoiceFullFlow(
     finalAdvanceSettlementRows: finalPayload?.advanceSettlementRows,
   })) {
     throw new InvoiceValidationError([ROZ_SUBMISSION_HOLD_MESSAGE]);
+  }
+  // Ustalenie 19 (D8): ostatnia bramka przed wysyłką faktury rozliczającej, której szkic
+  // zapisano przed bramką przy zapisie. Dziś wysyłkę ROZ zatrzymuje hamulec wyżej, więc
+  // bramka działa po jego zdjęciu (karta C4). Odmowa przed plikiem, archiwum i POST.
+  if (finalPayload != null && finalPayload.advanceSettlementRows.length > 0) {
+    const rounding = finalInvoiceRoundingRefusal(finalPayload.finalData, finalPayload.advanceSettlementRows);
+    if (rounding) throw new InvoiceValidationError([rounding]);
   }
   // Krok 1.2: generatory korekty, zaliczki i rozliczenia nie piszą `FP`, więc
   // paragon przy danych specjalnych zniknąłby z XML po cichu. Odmowa przed

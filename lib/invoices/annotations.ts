@@ -34,7 +34,7 @@ export const REVERSE_CHARGE_LABEL = 'odwrotne obciążenie';
 export const SELF_INVOICING_LABEL = 'samofakturowanie';
 
 /**
- * Obowiązkowe wyrazy przy procedurze marży (art. 106e ust. 1 pkt 21 i 24), dosłownie jak
+ * Obowiązkowe wyrazy przy procedurze marży (art. 106e ust. 2 i 3 ustawy o VAT), dosłownie jak
  * w opisach pól schematu FA(3) (`P_PMarzy_2`, `P_PMarzy_3_1`, `P_PMarzy_3_2`, `P_PMarzy_3_3`).
  * Dotyczy faktur z importu KSeF; FaktWay procedury marży nie wystawia.
  */

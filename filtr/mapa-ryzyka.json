@@ -242,6 +242,9 @@
         "lib/invoices/build-from-form.ts",
         "app/actions/noty.ts",
         "lib/noty/**",
+        "app/actions/saldo.ts",
+        "lib/saldo/**",
+        "app/api/saldo/**",
         "lib/api/v1/invoice-create.ts",
         "lib/invoices/{issue-regular,send-draft}.ts",
         "lib/invoices/{ksef-resend,delete-draft,lookup-buyer}.ts",
@@ -524,6 +527,7 @@
       "opis": "Kursy NBP i reguła dnia kursu (art. 31a ustawy o VAT, art. 11a ustawy o PIT).",
       "sciezki": [
         "lib/nbp/client.ts",
+        "lib/invoices/exchange-rate.ts",
         "lib/flo/nbp.ts",
         "lib/ocr/currency.ts",
         "lib/expenses/ksef-currency-review.ts",
@@ -596,6 +600,7 @@
         "app/actions/{expense-payments,plik-przelewow,receipt-invoice-match}.ts",
         "app/api/uploads/expense/route.ts",
         "app/actions/expense-thread.ts",
+        "app/actions/expense-acceptance.ts",
         "lib/api/mobile/wydatki.ts",
         "app/api/mobile/v1/wydatki/**",
         "supabase/migrations/00202_*.sql"
@@ -842,7 +847,8 @@
         "app/(dashboard)/settings/accountant/**",
         "app/accountant/**",
         "components/settings/accountant-actions.ts",
-        "supabase/migrations/00192_*.sql"
+        "supabase/migrations/00192_*.sql",
+        "supabase/migrations/00214_*.sql"
       ]
     },
     {
@@ -1012,7 +1018,8 @@
       "poziom": "R1",
       "opis": "SQL: status zapłaty, kwota zapłacona, należności po terminie (update_invoice_payment_status, recalculate_invoice_paid_amount, invoices_overdue, mark_invoice_paid).",
       "sciezki": [
-        "supabase/migrations/{00012,00014,00023,00068,00073,00082,00126,00145,00158,00176,00180,00183,00189,00191,00194,00200}_*.sql"
+        "supabase/migrations/{00012,00014,00023,00068,00073,00082,00126,00145,00158,00176,00180,00183,00189,00191,00194,00200}_*.sql",
+        "supabase/migrations/00216_*.sql"
       ]
     },
     {
@@ -1046,7 +1053,8 @@
       "opis": "SQL: pochodzenie kosztów i prawo do odliczenia (expenses.is_deductible).",
       "sciezki": [
         "supabase/migrations/{00034,00123,00127,00128,00175,00177,00196,00206}_*.sql",
-        "supabase/migrations/00212_*.sql"
+        "supabase/migrations/00212_*.sql",
+        "supabase/migrations/00215_*.sql"
       ]
     },
     {

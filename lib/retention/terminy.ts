@@ -21,7 +21,11 @@ import { addDaysToIsoDate, todayInWarsaw, warsawMidnightIso } from '@/lib/format
  * `tests/filtr/niezmienniki/retencja.test.ts` dla każdego dnia 2026-2060.
  */
 
-/** Lata przechowywania danych fakturowych, licząc od dnia wystawienia. */
+/**
+ * Lata przechowywania danych fakturowych, licząc od dnia wystawienia. Stałe dla każdej firmy:
+ * kolumna `tenants.retention_years` (migracja 00009, domyślnie 10) jest martwa, nie czyta jej
+ * żaden kod i nie zmienia okresu przechowywania (FZ-012).
+ */
 export const LATA_PRZECHOWYWANIA_FAKTUR = 10;
 
 /** Po tylu latach od dnia wystawienia XML faktury trafia do archiwum (Glacier). */

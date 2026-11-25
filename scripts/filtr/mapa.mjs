@@ -27,12 +27,13 @@
 //   node scripts/filtr/mapa.mjs --diff-z-pliku <plik.diff|-> [--json]
 //       zmiana z gotowego diffu (np. `gh pr diff N`)
 //   node scripts/filtr/mapa.mjs [--json] <plik>...
-//       podane pliki, sygnały z całej treści
+//       podane pliki, sygnały z całej treści; ścieżka względna wobec
+//       repozytorium albo bezwzględna, z `/` albo `\` (PowerShell)
 // Kod wyjścia: 0 dobrze, 1 pliki niesklasyfikowane albo błędy mapy, 2 złe użycie.
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { basename, dirname, join, posix, resolve } from 'node:path';
+import { basename, dirname, join, posix, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const KATALOG_REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -595,6 +596,19 @@ export function opisSkanu(skan) {
 // ---------------------------------------------------------------------------
 // CLI
 
+/**
+ * Ścieżka podana w wierszu poleceń w postaci, jaką znają mapa i lista kodu:
+ * względna wobec repozytorium, z `/` (`lib/ksiegowosc/zus.ts`). PowerShell
+ * daje `lib\ksiegowosc\zus.ts` albo `.\lib\…` i bez tego plik R1 wychodził
+ * jako R0. Ukośniki zamieniamy dwa razy: przed `resolve`, bo na Linuksie `\`
+ * nie jest separatorem i `.\` by zostało, i po `relative`, bo na Windowsie
+ * ono oddaje `\`. `po-edycji.mjs` robi tylko tę drugą zamianę.
+ */
+function sciezkaZPolecenia(argument) {
+  const zUkosnikami = (sciezka) => sciezka.split('\\').join('/');
+  return zUkosnikami(relative(KATALOG_REPO, resolve(KATALOG_REPO, zUkosnikami(argument))));
+}
+
 function glowna(argumenty) {
   const json = argumenty.includes('--json');
   const reszta = argumenty.filter((a) => a !== '--json');
@@ -638,7 +652,8 @@ function glowna(argumenty) {
     const zbior = new Set(plikiRepozytorium());
     pliki = zImportamiR1(
       mapa,
-      reszta.map((plik) => {
+      reszta.map((argument) => {
+        const plik = sciezkaZPolecenia(argument);
         const sciezka = join(KATALOG_REPO, plik);
         return { plik, tresc: existsSync(sciezka) ? readFileSync(sciezka, 'utf8') : '' };
       }),

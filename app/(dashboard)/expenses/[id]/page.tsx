@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getExpensePhotoUrl } from '@/lib/storage/expenses';
 import { isTenantStoragePath } from '@/lib/storage/tenant-path';
 
+import { ExpenseAcceptance } from './_components/expense-acceptance';
 import { ExpenseThread } from './_components/expense-thread';
 
 export const dynamic = 'force-dynamic';
@@ -66,6 +67,7 @@ export default async function ExpenseDetailPage({
         receiptMatch={receiptMatch}
         paymentSection={await paymentSection(expense, ksefInvoice)}
       />
+      <ExpenseAcceptance expenseId={expense.id} />
       <ExpenseThread expenseId={expense.id} />
     </>
   );
