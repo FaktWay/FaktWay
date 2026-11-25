@@ -22,6 +22,14 @@ const LEDGER_TABLE = 'ksef_send_attempts';
 const WORKER = 'workertest-abc123';
 const APP = 'apptest-def456';
 
+// Każdy test uruchamia cały skrypt, a każde zapytanie przechodzi przez atrapy
+// ssh i docker w nowych procesach bash. W CI (Linux) to poniżej sekundy na test,
+// na Windowsie (Git Bash) do 17 s, czyli ponad domyślne 5 s Vitesta. 120 s to
+// limit jednego przebiegu w `tests/helpers/kontrola-skrypt.ts`. Krótszy limit
+// testu nie przerwie zawieszonego skryptu (`spawnSync` blokuje wątek), a tylko
+// zrobi czerwonym wolny, ale poprawny przebieg.
+const LIMIT_TESTU = 120_000;
+
 const FAKE_DOCKER = `#!/usr/bin/env bash
 # Atrapa docker. psql: zapisuje SQL z -c (rozdzielone NUL); sonda tabeli odpowiada
 # FAKE_REGCLASS w formacie prawdziwego psql (samo t/f tylko z -At).
@@ -85,7 +93,7 @@ function section12(stdout: string): string {
 const ledgerQueries = (sql: string[]) =>
   sql.filter((q) => q.includes(LEDGER_TABLE) && !q.includes('to_regclass'));
 
-describe('kontrola-faktur-ksef.sh — sekcja 12: dziennik prób wysyłki', () => {
+describe('kontrola-faktur-ksef.sh — sekcja 12: dziennik prób wysyłki', { timeout: LIMIT_TESTU }, () => {
   it('z tabelą: zakres dziennika, stany z 24 h, błędy wg kodu ze stanem faktur teraz i lista ostatnich', () => {
     const run = runScript({ FAKE_REGCLASS: 't' });
     expect(run.status).toBe(0);
@@ -174,7 +182,7 @@ describe('kontrola-faktur-ksef.sh — sekcja 12: dziennik prób wysyłki', () =>
   });
 });
 
-describe('kontrola-faktur-ksef.sh — zapytania przechodzą przez dwie powłoki bez zmian', () => {
+describe('kontrola-faktur-ksef.sh — zapytania przechodzą przez dwie powłoki bez zmian', { timeout: LIMIT_TESTU }, () => {
   /** `sql "etykieta" "zapytanie"` ze źródła skryptu, w kolejności (zmienna okna sekcji 9 rozwinięta). */
   function declaredQueries(): string[] {
     const source = readFileSync(KONTROLA_SCRIPT, 'utf8');

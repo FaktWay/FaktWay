@@ -42,6 +42,14 @@ const LABELS = [
   '(h) przebiegi crona',
 ];
 
+// Trzy testy uruchamiają cały skrypt, a każde zapytanie przechodzi przez atrapy
+// ssh i docker w nowych procesach bash. W CI (Linux) to poniżej sekundy na test,
+// na Windowsie (Git Bash) do 14 s, czyli ponad domyślne 5 s Vitesta. 120 s to
+// limit jednego przebiegu w `tests/helpers/kontrola-skrypt.ts`. Krótszy limit
+// testu nie przerwie zawieszonego skryptu (`spawnSync` blokuje wątek), a tylko
+// zrobi czerwonym wolny, ale poprawny przebieg.
+const LIMIT_TESTU = 120_000;
+
 let harness: ScriptHarness;
 
 beforeEach(() => {
@@ -78,7 +86,7 @@ function declaredSection4aQueries(): string[] {
   return [...body.matchAll(re)].map((m) => m[1]);
 }
 
-describe('kontrola-faktur-ksef.sh — sekcja 4a: zaległości Offline24', () => {
+describe('kontrola-faktur-ksef.sh — sekcja 4a: zaległości Offline24', { timeout: LIMIT_TESTU }, () => {
   it('sekcja 4a stoi między fakturami wychodzącymi (4) a UPO (5) i ma wszystkie etykiety w kolejności', () => {
     const run = runScript();
     expect(run.status).toBe(0);
