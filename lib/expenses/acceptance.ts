@@ -48,6 +48,12 @@ export const expenseAcceptanceInputSchema = z
   });
 export type ExpenseAcceptanceInput = z.input<typeof expenseAcceptanceInputSchema>;
 
+/** Powód „Do poprawy” w formularzu sekcji (te same teksty co w akcji i w funkcji bazy). */
+export const expenseAcceptanceReasonFormSchema = z.object({
+  reason: z.string().trim().min(1, EMPTY_REASON).max(EXPENSE_ACCEPTANCE_REASON_MAX, REASON_TOO_LONG),
+});
+export type ExpenseAcceptanceReasonFormValues = z.infer<typeof expenseAcceptanceReasonFormSchema>;
+
 /** Stan z `expense_acceptance_state`. */
 export interface ExpenseAcceptanceState {
   currentFingerprint: string;
