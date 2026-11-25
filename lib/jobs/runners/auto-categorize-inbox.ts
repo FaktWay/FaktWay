@@ -28,6 +28,7 @@ import { nbpRateForCost } from '@/lib/nbp/client';
 import { costInPln, documentCurrency, HOME_CURRENCY } from '@/lib/ocr/currency';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { archiveInboxInvoiceXml } from '@/lib/ksef/inbox-xml';
+import { polaczKopieFakturyKsef } from '@/lib/expenses/kopia-faktury-ksef';
 import { kolumnyPlatnosci } from '@/lib/expenses/platnosc-kosztu';
 import { wczytajWarunkiPlatnosciKsef, zapiszWarunkiNaKoszcie } from '@/lib/expenses/platnosc-kosztu-ksef';
 import {
@@ -550,6 +551,12 @@ export async function runAutoCategorizeInbox(data: Parameters<typeof inboxInvoic
     // Krok 1.3: faktura do paragonu łączy się z wgranym paragonem z NIP przed
     // domknięciem, więc awaria tutaj zostawia znacznik i ponowienie wraca.
     await matchReceiptForFpInvoice({ supabase, tenantId, invoiceId, expenseId: created.expenseId, step, logger });
+    // FZ-022, D29 (00215): kopia tej faktury spoza KSeF (zdjęcie, wpis ręczny, import) łączy się z kosztem z KSeF
+    // przed domknięciem, więc awaria zostawia znacznik i ponowienie wraca (drugie wywołanie nic nie zmienia).
+    // Bez przełącznika `KOSZTY_LACZ_KOPIE_KSEF` nic się nie dzieje i zostaje odmowa odczytu z #839.
+    const kopia = await step.run('link-ksef-copy', () =>
+      polaczKopieFakturyKsef(supabase, { tenantId, expenseId: String(created.expenseId) }));
+    if (kopia !== 'wylaczone') logger.info('Skrzynka: kopia faktury z KSeF', { invoiceId, expenseId: created.expenseId, wynik: kopia });
 
     // K2 (rewizja 03.10.2026): domknięcie przebiegu. Odbiór skrzynki zapala
     // `fa3_data._pendingFullFetch`; cron `inbox-backfill` emituje zdarzenie

@@ -1048,7 +1048,8 @@
       "opis": "SQL: pochodzenie kosztów i prawo do odliczenia (expenses.is_deductible).",
       "sciezki": [
         "supabase/migrations/{00034,00123,00127,00128,00175,00177,00196,00206}_*.sql",
-        "supabase/migrations/00212_*.sql"
+        "supabase/migrations/00212_*.sql",
+        "supabase/migrations/00215_*.sql"
       ]
     },
     {

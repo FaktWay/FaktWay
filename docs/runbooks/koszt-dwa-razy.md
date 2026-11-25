@@ -34,6 +34,55 @@ Gdy kopia spoza KSeF ma źle odczytany numer albo datę i to w rzeczywistości
 inny dokument, poprawia się te dane w formularzu kosztu tak, jak są na
 dokumencie.
 
+## Łączenie kopii z kosztem z KSeF (decyzja D29, 00215)
+
+Za przełącznikiem `KOSZTY_LACZ_KOPIE_KSEF=true` w workerze (domyślnie
+wyłączony, do potwierdzenia przez Bartosza i księgową przed włączeniem
+u klientów). Bez niego nic się nie łączy i zostaje odmowa opisana wyżej.
+
+Po zapisie kosztu runner Skrzynki (`auto-categorize-inbox`) i runner zdjęć
+(`process-ocr`) wołają `link_ksef_expense_copy`. Baza liczy klucz dokumentu
+jak odczyt (NIP z 10 cyfr, numer bez odstępów wielkimi literami, rok
+wystawienia) i:
+
+- łączy, gdy jest dokładnie jeden koszt z KSeF tego dokumentu i dokładnie
+  jedna kopia spoza KSeF, oba liczą się dziś w KPiR, a miesiąc wystawienia
+  żadnego z nich nie jest złożony. Kopia zostaje na liście, ale wypada z KPiR
+  i odliczenia (`is_deductible = false`, wartość sprzed połączenia w
+  `expense_ksef_copies.copy_was_deductible`); kategoria nadana kopii ręcznie
+  przechodzi na koszt z KSeF, chyba że jemu też nadano ją ręcznie. Audyt:
+  `expense.ksef_copy_linked`;
+- przy kilku kopiach albo miesiącu złożonym zapisuje zadanie (`candidate`,
+  koszt z KSeF wraca do „Nowa” w Skrzynce, audyt
+  `expense.ksef_copy_candidates`), a odmowa odczytu zostaje do decyzji klienta;
+- nie łączy przy dwóch kosztach z KSeF z tym samym numerem, kopii wyłączonej
+  już przez klienta i koszcie z KSeF poza KPiR (np. przegląd waluty).
+
+Miesiąc złożony: rozliczenie w module (`tax_settlements`), wysyłka JPK_V7M
+z FaktWay na bramkę produkcyjną (bez odrzuconej i przerwanej) albo udany
+eksport KPiR lub JPK_V7M za okres z tym miesiącem, jak w zapytaniu operatora
+niżej.
+
+Decyzja klienta (`decide_ksef_expense_copy`, akcja serwerowa po MFA): wybór
+kopii z zadania łączy ją (pozostałe kandydatki zostają osobnymi kosztami),
+„to osobne koszty” albo „Rozłącz” przywraca kopię do KPiR i zostaje śladem
+(`dismissed`), więc ponowienie runnera jej nie łączy. Przyciski i etykieta
+„kopia faktury z KSeF” są w osobnym PR (interfejs). Strażnik
+`b_guard_linked_ksef_copy_expense` nie pozwala klientowi wliczyć połączonej
+kopii do KPiR inaczej niż przez „Rozłącz”.
+
+Ponowienie: drugie wywołanie zwraca `already_linked`, `candidates` bez nowych
+wierszy albo `dismissed`. W runnerze Skrzynki błąd łączenia zostawia znacznik
+`_pendingFullFetch` (cron uzupełniający ponowi), w runnerze zdjęć idzie tylko
+do logu i Sentry (`step: link-ksef-copy`), bo koszt ze zdjęcia jest zapisany,
+a odmowa odczytu i tak chroni KPiR i JPK.
+
+Sprawdzenie stanu firmy (tylko odczyt):
+
+```sql
+SELECT status, count(*) FROM public.expense_ksef_copies WHERE tenant_id = '<firma>' GROUP BY status;
+```
+
 ## Ścieżka operatora (zgłoszenie w Pomocy)
 
 Jedną linią (sesja z `.agents/infra.env`, tylko odczyt: `BEGIN READ ONLY`
