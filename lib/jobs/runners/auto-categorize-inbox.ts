@@ -39,6 +39,7 @@ import {
   markInboxInvoiceProcessed,
 } from '@/lib/ksef/inbox-pending';
 import { requireConfiguredKsefEnvironment } from '@/lib/ksef/claim-environment';
+import type { KsefEnvironment } from '@/types/ksef';
 import { emitWebhookEvent } from '@/lib/webhooks/emit';
 import { publishAppNotification } from '@/lib/app-notifications/publish';
 import { inboxNewNotification } from '@/lib/app-notifications/texts';
@@ -308,6 +309,8 @@ export async function runAutoCategorizeInbox(data: Parameters<typeof inboxInvoic
       // RPC 00175 zapisuje dopasowanie faktury raz, więc to jest bezpieczne.
       if (current.expenseId) {
         await matchReceiptForFpInvoice({ supabase, tenantId, invoiceId, expenseId: current.expenseId, step, logger });
+        // FZ-022, D29: ponowienie po błędzie łączenia kopii (znacznik został) łączy teraz; drugie wywołanie nic nie zmienia.
+        await linkKsefCopy({ supabase, tenantId, invoiceId, expenseId: current.expenseId, environment, step, logger });
       }
       if (settled) {
         await closeInboxInvoice({ supabase, tenantId, invoiceId, step, logger });
@@ -552,11 +555,8 @@ export async function runAutoCategorizeInbox(data: Parameters<typeof inboxInvoic
     // domknięciem, więc awaria tutaj zostawia znacznik i ponowienie wraca.
     await matchReceiptForFpInvoice({ supabase, tenantId, invoiceId, expenseId: created.expenseId, step, logger });
     // FZ-022, D29 (00215): kopia tej faktury spoza KSeF (zdjęcie, wpis ręczny, import) łączy się z kosztem z KSeF
-    // przed domknięciem, więc awaria zostawia znacznik i ponowienie wraca (drugie wywołanie nic nie zmienia).
-    // Bez przełącznika `KOSZTY_LACZ_KOPIE_KSEF` nic się nie dzieje i zostaje odmowa odczytu z #839.
-    const kopia = await step.run('link-ksef-copy', () =>
-      polaczKopieFakturyKsef(supabase, { tenantId, expenseId: String(created.expenseId) }));
-    if (kopia !== 'wylaczone') logger.info('Skrzynka: kopia faktury z KSeF', { invoiceId, expenseId: created.expenseId, wynik: kopia });
+    // przed domknięciem, więc awaria zostawia znacznik, a ponowienie (gałąź `hasExpense` wyżej) woła to samo.
+    await linkKsefCopy({ supabase, tenantId, invoiceId, expenseId: String(created.expenseId), environment, step, logger });
 
     // K2 (rewizja 03.10.2026): domknięcie przebiegu. Odbiór skrzynki zapala
     // `fa3_data._pendingFullFetch`; cron `inbox-backfill` emituje zdarzenie
@@ -716,6 +716,27 @@ async function matchReceiptForFpInvoice(input: {
   logger.info('Skrzynka: faktura do paragonu a paragon z NIP', {
     invoiceId, expenseId, fp, candidates: found.candidates.length, autoLink, result,
   });
+}
+
+/**
+ * FZ-022, D29 (00215, `lib/expenses/kopia-faktury-ksef.ts`): kopia tej faktury
+ * spoza KSeF łączy się z kosztem z KSeF albo dostaje zadanie dla klienta. Bez
+ * przełącznika `KOSZTY_LACZ_KOPIE_KSEF` nic się nie dzieje i zostaje odmowa
+ * odczytu z #839. Błąd rzuca: przebieg nie gasi znacznika, więc ponowienie
+ * (gałąź `hasExpense`) woła to samo, a funkcja w bazie drugi raz nic nie zmienia.
+ */
+async function linkKsefCopy(input: {
+  supabase: ReturnType<typeof createAdminClient>;
+  tenantId: string;
+  invoiceId: string;
+  expenseId: string;
+  environment: KsefEnvironment;
+  step: JobContext['step'];
+  logger: JobContext['logger'];
+}): Promise<void> {
+  const { supabase, tenantId, invoiceId, expenseId, environment, step, logger } = input;
+  const wynik = await step.run('link-ksef-copy', () => polaczKopieFakturyKsef(supabase, { tenantId, expenseId, environment }));
+  if (wynik !== 'wylaczone') logger.info('Skrzynka: kopia faktury z KSeF', { invoiceId, expenseId, wynik });
 }
 
 /**

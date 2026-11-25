@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
@@ -36,13 +38,15 @@ const NUMER = 'FV/7/02/2027';
 const STRAZNIK =
   'Ten koszt to kopia faktury z KSeF, więc koszt i VAT liczą się z faktury z KSeF. Żeby wliczyć kopię, najpierw trzeba rozłączyć koszty przyciskiem „Rozłącz”.';
 
+const OTHER_EMAIL = 'rls-kopia-ksef-inna-firma@ksef-saas.test';
+const NBSP = String.fromCharCode(0xa0);
+
 let ownerId = '';
+let otherId = '';
 let owner: SupabaseClient;
 let counter = 0;
-const nextId = (kind: string) => {
-  counter += 1;
-  return `00215215-${kind}-4000-8000-${String(counter).padStart(12, '0')}`;
-};
+// Losowe identyfikatory: `audit_logs` nie da się kasować (00052), więc drugi przebieg na tej samej bazie liczy tylko swoje wpisy.
+const nextId = () => randomUUID();
 
 async function userId(email: string): Promise<string> {
   for (let page = 1; page < 50; page++) {
@@ -68,12 +72,13 @@ async function signedIn(email: string, org: string): Promise<SupabaseClient> {
 }
 
 /** Koszt z KSeF: faktura zakupu przyjęta w KSeF i koszt ze Skrzynki, jak zapisuje je runner. */
-async function zKsef(org: string, numer = NUMER, data = '2027-02-05', pola: Record<string, unknown> = {}): Promise<string> {
-  const invoiceId = nextId('1111');
+async function zKsef(org: string, numer = NUMER, data = '2027-02-05', pola: Record<string, unknown> = {}, srodowisko = 'test'): Promise<string> {
+  const invoiceId = nextId();
+  counter += 1;
   const invoice = await admin.from('invoices').insert({
     id: invoiceId, tenant_id: org, direction: 'incoming', origin: 'ksef_inbox', internal_number: numer,
     invoice_type: 'VAT', invoice_kind: 'regular', issue_date: data, seller_nip: NIP, buyer_nip: '1234567890',
-    gross_total: 123, net_total: 100, vat_total: 23, currency: 'PLN', ksef_status: 'accepted', ksef_environment: 'test',
+    gross_total: 123, net_total: 100, vat_total: 23, currency: 'PLN', ksef_status: 'accepted', ksef_environment: srodowisko,
     ksef_number: `${NIP}-${data.replace(/-/g, '')}-${String(counter).padStart(12, '0')}-00`, xml_storage_path: 'x.xml',
     fa3_data: { _source: 'inbox-metadata', _pendingFullFetch: false },
   });
@@ -83,7 +88,7 @@ async function zKsef(org: string, numer = NUMER, data = '2027-02-05', pola: Reco
 
 /** Koszt spoza KSeF (domyślnie zdjęcie); zwraca id. */
 async function koszt(org: string, numer: string, data: string, pola: Record<string, unknown> = {}): Promise<string> {
-  const id = nextId('2222');
+  const id = nextId();
   const { error } = await admin.from('expenses').insert({
     id, tenant_id: org, created_by: ownerId, source: 'ocr_photo', ksef_invoice_id: null, seller_name: 'Dostawca',
     seller_nip: NIP, document_number: numer, document_type: 'invoice', issue_date: data, net_amount: 100, vat_amount: 23,
@@ -95,14 +100,16 @@ async function koszt(org: string, numer: string, data: string, pola: Record<stri
 }
 
 async function polacz(org: string, expenseId: string): Promise<unknown> {
-  const { data, error } = await admin.rpc('link_ksef_expense_copy', { p_tenant_id: org, p_expense_id: expenseId, p_auto_link: true });
+  const { data, error } = await admin.rpc('link_ksef_expense_copy', {
+    p_tenant_id: org, p_expense_id: expenseId, p_ksef_environment: 'test', p_auto_link: true,
+  });
   if (error) throw new Error(`link_ksef_expense_copy: ${error.message}`);
   return data;
 }
 
-async function decyzja(ksefId: string, copyId: string | null): Promise<unknown> {
+async function decyzja(ksefId: string, copyId: string | null, aktor = ownerId): Promise<unknown> {
   const { data, error } = await admin.rpc('decide_ksef_expense_copy', {
-    p_tenant_id: ORG, p_ksef_expense_id: ksefId, p_actor_user_id: ownerId, p_copy_expense_id: copyId,
+    p_tenant_id: ORG, p_ksef_expense_id: ksefId, p_actor_user_id: aktor, p_ksef_environment: 'test', p_copy_expense_id: copyId,
   });
   if (error) throw new Error(`decide_ksef_expense_copy: ${error.message}`);
   return data;
@@ -128,6 +135,12 @@ async function polaczenia(org = ORG): Promise<Array<Record<string, unknown>>> {
   return data ?? [];
 }
 
+async function metadaneAudytu(akcja: string, ksefId: string): Promise<Array<Record<string, unknown>>> {
+  const { data, error } = await admin.from('audit_logs').select('metadata').eq('tenant_id', ORG).eq('action', akcja).eq('entity_id', ksefId);
+  if (error) throw error;
+  return (data ?? []).map((r) => r.metadata as Record<string, unknown>);
+}
+
 async function audyt(akcja: string, ksefId: string): Promise<number> {
   const { count, error } = await admin
     .from('audit_logs')
@@ -141,7 +154,7 @@ async function audyt(akcja: string, ksefId: string): Promise<number> {
 
 async function cleanup() {
   for (const org of [ORG, ORG_B]) {
-    for (const tabela of ['expense_ksef_copies', 'export_jobs', 'jpk_submissions', 'tax_settlements', 'expenses', 'invoices']) {
+    for (const tabela of ['expense_ksef_copies', 'expense_receipt_matches', 'export_jobs', 'jpk_submissions', 'tax_settlements', 'expenses', 'invoices']) {
       const { error } = await admin.from(tabela).delete().eq('tenant_id', org);
       if (error) throw new Error(`sprzątanie ${tabela}: ${error.message}`);
     }
@@ -151,6 +164,7 @@ async function cleanup() {
 describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy się z kosztem z KSeF', () => {
   beforeAll(async () => {
     ownerId = await userId(OWNER_EMAIL);
+    otherId = await userId(OTHER_EMAIL);
     await cleanup();
     await admin.from('memberships').delete().in('organization_id', [ORG, ORG_B]);
     const { error: tErr } = await admin.from('tenants').upsert(
@@ -161,8 +175,11 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
       { onConflict: 'id' },
     );
     if (tErr) throw tErr;
-    await admin.from('users').upsert([{ id: ownerId, name: 'Owner FZ-022 D29' }], { onConflict: 'id' });
-    const { error: mErr } = await admin.from('memberships').insert([{ organization_id: ORG, user_id: ownerId, role: 'owner', status: 'active' }]);
+    await admin.from('users').upsert([{ id: ownerId, name: 'Owner FZ-022 D29' }, { id: otherId, name: 'Inna firma FZ-022 D29' }], { onConflict: 'id' });
+    const { error: mErr } = await admin.from('memberships').insert([
+      { organization_id: ORG, user_id: ownerId, role: 'owner', status: 'active' },
+      { organization_id: ORG_B, user_id: otherId, role: 'owner', status: 'active' },
+    ]);
     if (mErr) throw mErr;
     owner = await signedIn(OWNER_EMAIL, ORG);
   }, 120_000);
@@ -217,8 +234,10 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
       expect(await polacz(ORG, ksef)).toBe('candidates');
       expect(await stan(kopia)).toMatchObject({ is_deductible: true });
       expect(await polaczenia()).toEqual([{ ksef_expense_id: ksef, copy_expense_id: kopia, status: 'candidate', copy_was_deductible: null }]);
-      expect(await stan(ksef)).toMatchObject({ is_reviewed: false });
+      // Zadanie nie zmienia kosztu z KSeF (`is_reviewed` pilnuje też przeglądu waluty).
+      expect(await stan(ksef)).toMatchObject({ is_deductible: true, is_reviewed: true });
       expect(await audyt('expense.ksef_copy_candidates', ksef)).toBe(1);
+      expect((await metadaneAudytu('expense.ksef_copy_candidates', ksef))[0]).toMatchObject({ reason: 'filed_period' });
       // Ponowienie nie dubluje zadania ani wpisu w audycie.
       expect(await polacz(ORG, ksef)).toBe('candidates');
       expect(await polaczenia()).toHaveLength(1);
@@ -262,18 +281,22 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
           tenant_id: ORG, okres: '2027-01-01', rodzaj, wersja: 1, kwota_gr: 10000, termin: '2027-02-20',
           migawka: { wejscia: { lancuch: [] }, spoleczneBezFpGr: 0 }, parametry_wersja: 'abcd1234abcd1234', wejscia_hash: 'a'.repeat(64),
         });
-      const ryczalt = await rozliczenie('ryczalt');
-      if (ryczalt.error) throw new Error(`tax_settlements: ${ryczalt.error.message}`);
-      const ksefRyczalt = await zKsef(ORG, NUMER, '2027-02-05');
-      await koszt(ORG, NUMER, '2027-01-31');
-      expect(await polacz(ORG, ksefRyczalt)).toBe('linked');
-
-      await cleanup();
-      const pit = await rozliczenie('pit');
-      if (pit.error) throw new Error(`tax_settlements: ${pit.error.message}`);
-      const ksef = await zKsef(ORG, NUMER, '2027-02-05');
-      const kopia = await koszt(ORG, NUMER, '2027-01-31');
-      await zadanie(ksef, kopia);
+      for (const rodzaj of ['ryczalt', 'zus_spoleczne']) {
+        await cleanup();
+        const r = await rozliczenie(rodzaj);
+        if (r.error) throw new Error(`tax_settlements ${rodzaj}: ${r.error.message}`);
+        const ksefBez = await zKsef(ORG, NUMER, '2027-02-05');
+        await koszt(ORG, NUMER, '2027-01-31');
+        expect(await polacz(ORG, ksefBez), rodzaj).toBe('linked');
+      }
+      for (const rodzaj of ['pit', 'vat', 'zdrowotna']) {
+        await cleanup();
+        const r = await rozliczenie(rodzaj);
+        if (r.error) throw new Error(`tax_settlements ${rodzaj}: ${r.error.message}`);
+        const ksef = await zKsef(ORG, NUMER, '2027-02-05');
+        const kopia = await koszt(ORG, NUMER, '2027-01-31');
+        await zadanie(ksef, kopia);
+      }
     });
   });
 
@@ -287,7 +310,8 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
     expect(await decyzja(ksef, a)).toBe('linked');
     expect(await stan(a)).toMatchObject({ is_deductible: false });
     expect(await stan(b)).toMatchObject({ is_deductible: true });
-    expect((await polaczenia()).map((m) => [m.copy_expense_id, m.status])).toEqual([[a, 'linked'], [b, 'dismissed']]);
+    const stany = new Map((await polaczenia()).map((m) => [m.copy_expense_id, m.status]));
+    expect([stany.get(a), stany.get(b)]).toEqual(['linked', 'dismissed']);
     expect(await decyzja(ksef, b)).toBe('stale');
   });
 
@@ -322,6 +346,86 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
     expect(await polaczenia()).toEqual([]);
   });
 
+  it('eksport nieudany albo za inny miesiąc i wysyłka JPK odrzucona nie blokują łączenia', async () => {
+    const eksport = (status: string, od: string, doDnia: string) =>
+      admin.from('export_jobs').insert({
+        tenant_id: ORG, format: 'jpk_v7m', period_start: od, period_end: doDnia, status,
+        completed_at: status === 'completed' ? '2027-04-02T10:00:00Z' : null, include_issued: true, include_received: true,
+      });
+    for (const r of [await eksport('failed', '2027-02-01', '2027-02-28'), await eksport('completed', '2027-03-01', '2027-03-31')]) {
+      if (r.error) throw new Error(`export_jobs: ${r.error.message}`);
+    }
+    const jpk = await admin.from('jpk_submissions').insert({
+      tenant_id: ORG, okres: '2027-02-01', rodzaj: 'JPK_V7M', cel: 1, srodowisko: 'produkcja',
+      skrot_pliku: 'AM/SlQpito+9Ctp5oFY8PT+eS1PXNokUptIKKh3xMCw=', deklaracja: {},
+    }).select('id').single();
+    if (jpk.error) throw new Error(`jpk_submissions: ${jpk.error.message}`);
+    const odrzucona = await admin.from('jpk_submissions').update({ stan: 'odrzucona', blad: 'odrzucona przez MF' }).eq('id', jpk.data.id);
+    if (odrzucona.error) throw new Error(`jpk_submissions odrzucona: ${odrzucona.error.message}`);
+    const ksef = await zKsef(ORG);
+    await koszt(ORG, NUMER, '2027-02-05');
+    expect(await polacz(ORG, ksef)).toBe('linked');
+  });
+
+  it('koszt z faktury z innego środowiska KSeF niż aplikacja: nie jest oryginałem, kopia liczy się dalej', async () => {
+    await zKsef(ORG, NUMER, '2027-02-05', {}, 'demo');
+    const kopia = await koszt(ORG, NUMER, '2027-02-05');
+    expect(await polacz(ORG, kopia)).toBe('no_ksef_original');
+    expect(await stan(kopia)).toMatchObject({ is_deductible: true });
+    expect(await polaczenia()).toEqual([]);
+  });
+
+  it('klucz jak w odczycie: twarda spacja w numerze, NIP z „PL” i kreskami to ten sam dokument', async () => {
+    const ksef = await zKsef(ORG);
+    const kopia = await koszt(ORG, `FV/7/02/2027${NBSP}`, '2027-02-05', { seller_nip: 'PL 526-000-12-46' });
+    expect(await polacz(ORG, ksef)).toBe('linked');
+    expect(await stan(kopia)).toMatchObject({ is_deductible: false });
+  });
+
+  it('inne brutto kopii (źle odczytana kwota albo numer innej faktury): zadanie z przyczyną, bez łączenia', async () => {
+    const ksef = await zKsef(ORG);
+    const kopia = await koszt(ORG, NUMER, '2027-02-05', { net_amount: 1000, vat_amount: 230, gross_amount: 1230, vat_deductible_amount: 230 });
+    expect(await polacz(ORG, ksef)).toBe('candidates');
+    expect(await stan(kopia)).toMatchObject({ is_deductible: true });
+    expect((await metadaneAudytu('expense.ksef_copy_candidates', ksef))[0]).toMatchObject({ reason: 'amount_differs', months: ['2027-02'] });
+  });
+
+  it('kopia połączona już jako paragon z fakturą do paragonu (00175) nie jest kandydatką', async () => {
+    const ksef = await zKsef(ORG);
+    const fp = await zKsef(ORG, 'FP/1/02/2027');
+    const kopia = await koszt(ORG, NUMER, '2027-02-05');
+    const { error } = await admin.from('expense_receipt_matches').insert({
+      tenant_id: ORG, invoice_expense_id: fp, receipt_expense_id: kopia, status: 'linked', receipt_was_deductible: true,
+    });
+    if (error) throw new Error(`expense_receipt_matches: ${error.message}`);
+    expect(await polacz(ORG, ksef)).toBe('no_candidates');
+  });
+
+  it('RLS: członek firmy czyta połączenia swojej firmy, inna firma nic nie widzi, a klient sesji nic nie zapisuje', async () => {
+    const ksef = await zKsef(ORG);
+    const kopia = await koszt(ORG, NUMER, '2027-02-05');
+    expect(await polacz(ORG, ksef)).toBe('linked');
+    const swoje = await owner.from('expense_ksef_copies').select('copy_expense_id');
+    expect(swoje.error).toBeNull();
+    expect(swoje.data).toEqual([{ copy_expense_id: kopia }]);
+    const other = await signedIn(OTHER_EMAIL, ORG_B);
+    expect((await other.from('expense_ksef_copies').select('id')).data).toEqual([]);
+    const zapis = await owner.from('expense_ksef_copies').update({ status: 'dismissed' }).eq('copy_expense_id', kopia).select('id');
+    expect(zapis.error !== null || (zapis.data ?? []).length === 0).toBe(true);
+    expect(await polaczenia()).toMatchObject([{ status: 'linked' }]);
+  });
+
+  it('decyzja osoby spoza firmy: odmowa 42501, bez zmian', async () => {
+    const ksef = await zKsef(ORG);
+    await koszt(ORG, NUMER, '2027-02-05');
+    expect(await polacz(ORG, ksef)).toBe('linked');
+    const { error } = await admin.rpc('decide_ksef_expense_copy', {
+      p_tenant_id: ORG, p_ksef_expense_id: ksef, p_actor_user_id: otherId, p_ksef_environment: 'test', p_copy_expense_id: null,
+    });
+    expect(error?.code).toBe('42501');
+    expect(await polaczenia()).toMatchObject([{ status: 'linked' }]);
+  });
+
   it("guard_linked_ksef_copy_expense: klient wlicza połączoną kopię do KPiR na 'expenses', odmowa", async () => {
     const ksef = await zKsef(ORG);
     const kopia = await koszt(ORG, NUMER, '2027-02-05');
@@ -348,9 +452,11 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
   it('tylko serwis: klient sesji nie woła łączenia ani decyzji', async () => {
     const ksef = await zKsef(ORG);
     await koszt(ORG, NUMER, '2027-02-05');
-    const link = await owner.rpc('link_ksef_expense_copy', { p_tenant_id: ORG, p_expense_id: ksef, p_auto_link: true });
+    const link = await owner.rpc('link_ksef_expense_copy', { p_tenant_id: ORG, p_expense_id: ksef, p_ksef_environment: 'test', p_auto_link: true });
     expect(link.error).not.toBeNull();
-    const decide = await owner.rpc('decide_ksef_expense_copy', { p_tenant_id: ORG, p_ksef_expense_id: ksef, p_actor_user_id: ownerId });
+    const decide = await owner.rpc('decide_ksef_expense_copy', {
+      p_tenant_id: ORG, p_ksef_expense_id: ksef, p_actor_user_id: ownerId, p_ksef_environment: 'test',
+    });
     expect(decide.error).not.toBeNull();
     expect(await polaczenia()).toEqual([]);
   });

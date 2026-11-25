@@ -54,6 +54,8 @@ const state = vi.hoisted(() => ({
   tables: {} as Record<string, Array<Record<string, unknown>>>,
   xml: new Map<string, string>(),
   doc: {} as Record<string, unknown>,
+  // Ile kolejnych wywołań `link_ksef_expense_copy` kończy się błędem bazy (np. limit czasu blokady).
+  bladLaczenia: 0,
 }));
 
 vi.mock('@/lib/ksef/inbox-xml', () => ({
@@ -148,32 +150,42 @@ function db() {
     },
     async rpc(name: string, args: Record<string, unknown> = {}) {
       if (name === 'match_receipt_to_ksef_invoice') return { data: 'no_candidates', error: null };
-      if (name === 'link_ksef_expense_copy') return { data: polaczWPamieci(String(args.p_expense_id)), error: null };
+      if (name === 'link_ksef_expense_copy') {
+        if (state.bladLaczenia > 0) {
+          state.bladLaczenia -= 1;
+          return { data: null, error: { message: 'canceling statement due to lock timeout' } };
+        }
+        return { data: polaczWPamieci(String(args.p_expense_id), String(args.p_ksef_environment)), error: null };
+      }
       return { data: null, error: { message: `unknown rpc ${name}` } };
     },
   };
 }
 
 /**
- * Atrapa `link_ksef_expense_copy` (00215) dla tej bazy w pamięci: jedyny koszt z KSeF tego dokumentu i jedyna
- * liczona kopia spoza KSeF łączą się (kopia `is_deductible = false`, wiersz `linked`), kilka kopii to zadanie.
- * Bez bezpiecznika miesiąca złożonego i kategorii (te sprawdza test na bazie).
+ * Atrapa `link_ksef_expense_copy` (00215) dla tej bazy w pamięci: jedyny koszt z KSeF tego dokumentu z faktury
+ * środowiska aplikacji i jedyna liczona kopia spoza KSeF z tym samym brutto łączą się (kopia `is_deductible = false`,
+ * wiersz `linked`), kilka kopii albo inne brutto to zadanie. Bez bezpiecznika miesiąca złożonego i kategorii (te
+ * sprawdza test na bazie).
  */
-function polaczWPamieci(expenseId: string): string {
+function polaczWPamieci(expenseId: string, srodowisko: string): string {
   const tables = state.tables as MemoryTables;
   const wszystkie = tables.expenses ?? [];
   const ten = wszystkie.find((e) => e.id === expenseId);
   const klucz = ten ? kluczDokumentuKosztu(ten as never) : null;
   if (!klucz) return 'not_applicable';
   const tegoDokumentu = wszystkie.filter((e) => kluczDokumentuKosztu(e as never) === klucz);
-  const zKsef = tegoDokumentu.filter((e) => e.source === 'ksef_inbox' && e.ksef_invoice_id);
+  const srodowiskoFaktury = (e: Row) => (tables.invoices ?? []).find((i) => i.id === e.ksef_invoice_id)?.ksef_environment;
+  const zKsef = tegoDokumentu.filter((e) => e.source === 'ksef_inbox' && e.ksef_invoice_id && srodowiskoFaktury(e) === srodowisko);
   if (zKsef.length !== 1) return zKsef.length === 0 ? 'no_ksef_original' : 'ambiguous_ksef';
   const polaczenia = (tables.expense_ksef_copies ??= []);
   if (polaczenia.some((m) => m.ksef_expense_id === zKsef[0].id && m.status === 'linked')) return 'already_linked';
   const kopie = tegoDokumentu.filter((e) => e.source !== 'ksef_inbox' && !e.ksef_invoice_id && e.is_deductible === true);
   if (kopie.length === 0) return 'no_candidates';
-  if (kopie.length > 1) {
-    for (const k of kopie) polaczenia.push({ ksef_expense_id: zKsef[0].id, copy_expense_id: k.id, status: 'candidate' });
+  if (kopie.length > 1 || Number(kopie[0].gross_amount) !== Number(zKsef[0].gross_amount)) {
+    for (const k of kopie) {
+      if (!polaczenia.some((m) => m.copy_expense_id === k.id)) polaczenia.push({ ksef_expense_id: zKsef[0].id, copy_expense_id: k.id, status: 'candidate' });
+    }
     return 'candidates';
   }
   polaczenia.push({ ksef_expense_id: zKsef[0].id, copy_expense_id: kopie[0].id, status: 'linked', copy_was_deductible: true });
@@ -289,6 +301,7 @@ const KOLEJNOSCI = [
 
 beforeEach(() => {
   vi.stubEnv('KSEF_ENV', 'test');
+  state.bladLaczenia = 0;
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -461,14 +474,55 @@ describe('FZ-022: zapis jednego kosztu przy drugim źródle (decyzja D29, przeł
     expect((state.tables as MemoryTables).expense_ksef_copies).toMatchObject([{ status: 'linked' }]);
   });
 
-  it('ponowienie runnera skrzynki po połączeniu niczego nie zmienia', async () => {
+  it('błąd łączenia w Skrzynce zostawia znacznik, a ponowienie (koszt już jest) łączy', async () => {
     vi.stubEnv('KOSZTY_LACZ_KOPIE_KSEF', 'true');
     baza();
     await zdjecie();
+    state.bladLaczenia = 1;
+    await expect(skrzynka()).rejects.toThrow('lock timeout');
+    expect(koszty().every((e) => e.is_deductible === true)).toBe(true);
+    // Znacznik `_pendingFullFetch` został, więc ponowienie przechodzi gałęzią „koszt już jest” i łączy.
+    expect((state.tables as MemoryTables).invoices![0].fa3_data).toMatchObject({ _pendingFullFetch: true });
     await skrzynka();
-    await skrzynka();
-    expect((state.tables as MemoryTables).expense_ksef_copies).toHaveLength(1);
     expect(koszty().filter((e) => e.source === 'ocr_photo').map((e) => e.is_deductible)).toEqual([false]);
+    expect((state.tables as MemoryTables).expense_ksef_copies).toMatchObject([{ status: 'linked' }]);
+    const { kpirOdmowa, wKpir } = await odczyty();
+    expect([kpirOdmowa, wKpir]).toEqual([null, 1]);
+  });
+
+  it('błąd łączenia w runnerze zdjęć: koszt ze zdjęcia zapisany, zadanie OCR kończy się, odmowa z #839 zostaje', async () => {
+    vi.stubEnv('KOSZTY_LACZ_KOPIE_KSEF', 'true');
+    baza();
+    await skrzynka();
+    state.bladLaczenia = 1;
+    await zdjecie();
+    expect((state.tables as MemoryTables).ocr_jobs!.find((j) => j.id === OCR_JOB)).toMatchObject({ status: 'completed' });
+    expect(koszty().every((e) => e.is_deductible === true)).toBe(true);
+    const { kpirOdmowa } = await odczyty();
+    expect(kpirOdmowa).toContain(NUMER);
+  });
+
+  it('koszt z faktury z innego środowiska KSeF (np. TEST po przejściu na PROD): nie zabiera kopii z KPiR', async () => {
+    vi.stubEnv('KOSZTY_LACZ_KOPIE_KSEF', 'true');
+    baza([fakturaZSkrzynki({ ksef_environment: 'production' })]);
+    // Koszt z KSeF jest w bazie, ale aplikacja działa na KSeF TEST (KSEF_ENV), więc odczyty go nie liczą.
+    (state.tables as MemoryTables).expenses!.push({
+      id: 'ksef-prod', tenant_id: TENANT, source: 'ksef_inbox', ksef_invoice_id: INVOICE, seller_nip: SELLER_NIP, seller_name: 'Sklep Przykład',
+      document_number: NUMER, document_type: 'invoice', issue_date: '2027-02-05', net_amount: 100, vat_amount: 23, gross_amount: 123,
+      vat_deductible_amount: 23, is_deductible: true, is_reviewed: true, kpir_column: 'col_13',
+    });
+    await zdjecie();
+    expect(koszty().find((e) => e.source === 'ocr_photo')).toMatchObject({ is_deductible: true });
+    expect((state.tables as MemoryTables).expense_ksef_copies ?? []).toEqual([]);
+  });
+
+  it('zdjęcie z innym brutto niż faktura z KSeF (źle odczytana kwota albo numer innej faktury): zadanie, bez łączenia', async () => {
+    vi.stubEnv('KOSZTY_LACZ_KOPIE_KSEF', 'true');
+    baza();
+    await skrzynka();
+    await zdjecie(zdjecieFaktury({ net_amount: 1000, vat_amount: 230, gross_amount: 1230 }));
+    expect(koszty().every((e) => e.is_deductible === true)).toBe(true);
+    expect(((state.tables as MemoryTables).expense_ksef_copies ?? []).map((m) => m.status)).toEqual(['candidate']);
   });
 
   it('bez przełącznika nic się nie łączy: oba koszty w kosztach i odmowa z #839 jak dotąd', async () => {

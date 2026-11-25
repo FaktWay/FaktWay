@@ -33,7 +33,13 @@
 -- scripts/ops/koszt-dwa-razy.sql). Wtedy bez łączenia, tylko zadanie.
 -- Łączą się tylko koszty, które dziś oba liczą się w KPiR (`is_deductible`):
 -- klient, który już wyłączył jeden z nich (wyjście z odmowy #839), zdecydował
--- sam, a koszt z KSeF czekający na przegląd waluty nie wchodzi do KPiR.
+-- sam, a koszt z KSeF czekający na przegląd waluty nie wchodzi do KPiR. Koszt
+-- z KSeF liczy się tylko z faktury przyjętej w środowisku KSeF aplikacji, jak
+-- w odczytach (`filterExpensesForKsefEnvironment`): koszt z faktury TEST po
+-- przejściu na PROD nie zabiera kopii z KPiR. Samo łączy się tylko przy tym
+-- samym brutto (kopia ze źle odczytanym numerem albo kwotą to zadanie, nie
+-- ciche wyjęcie prawdziwego kosztu z KPiR); zadanie nie zmienia kosztu z KSeF
+-- (bez „Nowa” w Skrzynce: `is_reviewed` pilnuje też przeglądu waluty).
 --
 -- Zapis tylko przez dwie funkcje dla service_role (wzór 00127 i 00175):
 -- runnery skrzynki i zdjęć (`link_ksef_expense_copy`) i decyzja klienta
@@ -97,7 +103,9 @@ COMMENT ON TABLE public.expense_ksef_copies IS
   'Copy of a KSeF purchase invoice outside KSeF (photo, manual, import) vs the KSeF cost: linked removes the copy from KPiR and VAT; candidate is a merge task awaiting the client; dismissed records the decision (FZ-022, D29).';
 
 -- Klucz dokumentu kosztu jak `kluczDokumentuKosztu` (lib/expenses/jeden-koszt-dokumentu.ts);
--- NULL bez NIP-u z 10 cyfr albo bez numeru.
+-- NULL bez NIP-u z 10 cyfr albo bez numeru. Odstępy jak `\s` w JS (klasa ta sama co
+-- w scripts/ops/koszt-dwa-razy.sql); `upper` bazy może się rozjechać z `toUpperCase`
+-- przy rzadkich znakach, a rozjazd daje brak połączenia, czyli odmowę odczytu jak dotąd.
 CREATE OR REPLACE FUNCTION public.expense_document_key(p_seller_nip text, p_document_number text, p_issue_date date)
 RETURNS text
 LANGUAGE sql
@@ -106,9 +114,9 @@ SET search_path = ''
 AS $$
   SELECT CASE
     WHEN length(regexp_replace(coalesce(p_seller_nip, ''), '[^0-9]', '', 'g')) = 10
-     AND regexp_replace(coalesce(p_document_number, ''), '[[:space:]]', '', 'g') <> ''
+     AND regexp_replace(coalesce(p_document_number, ''), '[\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]', '', 'g') <> ''
     THEN regexp_replace(coalesce(p_seller_nip, ''), '[^0-9]', '', 'g')
-      || '|' || upper(regexp_replace(coalesce(p_document_number, ''), '[[:space:]]', '', 'g'))
+      || '|' || upper(regexp_replace(coalesce(p_document_number, ''), '[\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]', '', 'g'))
       || '|' || coalesce(extract(year FROM p_issue_date)::int::text, '')
   END
 $$;
@@ -186,15 +194,18 @@ CREATE TRIGGER b_guard_linked_ksef_copy_expense
   FOR EACH ROW EXECUTE FUNCTION public.guard_linked_ksef_copy_expense();
 
 -- Runnery skrzynki i zdjęć (service_role) po zapisie kosztu: `p_expense_id`
--- to koszt, który właśnie powstał (z KSeF albo kopia). Baza sama liczy klucz,
--- szuka jedynego kosztu z KSeF tego dokumentu i jego kopii, sprawdza
--- bezpiecznik miesiąca złożonego i jednorazowość. Zwraca: linked, candidates,
--- already_linked, dismissed, no_candidates, no_ksef_original, ambiguous_ksef,
--- not_deductible, not_applicable. Ponowienie od zera: połączenie albo zadanie
--- już jest (także odrzucone przez klienta), więc drugie wykonanie nic nie zmienia.
+-- to koszt, który właśnie powstał (z KSeF albo kopia), `p_ksef_environment`
+-- środowisko KSeF aplikacji. Baza sama liczy klucz, szuka jedynego kosztu
+-- z KSeF tego dokumentu z faktury przyjętej w tym środowisku i jego kopii,
+-- sprawdza brutto, bezpiecznik miesiąca złożonego i jednorazowość. Zwraca:
+-- linked, candidates, already_linked, dismissed, no_candidates,
+-- no_ksef_original, ambiguous_ksef, not_deductible, not_applicable.
+-- Ponowienie od zera: połączenie albo zadanie już jest (także odrzucone przez
+-- klienta), więc drugie wykonanie nic nie zmienia.
 CREATE OR REPLACE FUNCTION public.link_ksef_expense_copy(
   p_tenant_id uuid,
   p_expense_id uuid,
+  p_ksef_environment text,
   p_auto_link boolean
 )
 RETURNS text
@@ -204,30 +215,40 @@ SET search_path = ''
 AS $$
 DECLARE
   v_klucz text;
+  v_od date;
   v_ksef_ids uuid[];
   v_ksef public.expenses%ROWTYPE;
   v_ids uuid[];
   v_copy public.expenses%ROWTYPE;
   v_kategoria boolean;
+  v_powod text;
   v_nowe integer;
 BEGIN
   IF current_user <> 'service_role'
-     OR p_tenant_id IS NULL OR p_expense_id IS NULL OR p_auto_link IS NULL THEN
+     OR p_tenant_id IS NULL OR p_expense_id IS NULL OR p_auto_link IS NULL
+     OR p_ksef_environment IS NULL OR p_ksef_environment NOT IN ('test', 'demo', 'production') THEN
     RAISE EXCEPTION 'Invalid KSeF copy link request'
       USING ERRCODE = '42501';
   END IF;
 
-  SELECT public.expense_document_key(e.seller_nip, e.document_number, e.issue_date) INTO v_klucz
+  SELECT public.expense_document_key(e.seller_nip, e.document_number, e.issue_date),
+         date_trunc('year', e.issue_date)::date
+    INTO v_klucz, v_od
     FROM public.expenses AS e
    WHERE e.id = p_expense_id AND e.tenant_id = p_tenant_id;
   IF v_klucz IS NULL THEN RETURN 'not_applicable'; END IF;
 
-  -- Dokładnie jeden koszt z KSeF tego dokumentu (dwa koszty z KSeF z tym samym
-  -- numerem, np. faktura i korekta, to dla KSeF dwa dokumenty: bez łączenia).
+  -- Dokładnie jeden koszt z KSeF tego dokumentu z faktury przyjętej w tym
+  -- środowisku (dwa koszty z KSeF z tym samym numerem, np. faktura i korekta,
+  -- to dla KSeF dwa dokumenty: bez łączenia). Rok w kluczu zawęża po dacie.
   SELECT array_agg(e.id ORDER BY e.id) INTO v_ksef_ids
     FROM public.expenses AS e
+    JOIN public.invoices AS i ON i.id = e.ksef_invoice_id AND i.tenant_id = e.tenant_id
    WHERE e.tenant_id = p_tenant_id
      AND e.source = 'ksef_inbox' AND e.ksef_invoice_id IS NOT NULL
+     AND i.direction = 'incoming' AND i.ksef_status = 'accepted'
+     AND i.ksef_environment::text = p_ksef_environment
+     AND e.issue_date >= v_od AND e.issue_date < (v_od + interval '1 year')::date
      AND public.expense_document_key(e.seller_nip, e.document_number, e.issue_date) = v_klucz;
   IF coalesce(cardinality(v_ksef_ids), 0) = 0 THEN RETURN 'no_ksef_original'; END IF;
   IF cardinality(v_ksef_ids) > 1 THEN RETURN 'ambiguous_ksef'; END IF;
@@ -252,6 +273,7 @@ BEGIN
   PERFORM 1 FROM public.expenses AS e
    WHERE e.tenant_id = p_tenant_id
      AND e.source IS DISTINCT FROM 'ksef_inbox' AND e.ksef_invoice_id IS NULL
+     AND e.issue_date >= v_od AND e.issue_date < (v_od + interval '1 year')::date
      AND public.expense_document_key(e.seller_nip, e.document_number, e.issue_date) = v_klucz
    ORDER BY e.id
    FOR UPDATE;
@@ -260,6 +282,7 @@ BEGIN
    WHERE e.tenant_id = p_tenant_id
      AND e.source IS DISTINCT FROM 'ksef_inbox' AND e.ksef_invoice_id IS NULL
      AND e.is_deductible IS TRUE
+     AND e.issue_date >= v_od AND e.issue_date < (v_od + interval '1 year')::date
      AND public.expense_document_key(e.seller_nip, e.document_number, e.issue_date) = v_klucz
      AND NOT EXISTS (
        SELECT 1 FROM public.expense_ksef_copies AS m
@@ -280,43 +303,54 @@ BEGIN
     RETURN 'no_candidates';
   END IF;
 
-  -- Samo łączy się tylko jedna kopia, która nie czeka już na decyzję klienta,
-  -- przy miesiącach obu kosztów niezłożonych (bezpiecznik D29).
-  IF p_auto_link AND cardinality(v_ids) = 1 THEN
+  -- Samo łączy się tylko jedna kopia z tym samym brutto, która nie czeka już
+  -- na decyzję klienta, przy miesiącach obu kosztów niezłożonych (D29).
+  IF cardinality(v_ids) > 1 THEN
+    v_powod := 'several_copies';
+  ELSE
     SELECT e.* INTO v_copy FROM public.expenses AS e
      WHERE e.id = v_ids[1] AND e.tenant_id = p_tenant_id;
-    IF NOT EXISTS (
-         SELECT 1 FROM public.expense_ksef_copies AS m
-          WHERE m.tenant_id = p_tenant_id AND m.copy_expense_id = v_copy.id AND m.status = 'candidate'
-       )
-       AND NOT public.expense_period_filed(p_tenant_id, date_trunc('month', v_ksef.issue_date)::date)
-       AND NOT public.expense_period_filed(p_tenant_id, date_trunc('month', v_copy.issue_date)::date) THEN
-      INSERT INTO public.expense_ksef_copies (tenant_id, ksef_expense_id, copy_expense_id, status, copy_was_deductible)
-      VALUES (p_tenant_id, v_ksef.id, v_copy.id, 'linked', v_copy.is_deductible);
-      UPDATE public.expenses AS e
-         SET is_deductible = false
-       WHERE e.id = v_copy.id AND e.tenant_id = p_tenant_id;
-      -- Kategoria nadana kopii ręcznie przechodzi na koszt z KSeF (chyba że jemu też nadano ją ręcznie).
-      v_kategoria := coalesce(v_copy.categorization_method = 'manual', false)
-        AND v_ksef.categorization_method IS DISTINCT FROM 'manual'
-        AND v_copy.kpir_column IS NOT NULL;
-      IF v_kategoria THEN
-        UPDATE public.expenses AS e
-           SET kpir_column = v_copy.kpir_column,
-               category_label = v_copy.category_label,
-               categorization_method = 'manual'
-         WHERE e.id = v_ksef.id AND e.tenant_id = p_tenant_id;
-      END IF;
-
-      INSERT INTO public.audit_logs (tenant_id, user_id, action, entity_type, entity_id, metadata)
-      VALUES (
-        p_tenant_id, NULL, 'expense.ksef_copy_linked', 'expense', v_ksef.id,
-        jsonb_build_object('copyExpenseId', v_copy.id, 'by', 'auto',
-                           'copyWasDeductible', v_copy.is_deductible,
-                           'categoryFromCopy', v_kategoria)
-      );
-      RETURN 'linked';
+    IF NOT p_auto_link THEN
+      v_powod := 'auto_link_off';
+    ELSIF v_copy.gross_amount IS DISTINCT FROM v_ksef.gross_amount THEN
+      v_powod := 'amount_differs';
+    ELSIF EXISTS (
+      SELECT 1 FROM public.expense_ksef_copies AS m
+       WHERE m.tenant_id = p_tenant_id AND m.copy_expense_id = v_copy.id AND m.status = 'candidate'
+    ) THEN
+      v_powod := 'pending_decision';
+    ELSIF public.expense_period_filed(p_tenant_id, date_trunc('month', v_ksef.issue_date)::date)
+       OR public.expense_period_filed(p_tenant_id, date_trunc('month', v_copy.issue_date)::date) THEN
+      v_powod := 'filed_period';
     END IF;
+  END IF;
+
+  IF v_powod IS NULL THEN
+    INSERT INTO public.expense_ksef_copies (tenant_id, ksef_expense_id, copy_expense_id, status, copy_was_deductible)
+    VALUES (p_tenant_id, v_ksef.id, v_copy.id, 'linked', v_copy.is_deductible);
+    UPDATE public.expenses AS e
+       SET is_deductible = false
+     WHERE e.id = v_copy.id AND e.tenant_id = p_tenant_id;
+    -- Kategoria nadana kopii ręcznie przechodzi na koszt z KSeF (chyba że jemu też nadano ją ręcznie).
+    v_kategoria := coalesce(v_copy.categorization_method = 'manual', false)
+      AND v_ksef.categorization_method IS DISTINCT FROM 'manual'
+      AND v_copy.kpir_column IS NOT NULL;
+    IF v_kategoria THEN
+      UPDATE public.expenses AS e
+         SET kpir_column = v_copy.kpir_column,
+             category_label = v_copy.category_label,
+             categorization_method = 'manual'
+       WHERE e.id = v_ksef.id AND e.tenant_id = p_tenant_id;
+    END IF;
+
+    INSERT INTO public.audit_logs (tenant_id, user_id, action, entity_type, entity_id, metadata)
+    VALUES (
+      p_tenant_id, NULL, 'expense.ksef_copy_linked', 'expense', v_ksef.id,
+      jsonb_build_object('copyExpenseId', v_copy.id, 'by', 'auto',
+                         'copyWasDeductible', v_copy.is_deductible,
+                         'categoryFromCopy', v_kategoria)
+    );
+    RETURN 'linked';
   END IF;
 
   INSERT INTO public.expense_ksef_copies (tenant_id, ksef_expense_id, copy_expense_id, status)
@@ -325,25 +359,27 @@ BEGIN
   ON CONFLICT (tenant_id, ksef_expense_id, copy_expense_id) DO NOTHING;
   GET DIAGNOSTICS v_nowe = ROW_COUNT;
 
+  -- Zadanie „Połącz koszty” z przyczyną i miesiącami w audycie (D29: zadanie pokazuje miesiące).
   IF v_nowe > 0 THEN
-    -- Koszt z KSeF czeka na decyzję klienta: w Skrzynce status „Nowa”.
-    UPDATE public.expenses AS e
-       SET is_reviewed = false
-     WHERE e.id = v_ksef.id AND e.tenant_id = p_tenant_id;
-
     INSERT INTO public.audit_logs (tenant_id, user_id, action, entity_type, entity_id, metadata)
-    VALUES (
-      p_tenant_id, NULL, 'expense.ksef_copy_candidates', 'expense', v_ksef.id,
-      jsonb_build_object('copyExpenseIds', to_jsonb(v_ids), 'autoLinkRequested', p_auto_link)
-    );
+    SELECT p_tenant_id, NULL, 'expense.ksef_copy_candidates', 'expense', v_ksef.id,
+           jsonb_build_object(
+             'copyExpenseIds', to_jsonb(v_ids),
+             'reason', v_powod,
+             'months', (
+               SELECT jsonb_agg(DISTINCT to_char(e.issue_date, 'YYYY-MM'))
+                 FROM public.expenses AS e
+                WHERE e.tenant_id = p_tenant_id AND (e.id = v_ksef.id OR e.id = ANY (v_ids))
+             )
+           );
   END IF;
   RETURN 'candidates';
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.link_ksef_expense_copy(uuid, uuid, boolean)
+REVOKE ALL ON FUNCTION public.link_ksef_expense_copy(uuid, uuid, text, boolean)
   FROM PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.link_ksef_expense_copy(uuid, uuid, boolean)
+GRANT EXECUTE ON FUNCTION public.link_ksef_expense_copy(uuid, uuid, text, boolean)
   TO service_role;
 
 -- Decyzja klienta z akcji serwerowej (service_role po MFA i wyborze firmy).
@@ -356,6 +392,7 @@ CREATE OR REPLACE FUNCTION public.decide_ksef_expense_copy(
   p_tenant_id uuid,
   p_ksef_expense_id uuid,
   p_actor_user_id uuid,
+  p_ksef_environment text,
   p_copy_expense_id uuid DEFAULT NULL
 )
 RETURNS text
@@ -372,7 +409,8 @@ DECLARE
 BEGIN
   IF current_user <> 'service_role'
      OR p_tenant_id IS NULL OR p_ksef_expense_id IS NULL
-     OR p_actor_user_id IS NULL THEN
+     OR p_actor_user_id IS NULL
+     OR p_ksef_environment IS NULL OR p_ksef_environment NOT IN ('test', 'demo', 'production') THEN
     RAISE EXCEPTION 'Invalid KSeF copy decision'
       USING ERRCODE = '42501';
   END IF;
@@ -388,12 +426,19 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
+  -- Koszt z KSeF z faktury przyjętej w środowisku aplikacji (jak w odczytach).
   SELECT e.* INTO v_ksef FROM public.expenses AS e
    WHERE e.id = p_ksef_expense_id
      AND e.tenant_id = p_tenant_id
      AND e.source = 'ksef_inbox'
      AND e.ksef_invoice_id IS NOT NULL
-   FOR UPDATE;
+     AND EXISTS (
+       SELECT 1 FROM public.invoices AS i
+        WHERE i.id = e.ksef_invoice_id AND i.tenant_id = e.tenant_id
+          AND i.direction = 'incoming' AND i.ksef_status = 'accepted'
+          AND i.ksef_environment::text = p_ksef_environment
+     )
+   FOR UPDATE OF e;
   IF NOT FOUND THEN RETURN 'stale'; END IF;
 
   PERFORM 1 FROM public.expense_ksef_copies AS m
@@ -476,9 +521,9 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.decide_ksef_expense_copy(uuid, uuid, uuid, uuid)
+REVOKE ALL ON FUNCTION public.decide_ksef_expense_copy(uuid, uuid, uuid, text, uuid)
   FROM PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.decide_ksef_expense_copy(uuid, uuid, uuid, uuid)
+GRANT EXECUTE ON FUNCTION public.decide_ksef_expense_copy(uuid, uuid, uuid, text, uuid)
   TO service_role;
 
 COMMIT;

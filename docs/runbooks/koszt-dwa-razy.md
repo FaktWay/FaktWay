@@ -37,46 +37,70 @@ dokumencie.
 ## Łączenie kopii z kosztem z KSeF (decyzja D29, 00215)
 
 Za przełącznikiem `KOSZTY_LACZ_KOPIE_KSEF=true` w workerze (domyślnie
-wyłączony, do potwierdzenia przez Bartosza i księgową przed włączeniem
-u klientów). Bez niego nic się nie łączy i zostaje odmowa opisana wyżej.
+wyłączony). **Nie włączać przed PR z interfejsem** (etykieta „kopia faktury
+z KSeF”, „Rozłącz”, zadanie „Połącz koszty”) i bez potwierdzenia Bartosza
+i księgowej: do tego czasu zadań nie widać, a „Rozłącz” jest tylko ścieżką
+operatora niżej. Bez przełącznika nic się nie łączy i zostaje odmowa opisana
+wyżej. Pary sprzed włączenia przełącznika, pary po błędzie łączenia w runnerze
+zdjęć i kopie wpisane po koszcie z KSeF niczego już same nie połączą (zostaje
+odmowa i jej wyjście).
 
-Po zapisie kosztu runner Skrzynki (`auto-categorize-inbox`) i runner zdjęć
-(`process-ocr`) wołają `link_ksef_expense_copy`. Baza liczy klucz dokumentu
-jak odczyt (NIP z 10 cyfr, numer bez odstępów wielkimi literami, rok
-wystawienia) i:
+Po zapisie kosztu runner Skrzynki (`auto-categorize-inbox`, także przy
+ponowieniu, gdy koszt już jest) i runner zdjęć (`process-ocr`) wołają
+`link_ksef_expense_copy` ze środowiskiem KSeF aplikacji. Baza liczy klucz
+dokumentu jak odczyt (NIP z 10 cyfr, numer bez odstępów wielkimi literami,
+rok wystawienia; odstępy tą samą klasą co zapytanie operatora niżej, a rzadki
+rozjazd `upper` bazy i JS daje tylko brak połączenia) i:
 
-- łączy, gdy jest dokładnie jeden koszt z KSeF tego dokumentu i dokładnie
-  jedna kopia spoza KSeF, oba liczą się dziś w KPiR, a miesiąc wystawienia
-  żadnego z nich nie jest złożony. Kopia zostaje na liście, ale wypada z KPiR
-  i odliczenia (`is_deductible = false`, wartość sprzed połączenia w
+- łączy, gdy jest dokładnie jeden koszt z KSeF tego dokumentu z faktury
+  przyjętej w środowisku aplikacji i dokładnie jedna kopia spoza KSeF z tym
+  samym brutto, oba liczą się dziś w KPiR, a miesiąc wystawienia żadnego z nich
+  nie jest złożony. Kopia zostaje na liście, ale wypada z KPiR i odliczenia
+  (`is_deductible = false`, wartość sprzed połączenia w
   `expense_ksef_copies.copy_was_deductible`); kategoria nadana kopii ręcznie
   przechodzi na koszt z KSeF, chyba że jemu też nadano ją ręcznie. Audyt:
   `expense.ksef_copy_linked`;
-- przy kilku kopiach albo miesiącu złożonym zapisuje zadanie (`candidate`,
-  koszt z KSeF wraca do „Nowa” w Skrzynce, audyt
-  `expense.ksef_copy_candidates`), a odmowa odczytu zostaje do decyzji klienta;
-- nie łączy przy dwóch kosztach z KSeF z tym samym numerem, kopii wyłączonej
-  już przez klienta i koszcie z KSeF poza KPiR (np. przegląd waluty).
+- przy kilku kopiach, innym brutto, kopii czekającej już na decyzję albo
+  miesiącu złożonym zapisuje zadanie (`candidate`; audyt
+  `expense.ksef_copy_candidates` z przyczyną `several_copies`,
+  `amount_differs`, `pending_decision` albo `filed_period` i miesiącami), a
+  odmowa odczytu zostaje do decyzji klienta. Koszt z KSeF się nie zmienia;
+- nie łączy przy dwóch kosztach z KSeF z tym samym numerem, koszcie z KSeF
+  z faktury z innego środowiska (np. TEST po przejściu na PROD), kopii
+  wyłączonej już przez klienta i koszcie z KSeF poza KPiR (np. przegląd waluty).
 
 Miesiąc złożony: rozliczenie w module zależne od kosztów (`tax_settlements`:
-zaliczka PIT, VAT, składka zdrowotna), wysyłka JPK_V7M
-z FaktWay na bramkę produkcyjną (bez odrzuconej i przerwanej) albo udany
-eksport KPiR lub JPK_V7M za okres z tym miesiącem, jak w zapytaniu operatora
-niżej.
+zaliczka PIT, VAT, składka zdrowotna), wysyłka JPK_V7M z FaktWay na bramkę
+produkcyjną w każdym stanie poza odrzuconą i przerwaną albo udany eksport KPiR
+lub JPK_V7M za okres z tym miesiącem. Zapytanie operatora niżej liczy „okresy
+złożone” węziej (tylko eksporty i przyjęta wysyłka). Miesiące późniejsze nie są
+sprawdzane (zaliczka PIT narastająco, nadwyżka VAT z poprzedniej deklaracji):
+pytanie do księgowej przed włączeniem.
 
-Decyzja klienta (`decide_ksef_expense_copy`, akcja serwerowa po MFA): wybór
-kopii z zadania łączy ją (pozostałe kandydatki zostają osobnymi kosztami),
-„to osobne koszty” albo „Rozłącz” przywraca kopię do KPiR i zostaje śladem
-(`dismissed`), więc ponowienie runnera jej nie łączy. Przyciski i etykieta
-„kopia faktury z KSeF” są w osobnym PR (interfejs). Strażnik
+Decyzja klienta (`decide_ksef_expense_copy`, akcja serwerowa po MFA w PR
+z interfejsem): wybór kopii z zadania łączy ją (pozostałe kandydatki zostają
+osobnymi kosztami), „to osobne koszty” albo „Rozłącz” przywraca kopię do KPiR
+i zostaje śladem (`dismissed`), więc ponowienie runnera jej nie łączy. Uwaga:
+po „to osobne koszty” i „Rozłącz” odczyt okresu znowu odmawia (oba koszty
+liczą się w KPiR, a odczyt nie zna `expense_ksef_copies`); czy odczyt ma
+pomijać takie pary, rozstrzyga PR z interfejsem. Strażnik
 `b_guard_linked_ksef_copy_expense` nie pozwala klientowi wliczyć połączonej
 kopii do KPiR inaczej niż przez „Rozłącz”.
 
+Rozłączenie przez operatora (przed PR z interfejsem; `<osoba>` to aktywny
+członek firmy, który zgłosił sprawę):
+
+```sql
+SET ROLE service_role;
+SELECT public.decide_ksef_expense_copy('<firma>', '<koszt z KSeF>', '<osoba>', '<test|production>', NULL);
+```
+
 Ponowienie: drugie wywołanie zwraca `already_linked`, `candidates` bez nowych
 wierszy albo `dismissed`. W runnerze Skrzynki błąd łączenia zostawia znacznik
-`_pendingFullFetch` (cron uzupełniający ponowi), w runnerze zdjęć idzie tylko
-do logu i Sentry (`step: link-ksef-copy`), bo koszt ze zdjęcia jest zapisany,
-a odmowa odczytu i tak chroni KPiR i JPK.
+`_pendingFullFetch`, a ponowienie (pg-boss albo cron uzupełniający) przechodzi
+gałęzią „koszt już jest” i łączy. W runnerze zdjęć błąd idzie tylko do logu
+i Sentry (`step: link-ksef-copy`), bo koszt ze zdjęcia jest zapisany, a odmowa
+odczytu i tak chroni KPiR i JPK.
 
 Sprawdzenie stanu firmy (tylko odczyt):
 

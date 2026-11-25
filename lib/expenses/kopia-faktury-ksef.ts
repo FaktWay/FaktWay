@@ -20,6 +20,8 @@
  * Ścieżka operatora: `docs/runbooks/koszt-dwa-razy.md`.
  */
 
+import type { KsefEnvironment } from '@/types/ksef';
+
 export const PRZELACZNIK_LACZENIA_KOPII = 'KOSZTY_LACZ_KOPIE_KSEF';
 
 /** Czy łączenie kopii z kosztem z KSeF jest włączone (domyślnie nie). */
@@ -44,23 +46,28 @@ export type WynikLaczeniaKopii =
 interface LaczenieKopiiRpc {
   rpc(
     name: 'link_ksef_expense_copy',
-    args: { p_tenant_id: string; p_expense_id: string; p_auto_link: boolean },
+    args: { p_tenant_id: string; p_expense_id: string; p_ksef_environment: KsefEnvironment; p_auto_link: boolean },
   ): PromiseLike<{ data: unknown; error: { message: string; code?: string | null } | null }>;
 }
 
 /**
  * Po zapisie kosztu (z KSeF albo kopii): łączy kopię z kosztem z KSeF albo
- * zapisuje zadanie dla klienta. Klient service_role (runner). Błąd bazy rzuca,
- * a wołający decyduje, czy to ponowienie, czy tylko wpis w Sentry.
+ * zapisuje zadanie dla klienta. Klient service_role (runner). Koszt z KSeF
+ * liczy się tylko z faktury przyjętej w środowisku `environment` (jak odczyty,
+ * `filterExpensesForKsefEnvironment`); bez skonfigurowanego środowiska nic się
+ * nie łączy. Błąd bazy rzuca, a wołający decyduje, czy to ponowienie, czy
+ * tylko wpis w Sentry.
  */
 export async function polaczKopieFakturyKsef(
   supabase: unknown,
-  w: { tenantId: string; expenseId: string },
+  w: { tenantId: string; expenseId: string; environment: KsefEnvironment | null },
 ): Promise<WynikLaczeniaKopii> {
   if (!laczenieKopiiWlaczone()) return 'wylaczone';
+  if (!w.environment) return 'not_applicable';
   const { data, error } = await (supabase as LaczenieKopiiRpc).rpc('link_ksef_expense_copy', {
     p_tenant_id: w.tenantId,
     p_expense_id: w.expenseId,
+    p_ksef_environment: w.environment,
     p_auto_link: true,
   });
   if (error) throw new Error(`Nie udało się połączyć kopii faktury z kosztem z KSeF: ${error.message}`);
