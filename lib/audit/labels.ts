@@ -98,6 +98,8 @@ export const ACTION_LABELS: Record<string, string> = {
   'expense.created_manually': 'Koszt wpisany ręcznie',
   'expense.document_requested': 'Prośba o dokument do kosztu',
   'expense.document_request_resolved': 'Prośba o dokument załatwiona',
+  'expense.accepted': 'Koszt zaakceptowany przez księgową',
+  'expense.needs_changes': 'Koszt do poprawy (księgowa)',
   'retention.deletion_requested': 'Żądanie usunięcia danych',
   'retention.deletion_executed': 'Wykonano usunięcie danych',
   'accountant.expense_file_viewed': 'Księgowa otworzyła dokument kosztu',
