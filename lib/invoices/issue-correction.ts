@@ -797,6 +797,10 @@ async function correctionBaseline(
   let net = originalTotals.netTotal;
   let vat = originalTotals.vatTotal;
   let gross = originalTotals.grossTotal;
+  // Ostatnia przyjęta „przed/po” i sumy łańcucha tuż po niej: jej wiersze są
+  // stanem pozycji także po późniejszych korektach kwotowych (KOR-02), które
+  // zmieniają tylko sumy.
+  let lastBeforeAfter: { row: CorrectionRow; totals: CorrectionBaseline['totals'] } | null = null;
   for (const c of accepted) {
     const deltas = [c.net_total, c.vat_total, c.gross_total].map(Number);
     if (deltas.some((d) => !Number.isFinite(d))) {
@@ -805,20 +809,24 @@ async function correctionBaseline(
     net = roundToCents(net + deltas[0]!);
     vat = roundToCents(vat + deltas[1]!);
     gross = roundToCents(gross + deltas[2]!);
+    if (c.correction_type === 'before_after') lastBeforeAfter = { row: c, totals: { net, vat, gross } };
   }
   const totals = { net, vat, gross };
   const last = accepted.at(-1);
   if (!last) return { lines: original, totals, latest: null, allowed: 'all' };
   const latest = { id: last.id, internalNumber: last.internal_number, correctionType: last.correction_type };
   if (last.correction_type === 'cancellation') return { lines: [], totals, latest, allowed: 'none' };
-  if (last.correction_type !== 'before_after') return { lines: original, totals, latest, allowed: 'amount_change_only' };
+  const allowed: CorrectionBaseline['allowed'] = last.correction_type === 'before_after' ? 'all' : 'amount_change_only';
+  if (!lastBeforeAfter) return { lines: original, totals, latest, allowed };
 
-  const after = await fetchParentInvoiceLines(supabase, last.id, label);
+  const baRow = lastBeforeAfter.row;
+  const after = await fetchParentInvoiceLines(supabase, baRow.id, label);
   const afterTotals = linesTotals(after);
-  if (afterTotals.netTotal !== totals.net || afterTotals.vatTotal !== totals.vat || afterTotals.grossTotal !== totals.gross) {
-    throw new Error(`Stan po korekcie ${last.internal_number ?? last.id.slice(0, 8)} do faktury ${label} nie zgadza się z sumami faktury i jej korekt, więc kolejnej nie przygotujemy w aplikacji. ${CORRECTION_HELP_STEP}`);
+  const totalsAfterBa = lastBeforeAfter.totals;
+  if (afterTotals.netTotal !== totalsAfterBa.net || afterTotals.vatTotal !== totalsAfterBa.vat || afterTotals.grossTotal !== totalsAfterBa.gross) {
+    throw new Error(`Stan po korekcie ${baRow.internal_number ?? baRow.id.slice(0, 8)} do faktury ${label} nie zgadza się z sumami faktury i jej korekt, więc kolejnej nie przygotujemy w aplikacji. ${CORRECTION_HELP_STEP}`);
   }
-  return { lines: after, totals, latest, allowed: 'all' };
+  return { lines: after, totals, latest, allowed };
 }
 
 
