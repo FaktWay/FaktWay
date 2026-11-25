@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
@@ -60,7 +61,9 @@ function runContainerPart(script: string, routes: Route[], env: Record<string, s
     writeFileSync(main, block[1]);
     writeFileSync(preload, PRELOAD);
     writeFileSync(calls, '');
-    const result = spawnSync(process.execPath, ['--import', preload, main], {
+    // `--import` chce adresu modułu, nie ścieżki: windowsową `C:\…` Node bierze
+    // za adres ze schematem `c:` i odmawia (ERR_UNSUPPORTED_ESM_URL_SCHEME).
+    const result = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, main], {
       encoding: 'utf8',
       env: {
         NODE_ENV: 'test', // typ ProcessEnv z Next.js wymaga tego pola
@@ -137,7 +140,7 @@ function runWholeScript(
         NODE_ENV: 'test',
         PATH: [dir, dirname(process.execPath), process.env.PATH].join(':'),
         FAKTFLOW_INFRA_ENV: infra,
-        NODE_OPTIONS: `--import=${preload}`,
+        NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`, // adres, nie ścieżka, jak w runContainerPart
         STRIPE_SECRET_KEY: WARTOSC_KLUCZA,
         TEST_ROUTES: JSON.stringify(routes),
         TEST_CALLS: calls,
