@@ -880,7 +880,7 @@ export interface KontekstKorektyOdpowiedz {
   dozwolone: 'all' | 'amount_change_only';
   poprzedniaKorekta: { numer: string | null; typ: string | null } | null;
   /** Wspólna stawka bez VAT pozycji (VAT 0, brutto równe netto w korekcie kwotowej). */
-  stawkaBezVat: 'np' | 'np_ii' | 'oo' | null;
+  stawkaBezVat: 'np' | 'np_ii' | 'oo' | 'zw' | null;
   npIiDozwolone: boolean;
   pozycje: PozycjaRodzajuTelefonu[];
 }

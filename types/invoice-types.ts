@@ -101,8 +101,11 @@ export interface BuyerEU {
 /** Nabywca korekty — ten sam co na fakturze pierwotnej, także firma z UE. */
 export type CorrectionBuyer = BuyerData | BuyerEU;
 
-/** Stawki bez VAT, które korekta kwotowa przejmuje z faktury pierwotnej. */
-export type ZeroVatAmountChangeRate = 'np' | 'np_ii' | 'oo';
+/**
+ * Stawki bez VAT, które korekta kwotowa przejmuje z faktury pierwotnej; „zw” od
+ * ustalenia 29 (faktura firmy zwolnionej z VAT, podstawa z faktury korygowanej).
+ */
+export type ZeroVatAmountChangeRate = 'np' | 'np_ii' | 'oo' | 'zw';
 
 // ============================================================================
 // Pozycja faktury

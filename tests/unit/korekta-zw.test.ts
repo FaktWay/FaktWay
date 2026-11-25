@@ -105,6 +105,17 @@ describe('generator KOR: stawka „zw” z podstawą zwolnienia z faktury korygo
       .toThrow(/podstawy zwolnienia/);
   });
 
+  it('korekta kwotowa faktury „zw” (ustalenie 29): P_13_7 z różnicą, P_19 z podstawą, zgodna z XSD', async () => {
+    const xml = generateCorrectionInvoiceXml(korekta({
+      correctionType: 'amount_change',
+      linesAfter: undefined,
+      amountChange: { netDelta: -100, vatDelta: 0, grossDelta: -100, description: 'Rabat', vatRate: 'zw' },
+    } as Partial<CorrectionInvoiceData>), { prettyPrint: false });
+    expect(xml).toContain('<P_13_7>-100.00</P_13_7>');
+    expect(xml).toContain(`<P_19>1</P_19><P_19A>${PODSTAWA}</P_19A>`);
+    expect((await validateInvoiceXml(xml)).valid).toBe(true);
+  });
+
   it('korekta bez „zw” dalej z P_19N', () => {
     const xml = generateCorrectionInvoiceXml(korekta({
       linesBefore: [{ ...pozycja(1000), vatRate: '23' }],
@@ -173,6 +184,57 @@ describe('korekta faktury „zw” w aplikacji: firma zwolniona z VAT (C3)', () 
     const xml = generateCorrectionInvoiceXml(correctionData!, { prettyPrint: false });
     expect(xml).toContain(`<P_19>1</P_19><${rodzaj}>${podstawa}</${rodzaj}>`);
     expect((await validateInvoiceXml(xml)).valid).toBe(true);
+  });
+
+  it('korekta kwotowa faktury „zw” (ustalenie 29): kontekst daje stawkę „zw”, zapis przechodzi, plik KOR z P_19 przechodzi XSD', async () => {
+    fakturaZw({ annotations: { vatExemptionBasis: PODSTAWA } });
+    const ctx = await getCorrectionParentContextAction(PARENT);
+    expect(ctx.success).toBe(true);
+    if (ctx.success) expect(ctx.amountChangeVatRate).toBe('zw');
+    const r = await saveCorrectionDraftAction({
+      ...(przedPo() as Record<string, unknown>),
+      correctionType: 'amount_change',
+      linesAfter: undefined,
+      amountChange: { netDelta: -100, vatDelta: 0, grossDelta: -100, description: 'Rabat', vatRate: 'zw' },
+    } as never, TENANT);
+    expect(r).toMatchObject({ success: true });
+    const saved = db.tables.invoices!.find((row) => row.invoice_kind === 'correction') as Row | undefined;
+    const correctionData = (saved?.special_data as { correctionData?: CorrectionInvoiceData } | undefined)?.correctionData;
+    const xml = generateCorrectionInvoiceXml(correctionData!, { prettyPrint: false });
+    expect(xml).toContain('<P_13_7>-100.00</P_13_7>');
+    expect(xml).toContain(`<P_19>1</P_19><P_19A>${PODSTAWA}</P_19A>`);
+    expect((await validateInvoiceXml(xml)).valid).toBe(true);
+  });
+
+  it('korekta kwotowa faktury „zw” bez podstawy, faktury mieszanej z VAT 0 i z inną stawką od klienta: odmowy z wyjściem (ustalenie 29, uwaga N1)', async () => {
+    const kwotowa = (amountChange: Record<string, unknown>) => ({
+      ...(przedPo() as Record<string, unknown>),
+      correctionType: 'amount_change',
+      linesAfter: undefined,
+      amountChange: { netDelta: -100, vatDelta: 0, grossDelta: -100, description: 'Rabat', ...amountChange },
+    }) as never;
+
+    fakturaZw({});
+    const bezPodstawy = await saveCorrectionDraftAction(kwotowa({}), TENANT);
+    expect(bezPodstawy.success).toBe(false);
+    if (!bezPodstawy.success) expect(bezPodstawy.error).toMatch(/podstawy zwolnienia/);
+
+    // Dalej faktura z podstawą, więc odmowę daje tylko stawka.
+    db.tables.invoices![0]!.fa3_data = { internalNumber: 'FV 7/11/2026', annotations: { vatExemptionBasis: PODSTAWA } };
+    const inna = await saveCorrectionDraftAction(kwotowa({ vatRate: 'np' }), TENANT);
+    expect(inna.success).toBe(false);
+    if (!inna.success) expect(inna.error).toMatch(/Stawka korekty kwotowej różni się od stawki faktury pierwotnej/);
+
+    // Faktura mieszana („zw” i 23 %) z VAT 0: stawka nie wynika z kwot, więc odmowa o niejednoznaczności.
+    Object.assign(db.tables.invoices![0]!, { net_total: 2000, vat_total: 230, gross_total: 2230 });
+    db.tables.invoice_line_items!.push({
+      id: `${PARENT}-2`, invoice_id: PARENT, ordinal: 2, name: 'Licencja', unit: 'szt.', quantity: 1,
+      unit_price_net: 1000, net_amount: 1000, vat_rate: '23', vat_amount: 230, gross_amount: 1230,
+    });
+    const mieszana = await saveCorrectionDraftAction(kwotowa({}), TENANT);
+    expect(mieszana.success).toBe(false);
+    if (!mieszana.success) expect(mieszana.error).toBe('Korekta kwotowa bez VAT faktury z różnymi stawkami (w tym np., np. II, oo lub zw) jest niejednoznaczna, więc skoryguj pozycje („przed / po”).');
+    expect(db.tables.invoices!.filter((row) => row.invoice_kind === 'correction')).toHaveLength(0);
   });
 
   it('faktura „zw” bez zapisanej podstawy zwolnienia: odmowa z wyjściem, nic nie zapisane', async () => {

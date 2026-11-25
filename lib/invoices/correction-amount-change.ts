@@ -5,7 +5,7 @@ type AmountChange = {
   netDelta: number;
   vatDelta: number;
   grossDelta: number;
-  /** Jawna stawka bez VAT z faktury pierwotnej (np I, np II, oo). */
+  /** Jawna stawka bez VAT z faktury pierwotnej (np I, np II, oo, zw). */
   vatRate?: ZeroVatAmountChangeRate;
 };
 type Rate = '23' | '8' | '5' | '0' | ZeroVatAmountChangeRate;
@@ -49,8 +49,8 @@ export function resolveAmountChangeVatRate(change: AmountChange): Rate {
 
 /**
  * Stawka bez VAT dla korekty kwotowej z pozycji faktury pierwotnej: gdy WSZYSTKIE
- * pozycje mają tę samą stawkę `np` / `np_ii` / `oo`, korekta ją przejmuje
- * (z kwot — VAT 0 — nie da się jej odróżnić od „0 KR”). Inaczej `undefined`
+ * pozycje mają tę samą stawkę `np` / `np_ii` / `oo` / `zw`, korekta ją przejmuje
+ * (z kwot przy VAT 0 nie da się jej odróżnić od „0 KR”). Inaczej `undefined`
  * i stawkę wyznaczają kwoty (`resolveAmountChangeVatRate`). Wspólne dla
  * serwera (akcja korekty) i formularza.
  */
@@ -60,5 +60,5 @@ export function zeroVatRateFromParentLines(
   const rates = new Set(lines.map((l) => l.vatRate));
   if (rates.size !== 1) return undefined;
   const [rate] = [...rates];
-  return rate === 'np' || rate === 'np_ii' || rate === 'oo' ? rate : undefined;
+  return rate === 'np' || rate === 'np_ii' || rate === 'oo' || rate === 'zw' ? rate : undefined;
 }

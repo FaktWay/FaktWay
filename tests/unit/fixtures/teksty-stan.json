@@ -531,10 +531,6 @@
     "myslniki": 1,
     "plakietki": 0
   },
-  "lib/invoices/issue-correction.ts": {
-    "myslniki": 1,
-    "plakietki": 0
-  },
   "lib/invoices/issue-final.ts": {
     "myslniki": 1,
     "plakietki": 0

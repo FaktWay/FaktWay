@@ -165,7 +165,7 @@ function parentLabelOf(parent: { id: string; internal_number: string | null }): 
 }
 
 /** Stawki bez VAT, których z samych kwot (VAT 0) nie da się odróżnić od „0 KR”. */
-const ZERO_VAT_RATES: ReadonlySet<string> = new Set<ZeroVatAmountChangeRate>(['np', 'np_ii', 'oo']);
+const ZERO_VAT_RATES: ReadonlySet<string> = new Set<ZeroVatAmountChangeRate>(['np', 'np_ii', 'oo', 'zw']);
 
 /**
  * Nabywca faktury pierwotnej jako nabywca korekty: firma z NIP albo firma z UE
@@ -905,7 +905,7 @@ async function normalizePayload(
 
   let amountChange = parsed.data.amountChange;
   if (parsed.data.correctionType === 'amount_change' && amountChange) {
-    // Stawka bez VAT (np I / np II / oo) nie wynika z kwot — wyznacza ją serwer
+    // Stawka bez VAT (np I / np II / oo / zw) nie wynika z kwot, więc wyznacza ją serwer
     // z pozycji faktury (stan bieżący). Inna wartość od klienta = odrzucenie.
     const original = baseline.lines;
     // Stan przed = pozycje z bazy, nie z formularza — generator liczy z nich
@@ -924,10 +924,10 @@ async function normalizePayload(
       return { error: e instanceof Error ? e.message : 'Korekta kwotowa: niespójne kwoty.' };
     }
     // VAT 0 przy fakturze z różnymi stawkami, w tym bez VAT: z kwot wyszłoby
-    // „0 KR”, a korekta może dotyczyć pozycji np I / np II / oo — nie zgadujemy.
+    // „0 KR”, a korekta może dotyczyć pozycji np I / np II / oo / zw, więc nie zgadujemy.
     if (!parentRate && rate === '0' && original.some((line) => ZERO_VAT_RATES.has(line.vatRate))) {
       return {
-        error: 'Korekta kwotowa bez VAT faktury z różnymi stawkami (w tym np., np. II lub oo) jest niejednoznaczna — skoryguj pozycje („przed / po”).',
+        error: 'Korekta kwotowa bez VAT faktury z różnymi stawkami (w tym np., np. II, oo lub zw) jest niejednoznaczna, więc skoryguj pozycje („przed / po”).',
       };
     }
     // F12-D2: różnica według stawek faktury korygowanej (art. 106j ust. 2 pkt 5).
@@ -998,7 +998,7 @@ export async function getCorrectionParentContext(context: CorrectionContextSourc
       buyerVatUe?: string;
       /** Czy w korekcie wolno użyć stawki „np. II” (nabywca z UE poza PL i XI — `isNpIiBuyerVat`). */
       npIiAllowed: boolean;
-      /** Stawka bez VAT korekty kwotowej — wspólna stawka np / np_ii / oo pozycji faktury pierwotnej. */
+      /** Stawka bez VAT korekty kwotowej: wspólna stawka np / np_ii / oo / zw pozycji faktury pierwotnej. */
       amountChangeVatRate?: ZeroVatAmountChangeRate;
       /** Ostatnia przyjęta korekta tej faktury (K4): „stan przed” to stan po niej. */
       previousCorrection?: { internalNumber: string | null; correctionType: string | null };
