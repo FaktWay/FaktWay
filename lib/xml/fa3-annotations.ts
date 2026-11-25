@@ -11,6 +11,7 @@
  * odmawia z numerem faktury. Moduł czysty: bez bazy i bez Node.
  */
 
+import { MARGIN_SCHEME_LABELS } from '@/lib/invoices/annotations';
 import type { JpkInvoiceAnnotations } from '@/lib/exports/jpk-fa-generator';
 import { isVatRate } from '@/lib/xml/fa3-p12';
 import type { InvoiceAnnotations } from '@/types/invoice';
@@ -172,13 +173,6 @@ export function invoiceAnnotationsFromFa3(a: Fa3Annotations): InvoiceAnnotations
   return out;
 }
 
-const MARGIN_LABEL: Record<MarginScheme, string> = {
-  P_PMarzy_2: 'procedura marży dla biur podróży (P_PMarzy_2)',
-  P_PMarzy_3_1: 'procedura marży — towary używane (P_PMarzy_3_1)',
-  P_PMarzy_3_2: 'procedura marży — dzieła sztuki (P_PMarzy_3_2)',
-  P_PMarzy_3_3: 'procedura marży — przedmioty kolekcjonerskie i antyki (P_PMarzy_3_3)',
-};
-
 const isYes = (v: unknown) => v === 1 || v === true;
 
 /**
@@ -194,7 +188,7 @@ export function annotationsJpkCannotExpress(
   const out: string[] = [];
   if (isYes(a.simplifiedProcedure)) out.push('procedura trójstronna (P_23)');
   if (isYes(a.newMeansOfTransport)) out.push('dostawa nowych środków transportu (P_22)');
-  if (typeof a.marginScheme === 'string' && a.marginScheme in MARGIN_LABEL) out.push(MARGIN_LABEL[a.marginScheme as MarginScheme]);
+  if (typeof a.marginScheme === 'string' && Object.hasOwn(MARGIN_SCHEME_LABELS, a.marginScheme)) out.push(MARGIN_SCHEME_LABELS[a.marginScheme as MarginScheme]);
   return out;
 }
 
