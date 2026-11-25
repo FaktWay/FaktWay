@@ -610,7 +610,8 @@ export function settlementRoundingRefusal(
     const limit = Math.floor((n + 3 * inRate.length) / 2);
     const netto = toGrosze(s.netSum);
     const vat = toGrosze(s.vatSum);
-    const over = -netto > limit ? { what: 'netto', grosze: netto } : -vat > limit ? { what: 'VAT', grosze: vat } : null;
+    const over: { what: 'netto' | 'VAT'; grosze: number } | null =
+      -netto > limit ? { what: 'netto', grosze: netto } : -vat > limit ? { what: 'VAT', grosze: vat } : null;
     if (!over) continue;
     const pct = s.rate === '23' || s.rate === '8' || s.rate === '5' ? Number(s.rate) : 0;
     const rows = inRate.map((x) => ({
