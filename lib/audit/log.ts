@@ -65,6 +65,10 @@ export type AuditAction =
   | 'expense.created_manually'
   | 'expense.document_requested'
   | 'expense.document_request_resolved'
+  // Akceptacja kosztu przez księgową (00214): rola, odcisk treści i liczba wpisów w dzwonku, bez
+  // treści powodu. Zapisuje baza (RPC `expense_acceptance_decide`).
+  | 'expense.accepted'
+  | 'expense.needs_changes'
   | 'expense.foreign_currency_reviewed'
   | 'expense.foreign_currency_excluded'
   // Koszty do zapłaty (00177, plan kompletnej aplikacji 3.4): metadane niosą dzień zapłaty, kwotę

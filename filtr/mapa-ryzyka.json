@@ -596,6 +596,7 @@
         "app/actions/{expense-payments,plik-przelewow,receipt-invoice-match}.ts",
         "app/api/uploads/expense/route.ts",
         "app/actions/expense-thread.ts",
+        "app/actions/expense-acceptance.ts",
         "lib/api/mobile/wydatki.ts",
         "app/api/mobile/v1/wydatki/**",
         "supabase/migrations/00202_*.sql"
@@ -842,7 +843,8 @@
         "app/(dashboard)/settings/accountant/**",
         "app/accountant/**",
         "components/settings/accountant-actions.ts",
-        "supabase/migrations/00192_*.sql"
+        "supabase/migrations/00192_*.sql",
+        "supabase/migrations/00214_*.sql"
       ]
     },
     {
