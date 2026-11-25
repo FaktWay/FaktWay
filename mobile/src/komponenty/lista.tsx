@@ -264,7 +264,8 @@ export function Wiersz({
 }: WierszProps) {
   const kolory = useKolory();
   const { fontScale } = useWindowDimensions();
-  // Przy dużym tekście z ustawień wartość schodzi pod tytuł, żeby nic się nie ucinało.
+  // Przy dużym tekście z ustawień wartość schodzi pod tytuł, a podtytuł nie ma limitu linii
+  // (adres firmy z drugą linią ucinał się do „00-001 Warsza…”, obchód U37): nic się nie ucina.
   const duzyTekst = fontScale >= SKALA_PIONOWA;
   const pionowo = duzyTekst && Boolean(wartosc || wartoscPodpis);
   const tresc = (
@@ -282,13 +283,13 @@ export function Wiersz({
           <View style={styles.zKategoria}>
             <Kategoria nazwa={kategoria} />
             {podtytul ? (
-              <Tekst styl="footnote" kolor="etykietaDrugorzedna" numberOfLines={pionowo ? 6 : 4} selectable={zaznaczalna} style={styles.rozciagniety}>
+              <Tekst styl="footnote" kolor="etykietaDrugorzedna" numberOfLines={duzyTekst ? undefined : 4} selectable={zaznaczalna} style={styles.rozciagniety}>
                 {podtytul}
               </Tekst>
             ) : null}
           </View>
         ) : podtytul ? (
-          <Tekst styl="footnote" kolor="etykietaDrugorzedna" numberOfLines={pionowo ? 6 : 4} selectable={zaznaczalna}>
+          <Tekst styl="footnote" kolor="etykietaDrugorzedna" numberOfLines={duzyTekst ? undefined : 4} selectable={zaznaczalna}>
             {podtytul}
           </Tekst>
         ) : null}
