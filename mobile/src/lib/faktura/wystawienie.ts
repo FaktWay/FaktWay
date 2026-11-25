@@ -165,27 +165,62 @@ export function poleFormularza(pole: string | undefined): PoleBledu {
   }
 }
 
-/** Zaokrąglenie do groszy jak `roundToCents` serwera (`lib/xml/invoice-calculator.ts`). */
-function doGroszy(wartosc: number): number {
-  const znak = Math.sign(wartosc);
-  // filtr-wyjatek: kwoty-bez-float podgląd odtwarza roundToCents serwera (lib/xml/invoice-calculator.ts), którego telefon nie importuje; kwoty do KSeF liczy serwer
-  return (znak * Math.round((Math.abs(wartosc) + Number.EPSILON) * 100)) / 100;
+const ZAPIS_DZIESIETNY = /^(-?)(\d+)(?:\.(\d+))?(?:e([+-]\d+))?$/;
+
+/** 10 do potęgi `n` jako BigInt, bez operatora `**` (Babel potrafi zamienić go na `Math.pow`, który BigInt odrzuca). */
+function dziesiecDo(n: number): bigint {
+  return BigInt(`1${'0'.repeat(n)}`);
+}
+
+/**
+ * Liczba jako dokładny ułamek dziesiętny (cyfry / 10^miejsca), jak `decimalParts`
+ * serwera (`lib/xml/invoice-calculator.ts`, którego telefon nie importuje).
+ * `String(liczba)` to najkrótszy zapis, który wraca do tej samej liczby, więc
+ * cena 3,33 to cyfry 333 i 2 miejsca, a nie rozwinięcie dwójkowe 3,3299….
+ * Serwer dostaje te same liczby w treści żądania (`doFakturyTelefonu`).
+ * `null` dla NaN i nieskończoności.
+ */
+function czesciDziesietne(liczba: number): { cyfry: bigint; miejsca: number } | null {
+  const dopasowanie = ZAPIS_DZIESIETNY.exec(String(liczba));
+  if (!dopasowanie) return null;
+  const [, znak, calosc = '0', ulamek = '', wykladnik = '+0'] = dopasowanie;
+  const miejsca = ulamek.length - Number(wykladnik);
+  const cyfry = BigInt(calosc + ulamek) * (miejsca < 0 ? dziesiecDo(-miejsca) : BigInt(1));
+  return { cyfry: znak === '-' ? -cyfry : cyfry, miejsca: Math.max(miejsca, 0) };
+}
+
+/** a / b do liczby całkowitej, połówka od zera (b > 0), jak `divRoundHalfAway` serwera. */
+function podzielOdZera(a: bigint, b: bigint): bigint {
+  const ujemna = a < BigInt(0);
+  const wynik = ((ujemna ? -a : a) * BigInt(2) + b) / (b * BigInt(2));
+  return ujemna ? -wynik : wynik;
+}
+
+/** Ilość × cena w groszach jak `multiplyToGrosze` serwera: dokładnie, od 0,5 grosza w górę; `null` przy polu pustym albo błędnym. */
+function iloczynWGroszach(a: number, b: number): bigint | null {
+  const x = czesciDziesietne(a);
+  const y = czesciDziesietne(b);
+  if (!x || !y) return null;
+  const iloczyn = x.cyfry * y.cyfry;
+  const miejsca = x.miejsca + y.miejsca;
+  return miejsca <= 2 ? iloczyn * dziesiecDo(2 - miejsca) : podzielOdZera(iloczyn, dziesiecDo(miejsca - 2));
 }
 
 /**
  * Netto, VAT i brutto pozycji w groszach tak, jak policzy je serwer
- * (`calculateLineItem`): ilość razy cena z pola bez zaokrąglania ceny, potem
- * grosze. Pole puste albo błędne liczy się jako 0 (formularz i tak je zatrzyma).
+ * (`calculateLineItem`): netto = ilość × cena z pola bez zaokrąglania ceny,
+ * VAT = netto × stawka, każde do grosza od 0,5 grosza w górę (art. 106e
+ * ust. 11 ustawy o VAT), na liczbach całkowitych. Na liczbach
+ * zmiennoprzecinkowych część połówek schodziła w dół (5 % od 80,30 zł dawało
+ * 4,01 zamiast 4,02, a 2,5 × 3,33 zł 8,32 zamiast 8,33), więc podgląd i kwota
+ * na przycisku różniły się od wystawionej faktury (TEL-01). Pole puste albo
+ * błędne liczy się jako 0 (formularz i tak je zatrzyma).
  */
 export function kwotyPozycji(p: PozycjaFormularza): { netto: number; vat: number; brutto: number } {
-  const ilosc = liczbaZPola(p.ilosc);
-  const cena = liczbaZPola(p.cena);
-  const netto = Number.isFinite(ilosc) && Number.isFinite(cena) ? doGroszy(ilosc * cena) : 0;
-  const procent = /^\d+$/.test(p.stawka) ? Number(p.stawka) : 0;
-  const vat = doGroszy((netto * procent) / 100);
-  const brutto = doGroszy(netto + vat);
-  // filtr-wyjatek: kwoty-bez-float złote już zaokrąglone przez doGroszy zamienione na grosze całkowite, tylko do podglądu
-  return { netto: Math.round(netto * 100), vat: Math.round(vat * 100), brutto: Math.round(brutto * 100) };
+  const netto = iloczynWGroszach(liczbaZPola(p.ilosc), liczbaZPola(p.cena)) ?? BigInt(0);
+  const procent = /^\d+$/.test(p.stawka) ? BigInt(p.stawka) : BigInt(0);
+  const vat = podzielOdZera(netto * procent, BigInt(100));
+  return { netto: Number(netto), vat: Number(vat), brutto: Number(netto + vat) };
 }
 
 /**
