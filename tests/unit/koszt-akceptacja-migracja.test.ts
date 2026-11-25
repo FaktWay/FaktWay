@@ -51,12 +51,14 @@ describe('migracja 00214 (tekst; zachowanie na bazie w tests/rls-akceptacja-kosz
     expect(tekst).not.toMatch(/GRANT[^;]*TO[^;]*\banon\b/);
   });
 
-  it('odcisk: pola księgowe kosztu, bez płatności, notatek i dat zapisu (niezmienniki 3 i 4)', () => {
+  it('odcisk: pola księgowe kosztu z pochodzeniem i danymi z odczytu, bez płatności, notatek, dat zapisu i przeglądu (niezmienniki 3 i 4)', () => {
     const fp = body(sql(), 'expense_acceptance_fingerprint');
     for (const pole of [
       'document_type', 'document_number', 'issue_date', 'seller_name', 'seller_nip', 'seller_address',
       'net_amount', 'vat_amount', 'gross_amount', 'vat_rate', 'vat_deductible_amount', 'is_deductible',
       'kpir_column', 'category_label', 'source_file_path', 'ksef_invoice_id',
+      // Rodzaj dokumentu w KPiR i JPK oraz kurs i kwoty w złotych (lib/exports/data-fetcher.ts).
+      'source', 'ocr_extracted_data',
     ]) {
       expect(fp, pole).toContain(`p_expense.${pole}`);
     }

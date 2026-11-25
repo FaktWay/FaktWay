@@ -25,7 +25,8 @@
 --    (expense_acceptance_fingerprint). Zmiana któregoś z nich daje stan
 --    nieaktualny („Zmieniony po akceptacji”), a zmiana płatności, notatki albo
 --    daty zapisu nie (updated_at zmienia każdy UPDATE, dlatego odcisk, nie
---    data). Historia decyzji jest w audit_logs. Akceptacja nie zmienia kosztu,
+--    data). Przegląd kosztu przez firmę (is_reviewed) też nie: pola, które
+--    przegląd zmienia, są w odcisku. Historia decyzji jest w audit_logs. Akceptacja nie zmienia kosztu,
 --    KPiR, VAT ani raportów: żaden z nich jej nie czyta. Wiersz znika razem
 --    z kosztem albo firmą (ON DELETE CASCADE), a po usunięciu konta zostaje bez
 --    osoby (SET NULL).
@@ -42,7 +43,8 @@
 --    (koszt zmienił się od otwarcia strony). Blokada wiersza kosztu: edycja
 --    w tej samej chwili idzie po kolei. Ta sama decyzja, odcisk i powód drugi
 --    raz zwraca exists bez audytu i dzwonka. „Do poprawy” dopisuje wpis
---    w dzwonku pozostałych aktywnych członków (bez księgowej) z linkiem do
+--    w dzwonku pozostałych aktywnych członków (bez autora decyzji; inna
+--    księgowa tej firmy też go dostaje) z linkiem do
 --    sekcji akceptacji; klucz obiektu to nowy identyfikator decyzji, więc
 --    kolejne „Do poprawy” to kolejne wpisy, a wiersz, audyt i dzwonek zapisują
 --    się w jednej transakcji. Każda zapisana decyzja ma wiersz audit_logs
@@ -108,8 +110,10 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.expense_acceptances TO service_ro
 -- ─── Odcisk treści kosztu: pola, które idą do ksiąg i ewidencji ───
 -- Rodzaj i numer dokumentu, data, sprzedawca (nazwa, NIP, adres), kwoty,
 -- stawka, VAT do odliczenia, odliczenie tak albo nie, kolumna KPiR, kategoria
--- (opis w KPiR), plik dokumentu i faktura KSeF. Bez płatności, notatki
--- i dat zapisu: ich zmiana nie unieważnia akceptacji.
+-- (opis w KPiR), plik dokumentu, faktura KSeF, pochodzenie kosztu i dane
+-- z odczytu (z nich lib/exports/data-fetcher.ts bierze rodzaj dokumentu w KPiR
+-- i JPK oraz kurs i potwierdzenie kwot w złotych). Bez płatności, notatki, dat
+-- zapisu i przeglądu firmy (is_reviewed): ich zmiana nie unieważnia akceptacji.
 CREATE OR REPLACE FUNCTION public.expense_acceptance_fingerprint(p_expense public.expenses)
 RETURNS TEXT
 LANGUAGE sql
@@ -132,12 +136,14 @@ AS $$
     p_expense.kpir_column,
     p_expense.category_label,
     p_expense.source_file_path,
-    p_expense.ksef_invoice_id
+    p_expense.ksef_invoice_id,
+    p_expense.source,
+    p_expense.ocr_extracted_data
   )::text);
 $$;
 
 COMMENT ON FUNCTION public.expense_acceptance_fingerprint(public.expenses) IS
-  'Akceptacja kosztu (00214): md5 pól księgowych kosztu; bez płatności, notatki i dat zapisu.';
+  'Akceptacja kosztu (00214): md5 pól księgowych kosztu (z pochodzeniem i danymi z odczytu); bez płatności, notatki, dat zapisu i przeglądu firmy.';
 
 REVOKE ALL ON FUNCTION public.expense_acceptance_fingerprint(public.expenses) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.expense_acceptance_fingerprint(public.expenses) TO authenticated, service_role;

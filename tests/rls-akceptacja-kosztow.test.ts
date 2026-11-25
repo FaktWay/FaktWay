@@ -37,6 +37,7 @@ const EMAILS = {
   admin: 'rls-akceptacja-admin@ksef-saas.test',
   member: 'rls-akceptacja-member@ksef-saas.test',
   accountant: 'rls-akceptacja-accountant@ksef-saas.test',
+  accountant2: 'rls-akceptacja-accountant2@ksef-saas.test',
   suspended: 'rls-akceptacja-suspended@ksef-saas.test',
   other: 'rls-akceptacja-other@ksef-saas.test',
 } as const;
@@ -46,6 +47,7 @@ const NAMES: Record<Who, string> = {
   admin: 'Adam Admin',
   member: 'Marek Członek',
   accountant: 'Anna Księgowa',
+  accountant2: 'Beata Księgowa',
   suspended: 'Zenon Zawieszony',
   other: 'Oskar Obcy',
 };
@@ -197,6 +199,8 @@ describe.skipIf(!hasDatabase)('00214: akceptacja kosztu przez księgową na praw
       { organization_id: ORG, user_id: ids.admin, role: 'admin', status: 'active' },
       { organization_id: ORG, user_id: ids.member, role: 'member', status: 'active' },
       { organization_id: ORG, user_id: ids.accountant, role: 'accountant', status: 'active' },
+      // Druga księgowa tej firmy: dostaje wpis w dzwonku, bo nie jest autorką decyzji.
+      { organization_id: ORG, user_id: ids.accountant2, role: 'accountant', status: 'active' },
       { organization_id: ORG, user_id: ids.suspended, role: 'accountant', status: 'suspended' },
       { organization_id: OTHER_ORG, user_id: ids.other, role: 'owner', status: 'active' },
       // Księgowa obsługuje też drugą firmę: decyduje tylko w aktywnej.
@@ -271,7 +275,7 @@ describe.skipIf(!hasDatabase)('00214: akceptacja kosztu przez księgową na praw
     expect(await wiersz()).toMatchObject({ fingerprint: fp });
   });
 
-  it('„do poprawy”: powód wymagany; wpis w dzwonku aktywnych członków bez księgowej, z linkiem do akceptacji; audyt', async () => {
+  it('„do poprawy”: powód wymagany; wpis w dzwonku aktywnych członków bez autora decyzji, z linkiem do akceptacji; audyt', async () => {
     await nowyKoszt();
     const ksiegowa = await signedIn('accountant', ORG);
     const fp = (await stan(ksiegowa))!.current_fingerprint;
@@ -288,13 +292,13 @@ describe.skipIf(!hasDatabase)('00214: akceptacja kosztu przez księgową na praw
     const nowe = await nowyAudyt(async () => {
       const { data, error } = await decyzja(ksiegowa, { decision: 'needs_changes', reason: '  Brak faktury, jest tylko paragon.  ', fingerprint: fp });
       expect(error).toBeNull();
-      expect(data).toMatchObject({ status: 'decided', decision: 'needs_changes', notified: 3 });
+      expect(data).toMatchObject({ status: 'decided', decision: 'needs_changes', notified: 4 });
     });
     expect(nowe.map((w) => w.action)).toEqual(['expense.needs_changes']);
     expect(await wiersz()).toMatchObject({ decision: 'needs_changes', reason: 'Brak faktury, jest tylko paragon.' });
 
     const dzwonek = await wpisyDzwonka();
-    expect(dzwonek.map((w) => w.user_id).sort()).toEqual([ids.owner, ids.admin, ids.member].sort());
+    expect(dzwonek.map((w) => w.user_id).sort()).toEqual([ids.owner, ids.admin, ids.member, ids.accountant2].sort());
     for (const w of dzwonek) {
       expect(w).toMatchObject({ kind: 'expense_needs_changes', link: LINK, title: 'Koszt do poprawy' });
       expect(w.body).toContain('FV 7/2026 od Dostawca Testowy sp. z o.o.');
