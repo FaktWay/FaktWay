@@ -238,6 +238,21 @@ describe('KpirBlocked — wyjście z blokady', () => {
     expect(html).not.toContain('href="/invoices');
   });
 
+  it('ten sam dokument kosztu dwa razy (FZ-022) w miesiącu z fakturą do paragonu: koszty miesiąca obok faktur', async () => {
+    const { ZdublowanyKosztError } = await import('@/lib/expenses/jeden-koszt-dokumentu');
+    const html = renderToStaticMarkup(
+      <KpirBlocked
+        message={new ZdublowanyKosztError({ numer: 'FV/7/09/2026', sprzedawca: 'Sklep', data: '2026-09-05', ile: 2, zKsef: true, zrodla: ['ze Skrzynki KSeF', 'ze zdjęcia'] }).message}
+        period="2026-09"
+        blockingInvoices={[{ id: 'fp-1', number: 'FP/1/09/2026' }]}
+      />,
+    );
+    expect(html).toContain('FV/7/09/2026');
+    expect(html).toContain('href="/expenses?miesiac=2026-09"');
+    expect(html).toContain('Koszty miesiąca');
+    expect(html).toContain('href="/invoices/fp-1"');
+  });
+
   it('najwyżej trzy faktury jako linki, dalej „Faktury”', () => {
     const html = renderToStaticMarkup(
       <KpirBlocked

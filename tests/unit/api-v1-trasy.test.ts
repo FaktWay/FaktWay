@@ -156,7 +156,10 @@ const INVOICES = [
   invoiceRow(INVOICE_B1, TENANT_B, { internal_number: 'FV/B/2026' }),
 ];
 
-const LINE_ITEMS = [
+/** Pozycje w kształcie odpowiedzi PostgREST; przy cenach brutto `unit_price_net` jest pusta (ustalenie 9). */
+type LineItemRow = Record<string, unknown> & { invoice_id: string };
+
+const LINE_ITEMS: LineItemRow[] = [
   { invoice_id: INVOICE_A1, ordinal: 1, name: 'Usługa programistyczna', quantity: '1.000', unit: 'szt.', unit_price_net: '1000.00', net_amount: '1000.00', vat_rate: '23', vat_amount: '230.00', gross_amount: '1230.00' },
   { invoice_id: INVOICE_B1, ordinal: 1, name: 'Cudza pozycja', quantity: '1.000', unit: 'szt.', unit_price_net: '1.00', net_amount: '1.00', vat_rate: '23', vat_amount: '0.23', gross_amount: '1.23' },
 ];
@@ -562,6 +565,69 @@ describe('odczyt faktur', () => {
     const text = await response.text();
     expect(text).not.toContain('private_schema');
     expect(JSON.parse(text).error.code).toBe('service_unavailable');
+  });
+});
+
+describe('faktura w cenach brutto: cena brutto pozycji z dokumentu (ustalenie 9)', () => {
+  const GROSS_FAKTWAY = 'a6a6a6a6-0000-4000-8000-000000000006';
+  const GROSS_IMPORT = 'a7a7a7a7-0000-4000-8000-000000000007';
+  /** Pozycja w cenach brutto: w bazie bez ceny netto, cena brutto tylko w dokumencie faktury. */
+  const grossLine = (invoiceId: string): LineItemRow => ({
+    invoice_id: invoiceId, ordinal: 1, name: 'Bilet', quantity: '2.0000', unit: 'szt.', unit_price_net: null,
+    net_amount: '200.00', vat_rate: '23', vat_amount: '46.00', gross_amount: '246.00',
+  });
+  let invoicesBefore = 0;
+  let linesBefore = 0;
+
+  beforeEach(() => {
+    invoicesBefore = INVOICES.length;
+    linesBefore = LINE_ITEMS.length;
+    INVOICES.push(
+      // Faktura FaktWay w cenach brutto (`fa3_data.pricesGross`, `lines[].unitPriceGross`).
+      invoiceRow(GROSS_FAKTWAY, TENANT_A, {
+        prices_gross: true, document_lines: [{ ordinal: 1, name: 'Bilet', unitPriceGross: 123 }], ksef_line_fields: null,
+      }),
+      // Faktura z KSeF z ceną brutto pozycji w pliku (`fa3_data.ksefLineFields[].P_9B`).
+      invoiceRow(GROSS_IMPORT, TENANT_A, {
+        direction: 'incoming', prices_gross: null, document_lines: null, ksef_line_fields: [{ ordinal: 1, P_9B: 123.4567 }],
+      }),
+    );
+    LINE_ITEMS.push(grossLine(GROSS_FAKTWAY), grossLine(GROSS_IMPORT));
+  });
+  afterEach(() => {
+    INVOICES.length = invoicesBefore;
+    LINE_ITEMS.length = linesBefore;
+  });
+
+  it('faktura FaktWay w cenach brutto: unit_price_gross z dokumentu, unit_price_net pusta', async () => {
+    const response = await getInvoice(KEYS.a!.key, GROSS_FAKTWAY);
+    expect(response.status).toBe(200);
+    const json = await body(response);
+    expect((json.data as { items: unknown[] }).items).toEqual([expect.objectContaining({
+      position: 1, unit_price_net: null, unit_price_gross: '123.0000', gross_amount: '246.00',
+    })]);
+    const select = recorded.find((r) => r.path === '/rest/v1/invoices')!.params.get('select') ?? '';
+    for (const path of ['prices_gross:fa3_data->pricesGross', 'document_lines:fa3_data->lines', 'ksef_line_fields:fa3_data->ksefLineFields']) {
+      expect(select).toContain(path);
+    }
+  });
+
+  it('faktura z KSeF z ceną brutto pozycji w pliku (P_9B): unit_price_gross z pliku', async () => {
+    const json = await body(await getInvoice(KEYS.a!.key, GROSS_IMPORT));
+    expect((json.data as { items: unknown[] }).items).toEqual([expect.objectContaining({
+      unit_price_net: null, unit_price_gross: '123.4567',
+    })]);
+  });
+
+  it('faktura w cenach netto: unit_price_gross null; lista nie czyta pozycji z dokumentu', async () => {
+    const json = await body(await getInvoice(KEYS.a!.key, INVOICE_A1));
+    expect((json.data as { items: unknown[] }).items).toEqual([expect.objectContaining({
+      unit_price_net: '1000.00', unit_price_gross: null,
+    })]);
+    await listInvoices(KEYS.a!.key);
+    const listSelect = recorded.filter((r) => r.path === '/rest/v1/invoices').at(-1)!.params.get('select') ?? '';
+    expect(listSelect).not.toContain('fa3_data->lines');
+    expect(listSelect).not.toContain('ksefLineFields');
   });
 });
 

@@ -49,6 +49,8 @@ export interface InvoiceDetailLine {
   /** Krok 2.6, część 2b-3c: poprawne PKWiU i GTU pozycji z dokumentu faktury (jak w pliku FA(3)). */
   pkwiu_code?: string;
   gtu_code?: string;
+  /** Ceny brutto: cena jednostkowa brutto (P_9B) z dokumentu, gdy ceny netto nie ma. */
+  unit_price_gross?: number;
 }
 
 interface AddressSnapshot {
@@ -105,6 +107,12 @@ export interface InvoiceDetailInitial {
   /** E3 / P4: pokazać link „Korekta” (ten sam predykat co lista faktur + brak korekty w toku). */
   can_correct: boolean;
   /**
+   * Ustalenie 17: powód, dla którego formularz korekty odmówi (pozycja bez ceny
+   * netto albo ilości, np. faktura w cenach brutto), z wyjściem. Zamiast linku
+   * „Korekta”. Brak pola albo `null` = bez powodu.
+   */
+  correction_refusal?: string | null;
+  /**
    * N1: pokazać „Ustaw jako cykliczną” (faktura spełnia warunki wzoru faktury
    * cyklicznej — liczy serwer tym samym predykatem co akcja tworzenia).
    * Brak pola = przycisk ukryty.
@@ -150,6 +158,8 @@ export interface InvoiceDetailInitial {
   ksef_imported_original?: ImportedOriginalProvenance | null;
   /** Krok 1.2: faktura do paragonu, oznaczenie i dane paragonu liczone na serwerze. Brak pola = `null`. */
   receipt_invoice?: ReceiptInvoiceView | null;
+  /** Krok 2.8: gotowy wiersz „Zamówienie: …” z `fa3_data.order` (liczy serwer). Brak pola = `null`. */
+  order_reference?: string | null;
 }
 
 interface PaymentSnapshot {
@@ -385,6 +395,7 @@ export function InvoiceDetailView({ initial }: { initial: InvoiceDetailInitial }
     ksef_duplicate_panel: duplicatePanel,
     ksef_retired: retired ? { deletable: retired.deletable, ...(retired.imported ? { imported: retired.imported } : {}) } : null,
     can_correct: inv.can_correct,
+    correction_refusal: inv.correction_refusal ?? null,
     can_set_recurring: inv.can_set_recurring ?? false,
     can_duplicate: inv.can_duplicate ?? false,
     can_share_with_buyer: inv.can_share_with_buyer ?? false,
@@ -546,6 +557,7 @@ export function InvoiceDetailView({ initial }: { initial: InvoiceDetailInitial }
                     {inv.receipt_invoice.details && <p>{inv.receipt_invoice.details}</p>}
                   </>
                 )}
+                {inv.order_reference && <p data-testid="numer-zamowienia">{inv.order_reference}</p>}
                 {payment?.dueDate && <p>Termin płatności: {formatInvoiceDate(payment.dueDate)}</p>}
               </div>
             </div>
@@ -647,7 +659,11 @@ export function InvoiceDetailView({ initial }: { initial: InvoiceDetailInitial }
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(line.quantity, 4)}</TableCell>
                     <TableCell className="text-muted-foreground">{line.unit ?? ''}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatNumber(line.unit_price_net, 4)}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {line.unit_price_net == null && line.unit_price_gross != null
+                        ? `${formatNumber(line.unit_price_gross, 4)} brutto`
+                        : formatNumber(line.unit_price_net, 4)}
+                    </TableCell>
                     <TableCell className="text-right">{vatRateLabel(line.vat_rate)}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(line.net_amount)}</TableCell>
                     <TableCell className="pr-4 text-right font-medium tabular-nums">

@@ -9,12 +9,13 @@ import {
 import { InvoiceForm } from '@/components/invoices/invoice-form';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { todayInWarsaw } from '@/lib/format/warsaw-date';
+import { cenyBruttoDostepne } from '@/lib/invoices/ceny-brutto-wylacznik';
 import { readInvoiceDefaults } from '@/lib/invoices/invoice-defaults';
 import { loadInvoiceAutosave } from '@/lib/invoices/form-autosave';
 import { loadTenantSellerForForms } from '@/lib/invoices/load-tenant-seller';
 import { getRecurringInvoice } from '@/lib/invoices/recurring/queries';
 import { recurringPeriodKey, recurringPeriodLabel } from '@/lib/invoices/recurring/schedule';
-import { readTenantVatExemption } from '@/lib/invoices/vat-exemption';
+import { isSubjectiveVatExemption, readTenantVatExemption } from '@/lib/invoices/vat-exemption';
 import { loadInvoiceNumbering } from '@/lib/numeracja/baza';
 import { selectedNumberingOption } from '@/lib/numeracja/model';
 import { loadQuoteSource, regularInvoiceFromQuote } from '@/lib/proformy/zamiana';
@@ -37,6 +38,14 @@ interface Notice {
   text: string;
   /** Link pod tekstem — wyjście z komunikatu (protokół pkt 4). */
   link?: { href: string; label: string };
+}
+
+/**
+ * Komunikat podkładu z dopiskiem o cenach (N6, wyłącznik cen brutto): wzór
+ * w cenach brutto daje pozycje z pustą ceną, którą klient wpisuje w netto.
+ */
+function withPriceNotice(text: string, prefill: Pick<PrefillFromInvoice, 'priceNotice'>): string {
+  return prefill.priceNotice ? `${text} ${prefill.priceNotice}` : text;
 }
 
 /** Podkład ze wskazanej faktury albo pozycji cyklicznej (plan Finora N1) albo z proformy (krok 2.4). */
@@ -121,7 +130,10 @@ async function loadSource(
       notice: {
         tone: 'info',
         title: `Faktura cykliczna „${pozycja.name}” — ${okres}`,
-        text: `Wypełniliśmy formularz na podstawie faktury ${prefill.sourceNumber ?? 'wzoru'} z nowym numerem i dzisiejszą datą. Sprawdź dane i wystaw fakturę.`,
+        text: withPriceNotice(
+          `Wypełniliśmy formularz na podstawie faktury ${prefill.sourceNumber ?? 'wzoru'} z nowym numerem i dzisiejszą datą. Sprawdź dane i wystaw fakturę.`,
+          prefill,
+        ),
       },
     };
   }
@@ -161,7 +173,10 @@ async function loadSource(
       notice: {
         tone: 'info',
         title: `Kopia faktury ${prefill.sourceNumber ?? ''}`.trim(),
-        text: 'Nabywca, pozycje i sposób zapłaty jak w kopiowanej fakturze; numer i daty są nowe. Sprawdź dane przed wystawieniem.',
+        text: withPriceNotice(
+          'Nabywca, pozycje i sposób zapłaty jak w kopiowanej fakturze; numer i daty są nowe. Sprawdź dane przed wystawieniem.',
+          prefill,
+        ),
       },
     };
   }
@@ -189,6 +204,11 @@ async function loadSource(
  *
  * Plan Finora N1: `?cykliczna=` i `?wzor=` (opis przy `loadSource`). Z takim
  * podkładem baner „Wypełnij z ostatniej faktury” się nie pokazuje.
+ *
+ * Plan cen brutto, PR (b): wybór „Ceny brutto” formularz pokazuje tylko przy
+ * włączonym wyłączniku (`cenyBruttoDostepne`, odczyt z bazy, błąd = wyłączony,
+ * `docs/runbooks/ceny-brutto-wylacznik.md`). Zapis i tak sprawdza wyłącznik sam
+ * (`insertInvoiceAndLines`).
  */
 export default async function NewRegularInvoicePage({
   searchParams,
@@ -196,7 +216,7 @@ export default async function NewRegularInvoicePage({
   const ctx = await getPageContext();
   const { supabase, tenantId } = ctx;
   const params = (await searchParams) ?? {};
-  const [podpowiedz, vatExemptionBasis, numbering, loadedSeller, { source, notice }, invoiceDefaults, restoredDraft] = await Promise.all([
+  const [podpowiedz, vatExemptionBasis, numbering, loadedSeller, { source, notice }, invoiceDefaults, restoredDraft, grossPricesAvailable] = await Promise.all([
     prefillFromLastInvoiceAction(),
     readTenantVatExemption(supabase, tenantId),
     loadInvoiceNumbering(supabase, tenantId, 'regular', todayInWarsaw()),
@@ -209,6 +229,8 @@ export default async function NewRegularInvoicePage({
     Object.keys(params).length === 0
       ? loadInvoiceAutosave(supabase as unknown as SupabaseClient, tenantId, ctx.user.id)
       : Promise.resolve(null),
+    // Plan cen brutto, PR (b): wyłącznik faktury w cenach brutto (domyślnie wyłączony).
+    cenyBruttoDostepne(),
   ]);
   const seller = loadedSeller?.seller ?? null;
   const suggestedNumber = selectedNumberingOption(numbering)?.preview ?? null;
@@ -223,11 +245,13 @@ export default async function NewRegularInvoicePage({
       tenantId={tenantId}
       prefill={source ? null : podpowiedz}
       vatExempt={vatExemptionBasis !== null}
+      vatExemptSubjective={isSubjectiveVatExemption(vatExemptionBasis)}
       suggestedNumber={suggestedNumber}
       numbering={numbering}
       seller={seller}
       defaults={invoiceDefaults}
       restoredDraft={source ? null : restoredDraft}
+      grossPricesAvailable={grossPricesAvailable}
       {...(source
         ? {
             initialValues: source.initialValues,

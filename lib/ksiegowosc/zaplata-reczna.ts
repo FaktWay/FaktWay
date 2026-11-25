@@ -5,6 +5,8 @@
  * rozliczenia w `tax_settlements` z `migawka.reczna`, więc odliczenia,
  * historia i „Cofnij zapłatę” działają jak przy wyliczonej kwocie, a późniejsze
  * wyliczenie tego samego okresu dolicza tylko różnicę (`przyrostyZaplat`).
+ * Gdy dzieli kwotę między FP i część bez FP inaczej niż zapłata spoza
+ * wyliczenia, okres ma brak do „Cofnij” błędnej wersji (`zmianyPodzialu`, FZ-027).
  *
  * Ten sam schemat Zod sprawdza formularz i akcję serwerową.
  */

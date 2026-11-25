@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { RiCameraLine, RiImageLine, RiLoader4Line } from '@remixicon/react';
+import { useRouter } from 'next/navigation';
+import { RiCameraLine, RiEditLine, RiImageLine, RiLoader4Line } from '@remixicon/react';
 
 import { useExpenseCapture } from '@/components/expenses/use-expense-capture';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -27,6 +28,7 @@ export function CaptureButton({
   // od `lg`: z prawej, jak arkusz „Add Transaction” Finory).
   const [sheetSide, setSheetSide] = useState<'bottom' | 'right'>('right');
   const [showSheet, setShowSheet] = useState(false);
+  const router = useRouter();
   // Wgranie, odczyt i przejście do wydatku — wspólne z plusem dolnego paska.
   const { state, busy, openCamera, openGallery, inputs } = useExpenseCapture({
     onFileChosen: () => setShowSheet(false),
@@ -79,6 +81,15 @@ export function CaptureButton({
               title="Wybierz z galerii"
               description="Zdjęcie lub PDF z plików"
               onClick={openGallery}
+            />
+            <CaptureOption
+              icon={<RiEditLine />}
+              title="Wpisz ręcznie"
+              description="Opłata bez faktury, składka, zakup bez zdjęcia"
+              onClick={() => {
+                setShowSheet(false);
+                router.push('/expenses/new');
+              }}
             />
           </div>
           <SheetFooter>

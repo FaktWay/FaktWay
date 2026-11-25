@@ -512,7 +512,7 @@
     "plakietki": 0
   },
   "lib/import/imported-invoice-row.ts": {
-    "myslniki": 6,
+    "myslniki": 2,
     "plakietki": 0
   },
   "lib/import/jpk-fa-parser.ts": {
@@ -528,10 +528,6 @@
     "plakietki": 0
   },
   "lib/invoices/display-date.ts": {
-    "myslniki": 1,
-    "plakietki": 0
-  },
-  "lib/invoices/issue-correction.ts": {
     "myslniki": 1,
     "plakietki": 0
   },
@@ -797,10 +793,6 @@
   },
   "lib/support/support-actions.ts": {
     "myslniki": 1,
-    "plakietki": 0
-  },
-  "lib/xml/fa3-annotations.ts": {
-    "myslniki": 4,
     "plakietki": 0
   },
   "lib/xml/fa3-generator.ts": {

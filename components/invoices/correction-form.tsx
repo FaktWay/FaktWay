@@ -43,9 +43,9 @@ import {
   correctionInvoiceSchema,
   correctionNpIiBuyerError,
   type CorrectionInvoiceSchemaIn,
-  type InvoiceLineSchema,
+  type CorrectionLineSchema,
 } from '@/lib/validators/invoice-validators';
-import { calculateCorrectionTotals } from '@/lib/invoices/calculator';
+import { calculateCorrectionTotals, correctionStateAmounts } from '@/lib/invoices/calculator';
 import {
   CORRECTION_PICKER_SIZE,
   type CorrectionParentInvoiceRow,
@@ -54,9 +54,8 @@ import { zeroVatRateFromParentLines } from '@/lib/invoices/correction-amount-cha
 import { addressCountryForKodUE, parseVatUe } from '@/lib/invoices/vat-ue';
 import { dueDateFrom, todayInWarsaw } from '@/lib/format/warsaw-date';
 import { EU_BUYER_COUNTRIES } from '@/lib/schemas/invoice-form';
-import { calculateLineItem } from '@/lib/xml/invoice-calculator';
 import { CORRECTION_TYPE_LABELS } from '@/types/invoice-types';
-import type { CorrectionInvoiceData, ZeroVatAmountChangeRate } from '@/types/invoice-types';
+import type { CorrectionInvoiceData, InvoiceLine, ZeroVatAmountChangeRate } from '@/types/invoice-types';
 import type { InvoiceNumbering } from '@/lib/numeracja/model';
 import { hasSeriesChoice, numberingDefaults, SeriesSelect, useSeriesNumber } from './numeracja/series-select-row';
 
@@ -174,6 +173,7 @@ const ZERO_VAT_RATE_LABELS = {
   np: 'np (nie podlega)',
   np_ii: NP_II_OPTION_LABEL,
   oo: 'oo (odwrotne obciążenie)',
+  zw: 'zw (zwolniona z VAT)',
 } satisfies Record<ZeroVatAmountChangeRate, string>;
 
 /** Etykiety MF `TypKorekty` (1–3) — uproszczony opis dla użytkownika. */
@@ -278,7 +278,8 @@ function buildDefaultCorrectionFormValues(
     parentInvoiceIssueDate: ctx.issueDate,
     parentKsefNumber: ctx.ksefNumber ?? undefined,
 
-    correctionType: 'before_after',
+    // Faktura z pozycją od brutto: korekty pozycji nie ma (serwer odmawia), domyślnie anulowanie.
+    correctionType: ctx.beforeAfterRefusal ? 'cancellation' : 'before_after',
     correctionReason: '',
     typKorekty: '2',
 
@@ -297,7 +298,7 @@ function buildDefaultCorrectionFormValues(
 const labelClass =
   'text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 block';
 
-type InvoiceLineDraft = InvoiceLineSchema;
+type InvoiceLineDraft = CorrectionLineSchema;
 
 const defaultLineRow: InvoiceLineDraft = {
   name: 'Pozycja',
@@ -649,6 +650,10 @@ function CorrectionFillForm({ parentRow, defaults, onPickOther, tenantId, number
   });
 
   const correctionType = useWatch({ control: form.control, name: 'correctionType' });
+  // Pozycje od brutto (cena brutto nadana przez serwer): bez korekty „przed/po”, jak na serwerze.
+  const linesBeforeWatched = useWatch({ control: form.control, name: 'linesBefore' });
+  const odBrutto = (linesBeforeWatched ?? []).some((l) => l?.unitPriceGross !== undefined);
+  const typeItems = odBrutto ? CORRECTION_TYPE_ITEMS.filter((o) => o.value !== 'before_after') : CORRECTION_TYPE_ITEMS;
   const typKorekty = useWatch({ control: form.control, name: 'typKorekty' }) ?? '2';
   const paymentMethod = useWatch({ control: form.control, name: 'paymentMethod' });
   const issueDateWatch = useWatch({ control: form.control, name: 'issueDate' }) ?? defaults.issueDate;
@@ -800,7 +805,7 @@ function CorrectionFillForm({ parentRow, defaults, onPickOther, tenantId, number
           <Label htmlFor="kor-typ" className={labelClass}>Typ korekty</Label>
           <Select
             value={correctionType}
-            items={CORRECTION_TYPE_ITEMS}
+            items={typeItems}
             onValueChange={(v) => {
               if (v == null) return
               handleCorrectionTypeChange(v as CorrectionFormParsed['correctionType'])
@@ -814,13 +819,18 @@ function CorrectionFillForm({ parentRow, defaults, onPickOther, tenantId, number
               <SelectValue placeholder="Typ" />
             </SelectTrigger>
             <SelectContent>
-              {CORRECTION_TYPE_ITEMS.map((o) => (
+              {typeItems.map((o) => (
                 <SelectItem key={o.value} value={o.value}>
                   {o.label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          {odBrutto ? (
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Pozycje tej faktury liczą VAT od ceny brutto, więc korekta pozycji („przed / po”) jest niedostępna. Anuluj fakturę albo wystaw korektę kwotową.
+            </p>
+          ) : null}
           {form.formState.errors.correctionType && (
             <p id="kor-typ-error" role="alert" className="mt-1 text-xs text-red-600">
               {form.formState.errors.correctionType.message}
@@ -1005,6 +1015,25 @@ function linesTableClasses() {
   };
 }
 
+/** Pozycja formularza (pola mogą być puste w trakcie wpisywania) jako pozycja korekty do liczenia kwot. */
+function formLine(
+  line: (Partial<Omit<CorrectionLineSchema, 'recordedAmounts'>> & {
+    recordedAmounts?: Partial<NonNullable<CorrectionLineSchema['recordedAmounts']>>;
+  }) | undefined,
+): InvoiceLine {
+  const recorded = line?.recordedAmounts;
+  return {
+    name: line?.name ?? '',
+    unit: line?.unit ?? '',
+    quantity: Number(line?.quantity) || 0,
+    unitPriceNet: Number(line?.unitPriceNet) || 0,
+    vatRate: line?.vatRate ?? '23',
+    ...(recorded?.netAmount !== undefined && recorded.vatAmount !== undefined && recorded.grossAmount !== undefined
+      ? { recordedAmounts: { netAmount: recorded.netAmount, vatAmount: recorded.vatAmount, grossAmount: recorded.grossAmount } }
+      : {}),
+  };
+}
+
 function CorrectionLinesTable(props: {
   title: string;
   subtitle?: string;
@@ -1020,6 +1049,17 @@ function CorrectionLinesTable(props: {
     shouldUnregister: false,
   });
   const watched = useWatch({ control: form.control, name });
+  const watchedBefore = useWatch({ control: form.control, name: 'linesBefore' });
+  // Plan zero C3: „zw” tylko przy fakturze z pozycją „zw” (firma zwolniona z VAT), bo
+  // korekta bierze podstawę zwolnienia z faktury korygowanej; czynny podatnik jej nie wybierze.
+  const zwAllowed = (form.formState.defaultValues?.linesBefore ?? []).some((line) => line?.vatRate === 'zw');
+  // Kwoty jak na serwerze (`correctionStateAmounts`): pozycja „Było” bez zmian względem faktury
+  // ma kwoty z jej zapisu, pozycja „Jest” bez zmian względem „Było” też; zmieniona albo
+  // dopisana liczy się od ilości × ceny netto.
+  const amounts = correctionStateAmounts(
+    (name === 'linesBefore' ? form.formState.defaultValues?.linesBefore ?? [] : watchedBefore ?? []).map(formLine),
+    (watched ?? []).map(formLine),
+  ).after;
   const c = linesTableClasses();
   const lineErrors =
     name === 'linesBefore' ? form.formState.errors.linesBefore : form.formState.errors.linesAfter;
@@ -1066,11 +1106,7 @@ function CorrectionLinesTable(props: {
           <tbody>
             {fields.map((field, index) => {
               const wl = watched?.[index];
-              const calc = calculateLineItem({
-                quantity: Number(wl?.quantity) || 0,
-                unitPriceNet: Number(wl?.unitPriceNet) || 0,
-                vatRate: wl?.vatRate ?? '23',
-              });
+              const calc = amounts[index] ?? { netAmount: 0, vatAmount: 0, grossAmount: 0 };
               return (
                 <tr key={field.id} className={c.tdRow}>
                   <td className="py-3 text-muted-foreground">{index + 1}</td>
@@ -1115,6 +1151,7 @@ function CorrectionLinesTable(props: {
                       {npIiBlock === null || wl?.vatRate === 'np_ii' ?
                         <option value="np_ii">{NP_II_OPTION_LABEL}</option>
                       : null}
+                      {zwAllowed || wl?.vatRate === 'zw' ? <option value="zw">zw</option> : null}
                     </select>
                   </td>
                   <td className="py-3 pr-2 text-right tabular-nums">

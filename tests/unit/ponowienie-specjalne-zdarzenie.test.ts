@@ -123,6 +123,12 @@ const buyerAddress = { countryCode: 'PL', addressLine1: 'ul. Testowa 2', address
 const seller = { nip: TENANT_NIP, name: 'Firma testowa', address: sellerAddress };
 /** P_16/P_18A faktury pierwotnej — korekta je przejmuje (AUD-23), więc kopia też. */
 const PARENT_ANNOTATIONS = { cashMethod: 1, splitPayment: 1 };
+/**
+ * Kod pozycji w dokumencie faktury pierwotnej (`fa3_data.lines`). Krok 2.6,
+ * część 2b-3: korekta bierze PKWiU i GTU pozycji z dokumentu faktury, a nie
+ * z żądania, więc kopia musi je nieść tak samo jak pierwsze zdarzenie.
+ */
+const PARENT_PKWIU = '62.01.11.0';
 
 const tenantRow = { id: TENANT, nip: TENANT_NIP, name: 'Firma testowa', address_json: sellerAddress, vat_cash_method: false };
 const parentRow: Row = {
@@ -132,7 +138,10 @@ const parentRow: Row = {
   net_total: 1000, vat_total: 230, gross_total: 1230,
   seller_data: seller,
   buyer_data: { nip: TENANT_NIP, name: 'Nabywca testowy', address: buyerAddress },
-  fa3_data: { annotations: PARENT_ANNOTATIONS },
+  fa3_data: {
+    annotations: PARENT_ANNOTATIONS,
+    lines: [{ ordinal: 1, name: 'Usługa', unit: 'szt.', quantity: 10, unitPriceNet: 100, vatRate: '23', pkwiuCode: PARENT_PKWIU }],
+  },
 };
 /** Zaliczka przyjęta w KSeF, rozliczana przez ROZ. */
 const advanceRow: Row = {
@@ -149,24 +158,28 @@ const advanceRow: Row = {
  * INSERT faktury zapisany jako kopia JSON (supabase-js serializuje przy wysyłce).
  */
 function sessionFrom(table: string) {
-  const record = { operation: 'select' as 'select' | 'insert' | 'delete', filters: {} as Row };
+  const record = { operation: 'select' as 'select' | 'insert' | 'delete', filters: {} as Row, columns: '' };
   const result = (): { data: unknown; error: null } => {
     if (table === 'tenants') return { data: tenantRow, error: null };
     if (table === 'invoices' && record.operation === 'insert') return { data: { id: NEW_ID }, error: null };
     if (table === 'invoices' && record.filters.id === PARENT) {
       const match = Object.entries(record.filters).every(([key, value]) => parentRow[key] === value);
+      // Alias PostgREST `document_lines:fa3_data->lines` (kody pozycji, krok 2.6, część 2b-3).
+      if (match && record.columns.includes('document_lines:fa3_data->lines')) {
+        return { data: { id: PARENT, document_lines: (parentRow.fa3_data as Row).lines }, error: null };
+      }
       return { data: match ? parentRow : null, error: null };
     }
     if (table === 'invoices' && Array.isArray(record.filters.id)) return { data: [advanceRow], error: null };
     // Wcześniejsze korekty tej faktury pierwotnej, ROZ rozliczające tę zaliczkę — brak.
     if (table === 'invoices') return { data: [], error: null };
     if (table === 'invoice_line_items' && record.operation === 'select') {
-      return { data: [{ name: 'Usługa', unit: 'szt.', quantity: 10, unit_price_net: 100, vat_rate: '23' }], error: null };
+      return { data: [{ ordinal: 1, name: 'Usługa', unit: 'szt.', quantity: 10, unit_price_net: 100, vat_rate: '23' }], error: null };
     }
     return { data: null, error: null };
   };
   const chain = {
-    select: () => chain,
+    select: (columns?: string) => { record.columns = columns ?? ''; return chain; },
     eq: (key: string, value: unknown) => { record.filters[key] = value; return chain; },
     neq: () => chain,
     or: () => chain,
@@ -213,9 +226,10 @@ function correctionInput(o: Partial<CorrectionInvoiceSchemaIn>): CorrectionInvoi
 }
 
 const KOR_VARIANTS: Array<[string, Partial<CorrectionInvoiceSchemaIn>]> = [
+  // PKWiU z żądania („po” z innym kodem) się nie liczy: serwer bierze kod pozycji z dokumentu faktury.
   ['KOR przed/po z PKWiU, typKorekty 1, kompensata', {
     correctionType: 'before_after', typKorekty: '1', paymentMethod: 'compensation',
-    linesBefore: [line()], linesAfter: [line({ quantity: 8, pkwiuCode: '62.01.11.0' })],
+    linesBefore: [line()], linesAfter: [line({ quantity: 8, pkwiuCode: '99.99' })],
   }],
   ['KOR anulowanie', { correctionType: 'cancellation', linesBefore: [line()] }],
 ];
@@ -345,7 +359,8 @@ describe('strażnik harnessu: pierwsze zdarzenie z prawdziwych akcji i prawdziwe
     expect(correctionData.correctionType).toBe(extra.correctionType);
     if (extra.correctionType === 'before_after') {
       expect(correctionData).toMatchObject({ typKorekty: '1', paymentMethod: 'compensation' });
-      expect((correctionData.linesAfter as Row[])[0]?.pkwiuCode).toBe('62.01.11.0');
+      expect((correctionData.linesBefore as Row[])[0]?.pkwiuCode).toBe(PARENT_PKWIU);
+      expect((correctionData.linesAfter as Row[])[0]?.pkwiuCode).toBe(PARENT_PKWIU);
     }
     expect(plain(insert.special_data)).toEqual(plain({ correctionData }));
     expect(plain(insert.fa3_data)).toEqual(plain(first.data.invoice));
@@ -509,9 +524,13 @@ describe('A4b PR2a: odmowy przy odtwarzaniu zdarzenia', () => {
     expect(plain(ok.payload.advanceData)).toEqual(plain(fa3(row).advanceEnvelope));
   });
 
-  it('strażnik: zwykła faktura z pozycjami — ponowienie bez względu na datę wystawienia', () => {
+  it('B2a: zwykła faktura z pozycjami — ponowienie do końca następnego dnia roboczego po dacie wystawienia, potem odmowa (uzgodnienie bez względu na datę)', () => {
+    // P_1 w środę 30.09.2026: w czwartek 01.10 jeszcze w terminie, w piątek 02.10 (NOW) już po nim.
+    // Do B2a zwykła faktura szła bez względu na datę wystawienia.
     const row = regularRow();
-    const built = buildKsefRequeueEvent(row, 'test', ATTEMPT_B, { reconcileOnly: false });
+    expect(buildKsefRequeueEvent(row, 'test', ATTEMPT_B, { reconcileOnly: false })).toEqual({ ok: false, reason: 'issue-date' });
+    expect(buildKsefRequeueEvent(row, 'test', ATTEMPT_B, { reconcileOnly: true })).toMatchObject({ ok: true, sendAttemptId: ATTEMPT_B });
+    const built = buildKsefRequeueEvent(row, 'test', ATTEMPT_B, { reconcileOnly: false, now: new Date('2026-10-01T21:59:59.999Z') });
     expect(built).toMatchObject({ ok: true, sendAttemptId: ATTEMPT_B });
     if (!built.ok) return;
     expect(plain(built.event)).toEqual(plain({
@@ -544,8 +563,13 @@ describe('A4b PR2a: fakty dla panelu operatora (ksefResendFacts)', () => {
     expect(ksefResendFacts(row, 'production')).toMatchObject({ sendData: 'stored', kindHeld: true });
   });
 
-  it('zwykła faktura z dawną datą → data nie ma znaczenia (issueDatePassed: false)', () => {
-    expect(ksefResendFacts(regularRow(), 'test')).toEqual({ sendData: 'stored', kindHeld: false, issueDatePassed: false });
+  it('B2a: zwykła faktura — termin przesłania to koniec następnego dnia roboczego po dacie wystawienia (do B2a data nie miała znaczenia)', () => {
+    // P_1 w środę 30.09.2026; czwartek 01.10, 23:59:59.999 w Polsce (CEST) = 21:59:59.999Z.
+    expect(ksefResendFacts(regularRow(), 'test', new Date('2026-10-01T21:59:59.999Z')))
+      .toEqual({ sendData: 'stored', kindHeld: false, issueDatePassed: false });
+    expect(ksefResendFacts(regularRow(), 'test', new Date('2026-10-01T22:00:00.000Z')))
+      .toEqual({ sendData: 'stored', kindHeld: false, issueDatePassed: true });
+    expect(ksefResendFacts(regularRow(), 'test')).toEqual({ sendData: 'stored', kindHeld: false, issueDatePassed: true });
   });
 });
 

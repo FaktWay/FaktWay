@@ -6,6 +6,7 @@ import {
   type ProductListItem,
   type ProductSuggestion,
 } from '@/lib/produkty/model';
+import { GROSS_PRICES_UNTAXED_RATES } from '@/lib/xml/invoice-calculator';
 
 /**
  * Odczyt katalogu produktów klientem z sesji (RLS 00013 zawęża do firmy, a
@@ -21,13 +22,15 @@ export const PRODUCTS_PAGE_SIZE = 500;
 const MAX_PAGES = 200;
 
 export const PRODUCT_COLUMNS =
-  'id, name, unit, default_price_net, default_vat_rate, pkwiu_code, gtu_code, description, is_archived, use_count, last_used_at';
+  'id, name, unit, default_price_net, default_price_gross, default_vat_rate, pkwiu_code, gtu_code, description, is_archived, use_count, last_used_at';
 
 interface ProductRow {
   id: string;
   name: string;
   unit: string;
   default_price_net: number | string | null;
+  /** 00213: cena brutto produktu (plan cen brutto, PR (d)). */
+  default_price_gross: number | string | null;
   default_vat_rate: string;
   pkwiu_code: string | null;
   gtu_code: string | null;
@@ -64,6 +67,7 @@ function toItem(r: ProductRow): ProductListItem {
     name: r.name,
     unit: r.unit,
     defaultPriceNet: price(r.default_price_net),
+    defaultPriceGross: price(r.default_price_gross),
     defaultVatRate: r.default_vat_rate,
     pkwiuCode: r.pkwiu_code,
     gtuCode: r.gtu_code,
@@ -136,7 +140,10 @@ interface SuggestQueryLike {
   limit: (n: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
 }
 
-type SuggestionRow = Pick<ProductRow, 'id' | 'name' | 'unit' | 'default_price_net' | 'default_vat_rate' | 'pkwiu_code' | 'gtu_code'>;
+type SuggestionRow = Pick<
+  ProductRow,
+  'id' | 'name' | 'unit' | 'default_price_net' | 'default_price_gross' | 'default_vat_rate' | 'pkwiu_code' | 'gtu_code'
+>;
 
 /** 0: nazwa zaczyna się od frazy, 1: któreś słowo nazwy zaczyna się od frazy, 2: fraza w środku słowa. */
 function suggestionRank(name: string, phrase: string): number {
@@ -159,7 +166,7 @@ export async function suggestProducts(client: unknown, tenantId: string, q: stri
   if (phrase.length < PRODUCT_SUGGESTIONS_MIN_QUERY) return [];
   const db = client as ClientLike;
   const res = await (db.from('products') as SuggestQueryLike)
-    .select('id, name, unit, default_price_net, default_vat_rate, pkwiu_code, gtu_code')
+    .select('id, name, unit, default_price_net, default_price_gross, default_vat_rate, pkwiu_code, gtu_code')
     .eq('tenant_id', tenantId)
     .eq('is_archived', false)
     .ilike('name', `%${phrase}%`)
@@ -181,6 +188,11 @@ export async function suggestProducts(client: unknown, tenantId: string, q: stri
         name: row.name,
         unit: row.unit,
         priceNet: price(row.default_price_net),
+        // Osobne ustalenie 14: stawka bez podatku (zw, oo, np) a zapisana cena brutto (np. stawka zmieniona
+        // przy ukrytym polu). Faktura w cenach brutto takiej pozycji nie przyjmie (#880), więc bez ceny brutto.
+        priceGross: isProductVatRate(row.default_vat_rate) && GROSS_PRICES_UNTAXED_RATES.has(row.default_vat_rate)
+          ? null
+          : price(row.default_price_gross),
         vatRate: isProductVatRate(row.default_vat_rate) ? row.default_vat_rate : null,
         pkwiuCode: typeof row.pkwiu_code === 'string' && isPkwiuCode(row.pkwiu_code.trim()) ? row.pkwiu_code.trim() : null,
         gtuCode: isGtuCode(gtu) ? gtu : null,

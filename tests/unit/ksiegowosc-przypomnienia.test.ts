@@ -78,8 +78,15 @@ describe('kiedy przypominać', () => {
 });
 
 describe('o czym przypominać', () => {
-  const ryczalt = (rozliczenia: Rozliczenie[], pozycje: PozycjaZeSkrotem[] | null = null) =>
-    niezaplacone({ grupy: ['ryczalt'], rozliczenia, pozycje, profil: PROFIL });
+  // D31 (FZ-030): `pozycje: null` to miesiąc, który się nie liczy, i daje przypomnienie bez kwoty. Testy wersji K5
+  // dostają więc domyślnie policzony szkic zgodny ze skrótem najnowszej wersji (kwota z wersji, jak w runnerze przy
+  // policzonym miesiącu); `null` podany wprost to miesiąc bez kwot.
+  const zgodnySzkic = (rozliczenia: Rozliczenie[]): PozycjaZeSkrotem[] | null => {
+    const ostatnia = rozliczenia.filter((r) => r.rodzaj === 'ryczalt').sort((x, y) => y.wersja - x.wersja)[0];
+    return ostatnia ? [{ ...szkic('ryczalt', ostatnia.kwotaGr), wejsciaHash: ostatnia.wejsciaHash } as PozycjaZeSkrotem] : null;
+  };
+  const ryczalt = (rozliczenia: Rozliczenie[], pozycje?: PozycjaZeSkrotem[] | null) =>
+    niezaplacone({ grupy: ['ryczalt'], rozliczenia, pozycje: pozycje === undefined ? zgodnySzkic(rozliczenia) : pozycje, profil: PROFIL });
 
   it('zatwierdzone bez zapłaty: kwota wersji; zapłacone: nic', () => {
     expect(ryczalt([wersja('ryczalt', 153_600)])).toEqual([{ rodzaj: 'ryczalt', kwotaGr: 153_600 }]);
@@ -216,3 +223,87 @@ describe('F11-B2: dane zmienione po zatwierdzeniu', () => {
   });
 });
 
+describe('FZ-030: brak w bieżących danych po zatwierdzeniu', () => {
+  // Zaliczkę zatwierdzono, a potem bieżące dane dały brak (np. braki ewidencji albo strażnik F13): „Ten miesiąc”
+  // pokazuje brak, więc przypomnienie nie może podać kwoty zatwierdzonej wersji.
+  const brak = (rodzaj: PozycjaZeSkrotem['rodzaj']): PozycjaZeSkrotem => ({ ok: false, rodzaj, termin: null, brak: 'Ewidencja przychodów ma braki w miesiącach: październik 2026.' });
+  const grupa = (rodzaj: PozycjaZeSkrotem['rodzaj']) =>
+    [rodzaj === 'zdrowotna' || rodzaj === 'zus_spoleczne' ? 'zus' : rodzaj] as Parameters<typeof niezaplacone>[0]['grupy'];
+  const profilDla = (rodzaj: PozycjaZeSkrotem['rodzaj']) => (rodzaj === 'pit' ? { ...PROFIL, forma: 'skala' as const, stawkaDomyslna: null } : PROFIL);
+
+  it('zatwierdzona wersja bez zapłaty, a szkic to brak: przypomnienie bez kwoty, nie kwota zatwierdzonej wersji (każde rozliczenie)', () => {
+    for (const rodzaj of ['ryczalt', 'pit', 'zus_spoleczne', 'zdrowotna', 'vat'] as const) {
+      const wynik = niezaplacone({ grupy: grupa(rodzaj), rozliczenia: [wersja(rodzaj, 153_600)], pozycje: [brak(rodzaj)], profil: profilDla(rodzaj) });
+      expect(wynik.filter((p) => p.rodzaj === rodzaj), rodzaj).toEqual([{ rodzaj, kwotaGr: null }]);
+    }
+  });
+
+  it('dopłata po zapłaconej wersji (nowsza zatwierdzona bez zapłaty), a szkic to brak: przypomnienie bez kwoty, nie cisza', () => {
+    const rozliczenia = [
+      wersja('ryczalt', 150_000, { status: 'zaplacone', zaplaconeO: '2026-11-05' }),
+      wersja('ryczalt', 155_600, { id: 'ryczalt-2', wersja: 2 }),
+    ];
+    expect(niezaplacone({ grupy: ['ryczalt'], rozliczenia, pozycje: [brak('ryczalt')], profil: PROFIL })).toEqual([{ rodzaj: 'ryczalt', kwotaGr: null }]);
+  });
+
+  it('D32: najnowsza wersja wyliczona zapłacona, a szkic to brak: przypomnienie bez kwoty (może zostać dopłata)', () => {
+    expect(niezaplacone({
+      grupy: ['ryczalt'],
+      rozliczenia: [wersja('ryczalt', 153_600, { status: 'zaplacone', zaplaconeO: '2026-11-02' })],
+      pozycje: [brak('ryczalt')],
+      profil: PROFIL,
+    })).toEqual([{ rodzaj: 'ryczalt', kwotaGr: null, poZaplacie: true }]);
+  });
+
+  it('D32: treść przy zapłaconej wersji nie pisze „bez oznaczonej zapłaty”, tylko że bieżącej kwoty teraz nie liczymy', () => {
+    const [t] = terminyNaDzis('2026-11-15');
+    const tylko = trescTerminu({ miesiac: '2026-10', termin: t.termin, dni: 5, pozycje: [{ rodzaj: 'ryczalt', kwotaGr: null, poZaplacie: true }] });
+    expect(tylko.tresc).toBe(
+      'Za 5 dni, 20.11.2026, mija termin za październik 2026. Z oznaczoną zapłatą, ale bieżącej kwoty teraz nie liczymy, więc nie wiadomo, czy zostaje dopłata: ryczałt.',
+    );
+    const razem = trescTerminu({
+      miesiac: '2026-10', termin: t.termin, dni: 1,
+      pozycje: [{ rodzaj: 'ryczalt', kwotaGr: null, poZaplacie: true }, { rodzaj: 'zdrowotna', kwotaGr: 83_058 }],
+    }).tresc;
+    expect(razem).toContain('Bez oznaczonej zapłaty: składka zdrowotna 830,58 zł.');
+    expect(razem).toContain('nie wiadomo, czy zostaje dopłata: ryczałt.');
+    expect(razem).not.toContain('Bez oznaczonej zapłaty: ryczałt');
+  });
+
+  it('D31: zatwierdzone 0 zł przy miesiącu bez kwot: przypomnienie bez kwoty (bieżących danych nie liczymy, więc 0 zł nie jest pewne)', () => {
+    expect(niezaplacone({ grupy: ['pit'], rozliczenia: [wersja('pit', 0)], pozycje: null, profil: PROFIL })).toEqual([{ rodzaj: 'pit', kwotaGr: null }]);
+    // VAT 0 zł przy miesiącu bez kwot: bez kwoty jak każda pozycja, nie zdanie o JPK_V7M (to zdanie tylko przy policzonym 0 zł).
+    expect(niezaplacone({ grupy: ['vat'], rozliczenia: [wersja('vat', 0)], pozycje: null, profil: PROFIL })).toEqual([{ rodzaj: 'vat', kwotaGr: null }]);
+  });
+
+  it('D32: najnowsza zapłacona to zapłata spoza wyliczenia (kwota z PUE ZUS), a szkic to brak: cisza', () => {
+    expect(niezaplacone({
+      grupy: ['zus'],
+      rozliczenia: [wersja('zus_spoleczne', 192_676, { status: 'zaplacone', zaplaconeO: '2026-11-02', reczna: true })],
+      pozycje: [brak('zus_spoleczne'), szkic('zdrowotna', 0)],
+      profil: PROFIL,
+    })).toEqual([]);
+  });
+
+  it('D31: miesiąc się nie liczy w ogóle (pozycje null): przypomnienie bez kwoty, nie kwota zatwierdzonej wersji', () => {
+    expect(niezaplacone({ grupy: ['ryczalt'], rozliczenia: [wersja('ryczalt', 153_600)], pozycje: null, profil: PROFIL })).toEqual([{ rodzaj: 'ryczalt', kwotaGr: null }]);
+    // Zapłacona najnowsza wersja przy miesiącu bez kwot: cisza jak dotąd (D32 dotyczy braku w szkicu pozycji).
+    expect(niezaplacone({
+      grupy: ['ryczalt'], rozliczenia: [wersja('ryczalt', 153_600, { status: 'zaplacone', zaplaconeO: '2026-11-02' })], pozycje: null, profil: PROFIL,
+    })).toEqual([]);
+  });
+
+  it('F11-B1: ulga na start z brakiem składek i zatwierdzoną wersją 0 zł: składki społeczne bez kwoty, nie cisza', () => {
+    const wynik = niezaplacone({
+      grupy: ['zus'],
+      rozliczenia: [wersja('zus_spoleczne', 0)],
+      pozycje: [brak('zus_spoleczne'), szkic('zdrowotna', 49_835)],
+      profil: { ...PROFIL, zusEtap: 'ulga_na_start', zusOd: '2026-01-01' },
+    });
+    expect(wynik).toEqual([{ rodzaj: 'zus_spoleczne', kwotaGr: null }, { rodzaj: 'zdrowotna', kwotaGr: 49_835 }]);
+  });
+
+  it('VAT 0 zł zatwierdzony, a VAT w szkicu to brak: przypomnienie o VAT bez kwoty (stanu JPK_V7M przy braku nie sprawdzamy)', () => {
+    expect(niezaplacone({ grupy: ['vat'], rozliczenia: [wersja('vat', 0)], pozycje: [brak('vat')], profil: PROFIL })).toEqual([{ rodzaj: 'vat', kwotaGr: null }]);
+  });
+});

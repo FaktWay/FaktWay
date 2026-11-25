@@ -8,6 +8,7 @@ import {
   type ExportFix,
 } from '@/components/exports/export-fixes';
 import type { ManualExportJobWithFiles } from '@/components/exports/export-formats';
+import { ZdublowanyKosztError } from '@/lib/expenses/jeden-koszt-dokumentu';
 import { KsefExpenseCurrencyNotSupportedError } from '@/lib/expenses/ksef-currency-review';
 import { OptimaForeignCurrencyNotSupportedError } from '@/lib/exports/comarch-optima-generator';
 import { CsvForeignCurrencyNotSupportedError } from '@/lib/exports/csv-generators';
@@ -71,6 +72,11 @@ describe('exportFixFor — prawdziwe błędy z lib/', () => {
       link('Otwórz fakturę', '/invoices?q=KOR%2F7'),
     ],
     ['koszt KSeF bez kursu', failed(new KsefExpenseCurrencyNotSupportedError(), 'kpir_excel'), link('Skrzynka KSeF', '/inbox')],
+    [
+      'ten sam dokument kosztu dwa razy (FZ-022)',
+      failed(new ZdublowanyKosztError({ numer: 'FV/7/02/2027', sprzedawca: 'Sklep Przykład', ile: 2, zKsef: true }), 'kpir_excel'),
+      link('Koszty', '/expenses?miesiac=2026-09'),
+    ],
     ['sprzedaż bez PLN', failed(new OutgoingInvoiceCurrencyNotSupportedError(), 'kpir_excel'), link('Faktury', '/invoices')],
     ['JPK_FA walutowa', failed(new JpkFaForeignCurrencyNotSupportedError()), link('Faktury', '/invoices')],
     ['CSV walutowa', failed(new CsvForeignCurrencyNotSupportedError(), 'csv_universal'), link('Faktury', '/invoices')],
@@ -128,6 +134,7 @@ describe('exportFixFor — prawdziwe błędy z lib/', () => {
       new JpkFaCorrectionNotSupportedError().message,
       new JpkDocumentNotSupportedError('FV/1', undefined, 'ma stawkę „0 WDT”.').message,
       new KsefExpenseCurrencyNotSupportedError().message,
+      new ZdublowanyKosztError({ numer: 'FV/7/02/2027', sprzedawca: 'Sklep Przykład', ile: 2, zKsef: false }).message,
       new OutgoingInvoiceCurrencyNotSupportedError().message,
       new JpkFaForeignCurrencyNotSupportedError().message,
       new CsvForeignCurrencyNotSupportedError().message,

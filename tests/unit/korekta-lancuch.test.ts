@@ -50,7 +50,7 @@ vi.mock('@/lib/supabase/server', () => ({
         ...st.parentOverride,
       };
       const result = () => {
-        if (table === 'tenants') return { data: { id: TENANT, nip: '1234567890', name: 'Firma testowa', address_json: null }, error: null };
+        if (table === 'tenants') return { data: { id: TENANT, nip: '1234567890', name: 'Firma testowa', address_json: { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' } }, error: null };
         if (table === 'invoice_line_items') return { data: st.linesByInvoice[String(filters.invoice_id)] ?? [], error: null };
         if (table === 'invoices' && 'parent_invoice_id' in filters) {
           return { data: st.corrections.filter((c) => c.parent_invoice_id === filters.parent_invoice_id), error: null };

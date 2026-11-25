@@ -183,12 +183,23 @@ function czystyDlaKlienta(tekst: unknown): void {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // B2a: job wysyłki wysyła zwykłą fakturę tylko do końca następnego dnia roboczego po
+  // dacie wystawienia (`lib/ksef/special-issue-date.ts`), a runner sprawdza to przed
+  // generatorem i walidatorem XSD (`lib/jobs/runners/submit-invoice/send.ts`). Zegar stoi
+  // więc w dniu wystawienia faktury z testu (2026-10-01, jak `claimXmlGeneratedAt` wyżej).
+  // Na prawdziwym zegarze każdy test przez `failAndExhaust` dostawałby ISSUE_DATE_PASSED
+  // zamiast odmowy XSD albo walidacji, którą sprawdza.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-01T10:00:00.000Z'));
   m.upload.mockReset();
   m.submit.mockReset();
   vi.stubEnv('KSEF_ENV', 'test');
   m.invoice = { id: ID, direction: 'outgoing', ksef_status: 'queued', ksef_number: null, ksef_environment: 'test', invoice_type: 'VAT', invoice_kind: 'regular', fa3_data: {} };
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+});
 
 describe('U3: XSD FA(3) odrzuca fakturę, klient dostaje pole i podpowiedź zamiast tekstu libxml', () => {
   it('NIP nabywcy: zdanie z nazwą pola, pole i podpowiedź w kolumnach, bez nazwy klasy i tekstu libxml', async () => {

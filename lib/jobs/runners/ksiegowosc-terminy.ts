@@ -2,7 +2,8 @@
  * `cron.ksiegowosc-terminy` (plan księgowości JDG, K5, sekcja 9): codziennie
  * o 08:00 przypomina firmom w pilotażu o terminach ryczałtu albo zaliczki
  * PIT i składek ZUS,
- * 5 i 1 dzień przed terminem, jeśli rozliczenie nie ma oznaczonej zapłaty.
+ * 5 i 1 dzień przed terminem, jeśli rozliczenie nie ma oznaczonej zapłaty
+ * albo (D32) najnowsza zapłacona wersja wyliczona ma brak w bieżących danych.
  * Push do członków firmy, mail do właściciela i wpis w dzwonku (00188).
  *
  * Idempotencja: `tax_notifications` (etap `termin-N:RRRR-MM-DD`), wpis przed
@@ -36,6 +37,7 @@ import { czytajWersjeProfilu, wersjaNa } from '@/lib/ksiegowosc/profil';
 import { isSubjectiveVatExemption, readTenantVatExemption } from '@/lib/invoices/vat-exemption';
 import { grupyFormy, niezaplacone, terminyNaDzis, trescTerminu, type TerminNaDzis } from '@/lib/ksiegowosc/przypomnienia';
 import { BLAD_ODCZYTU_ROZLICZEN, czytajTenMiesiac } from '@/lib/ksiegowosc/ten-miesiac-dane';
+import { BLAD_ODCZYTU_VAT } from '@/lib/ksiegowosc/vat-dane';
 import { srodowiskoMf } from '@/lib/ksiegowosc/wysylka-jpk/certyfikaty';
 import { czytajWysylki, nadwyzkaPrzyjetej } from '@/lib/ksiegowosc/wysylka-jpk/zapis';
 import { czyKsiegowoscWlaczona, statusObszaru } from '@/lib/ksiegowosc/wylacznik';
@@ -61,7 +63,15 @@ async function jpkPrzyjete(admin: SupabaseClient, tenantId: string, miesiac: str
   }
 }
 
-export async function przypomnijOTerminie(admin: SupabaseClient, tenantId: string, t: TerminNaDzis): Promise<WynikFirmy> {
+/** Ponowienia zadania (rejestracja w `lib/jobs/handlers/package-b.ts`); ostatnia próba ma `attempt` równe tej liczbie. */
+export const PONOWIENIA_TERMINOW = 4;
+
+export async function przypomnijOTerminie(
+  admin: SupabaseClient,
+  tenantId: string,
+  t: TerminNaDzis,
+  opcje: { ostatniaProba?: boolean } = {},
+): Promise<WynikFirmy> {
   if (!(await czyKsiegowoscWlaczona(admin, tenantId, 'terminy')).wlaczony) return 'pominiete';
   const profil = wersjaNa(await czytajWersjeProfilu(admin, tenantId), monthRange(t.miesiac).to);
   if (!profil) return 'pominiete';
@@ -77,6 +87,19 @@ export async function przypomnijOTerminie(admin: SupabaseClient, tenantId: strin
   const dane = await czytajTenMiesiac(admin, tenantId, t.miesiac);
   // Bez odczytu zapłat nie wiadomo, co jest zapłacone: ponowienie zamiast przypomnienia „bez zapłaty”.
   if (!dane.ok && dane.braki.includes(BLAD_ODCZYTU_ROZLICZEN)) throw new Error(`Nie udało się odczytać rozliczeń firmy ${tenantId} za ${t.miesiac}`);
+  // D32 (FZ-030): błąd odczytu danych VAT w dniu przypomnienia o VAT to ponowienie, nie przypomnienie bez kwoty
+  // (inne terminy VAT nie dotyczy). Wyjście: ostatnia próba idzie dalej jak przy braku, z wpisem w Sentry, bo błąd
+  // bywa stały (np. korekta bez przyjętej faktury pierwotnej, worker bez KSEF_ENV), a etap przypomnienia nie wraca
+  // następnego dnia: VAT bez oznaczonej zapłaty wychodzi bez kwoty, a VAT oznaczony jako zapłacony bez zdania po
+  // zapłacie (błąd odczytu to nie brak z danych). Operator: docs/runbooks/ksiegowosc-przypomnienia.md.
+  const bladVat = grupy.includes('vat') && dane.ok && dane.pozycje.some((p) => p.rodzaj === 'vat' && !p.ok && p.brak === BLAD_ODCZYTU_VAT);
+  if (bladVat && !opcje.ostatniaProba) throw new Error(`Nie udało się odczytać danych VAT firmy ${tenantId} za ${t.miesiac}`);
+  if (bladVat) {
+    Sentry.captureException(new Error(`Błąd odczytu danych VAT firmy ${tenantId} za ${t.miesiac} po ponowieniach (ostatnia próba)`), {
+      tags: { area: 'ksiegowosc.terminy' },
+      extra: { tenantId, miesiac: t.miesiac, etap: t.etap, krok: 'vat-ostatnia-proba' },
+    });
+  }
   const wejscie = { grupy, rozliczenia: dane.rozliczenia, pozycje: dane.ok ? dane.pozycje : null, profil };
   let pozycje = niezaplacone(wejscie);
   // F11-B5: VAT 0 zł przypomina o JPK_V7M, o ile MF nie przyjął już pliku z FaktWay za ten miesiąc.
@@ -84,6 +107,7 @@ export async function przypomnijOTerminie(admin: SupabaseClient, tenantId: strin
   if (pozycje.some((p) => p.rodzaj === 'vat' && p.kwotaGr === 0) && (await jpkPrzyjete(admin, tenantId, t.miesiac))) {
     pozycje = niezaplacone({ ...wejscie, jpkPrzyjete: true });
   }
+  if (bladVat) pozycje = pozycje.filter((p) => !(p.rodzaj === 'vat' && p.poZaplacie));
   if (pozycje.length === 0) return 'pominiete';
 
   // Strażnik przypomnień (żelazny filtr F13 część 5): kwota z zatwierdzonej wersji
@@ -134,7 +158,8 @@ export async function przypomnijOTerminie(admin: SupabaseClient, tenantId: strin
   return 'wyslane';
 }
 
-export async function runKsiegowoscTerminy({ step, logger }: JobContext) {
+export async function runKsiegowoscTerminy({ step, logger, attempt }: JobContext) {
+  const ostatniaProba = attempt >= PONOWIENIA_TERMINOW;
   const dzis = todayInWarsaw();
   const plan = terminyNaDzis(dzis);
   if (plan.length === 0) return { dzis, terminy: 0 };
@@ -146,7 +171,7 @@ export async function runKsiegowoscTerminy({ step, logger }: JobContext) {
   for (const tenantId of firmy) {
     for (const t of plan) {
       try {
-        licznik[await step.run(`${t.etap}-${t.miesiac}-${tenantId}`, () => przypomnijOTerminie(admin, tenantId, t))]++;
+        licznik[await step.run(`${t.etap}-${t.miesiac}-${tenantId}`, () => przypomnijOTerminie(admin, tenantId, t, { ostatniaProba }))]++;
       } catch (e) {
         doPonowienia++;
         Sentry.captureException(e, { tags: { area: 'ksiegowosc.terminy' }, extra: { tenantId, miesiac: t.miesiac, etap: t.etap } });

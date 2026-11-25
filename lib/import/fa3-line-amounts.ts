@@ -20,7 +20,7 @@
  * Moduł czysty; kwoty w groszach całkowitych (Number — bezpieczne do 2^53).
  */
 
-import { roundToCents } from '@/lib/xml/invoice-calculator';
+import { allocateLargestRemainder as allocate, roundToCents, vatFromNetCents } from '@/lib/xml/invoice-calculator';
 import type { ParsedInvoice, ParsedLine } from './fa3-parser';
 
 export interface ImportLineRow {
@@ -104,7 +104,7 @@ export function legacyLineAmounts(line: ParsedLine, unitPriceNet: number | null 
   if (!(raw === 'zw' || raw === 'oo' || raw === 'np' || /^0(\s|$|kr|ex|wt)/i.test(raw))) {
     const pctMatch = raw.match(/^(\d+(?:[.,]\d+)?)/);
     const pct = pctMatch ? parseFloat(pctMatch[1]!.replace(',', '.')) : NaN;
-    if (Number.isFinite(pct)) vat = roundToCents((net * pct) / 100);
+    if (Number.isFinite(pct)) vat = vatFromNetCents(net, pct);
   }
   return { ordinal: line.position, unitPriceNet, netAmount: net, vatAmount: vat, grossAmount: roundToCents(net + vat) };
 }
@@ -156,32 +156,6 @@ function ksefLineFieldsOf(lines: readonly ParsedLine[]): KsefLineFields[] {
     }
     return out;
   });
-}
-
-/**
- * Rozkład VAT nagłówka `total` na pozycje: udział = podstawa × stawka / mianownik
- * (brutto: 100 + stawka, netto: 100), w dół; brakujące grosze do największych
- * reszt (porównanie na krzyż — różne mianowniki przy 23% i 22%), remis — niższy
- * numer pozycji, potem kolejność w pliku. `null`, gdy `total` poza [Σ w dół, Σ w górę].
- */
-function allocate(
-  shares: ReadonlyArray<{ num: number; den: number; ordinal: number; index: number }>,
-  total: number,
-): { vats: number[]; floor: number; ceil: number } | { vats: null; floor: number; ceil: number } {
-  const parts = shares.map((s) => {
-    const fl = Math.floor(s.num / s.den);
-    return { ...s, fl, rem: s.num - fl * s.den };
-  });
-  const floor = parts.reduce((a, p) => a + p.fl, 0);
-  const ceil = parts.reduce((a, p) => a + p.fl + (p.rem > 0 ? 1 : 0), 0);
-  if (total < floor || total > ceil) return { vats: null, floor, ceil };
-  const order = parts
-    .map((p, i) => ({ ...p, i }))
-    .filter((p) => p.rem > 0)
-    .sort((a, b) => (b.rem * a.den - a.rem * b.den) || (a.ordinal - b.ordinal) || (a.index - b.index));
-  const vats = parts.map((p) => p.fl);
-  for (const p of order.slice(0, total - floor)) vats[p.i]! += 1;
-  return { vats, floor, ceil };
 }
 
 /** Zaokrąglenie ilorazu do grosza (ust. 11: od 0,5 grosza w górę), symetrycznie dla kwot ujemnych. */

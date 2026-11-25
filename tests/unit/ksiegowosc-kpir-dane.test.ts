@@ -142,6 +142,17 @@ describe('odczyt KPiR', () => {
     expect(przed00168.ok && przed00168.kpir.wiersze.map((w) => w.zrodlo.typ)).toEqual(['koszt']);
   });
 
+  it('FZ-027: wersja, która dzieli tę samą kwotę inaczej między FP i część bez FP, to brak okresu w dniu obu zapłat', async () => {
+    mocks.waluty = { data: [{ id: 'f-ksef-1', currency: 'PLN' }], error: null };
+    mocks.zaplacone = [
+      { id: 'r1', okres: '2026-02-01', wersja: 1, kwota_gr: 192_676, zaplacone_o: '2026-03-10', spoleczne_bez_fp: 178_829 },
+      { id: 'r2', okres: '2026-02-01', wersja: 2, kwota_gr: 192_676, zaplacone_o: '2026-03-16', spoleczne_bez_fp: 192_676 },
+    ];
+    const wynik = await czytajKpir(client, 'firma-1', 2026, { wersje: [SKALA] });
+    if (!wynik.ok) throw new Error(wynik.komunikat);
+    expect(wynik.kpir.braki.map((b) => [b.dzien, b.dokument])).toEqual([['2026-03-10', 'Składki ZUS za 02/2026'], ['2026-03-16', 'Składki ZUS za 02/2026']]);
+  });
+
   // F11-C1: ten sam dokument (NIP sprzedawcy i numer) jako dwa koszty, np.
   // zdjęcie faktury i ta sama faktura ze Skrzynki KSeF: dwa wiersze KPiR,
   // podwójny koszt i zaniżona zaliczka PIT. KPiR ma jeden wiersz na dowód.
@@ -156,6 +167,26 @@ describe('odczyt KPiR', () => {
     if (wynik.ok) return;
     expect(wynik.komunikat).toContain('FZ/1');
     expect(wynik.komunikat).toContain('Dostawca');
+  });
+
+  it.each(['simplified_invoice', 'receipt'])('FZ-022: zdjęcie z rodzajem %s i ta sama faktura ze Skrzynki KSeF: brak z numerem, datą i źródłami', async (rodzaj) => {
+    mocks.waluty = { data: [{ id: 'f-ksef-1', currency: 'PLN' }], error: null };
+    mocks.koszty = [
+      KOSZT_KSEF,
+      { ...KOSZT_KSEF, id: 'k2', source: 'ocr_photo', ksef_invoice_id: null, document_type: rodzaj, ocr_extracted_data: { document_type: rodzaj } },
+    ];
+    const wynik = await czytajKpir(client, 'firma-1', 2026, { wersje: [SKALA] });
+    expect(wynik.ok).toBe(false);
+    if (wynik.ok) return;
+    expect(wynik.komunikat).toContain('FZ/1 z 12.03.2026');
+    expect(wynik.komunikat).toContain('ze Skrzynki KSeF i ze zdjęcia');
+  });
+
+  it('FZ-022: ten sam numer tego samego sprzedawcy w innym roku to inny dokument: KPiR liczy oba', async () => {
+    mocks.waluty = { data: [{ id: 'f-ksef-1', currency: 'PLN' }], error: null };
+    mocks.koszty = [KOSZT_KSEF, { ...KOSZT_KSEF, id: 'k2', source: 'ocr_photo', ksef_invoice_id: null, issue_date: '2025-03-12' }];
+    const wynik = await czytajKpir(client, 'firma-1', 2026, { wersje: [SKALA] });
+    expect(wynik.ok).toBe(true);
   });
 
   it('F11-C1: dwa różne dokumenty tego samego sprzedawcy: KPiR liczy oba', async () => {

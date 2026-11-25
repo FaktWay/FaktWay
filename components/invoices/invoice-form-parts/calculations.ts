@@ -1,5 +1,5 @@
 import { addressCountryForKodUE, parseVatUe } from '@/lib/invoices/vat-ue';
-import type { InvoiceFormValues } from '@/lib/schemas/invoice-form';
+import { grossPricedFormLines, type InvoiceFormValues } from '@/lib/schemas/invoice-form';
 import { calculateLineItem } from '@/lib/xml/invoice-calculator';
 import type { InvoiceLineItem } from '@/types/invoice';
 
@@ -26,10 +26,30 @@ export function buildVatUeHint(buyerVatUeWatch: string): VatUeHint {
 // do rozbicia VAT-u na stawki. Wcześniej mapowanie żyło wyłącznie w argumencie
 // `calculateInvoiceTotals`, więc podsumowanie nie miało jak zobaczyć stawek
 // i liczyło VAT jako `brutto − netto`.
-export function toLineItems(watchedLines: InvoiceFormValues['lines'] | undefined): InvoiceLineItem[] {
-  return (
-    (watchedLines ?? []) as InvoiceFormValues['lines']
-  ).map<InvoiceLineItem>((line, idx) => {
+//
+// Plan cen brutto, PR (b): przy cenach brutto pozycje liczy ta sama funkcja co
+// fakturę na serwerze (`grossPricedFormLines`, VAT od sumy brutto stawki), więc
+// podgląd pozycji, stawek i sum pokazuje kwoty, które zapisze faktura. Pole
+// niedokończone (puste albo nie liczba) liczy się jak brak: ilość 0, brak ceny.
+export function toLineItems(
+  watchedLines: InvoiceFormValues['lines'] | undefined,
+  pricesGross = false,
+): InvoiceLineItem[] {
+  const lines = (watchedLines ?? []) as InvoiceFormValues['lines'];
+  if (pricesGross) {
+    return grossPricedFormLines(
+      lines.map((line) => ({
+        name: line?.name ?? '',
+        unit: line?.unit ?? 'szt',
+        quantity: Number(line?.quantity) || 0,
+        ...(typeof line?.unitPriceGross === 'number' && Number.isFinite(line.unitPriceGross)
+          ? { unitPriceGross: line.unitPriceGross }
+          : {}),
+        vatRate: line?.vatRate ?? '23',
+      })),
+    );
+  }
+  return lines.map<InvoiceLineItem>((line, idx) => {
     const calc = calculateLineItem({
       quantity: Number(line?.quantity) || 0,
       unitPriceNet: Number(line?.unitPriceNet) || 0,

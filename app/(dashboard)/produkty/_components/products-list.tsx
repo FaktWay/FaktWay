@@ -22,7 +22,7 @@ import {
 
 import { ProductFormDialog } from './product-form-dialog';
 
-function RowActions({ product }: { product: ProductListItem }) {
+function RowActions({ product, grossPrices }: { product: ProductListItem; grossPrices: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
 
@@ -42,6 +42,7 @@ function RowActions({ product }: { product: ProductListItem }) {
     <div className='flex flex-wrap justify-end gap-1'>
       <ProductFormDialog
         product={product}
+        grossPrices={grossPrices}
         trigger={
           <Button variant='ghost' size='sm' disabled={pending}>
             Edytuj
@@ -76,8 +77,11 @@ function RowActions({ product }: { product: ProductListItem }) {
   );
 }
 
-/** Lista katalogu produktów i usług (krok 2.6). Usuwanie tylko nieużytych, reszta do archiwum. */
-export function ProductsList({ rows }: { rows: ProductListItem[] }) {
+/**
+ * Lista katalogu produktów i usług (krok 2.6). Usuwanie tylko nieużytych, reszta
+ * do archiwum. Kolumna ceny brutto tylko przy włączonym wyłączniku cen brutto.
+ */
+export function ProductsList({ rows, grossPrices = false }: { rows: ProductListItem[]; grossPrices?: boolean }) {
   return (
     <Table>
       <TableHeader>
@@ -85,6 +89,7 @@ export function ProductsList({ rows }: { rows: ProductListItem[] }) {
           <TableHead>Nazwa</TableHead>
           <TableHead>Jedn.</TableHead>
           <TableHead className='text-right'>Cena netto</TableHead>
+          {grossPrices ? <TableHead className='text-right'>Cena brutto</TableHead> : null}
           <TableHead>VAT</TableHead>
           <TableHead>PKWiU</TableHead>
           <TableHead>GTU</TableHead>
@@ -105,12 +110,17 @@ export function ProductsList({ rows }: { rows: ProductListItem[] }) {
             <TableCell className='text-right tabular-nums'>
               {p.defaultPriceNet === null ? 'brak' : formatPlMoney(p.defaultPriceNet)}
             </TableCell>
+            {grossPrices ? (
+              <TableCell className='text-right tabular-nums'>
+                {p.defaultPriceGross === null ? 'brak' : formatPlMoney(p.defaultPriceGross)}
+              </TableCell>
+            ) : null}
             <TableCell>{PRODUCT_VAT_RATE_LABELS[p.defaultVatRate as ProductVatRate] ?? p.defaultVatRate}</TableCell>
             <TableCell>{p.pkwiuCode ?? 'brak'}</TableCell>
             <TableCell>{p.gtuCode ?? 'brak'}</TableCell>
             <TableCell className='text-right tabular-nums'>{p.useCount}</TableCell>
             <TableCell>
-              <RowActions product={p} />
+              <RowActions product={p} grossPrices={grossPrices} />
             </TableCell>
           </TableRow>
         ))}

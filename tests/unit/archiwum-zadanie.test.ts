@@ -57,6 +57,8 @@ vi.mock('@/lib/email/send', () => ({ sendEmail: h.email }));
 
 import { onDocumentArchiveExhausted, runDocumentArchive } from '@/lib/jobs/runners/document-archive';
 import { ArchiveTooLargeError } from '@/lib/archiwum/paczka';
+import { readCompletePagesByKey } from '@/lib/accounting/read-complete-pages';
+import { readAllByIdInList } from '@/lib/pagination/in-list';
 
 const T = '0178aaaa-0000-4000-8000-000000000001';
 const ID = '0178bbbb-0000-4000-8000-000000000001';
@@ -147,5 +149,44 @@ describe('zadanie archiwum: ponowienie od zera', () => {
     h.order!.status = 'completed';
     await onDocumentArchiveExhausted(new Error('Resend error'), { archiveId: ID });
     expect(h.order!.status).toBe('completed');
+  });
+
+  it('po wyczerpaniu prób przez zmiany w trakcie odczytu okresu: powód i wyjście zamiast ogólnego tekstu (ustalenie 23)', async () => {
+    // Prawdziwe błędy odczytu stronami z licznikiem (`readCompletePagesByKey`, jak faktury i koszty paczki):
+    // licznik kontrolny inny niż pierwszy, strona krótsza niż licznik i kolejność, która się przesunęła.
+    const row = (id: string) => ({ id });
+    const first500 = Array.from({ length: 500 }, (_, i) => row(`i-${String(i).padStart(4, '0')}`));
+    const failures = await Promise.all([
+      readCompletePagesByKey('invoices', ({ afterId, head }) => Promise.resolve(
+        head ? { data: [], count: 502, error: null }
+          : afterId === null ? { data: first500, count: 501, error: null }
+          : { data: [row('i-9999')], count: null, error: null },
+      )),
+      readCompletePagesByKey('expenses', () => Promise.resolve({ data: [row('e-1'), row('e-2')], count: 5, error: null })),
+      readCompletePagesByKey('invoices', () => Promise.resolve({ data: [row('i-2'), row('i-1')], count: 2, error: null })),
+    ].map((read) => read.then(() => new Error('odczyt przeszedł'), (error: unknown) => error as Error)));
+    expect(failures.map((e) => e.message)).toEqual([
+      'invoices: nie można potwierdzić liczby rekordów',
+      'expenses: niepełna strona danych',
+      'invoices: niestabilna kolejność stron danych',
+    ]);
+    for (const failure of failures) {
+      h.order!.status = 'generating';
+      await onDocumentArchiveExhausted(failure, { archiveId: ID });
+      expect(h.order!.error_message).toBe(
+        'Nie udało się przygotować paczki, bo w trakcie jej przygotowania zmieniały się faktury albo koszty z tego okresu (np. trwał import albo wysyłka do KSeF). Zleć ją ponownie za kilka minut, a jeśli to się powtórzy, napisz do nas.',
+      );
+    }
+
+    // Inny błąd (np. sieć) i błąd odczytu plików faktur bez licznika (`readAllByIdInList`,
+    // własne powody `KeysetPageError`) dalej dają ogólny tekst z wyjściem.
+    const keyset = await readAllByIdInList('xml_documents', ['f-1'], () => Promise.resolve({ data: null, error: null }))
+      .then(() => new Error('odczyt przeszedł'), (error: unknown) => error as Error);
+    expect(keyset.name).toBe('KeysetPageError');
+    for (const failure of [new Error('invoices: fetch failed'), keyset]) {
+      h.order!.status = 'generating';
+      await onDocumentArchiveExhausted(failure, { archiveId: ID });
+      expect(h.order!.error_message).toBe('Nie udało się przygotować paczki. Zleć ją ponownie albo napisz do nas.');
+    }
   });
 });

@@ -10,14 +10,21 @@ import type { XMLBuilder } from 'xmlbuilder2/lib/interfaces';
 import type { InvoiceLineItem, VatRate } from '@/types/invoice';
 import {
   calculateInvoiceTotals,
-  calculateLineItem,
   differenceSummaries,
   roundToCents,
   summarizeVatPerRate,
 } from '@/lib/xml/invoice-calculator';
 import type { BuyerEU, CorrectionInvoiceData, InvoiceLine } from '@/types/invoice-types';
+import { correctionStateAmounts, lineAmounts, negatedAmounts } from '@/lib/invoices/calculator';
 import { resolveAmountChangeVatRate } from '@/lib/invoices/correction-amount-change';
-import { addressCountryForKodUE, parseVatUe, type ParsedVatUe } from '@/lib/invoices/vat-ue';
+import { isGtuCode, lineCodesOf } from '@/lib/invoices/line-codes';
+import {
+  addressCountryForKodUE,
+  parseVatUe,
+  SELLER_VAT_UE_PREFIX,
+  sellerNeedsVatUePrefix,
+  type ParsedVatUe,
+} from '@/lib/invoices/vat-ue';
 import { correctionNpIiBuyerError } from '@/lib/validators/invoice-validators';
 import {
   assertFa3TextLimits,
@@ -118,35 +125,59 @@ function domainLinesForCorrection(data: CorrectionInvoiceData): InvoiceLine[] {
 /** Wiersz FaWiersz; `stanPrzed` = wiersz wg stanu przed korektą (XSD `StanPrzed`). */
 type CorrectionRow = InvoiceLineItem & { stanPrzed?: true };
 
-function sameLine(a: InvoiceLine, b: InvoiceLine): boolean {
+/**
+ * Pola pozycji, po których paruje się stany korekty: bez kodów i kwot. Pozycja
+ * koperty (`InvoiceLine`) i pozycja stanu korekty w JPK (`JpkInvoiceLine`).
+ */
+export interface CorrectionPairLine {
+  name: string;
+  unit: string;
+  quantity: number;
+  unitPriceNet: number;
+  vatRate: string;
+}
+
+/**
+ * Ta sama pozycja w obu stanach. Bez kodów (PKWiU, GTU): kody pozycji „po”
+ * nadaje serwer z pary „przed” (`withCodesFromBefore`), więc różnica kodu nie
+ * jest korektą pozycji (krok 2.6, część 2b-3).
+ */
+function sameLine(a: CorrectionPairLine, b: CorrectionPairLine): boolean {
   return (
     a.name === b.name &&
     a.unit === b.unit &&
     a.quantity === b.quantity &&
     a.unitPriceNet === b.unitPriceNet &&
-    a.vatRate === b.vatRate &&
-    (a.pkwiuCode ?? '') === (b.pkwiuCode ?? '')
+    a.vatRate === b.vatRate
   );
 }
 
+/** Pary pozycji korekty „przed/po”: indeks „przed” → indeks „po” albo `null` (usunięta). */
+export interface CorrectionLinePairs {
+  pairOf: Map<number, number | null>;
+  /** Indeksy „po” z parą „przed”; reszta „po” to pozycje dopisane. */
+  usedAfter: Set<number>;
+  /** Indeksy „przed” bez zmian (do pliku nie trafiają). */
+  unchanged: Set<number>;
+}
+
 /**
- * Korekta „przed/po” (AUD-03). XSD FaWiersz: „dane pozycji korygowanych wg
- * stanu przed korektą i po korekcie jako osobne wiersze”, wiersz „przed”
- * ze znacznikiem `StanPrzed`, odrębna numeracja. Pozycja bez zmian nie jest
- * korygowana, więc do XML nie trafia; pozycja dopisana ma tylko wiersz „po”,
- * usunięta — tylko „przed”.
- *
  * Parowanie (F-019): najpierw pozycje identyczne w obu stanach (niezależnie
  * od kolejności — przesunięcie to nie korekta), potem zmienione po nazwie,
  * a reszta po kolejności (np. zmieniona nazwa). Samo parowanie po indeksie
  * po usunięciu środkowej pozycji opisywało inną zmianę („B przed → C po”).
+ * Jedno parowanie dla pliku (`beforeAfterRows`), kodów pozycji „po”
+ * (`withCodesFromBefore`) i oznaczeń GTU korekty w JPK_V7M (`gtuOfCorrection`).
  */
-function beforeAfterRows(before: InvoiceLine[], after: InvoiceLine[]): CorrectionRow[] {
-  const pairOf = new Map<number, number | null>(); // indeks „przed” → indeks „po” albo null (usunięta)
+export function correctionLinePairs(
+  before: readonly CorrectionPairLine[],
+  after: readonly CorrectionPairLine[],
+): CorrectionLinePairs {
+  const pairOf = new Map<number, number | null>();
   const usedAfter = new Set<number>();
   const unchanged = new Set<number>();
 
-  const claim = (bi: number, match: (a: InvoiceLine) => boolean): boolean => {
+  const claim = (bi: number, match: (a: CorrectionPairLine) => boolean): boolean => {
     const ai = after.findIndex((a, i) => !usedAfter.has(i) && match(a));
     if (ai === -1) return false;
     usedAfter.add(ai);
@@ -163,27 +194,86 @@ function beforeAfterRows(before: InvoiceLine[], after: InvoiceLine[]): Correctio
   before.forEach((_b, bi) => {
     if (!pairOf.has(bi) && !claim(bi, () => true)) pairOf.set(bi, null);
   });
+  return { pairOf, usedAfter, unchanged };
+}
+
+/**
+ * Indeksy „po” sparowane po kolejności z pozycją „przed” o innej nazwie
+ * (krok 2.6, część 2b-3). Plik opisuje je jak zmianę tej pozycji (F-019), ale
+ * kodów pozycji FaktWay im nie przypisuje: to może być inna pozycja.
+ */
+export function renamedAfter(
+  before: readonly CorrectionPairLine[],
+  after: readonly CorrectionPairLine[],
+  pairOf: CorrectionLinePairs['pairOf'],
+): Set<number> {
+  const renamed = new Set<number>();
+  pairOf.forEach((ai, bi) => {
+    if (ai != null && before[bi]!.name !== after[ai]!.name) renamed.add(ai);
+  });
+  return renamed;
+}
+
+/**
+ * Kody pozycji „po” korekty (krok 2.6, część 2b-3): pozycja z parą „przed”
+ * o tej samej nazwie dostaje kody tej pary (PKWiU i GTU z dokumentu faktury
+ * korygowanej). Pozycja dopisana i pozycja sparowana po kolejności ze zmienioną
+ * nazwą żadnych: FaktWay nie wie, czy to ta sama pozycja (`renamedAfter`).
+ * Kody przysłane w „po” się nie liczą: formularz strony i telefon kodów nie
+ * edytują (telefon ich nie wysyła), a plik i JPK mają mieć kody z dokumentu,
+ * nie z żądania.
+ */
+export function withCodesFromBefore(before: readonly InvoiceLine[], after: readonly InvoiceLine[]): InvoiceLine[] {
+  const { pairOf } = correctionLinePairs(before, after);
+  const renamed = renamedAfter(before, after, pairOf);
+  const pairBefore = new Map<number, InvoiceLine>();
+  pairOf.forEach((ai, bi) => {
+    if (ai != null && !renamed.has(ai)) pairBefore.set(ai, before[bi]!);
+  });
+  return after.map((line, ai) => {
+    const { pkwiuCode: _pkwiu, gtuCode: _gtu, ...bezKodow } = line;
+    return { ...bezKodow, ...lineCodesOf(pairBefore.get(ai)) };
+  });
+}
+
+/**
+ * Korekta „przed/po” (AUD-03). XSD FaWiersz: „dane pozycji korygowanych wg
+ * stanu przed korektą i po korekcie jako osobne wiersze”, wiersz „przed”
+ * ze znacznikiem `StanPrzed`, odrębna numeracja. Pozycja bez zmian nie jest
+ * korygowana, więc do XML nie trafia; pozycja dopisana ma tylko wiersz „po”,
+ * usunięta — tylko „przed”. Parowanie: `correctionLinePairs`.
+ */
+function beforeAfterRows(
+  before: InvoiceLine[],
+  after: InvoiceLine[],
+  prepared: { before: InvoiceLineItem[]; after: InvoiceLineItem[] },
+): CorrectionRow[] {
+  const { pairOf, usedAfter, unchanged } = correctionLinePairs(before, after);
 
   const rows: CorrectionRow[] = [];
-  before.forEach((b, bi) => {
+  before.forEach((_b, bi) => {
     if (unchanged.has(bi)) return;
-    rows.push({ ...toPreparedLineItems([b])[0]!, stanPrzed: true });
+    rows.push({ ...prepared.before[bi]!, stanPrzed: true });
     const ai = pairOf.get(bi);
-    if (ai != null) rows.push(toPreparedLineItems([after[ai]!])[0]!);
+    if (ai != null) rows.push(prepared.after[ai]!);
   });
-  after.forEach((a, ai) => {
-    if (!usedAfter.has(ai)) rows.push(toPreparedLineItems([a])[0]!);
+  after.forEach((_a, ai) => {
+    if (!usedAfter.has(ai)) rows.push(prepared.after[ai]!);
   });
   return rows.map((row, idx) => ({ ...row, ordinal: idx + 1 }));
 }
 
-function toPreparedLineItems(lines: InvoiceLine[]): InvoiceLineItem[] {
+/**
+ * Wiersze pozycji z kwotami podanymi z zewnątrz: stan przed z zapisu faktury
+ * korygowanej, stan po z `correctionStateAmounts` (`lib/invoices/calculator.ts`),
+ * anulowanie z kwotami stanu przed z minusem. Bez kwot: `lineAmounts`.
+ */
+function toPreparedLineItems(
+  lines: InvoiceLine[],
+  amounts: ReadonlyArray<Pick<InvoiceLineItem, 'netAmount' | 'vatAmount' | 'grossAmount'>> = lines.map(lineAmounts),
+): InvoiceLineItem[] {
   return lines.map((line, idx) => {
-    const { netAmount, vatAmount, grossAmount } = calculateLineItem({
-      quantity: line.quantity,
-      unitPriceNet: line.unitPriceNet,
-      vatRate: line.vatRate as VatRate,
-    });
+    const { netAmount, vatAmount, grossAmount } = amounts[idx]!;
     return {
       ordinal: idx + 1,
       name: line.name,
@@ -192,8 +282,10 @@ function toPreparedLineItems(lines: InvoiceLine[]): InvoiceLineItem[] {
       unitPriceNet: line.unitPriceNet,
       vatRate: line.vatRate as VatRate,
       // Krok 2.6, część 2b-3: PKWiU bez spacji na brzegach, sprawdzone schematem
-      // pozycji (`pkwiuCodeSchema`); dotąd filtr gubił kody z kropkami.
+      // pozycji (`pkwiuCodeSchema`); dotąd filtr gubił kody z kropkami. GTU
+      // pozycji z dokumentu faktury korygowanej (tylko kod z listy).
       ...(line.pkwiuCode?.trim() ? { pkwiuCode: line.pkwiuCode.trim() } : {}),
+      ...(isGtuCode(line.gtuCode) ? { gtuCode: line.gtuCode } : {}),
       netAmount,
       vatAmount,
       grossAmount,
@@ -254,6 +346,13 @@ function correctionRates(data: CorrectionInvoiceData, rows: readonly InvoiceLine
   ]);
 }
 
+/**
+ * Plan zero C3: korekta pozycji „zw” bez podstawy zwolnienia w fakturze korygowanej
+ * (stara faktura albo plik bez P_19A/B/C). Bez podstawy plik nie powstaje.
+ */
+export const CORRECTION_ZW_WITHOUT_BASIS_MESSAGE =
+  'Korekta ma pozycję zwolnioną z VAT („zw”), a faktura korygowana nie ma zapisanej podstawy zwolnienia, więc korekty nie przygotujemy w aplikacji. Napisz do nas, a przygotujemy korektę z Tobą.';
+
 function buildAdnotacjeMinimal(
   fa: XMLBuilder,
   lines: InvoiceLineItem[],
@@ -264,11 +363,13 @@ function buildAdnotacjeMinimal(
   // P_18=1 dla „oo” i „np II” (VAT rozlicza nabywca; AUD-70) — jak w zwykłej
   // fakturze, liczone z pozycji przed i po korekcie (`correctionRates`).
   const p18 = reverseCharge ? 1 : 2;
+  // Plan zero C3: pozycja „zw” (stan przed, po albo wiersz korekty) ma blok Zwolnienie
+  // z podstawą zwolnienia faktury korygowanej (P_19A, z pliku KSeF też P_19B albo
+  // P_19C), jak zwykła faktura (`fa3-generator.ts`). Bez podstawy: odmowa, bez pliku.
   const hasZwLine = lines.some((l) => l.vatRate === 'zw');
-  if (hasZwLine) {
-    throw new Error(
-      'FA(3) KOR: stawka "zw" wymaga bloków Zwolnienia (P_19*) — MVP nieobsługiwane w generatorze korekt.',
-    );
+  const exemptionBasis = annotations.vatExemptionBasis?.trim();
+  if (hasZwLine && !exemptionBasis) {
+    throw new Error(CORRECTION_ZW_WITHOUT_BASIS_MESSAGE);
   }
 
   // P_16 i P_18A z faktury pierwotnej (AUD-23) — do 02.10 zawsze 2.
@@ -277,7 +378,12 @@ function buildAdnotacjeMinimal(
   adn.ele('P_18').txt(String(p18));
   adn.ele('P_18A').txt(String(annotations.splitPayment === 1 ? 1 : 2));
   const zwolnienie = adn.ele('Zwolnienie');
-  zwolnienie.ele('P_19N').txt('1');
+  if (hasZwLine && exemptionBasis) {
+    zwolnienie.ele('P_19').txt('1');
+    zwolnienie.ele(annotations.vatExemptionBasisKind ?? 'P_19A').txt(exemptionBasis);
+  } else {
+    zwolnienie.ele('P_19N').txt('1');
+  }
   adn.ele('NoweSrodkiTransportu').ele('P_22N').txt('1');
   adn.ele('P_23').txt('2');
   adn.ele('PMarzy').ele('P_PMarzyN').txt('1');
@@ -359,6 +465,9 @@ function appendFaWiersze(fa: XMLBuilder, lines: CorrectionRow[]): void {
       throw new Error(`FA(3) KOR: brak mapowania P_12 dla vatRate "${line.vatRate}".`);
     }
     wiersz.ele('P_12').txt(mapping.p12Value);
+    // GTU po stawce, przed StanPrzed (XSD FaWiersz: P_12, P_12_XII, P_12_Zal_15,
+    // KwotaAkcyzy, GTU, Procedura, KursWaluty, StanPrzed); krok 2.6, część 2b-3.
+    if (line.gtuCode) wiersz.ele('GTU').txt(line.gtuCode);
     if (line.stanPrzed) wiersz.ele('StanPrzed').txt('1');
   }
 }
@@ -404,12 +513,14 @@ function correctionAmounts(
   domainLines: InvoiceLine[],
 ): { preparedLines: CorrectionRow[]; summaries: ReturnType<typeof summarizeVatPerRate>; grossTotal: number } {
   if (data.correctionType === 'before_after') {
-    const before = toPreparedLineItems(data.linesBefore ?? []);
-    const after = toPreparedLineItems(data.linesAfter ?? []);
+    // Stan przed z zapisu faktury korygowanej, pozycja bez zmian z tymi samymi kwotami w stanie po.
+    const states = correctionStateAmounts(data.linesBefore ?? [], data.linesAfter ?? []);
+    const before = toPreparedLineItems(data.linesBefore ?? [], states.before);
+    const after = toPreparedLineItems(data.linesAfter ?? [], states.after);
     if (before.length === 0 && after.length === 0) {
       throw new Error('FA(3) KOR: brak pozycji — uzupełnij linie wg typu korekty.');
     }
-    const preparedLines = beforeAfterRows(data.linesBefore ?? [], data.linesAfter ?? []);
+    const preparedLines = beforeAfterRows(data.linesBefore ?? [], data.linesAfter ?? [], { before, after });
     if (preparedLines.length === 0) {
       throw new Error('FA(3) KOR: korekta przed/po nie zmienia żadnej pozycji — nie ma czego korygować.');
     }
@@ -442,7 +553,8 @@ function correctionAmounts(
       },
     ];
   } else {
-    preparedLines = toPreparedLineItems(domainLines);
+    // Anulowanie: kwoty stanu przed z zapisu faktury z minusem (`domainLinesForCorrection`).
+    preparedLines = toPreparedLineItems(domainLines, (data.linesBefore ?? []).map((l) => negatedAmounts(lineAmounts(l))));
   }
   return {
     preparedLines,
@@ -541,6 +653,11 @@ export function generateCorrectionInvoiceXml(
   naglowek.ele('SystemInfo').txt(systemInfo);
 
   const podmiot1 = root.ele('Podmiot1');
+  // W8 (plan zero C2): korekta usługi „np II” ma NIP sprzedawcy z prefiksem PL, jak
+  // faktura (art. 97 ust. 10 pkt 3, RP-FA-VATUE-01); stawki stanu przed, po i wierszy XML.
+  if (sellerNeedsVatUePrefix(correctionRates(data, preparedLines))) {
+    podmiot1.ele('PrefiksPodatnika').txt(SELLER_VAT_UE_PREFIX);
+  }
   const dane1 = podmiot1.ele('DaneIdentyfikacyjne');
   dane1.ele('NIP').txt(requireText(data.seller.nip, 'seller.nip'));
   dane1.ele('Nazwa').txt(requireText(data.seller.name, 'seller.name'));

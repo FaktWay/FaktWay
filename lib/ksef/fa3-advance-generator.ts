@@ -7,12 +7,15 @@
 import { create } from 'xmlbuilder2';
 import type { XMLBuilder } from 'xmlbuilder2/lib/interfaces';
 
+import { formatPlMoney } from '@/lib/format/pl';
 import type { InvoiceLineItem, VatRate } from '@/types/invoice';
 import {
   calculateInvoiceTotals,
   calculateLineItem,
   roundToCents,
   summarizeVatPerRate,
+  toGrosze,
+  vatFromGrossGrosze,
 } from '@/lib/xml/invoice-calculator';
 import type {
   AdvanceInvoiceData,
@@ -562,12 +565,116 @@ export function settlementVatSummaries(
     }
     bucket.netSum = roundToCents(bucket.netSum - net);
     bucket.vatSum = roundToCents(bucket.vatSum - vat);
-    if (bucket.netSum < 0 || bucket.vatSum < 0) {
+    // Zaliczki ponad zamówienie to brutto reszty stawki poniżej zera. Netto albo
+    // VAT reszty może wyjść ujemne o grosz, gdy rozbicie z faktury zaliczkowej
+    // zaokrągliło inaczej niż wzór (np. 2 × 0,32 zł z VAT 0,03 przy 5 %): P_13_x
+    // i P_14_x to wtedy dalej zamówienie minus zaliczki (art. 106f ust. 3,
+    // RP-FA-ROZ-01), a nie odmowa faktury, której zaliczki nie przekraczają.
+    if (roundToCents(bucket.netSum + bucket.vatSum) < 0) {
       throw new Error(`FA(3) ROZ: zaliczki przekraczają wartość zamówienia w stawce ${rate}.`);
     }
   }
 
   return summaries.map((s) => byRate.get(s.rate) ?? s);
+}
+
+/**
+ * Ustalenie 19 (decyzja D8, poprawiona 25.11.2026): ujemne P_13_x albo P_14_x
+ * faktury rozliczającej tylko w granicy zaokrągleń. W każdej stawce, osobno dla
+ * netto i VAT, ujemna reszta nie może przekroczyć B = ⌊(n + 3m) / 2⌋ grosza: n to
+ * pozycje zamówienia w stawce (VAT od pozycji, D1: pół grosza na pozycję), m to
+ * faktury zaliczkowe w stawce (pół grosza zaokrąglenia i grosz odchyłki rozbicia
+ * od wzoru, NZ-FA-05). Przekroczenie znaczy, że któraś zaliczka ma VAT inny niż
+ * wzór z art. 106f ust. 1 pkt 3 o 2 grosze albo więcej: odmowa wymienia ją
+ * z obiema kwotami i daje wyjście (faktura korygująca do niej, art. 106j ust. 1
+ * pkt 5, potem faktura rozliczająca). Nie sprawdza odchyłki każdej zaliczki
+ * osobno: zaliczka z VAT proporcjonalnym do VAT zamówienia (inny program) daje
+ * poprawną resztę.
+ *
+ * Odmawia tylko zapis nowej faktury rozliczającej (`lib/invoices/issue-final.ts`)
+ * i wysyłka (`submitInvoiceFullFlow`); JPK_FA i plik już wysłanej faktury liczą
+ * resztę `settlementVatSummaries` bez tej bramki (dokument raportuje się taki,
+ * jaki jest). Zwraca tekst odmowy albo `null`.
+ */
+export function settlementRoundingRefusal(
+  lines: InvoiceLineItem[],
+  advances: readonly AdvanceInvoiceSettlementRow[],
+): string | null {
+  const summaries = settlementVatSummaries(lines, advances);
+  const orderRates = summaries.map((s) => s.rate);
+  const splits = advances.map((adv) => ({ adv, ...advanceSplit(adv, orderRates) }));
+  for (const s of summaries) {
+    const inRate = splits.filter((x) => x.rate === s.rate);
+    if (inRate.length === 0) continue;
+    const n = lines.filter((line) => line.vatRate === s.rate).length;
+    const limit = Math.floor((n + 3 * inRate.length) / 2);
+    const netto = toGrosze(s.netSum);
+    const vat = toGrosze(s.vatSum);
+    const over: { what: 'netto' | 'VAT'; grosze: number } | null =
+      -netto > limit ? { what: 'netto', grosze: netto } : -vat > limit ? { what: 'VAT', grosze: vat } : null;
+    if (!over) continue;
+    const pct = s.rate === '23' || s.rate === '8' || s.rate === '5' ? Number(s.rate) : 0;
+    const rows = inRate.map((x) => ({
+      nr: x.adv.internal_number,
+      naFakturze: toGrosze(x.vat),
+      zeWzoru: vatFromGrossGrosze(toGrosze(x.adv.advance_amount), pct),
+    }));
+    const odchylone = rows.filter((r) => Math.abs(r.naFakturze - r.zeWzoru) >= 2);
+    return roundingRefusalText(s.rate, over, limit, odchylone.length > 0 ? odchylone : rows, odchylone.length > 0);
+  }
+  return null;
+}
+
+/**
+ * Zdanie dla szkicu zapisanego przed bramką przy zapisie: nowy zapis odmawia
+ * wcześniej, więc tę odmowę przy wysyłce dostaje tylko stary szkic (karta C4,
+ * uwaga N5 czytelnika #960); po korekcie zaliczki ten szkic dalej ma stare rozbicie.
+ */
+export const ROUNDING_REFUSAL_OLD_DRAFT =
+  'Szkic tej faktury zapisano przed tą kontrolą, więc usuń go, a fakturę rozliczającą wystaw od nowa.';
+
+/**
+ * `settlementRoundingRefusal` dla danych faktury rozliczającej przed wysyłką
+ * (`submitInvoiceFullFlow`), z pozycjami jak w generatorze i zdaniem o starym szkicu.
+ */
+export function finalInvoiceRoundingRefusal(
+  data: FinalInvoiceData,
+  advances: readonly AdvanceInvoiceSettlementRow[],
+): string | null {
+  const refusal = settlementRoundingRefusal(toPreparedLineItems(data.lines), advances);
+  return refusal === null ? null : `${refusal} ${ROUNDING_REFUSAL_OLD_DRAFT}`;
+}
+
+const zl = (grosze: number) => formatPlMoney(grosze / 100);
+
+function roundingRefusalText(
+  rate: VatRate,
+  over: { what: 'netto' | 'VAT'; grosze: number },
+  limit: number,
+  rows: ReadonlyArray<{ nr: string; naFakturze: number; zeWzoru: number }>,
+  deviating: boolean,
+): string {
+  const label = /^\d+$/.test(rate) ? `${rate}%` : `„${rate}”`;
+  const head =
+    `Faktury rozliczającej nie wystawimy z tymi zaliczkami: w stawce ${label} reszta ${over.what} wychodzi ` +
+    `${zl(over.grosze)} zł, a zaokrąglenia zaliczek i pozycji dają najwyżej ${zl(-limit)} zł.`;
+  if (!deviating) {
+    // Z rachunku granicy niemożliwe (przekroczenie wymaga zaliczki o 2 grosze od wzoru); zostaje wyjście ogólne.
+    return `${head} Sprawdź kwoty netto i VAT faktur zaliczkowych ${rows.map((r) => r.nr).join(', ')}, a jeśli są dobre, napisz do nas.`;
+  }
+  if (rows.length === 1) {
+    const r = rows[0]!;
+    return (
+      `${head} Faktura zaliczkowa ${r.nr} ma VAT ${zl(r.naFakturze)} zł, a ze wzoru z art. 106f ust. 1 pkt 3 ustawy o VAT ` +
+      `wychodzi ${zl(r.zeWzoru)} zł. Wystaw fakturę korygującą do tej faktury zaliczkowej (art. 106j ust. 1 pkt 5) tam, ` +
+      'gdzie ją wystawiono, a potem fakturę rozliczającą.'
+    );
+  }
+  return (
+    `${head} Faktury zaliczkowe ${rows.map((r) => `${r.nr} (VAT ${zl(r.naFakturze)} zł, ze wzoru ${zl(r.zeWzoru)} zł)`).join(', ')} ` +
+    'mają VAT inny niż wzór z art. 106f ust. 1 pkt 3 ustawy o VAT. Wystaw faktury korygujące do tych faktur zaliczkowych ' +
+    '(art. 106j ust. 1 pkt 5) tam, gdzie je wystawiono, a potem fakturę rozliczającą.'
+  );
 }
 
 function isVatRate(value: string): value is VatRate {

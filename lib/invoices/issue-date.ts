@@ -10,7 +10,9 @@
  * dzisiejszą datę w Polsce i odmawia, zanim cokolwiek zapisze.
  *
  * Ponowienie po północy faktury, która nie wyszła w dniu wystawienia, to
- * osobna decyzja (B1/B2 planu) — ten moduł jej nie podejmuje.
+ * osobna reguła (B1/B2a planu, `lib/ksef/special-issue-date.ts`): zwykła
+ * faktura do końca następnego dnia roboczego, dokument specjalny tylko w dniu
+ * wystawienia — ten moduł jej nie podejmuje.
  *
  * Czysty moduł: plik `'use server'` eksportuje wyłącznie akcje.
  */

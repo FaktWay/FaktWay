@@ -24,4 +24,17 @@ export type GlobalFlag =
    * WŁĄCZNIK uprawnień biura rachunkowego w KSeF nadawanych z FaktWay (00195,
    * krok 6.2, część 4). Odwrotnie niż `kill*`: brak wiersza albo błąd odczytu = wyłączone.
    */
-  | 'ksefPermissionsEnabled';
+  | 'ksefPermissionsEnabled'
+  /**
+   * WŁĄCZNIK faktury w cenach brutto (RP-FA-BRUTTO-01, B4.0 zasada 2 planu żelaznego
+   * filtra). Bez migracji: brak wiersza, `false` albo błąd odczytu = wyłączone.
+   * Odczyt i miejsca odmowy: `lib/invoices/ceny-brutto-wylacznik.ts`; włączenie:
+   * `docs/runbooks/ceny-brutto-wylacznik.md`.
+   */
+  | 'grossPricesEnabled'
+  /**
+   * WŁĄCZNIK potwierdzenia salda z kontrahentem (krok 2.9 cz. 2, D27 i D28 ze średnią
+   * pewnością). Wiersz wyłączony z 00216; brak wiersza, `false` albo błąd odczytu =
+   * wyłączone, a funkcje bazy odmawiają `disabled`. Odczyt: `lib/saldo/wylacznik.ts`.
+   */
+  | 'balanceConfirmationsEnabled';

@@ -98,6 +98,31 @@ describe('mapa ryzyka: polecenie', () => {
     expect(wynik.wyjscie).toMatch(/R1 {2}lib\/ksiegowosc\/zus\.ts {2}\(ksiegowosc\.silniki/);
   });
 
+  // Runbook (`docs/runbooks/filtr.md`) i `filtr/README.md` zalecają ręczne
+  // `pnpm filtr:mapa <plik>`. W PowerShellu ścieżka ma `\` (podpowiedź Tab
+  // dokłada `.\`), a mapa i lista kodu znają tylko `/`: plik R1 wychodził
+  // jako „R0 bez ryzyka prawnego” z kodem 0.
+  // Limit 30 s jak w `vitest.filtr.config.ts`: trzy uruchomienia node trwają
+  // na Windowsie ok. 1 s, a ten plik zbiera też główna konfiguracja (domyślne
+  // 5 s), także w pełnym biegu pod obciążeniem.
+  it.each([
+    ['ukośnik wsteczny', 'lib\\ksiegowosc\\zus.ts'],
+    ['kropka i ukośnik wsteczny (podpowiedź Tab w PowerShellu)', '.\\lib\\ksiegowosc\\zus.ts'],
+    ['kropka i ukośnik', './lib/ksiegowosc/zus.ts'],
+    ['oba rodzaje ukośników', 'lib/ksiegowosc\\zus.ts'],
+    ['ścieżka bezwzględna', join(KATALOG_REPO, 'lib', 'ksiegowosc', 'zus.ts')],
+  ])('%s: ten sam wynik co ścieżka z „/”', (_opis, wariant) => {
+    const wzor = uruchom(['--json', 'lib/ksiegowosc/zus.ts']);
+    expect(wzor.kod).toBe(0);
+    const oczekiwany = JSON.parse(wzor.wyjscie);
+    expect(oczekiwany).toMatchObject({ poziom: 'R1', pliki: [{ plik: 'lib/ksiegowosc/zus.ts', status: 'obszar' }] });
+
+    const wynik = uruchom(['--json', wariant]);
+    expect(wynik.kod).toBe(0);
+    expect(JSON.parse(wynik.wyjscie)).toEqual(oczekiwany);
+    expect(uruchom([wariant]).wyjscie).toContain('[FILTR] Poziom zmiany: R1 krytyczny');
+  }, 30_000);
+
   it('JSON dla straży i hooków', () => {
     const wynik = uruchom(['--json', 'lib/format/pl.ts']);
     expect(JSON.parse(wynik.wyjscie)).toMatchObject({ poziom: 'R3', niesklasyfikowane: [] });

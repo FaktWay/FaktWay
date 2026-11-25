@@ -223,9 +223,11 @@ describe('PR C: „Zapisz decyzję klienta” przy faktflow-original — karta w
 });
 
 describe('PR C: przegląd pliku (widok review, I5R) — „Zapisz fakturę z KSeF w FaktWay” i „Oddaj decyzję klientowi”', () => {
-  it('reviewRecordHint (D-A4-1b-3-KORZW): mówi też o korektach (zw do C3, stawka spoza FaktWay, brak ceny netto) i odsyła do pomocy FaktWay, bez adresu w treści', () => {
+  it('reviewRecordHint (D-A4-1b-3-KORZW): mówi też o korektach (stawka spoza FaktWay, brak ceny netto; pozycję zw FaktWay koryguje od planu zero C3) i odsyła do pomocy FaktWay, bez adresu w treści', () => {
     const hint = M.reviewRecordHint;
-    expect(hint).toContain('Korekty faktury z pozycją zw');
+    expect(hint).toContain('Korekty faktury ze stawką spoza FaktWay');
+    expect(hint).toContain('Pozycję zw FaktWay koryguje');
+    expect(hint).not.toContain('do czasu C3');
     expect(hint).toContain('ze stawką spoza FaktWay');
     expect(hint).toContain('bez ceny netto');
     expect(hint).toContain('przez pomoc FaktWay');

@@ -127,6 +127,22 @@ describe('formularz faktury: znaczniki przed podziałem (3.7c)', () => {
     expect(html()).toMatchSnapshot('po wypełnieniu');
   });
 
+  // Plan cen brutto, PR (b): lista metody i pole ceny brutto tylko przy włączonym wyłączniku
+  // (`grossPricesAvailable`); pozostałe przypadki renderują formularz bez niego, jak dotąd.
+  it('ceny brutto (plan cen brutto, PR (b)): wiersze od 1360 px z polem „Cena brutto”', async () => {
+    desktop = true;
+    const brutto: Partial<InvoiceFormValues> = {
+      ...podklad,
+      pricesGross: true,
+      lines: [
+        { name: 'Abonament', unit: 'mies.', quantity: 1, unitPriceNet: 0, unitPriceGross: 246, vatRate: '23' },
+        { name: 'Wdrożenie', unit: 'szt', quantity: 2, unitPriceNet: 0, unitPriceGross: 107.99, vatRate: '8' },
+      ],
+    };
+    const html = await render(<InvoiceForm tenantId={TENANT} initialValues={brutto} grossPricesAvailable />);
+    expect(html()).toMatchSnapshot();
+  });
+
   it('tryb cykliczny: bez szkicu, z tekstem C2 i ukrytymi polami', async () => {
     const html = await render(
       <InvoiceForm tenantId={TENANT} initialValues={podklad} recurringInvoiceId={POS} recurringPeriod="2026-11" />,

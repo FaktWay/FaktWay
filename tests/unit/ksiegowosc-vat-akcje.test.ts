@@ -113,7 +113,7 @@ const supabase = {
   },
 };
 
-const { pobierzJpkV7mAction, sprawdzStatusJpkAction, wyslijJpkV7mAction } = await import('@/app/actions/ksiegowosc-vat');
+const { pobierzJpkV7mAction, pobierzUpoJpkAction, sprawdzStatusJpkAction, wyslijJpkV7mAction } = await import('@/app/actions/ksiegowosc-vat');
 const { BladMf } = await import('@/lib/ksiegowosc/wysylka-jpk/klient');
 
 const faktura = {
@@ -274,6 +274,67 @@ describe('status wysyłki i UPO', () => {
     mocks.upload.mockResolvedValue(false);
     expect(await sprawdzStatusJpkAction({ id: ID })).toMatchObject({ success: true, stan: 'przyjeta' });
     expect(mocks.audit).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['zapisuje UPO', true],
+    ['zastaje UPO pod tym kluczem (412: pierwszy zapis doszedł mimo błędu)', false],
+  ])('magazyn padł przy zapisie UPO: komunikat zamiast wyjątku, wysyłka zostaje „w toku”, następne sprawdzenie %s', async (_opis, zapisanoTeraz) => {
+    mocks.status.mockResolvedValue({ kod: 200, opis: 'Przetwarzanie dokumentu zakończone poprawnie', szczegoly: NUMER, upo: UPO, czas: null });
+    const awaria = Object.assign(new Error('magazyn: przekroczony limit czasu zapisu'), { name: 'TimeoutError' });
+    mocks.upload.mockRejectedValueOnce(awaria);
+
+    const wynik = await sprawdzStatusJpkAction({ id: ID });
+    expect(wynik).toEqual({ success: false, error: expect.stringContaining('następnym otwarciu strony') });
+    // Bez zmiany stanu i bez audytu: wiersz zostaje „w_toku”, więc następne sprawdzenie pyta MF i zapisuje UPO jeszcze raz.
+    expect(mocks.zmiany).toEqual([]);
+    expect(mocks.audit).not.toHaveBeenCalled();
+    expect(mocks.sentryWyjatek).toHaveBeenCalledWith(awaria, { tags: { area: 'ksiegowosc.jpk' }, extra: { tenantId: 'firma-1', id: ID } });
+
+    mocks.upload.mockResolvedValueOnce(zapisanoTeraz);
+    expect(await sprawdzStatusJpkAction({ id: ID })).toMatchObject({ success: true, stan: 'przyjeta' });
+    const klucz = `upo/firma-1/jpk/2026-10/${NUMER}.xml`;
+    expect(mocks.upload).toHaveBeenNthCalledWith(2, klucz, Buffer.from(UPO, 'utf8'), 'application/xml');
+    expect(mocks.zmiany).toEqual([
+      {
+        zmiana: expect.objectContaining({ stan: 'przyjeta', status_kod: 200, upo_sciezka: klucz }),
+        warunki: [
+          ['id', ID],
+          ['stan', 'w_toku'],
+        ],
+      },
+    ]);
+    expect(mocks.audit).toHaveBeenCalledTimes(1);
+  });
+
+  it('magazyn padł przy pobraniu UPO: komunikat zamiast wyjątku, zgłoszenie w Sentry; za chwilę UPO do pobrania', async () => {
+    const klucz = `upo/firma-1/jpk/2026-10/${NUMER}.xml`;
+    mocks.wiersz = wiersz({ stan: 'przyjeta', status_kod: 200, upo_sciezka: klucz });
+    const awaria = Object.assign(new Error('magazyn: przekroczony limit czasu odczytu'), { name: 'TimeoutError' });
+    mocks.download.mockRejectedValueOnce(awaria);
+
+    expect(await pobierzUpoJpkAction({ id: ID })).toEqual({ success: false, error: expect.stringContaining('za chwilę') });
+    expect(mocks.download).toHaveBeenCalledWith(klucz, 'firma-1');
+    expect(mocks.sentryWyjatek).toHaveBeenCalledWith(awaria, { tags: { area: 'ksiegowosc.jpk' }, extra: { tenantId: 'firma-1', id: ID } });
+
+    mocks.download.mockResolvedValueOnce(Buffer.from(UPO, 'utf8'));
+    expect(await pobierzUpoJpkAction({ id: ID })).toEqual({ success: true, xml: UPO, nazwa: `UPO_JPK_V7M_2026-10_${NUMER}.xml` });
+  });
+
+  it('komunikaty o awarii magazynu bez trybu rozkazującego i długich myślników (D8)', async () => {
+    mocks.status.mockResolvedValue({ kod: 200, opis: 'Przetwarzanie dokumentu zakończone poprawnie', szczegoly: NUMER, upo: UPO, czas: null });
+    mocks.upload.mockRejectedValue(new Error('magazyn niedostępny'));
+    mocks.download.mockRejectedValue(new Error('magazyn niedostępny'));
+    const zapis = await sprawdzStatusJpkAction({ id: ID });
+    mocks.wiersz = wiersz({ stan: 'przyjeta', upo_sciezka: `upo/firma-1/jpk/2026-10/${NUMER}.xml` });
+    const odczyt = await pobierzUpoJpkAction({ id: ID });
+    for (const w of [zapis, odczyt]) {
+      expect(w.success).toBe(false);
+      const tekst = w.success ? '' : w.error;
+      expect(tekst).not.toMatch(/[—–]/);
+      expect(tekst).not.toMatch(/(?<![\p{L}])(?:spróbuj|sprawdź|pobierz|odśwież|otwórz|zapłać|należy)(?![\p{L}])/iu);
+      expect(tekst).not.toMatch(/FaktFlow|magazyn|storage|S3/i);
+    }
   });
 
   it('120 zostaje w toku; odmowa klienta (422) bez Sentry, techniczna (412) z Sentry; zakończonej wysyłki nie pyta MF', async () => {

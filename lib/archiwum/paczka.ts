@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { readCompletePagesByKey } from '@/lib/accounting/read-complete-pages';
 import { KsefExpenseCurrencyNotSupportedError } from '@/lib/expenses/ksef-currency-review';
 import { OutgoingInvoiceCurrencyNotSupportedError } from '@/lib/exports/currency-guard';
 import { fetchInvoicesForExport } from '@/lib/exports/data-fetcher';
@@ -18,6 +19,7 @@ import { MissingTaxOfficeError, readTenantTaxOffice } from '@/lib/exports/tax-of
 import { packageZip, type PackagedFile } from '@/lib/exports/zip-packager';
 import { formatWarsawDateTime } from '@/lib/format/warsaw-date';
 import { requireConfiguredKsefEnvironment } from '@/lib/ksef/claim-environment';
+import { readAllByIdInList } from '@/lib/pagination/in-list';
 import { generateInvoicePdf } from '@/lib/pdf/invoice-pdf';
 import { downloadExpensePhoto } from '@/lib/storage/expenses';
 import { downloadFromR2, downloadInvoiceXml } from '@/lib/storage/r2';
@@ -72,9 +74,6 @@ export interface BuiltArchive {
   missing: ArchiveMissing[];
 }
 
-const PAGE = 1000;
-const CHUNK = 200;
-
 const XML_NO_FILE =
   'FaktWay nie ma zapisanego pliku XML tej faktury. Oryginał jest w KSeF: pobierzesz go po numerze KSeF w Aplikacji Podatnika KSeF.';
 const XML_MISSING =
@@ -89,6 +88,12 @@ const UPO_FOREIGN =
   'faktura trafiła do KSeF spoza FaktWay (pobrana z historii KSeF), więc UPO ma program, z którego ją wysłano.';
 const UPO_MISSING = 'pliku UPO nie ma w magazynie FaktWay. Napisz do nas; UPO pobierzesz też na stronie faktury.';
 const PHOTO_MISSING = 'zdjęcia nie ma w magazynie FaktWay. Napisz do nas, sprawdzimy kopię.';
+/** FZ-032: faktura bez danych stron (np. zakup ze Skrzynki KSeF z samymi metadanymi). */
+const PDF_NO_PARTIES =
+  'w FaktWay nie ma pełnych danych sprzedawcy i nabywcy tej faktury (tak jest np. przy fakturze zakupu pobranej ze Skrzynki KSeF, która ma tylko dane z KSeF), więc nie zrobiliśmy jej wydruku PDF. Oryginałem faktury jest plik XML z KSeF.';
+/** Nieprzewidziany błąd wydruku: PDF to wizualizacja, więc paczka powstaje bez niego. */
+const PDF_FAILED =
+  'nie udało się zrobić wydruku PDF tej faktury, więc nie trafił do paczki. Oryginałem faktury jest plik XML z KSeF. Napisz do nas, sprawdzimy wydruk.';
 const PHOTO_NONE =
   'w FaktWay nie ma zdjęcia ani pliku tego dokumentu. Jeśli jest na papierze, trzeba go dołączyć do dokumentów osobno.';
 const JPK_LATER =
@@ -170,46 +175,87 @@ interface ExpenseRow {
 const EXPENSE_COLUMNS =
   'id, issue_date, document_number, document_type, seller_name, seller_nip, net_amount, vat_amount, gross_amount, source, source_file_path, source_file_mime, ksef_invoice_id';
 
+const XML_DOC_COLUMNS = 'id, invoice_id, storage_path, sha256_hash';
+const UPO_COLUMNS = 'id, invoice_id, status, upo_xml_path, created_at';
+
 interface XmlDocRow {
+  id: string;
   invoice_id: string;
   storage_path: string;
   sha256_hash: string | null;
 }
 interface UpoRow {
+  id: string;
   invoice_id: string;
   status: string;
   upo_xml_path: string | null;
   created_at: string | null;
 }
 
-async function readPeriodRows<T>(db: SupabaseClient, table: string, columns: string, order: ArchiveOrderInput): Promise<T[]> {
-  const rows: T[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await db
-      .from(table)
-      .select(columns)
-      .eq('tenant_id', order.tenantId)
-      .gte('issue_date', order.periodStart)
-      .lte('issue_date', order.periodEnd)
-      .order('issue_date')
-      .order('id')
-      .range(from, from + PAGE - 1);
-    if (error) throw new Error(`${table}: ${error.message}`);
-    const page = (data ?? []) as unknown as T[];
-    rows.push(...page);
-    if (page.length < PAGE) return rows;
-  }
+/** Strona odczytu po kluczu w typie helpera: kolumny ze stałej sklejanej `+`, więc supabase-js nie zna typu wiersza. */
+type KeyPage<T> = PromiseLike<{ data: T[] | null; count?: number | null; error: { message: string } | null }>;
+
+/** Kolejność w paczce jak przed odczytem po kluczu: data wystawienia, potem `id`. */
+function byIssueDate<T extends { id: string; issue_date: string }>(rows: T[]): T[] {
+  return rows.sort((a, b) =>
+    a.issue_date < b.issue_date ? -1 : a.issue_date > b.issue_date ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+  );
 }
 
-async function readByInvoice<T>(db: SupabaseClient, table: string, columns: string, tenantId: string, ids: string[]): Promise<T[]> {
-  const rows: T[] = [];
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const { data, error } = await db.from(table).select(columns).eq('tenant_id', tenantId).in('invoice_id', ids.slice(i, i + CHUNK));
-    // „Nie wiem, jakie pliki ma faktura” to nie „nie ma plików”.
-    if (error) throw new Error(`${table}: ${error.message}`);
-    rows.push(...((data ?? []) as unknown as T[]));
-  }
-  return rows;
+/*
+ * Odczyty paczki: komplet albo wyjątek (FZ-033, ten sam wzór co FZ-018). Serwer
+ * ucina odpowiedź do 1000 wierszy bez błędu, a dokument zapisany w trakcie
+ * budowania paczki przesuwał strony zakresów (wypadał z ZIP albo był w nim dwa
+ * razy). Wiersze okresu idą stronami po `id` z licznikiem (`readCompletePagesByKey`),
+ * pliki faktur (XML, UPO) paczkami `in()`, każda stronami po `id`
+ * (`readAllByIdInList`); zmiana w trakcie daje wyjątek i ponowienie joba.
+ * „Nie wiem, jakie pliki ma faktura” to nie „nie ma plików”: błąd odczytu rzuca.
+ * Jedna funkcja na tabelę z nazwą tabeli wprost, bo niezmiennik NZ-WSP-08
+ * (`tests/filtr/niezmienniki/strony.test.ts`) sprawdza każde zapytanie po nazwie.
+ */
+
+async function readPeriodInvoices(db: SupabaseClient, order: ArchiveOrderInput): Promise<InvoiceRow[]> {
+  const rows = await readCompletePagesByKey<InvoiceRow>('invoices', ({ afterId, limit, count, head }) => {
+    let query = db
+      .from('invoices')
+      .select(INVOICE_COLUMNS, count ? { count: 'exact', head } : undefined)
+      .eq('tenant_id', order.tenantId)
+      .gte('issue_date', order.periodStart)
+      .lte('issue_date', order.periodEnd);
+    if (afterId !== null) query = query.gt('id', afterId);
+    return query.order('id', { ascending: true }).limit(limit) as unknown as KeyPage<InvoiceRow>;
+  });
+  return byIssueDate(rows);
+}
+
+async function readPeriodExpenses(db: SupabaseClient, order: ArchiveOrderInput): Promise<ExpenseRow[]> {
+  const rows = await readCompletePagesByKey<ExpenseRow>('expenses', ({ afterId, limit, count, head }) => {
+    let query = db
+      .from('expenses')
+      .select(EXPENSE_COLUMNS, count ? { count: 'exact', head } : undefined)
+      .eq('tenant_id', order.tenantId)
+      .gte('issue_date', order.periodStart)
+      .lte('issue_date', order.periodEnd);
+    if (afterId !== null) query = query.gt('id', afterId);
+    return query.order('id', { ascending: true }).limit(limit) as unknown as KeyPage<ExpenseRow>;
+  });
+  return byIssueDate(rows);
+}
+
+async function readXmlDocuments(db: SupabaseClient, tenantId: string, ids: string[]): Promise<XmlDocRow[]> {
+  return readAllByIdInList<XmlDocRow>('xml_documents', ids, (values, afterId, limit) => {
+    let query = db.from('xml_documents').select(XML_DOC_COLUMNS).eq('tenant_id', tenantId).in('invoice_id', values);
+    if (afterId !== null) query = query.gt('id', afterId);
+    return query.order('id', { ascending: true }).limit(limit) as unknown as KeyPage<XmlDocRow>;
+  });
+}
+
+async function readUpoReceipts(db: SupabaseClient, tenantId: string, ids: string[]): Promise<UpoRow[]> {
+  return readAllByIdInList<UpoRow>('upo_receipts', ids, (values, afterId, limit) => {
+    let query = db.from('upo_receipts').select(UPO_COLUMNS).eq('tenant_id', tenantId).in('invoice_id', values);
+    if (afterId !== null) query = query.gt('id', afterId);
+    return query.order('id', { ascending: true }).limit(limit) as unknown as KeyPage<UpoRow>;
+  });
 }
 
 /** Brak obiektu w magazynie (S3/MinIO) albo pusta odpowiedź: to brak, a nie awaria. */
@@ -258,6 +304,18 @@ function text(value: unknown): string {
 
 function partyField(party: unknown, field: 'name' | 'nip'): string {
   return party && typeof party === 'object' && !Array.isArray(party) ? text((party as Record<string, unknown>)[field]) : '';
+}
+
+/** Strona faktury, którą wydrukuje renderer PDF: nazwa i adres (`lib/pdf/invoice-renderer.ts`, bloki stron). */
+function isPrintableParty(party: unknown): boolean {
+  if (!party || typeof party !== 'object' || Array.isArray(party)) return false;
+  const p = party as Record<string, unknown>;
+  return text(p.name) !== '' && !!p.address && typeof p.address === 'object' && !Array.isArray(p.address);
+}
+
+/** FZ-032: wydruk PDF tylko faktury z danymi sprzedawcy i nabywcy. */
+function hasPrintableParties(inv: { seller_data: unknown; buyer_data: unknown }): boolean {
+  return isPrintableParty(inv.seller_data) && isPrintableParty(inv.buyer_data);
 }
 
 /** Komórka CSV (separator „;”): cudzysłów przy „;” i „"”, bez formuł arkusza. */
@@ -343,16 +401,16 @@ export async function buildArchivePackage(
   const companyName = text((tenant as { name?: unknown }).name);
 
   const [invoices, expenses] = await Promise.all([
-    readPeriodRows<InvoiceRow>(db, 'invoices', INVOICE_COLUMNS, order),
-    readPeriodRows<ExpenseRow>(db, 'expenses', EXPENSE_COLUMNS, order),
+    readPeriodInvoices(db, order),
+    readPeriodExpenses(db, order),
   ]);
   const listed = invoices.filter((inv) => inv.ksef_status !== 'draft');
   const documents = listed.filter((inv) => !inv.ksef_environment || inv.ksef_environment === environment);
   const otherEnvironment = listed.length - documents.length;
   const ids = documents.map((inv) => inv.id);
   const [xmlDocs, upos] = await Promise.all([
-    readByInvoice<XmlDocRow>(db, 'xml_documents', 'invoice_id, storage_path, sha256_hash', tenantId, ids),
-    readByInvoice<UpoRow>(db, 'upo_receipts', 'invoice_id, status, upo_xml_path, created_at', tenantId, ids),
+    readXmlDocuments(db, tenantId, ids),
+    readUpoReceipts(db, tenantId, ids),
   ]);
   const hashes = new Map(xmlDocs.map((d) => [`${d.invoice_id}|${d.storage_path}`, d.sha256_hash]));
   const uposByInvoice = new Map<string, UpoRow[]>();
@@ -412,12 +470,28 @@ export async function buildArchivePackage(
         }
       }
 
-      const pdf = await generateInvoicePdf(inv.id, tenantId);
-      if (pdf.success) {
-        add(`${folder}/${base}.pdf`, pdf.pdf);
-        included.push('PDF');
+      // FZ-032: wydruk tylko faktury z danymi sprzedawcy i nabywcy. Faktura zakupu ze
+      // Skrzynki KSeF ma w wierszu same metadane (`inbox-polling` nie zapisuje stron),
+      // a renderer czyta strony wprost, więc dotąd jedna taka faktura kończyła całą
+      // paczkę błędem. Teraz brak PDF idzie do spisu z powodem, a XML z KSeF zostaje.
+      // Inny rzut renderera (np. brak danych płatności) też nie kończy paczki: wydruk
+      // to wizualizacja, a oryginał (XML z KSeF) zostaje.
+      if (!hasPrintableParties(inv)) {
+        missing.push({ dokument: label, plik: 'PDF', powod: PDF_NO_PARTIES });
       } else {
-        missing.push({ dokument: label, plik: 'PDF', powod: pdf.error });
+        let pdf: Awaited<ReturnType<typeof generateInvoicePdf>> | null = null;
+        try {
+          pdf = await generateInvoicePdf(inv.id, tenantId);
+        } catch (error) {
+          console.error('[archiwum] wydruk PDF faktury', inv.id, error instanceof Error ? error.message : error);
+          missing.push({ dokument: label, plik: 'PDF', powod: PDF_FAILED });
+        }
+        if (pdf?.success) {
+          add(`${folder}/${base}.pdf`, pdf.pdf);
+          included.push('PDF');
+        } else if (pdf) {
+          missing.push({ dokument: label, plik: 'PDF', powod: pdf.error });
+        }
       }
 
       if (sale) {

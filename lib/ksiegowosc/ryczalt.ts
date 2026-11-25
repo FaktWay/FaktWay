@@ -23,6 +23,7 @@
 
 import { etykietaStawki } from '@/lib/ksiegowosc/ewidencja';
 import type { KluczRyczaltu, Liczba } from '@/lib/ksiegowosc/parametry';
+import { doZlotych } from '@/lib/ksiegowosc/pit';
 import { procentGr } from '@/lib/ksiegowosc/zus';
 
 export type LiczbyRyczaltu = { readonly [P in KluczRyczaltu]: Liczba };
@@ -75,9 +76,9 @@ export interface RyczaltMiesiaca {
 
 export type WynikRyczaltu = { ok: true; ryczalt: RyczaltMiesiaca } | { ok: false; brak: string };
 
-/** Grosze do pełnych złotych, połówka w górę (kwoty nieujemne). */
+/** Grosze do pełnych złotych: ta sama funkcja co `doZlotych` (FZ-001, połówka od zera także dla kwot ujemnych). */
 export function doPelnychZlotych(gr: number): number {
-  return Math.floor((gr + 50) / 100) * 100;
+  return doZlotych(gr);
 }
 
 export function ryczaltMiesiaca(w: WejscieRyczaltu, liczby: LiczbyRyczaltu): WynikRyczaltu {

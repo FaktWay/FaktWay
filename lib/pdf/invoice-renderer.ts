@@ -14,8 +14,10 @@ import {
 } from '@/lib/invoices/annotations';
 import { tytulPrzelewuNaDokumencie } from '@/lib/invoices/tytul-przelewu';
 import { lineCodesText } from '@/lib/invoices/line-codes';
+import { orderLine } from '@/lib/invoices/order-reference';
 import { RECEIPT_INVOICE_LABEL, receiptDetailsLine } from '@/lib/invoices/receipt-invoice';
 import { vatSummaryAgreesWithGross } from '@/lib/invoices/vat-summary';
+import { SELLER_VAT_UE_PREFIX, sellerNeedsVatUePrefix } from '@/lib/invoices/vat-ue';
 import { drawPdfLogo, type PdfLogo } from '@/lib/pdf/logo';
 import { PUBLIC_SITE_DOMAIN, PUBLIC_SITE_URL } from '@/lib/site';
 import { roundToCents } from '@/lib/xml/invoice-calculator';
@@ -394,13 +396,17 @@ function drawParties(
     doc.text(addr2, x, doc.y, { width: colWidth });
   };
 
+  // W8 (plan zero C2): przy usłudze „np II” numer VAT UE sprzedawcy, czyli NIP
+  // z prefiksem PL, jak `PrefiksPodatnika` w pliku FA(3) (RP-FA-VATUE-01).
+  const sellerVatUe = sellerNeedsVatUePrefix(invoice.lines.map((line) => line.vatRate));
   block(
     left,
     'Sprzedawca',
     invoice.seller.name,
-    invoice.seller.nip,
+    sellerVatUe ? `${SELLER_VAT_UE_PREFIX}${invoice.seller.nip}` : invoice.seller.nip,
     invoice.seller.address.addressLine1,
     invoice.seller.address.addressLine2,
+    sellerVatUe ? 'VAT UE' : 'NIP',
   );
   const sellerBottom = doc.y;
 
@@ -684,6 +690,12 @@ function drawFooter(
   if (exemption) {
     doc.font('body').fontSize(8).fillColor('#444444');
     doc.text(exemption, left, doc.y, { width });
+    doc.y += 4;
+  }
+  // Krok 2.8: numer zamówienia (FA(3) `WarunkiTransakcji/Zamowienia`); bez niego wydruk jak dotąd.
+  if (invoice.order) {
+    doc.font('body').fontSize(8).fillColor('#444444');
+    doc.text(orderLine(invoice.order), left, doc.y, { width });
     doc.y += 4;
   }
   if (invoice.notes) {

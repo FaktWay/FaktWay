@@ -26,6 +26,32 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 const GENERIC_FAILURE = 'Nie udało się przygotować paczki. Zleć ją ponownie albo napisz do nas.';
+/**
+ * Powody odczytu stronami z licznikiem (`readCompletePagesByKey`: faktury i koszty
+ * okresu w `lib/archiwum/paczka.ts`), gdy dane okresu zmieniały się w trakcie
+ * odczytu: licznik kontrolny inny niż pierwszy, strona krótsza albo dłuższa niż
+ * licznik, kolejność się przesunęła. Takie błędy dają ponowienie joba, a po
+ * wyczerpaniu prób klient dostaje przyczynę i wyjście (ustalenie 23). Etykiety
+ * nie sprawdzamy: te same powody daje odczyt pozycji i kosztów do JPK_FA w paczce
+ * (`lib/exports/data-fetcher.ts`), a tekst jest prawdziwy i tam. Rzadziej powód
+ * ma inne źródło (cichy limit wierszy serwera), więc tekst mówi „np.” i daje
+ * drugie wyjście (pomoc FaktWay). Pliki faktur (`readAllByIdInList`) mają własne
+ * powody (`KeysetPageError`) i dostają tekst ogólny.
+ */
+const CHANGED_DURING_READ_REASONS = [
+  'nie można potwierdzić liczby rekordów',
+  'niepełna strona danych',
+  'niestabilna kolejność stron danych',
+] as const;
+const CHANGED_DURING_READ =
+  'Nie udało się przygotować paczki, bo w trakcie jej przygotowania zmieniały się faktury albo koszty z tego okresu (np. trwał import albo wysyłka do KSeF). Zleć ją ponownie za kilka minut, a jeśli to się powtórzy, napisz do nas.';
+
+/** Powód „nieudanej” paczki dla człowieka; treść błędu technicznego nie trafia do klienta. */
+function exhaustedMessage(failure: Error): string {
+  if (failure.message === new ArchiveTooLargeError().message) return failure.message;
+  if (CHANGED_DURING_READ_REASONS.some((reason) => failure.message.endsWith(`: ${reason}`))) return CHANGED_DURING_READ;
+  return GENERIC_FAILURE;
+}
 
 interface OrderRow {
   id: string;
@@ -187,7 +213,7 @@ export async function runDocumentArchive(eventData: { archiveId: string }, { log
  * człowieka, tylko z aktywnego stanu (gotowej paczki błąd poczty nie psuje).
  */
 export async function onDocumentArchiveExhausted(failure: Error, data: { archiveId: string }): Promise<void> {
-  const message = failure.message === new ArchiveTooLargeError().message ? failure.message : GENERIC_FAILURE;
+  const message = exhaustedMessage(failure);
   const { error } = await db()
     .from('document_archives')
     .update({ status: 'failed', error_message: message, finished_at: new Date().toISOString() })

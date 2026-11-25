@@ -25,16 +25,35 @@ const h = vi.hoisted(() => ({
   xsd: vi.fn(),
 }));
 
-/** Atrapa klienta PostgREST: filtry eq/in/gte/lte na wierszach tabeli, `range` tnie stronę. */
-class Query implements PromiseLike<{ data: Row[]; error: null }> {
+/**
+ * Atrapa klienta PostgREST: filtry eq/in/gte/lte/gt na wierszach tabeli, `range`
+ * i `limit` tną stronę, `order('id')` sortuje, `count`/`head` jak w PostgREST
+ * (odczyt stronami po `id` z licznikiem, FZ-033).
+ */
+class Query implements PromiseLike<{ data: Row[] | null; count: number | null; error: null }> {
   private rows: Row[];
+  private countMode = false;
+  private headMode = false;
+  private sortById = false;
+  private take: number | null = null;
   constructor(rows: Row[]) {
     this.rows = [...rows];
   }
-  select() {
+  select(_cols?: string, opts?: { count?: string; head?: boolean }) {
+    this.countMode = opts?.count === 'exact';
+    this.headMode = opts?.head === true;
     return this;
   }
-  order() {
+  order(column?: string) {
+    if (column === 'id') this.sortById = true;
+    return this;
+  }
+  gt(column: string, value: string) {
+    this.rows = this.rows.filter((r) => String(r[column]) > value);
+    return this;
+  }
+  limit(n: number) {
+    this.take = n;
     return this;
   }
   eq(column: string, value: unknown) {
@@ -60,8 +79,14 @@ class Query implements PromiseLike<{ data: Row[]; error: null }> {
   maybeSingle() {
     return Promise.resolve({ data: this.rows[0] ?? null, error: null });
   }
-  then<A, B>(ok?: ((v: { data: Row[]; error: null }) => A | PromiseLike<A>) | null, bad?: ((e: unknown) => B | PromiseLike<B>) | null) {
-    return Promise.resolve({ data: this.rows, error: null as null }).then(ok, bad);
+  then<A, B>(
+    ok?: ((v: { data: Row[] | null; count: number | null; error: null }) => A | PromiseLike<A>) | null,
+    bad?: ((e: unknown) => B | PromiseLike<B>) | null,
+  ) {
+    const all = this.sortById ? [...this.rows].sort((a, b) => (String(a.id) < String(b.id) ? -1 : String(a.id) > String(b.id) ? 1 : 0)) : this.rows;
+    const count = this.countMode ? all.length : null;
+    const data = this.headMode ? null : this.take === null ? all : all.slice(0, this.take);
+    return Promise.resolve({ data, count, error: null as null }).then(ok, bad);
   }
 }
 
@@ -79,10 +104,14 @@ vi.mock('@/lib/exports/jpk-schema-check', async (orig) => ({ ...(await orig<obje
 
 import { JpkDocumentNotSupportedError } from '@/lib/exports/jpk-fa-generator';
 import { ArchiveTooLargeError, buildArchivePackage } from '@/lib/archiwum/paczka';
+import { renderInvoicePdf } from '@/lib/pdf/invoice-renderer';
+import { finalizeInvoice } from '@/lib/xml/invoice-calculator';
+import type { Invoice } from '@/types/invoice';
 
 const T = '0178aaaa-0000-4000-8000-000000000001';
 const ORDER = { id: '0178bbbb-0000-4000-8000-000000000001', tenantId: T, periodStart: '2026-03-01', periodEnd: '2026-03-31' };
 const NOW = new Date('2026-11-09T13:35:00Z');
+const ADRES = { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' };
 
 /** Wpisy ZIP z katalogu centralnego, rozpakowane (jak program do archiwów). */
 function rozpakuj(zip: Buffer): Map<string, Buffer> {
@@ -119,25 +148,28 @@ beforeEach(() => {
         id: 's1', tenant_id: T, direction: 'outgoing', internal_number: 'FV/1/2026', ksef_number: '1234567890-20260305-0100A1-AB',
         ksef_status: 'accepted', ksef_environment: 'test', origin: 'manual', issue_date: '2026-03-05', sale_date: '2026-03-05',
         payment_due_date: '2026-03-19', net_total: 1000, vat_total: 230, gross_total: 1230, currency: 'PLN',
-        buyer_data: { name: 'Nabywca; Sp. z o.o.', nip: '5260001246' }, buyer_nip: '5260001246', seller_nip: '1234567890',
-        seller_data: { name: 'Firma Testowa' }, xml_storage_path: `${T}/2026/03/s1.xml`,
+        buyer_data: { name: 'Nabywca; Sp. z o.o.', nip: '5260001246', address: ADRES }, buyer_nip: '5260001246', seller_nip: '1234567890',
+        seller_data: { name: 'Firma Testowa', address: ADRES }, xml_storage_path: `${T}/2026/03/s1.xml`,
       },
       {
+        // Zakup z pełnymi danymi stron (import z pliku FA(3)); wiersz ze Skrzynki KSeF (bez stron) jest w teście FZ-032 niżej.
         id: 'z1', tenant_id: T, direction: 'incoming', internal_number: 'ZK/7', ksef_number: '5260001246-20260307-0200B2-CD',
-        ksef_status: 'accepted', ksef_environment: 'test', origin: 'ksef_inbox', issue_date: '2026-03-07', sale_date: null,
+        ksef_status: 'accepted', ksef_environment: 'test', origin: 'ksef_import', issue_date: '2026-03-07', sale_date: null,
         payment_due_date: null, net_total: 100, vat_total: 23, gross_total: 123, currency: 'PLN',
-        seller_data: { name: 'Hurtownia' }, seller_nip: '5260001246', buyer_data: null, buyer_nip: '1234567890',
+        seller_data: { name: 'Hurtownia', nip: '5260001246', address: ADRES }, seller_nip: '5260001246',
+        buyer_data: { name: 'Firma Testowa', nip: '1234567890', address: ADRES }, buyer_nip: '1234567890',
         xml_storage_path: `${T}/ksef-import/z1.xml`,
       },
       // Szkic nie jest dokumentem: ani w paczce, ani na liście braków.
       { id: 'd1', tenant_id: T, direction: 'outgoing', internal_number: null, ksef_status: 'draft', issue_date: '2026-03-10' },
     ],
     xml_documents: [
-      { tenant_id: T, invoice_id: 's1', storage_path: `${T}/2026/03/s1.xml`, sha256_hash: 'h-s1' },
-      { tenant_id: T, invoice_id: 'z1', storage_path: `${T}/ksef-import/z1.xml`, sha256_hash: 'h-z1' },
+      // Wiersze jak w bazie, z `id` (odczyt plików faktur stronami po `id`, FZ-033).
+      { id: 'x-s1', tenant_id: T, invoice_id: 's1', storage_path: `${T}/2026/03/s1.xml`, sha256_hash: 'h-s1' },
+      { id: 'x-z1', tenant_id: T, invoice_id: 'z1', storage_path: `${T}/ksef-import/z1.xml`, sha256_hash: 'h-z1' },
     ],
     upo_receipts: [
-      { tenant_id: T, invoice_id: 's1', status: 'downloaded', upo_xml_path: `upo/${T}/s1.xml`, created_at: '2026-03-05T10:00:00Z' },
+      { id: 'u-s1', tenant_id: T, invoice_id: 's1', status: 'downloaded', upo_xml_path: `upo/${T}/s1.xml`, created_at: '2026-03-05T10:00:00Z' },
     ],
     expenses: [
       {
@@ -262,3 +294,104 @@ describe('archiwum dokumentów: składanie paczki', () => {
     await expect(buildArchivePackage({ ...ORDER, kind: 'archive' }, { now: NOW, maxSourceBytes: 10 })).rejects.toBeInstanceOf(ArchiveTooLargeError);
   });
 });
+
+describe('FZ-032: faktura zakupu ze Skrzynki KSeF bez danych stron', () => {
+  // `inbox-polling` zapisuje fakturę ze Skrzynki z samymi metadanymi (`lib/jobs/runners/inbox-polling.ts`,
+  // bez `seller_data`, `buyer_data` i `payment_data`), a renderer PDF czyta sprzedawcę i nabywcę wprost
+  // (`lib/pdf/invoice-renderer.ts`, `invoice.seller.name`). Paczka robiła PDF każdej faktury bez sprawdzenia,
+  // więc jedna taka faktura kończyła całą paczkę błędem, także przy fakturze w PLN.
+  const zeSkrzynki = {
+    id: 'z2', tenant_id: T, direction: 'incoming', internal_number: 'FA/99/2026', ksef_number: '5260001246-20260311-0300C3-EF',
+    ksef_status: 'received', ksef_environment: 'test', origin: 'ksef_inbox', issue_date: '2026-03-11', sale_date: null,
+    payment_due_date: null, net_total: 50, vat_total: 11.5, gross_total: 61.5, currency: 'PLN',
+    seller_data: null, seller_nip: '5260001246', buyer_data: null, buyer_nip: '1234567890', xml_storage_path: `${T}/ksef-inbox/z2.xml`,
+  };
+
+  /** Strona, którą renderer drukuje: nazwa i adres (`invoice.seller.name`, `invoice.seller.address.addressLine1`). */
+  const drukowalna = (strona: unknown) =>
+    !!strona && typeof strona === 'object' && !!(strona as { name?: unknown }).name && !!(strona as { address?: unknown }).address;
+
+  /** PDF jak naprawdę: renderer rzuca, gdy faktura nie ma danych stron (atrapa tylko zamiast plików i bazy PDF). */
+  function pdfJakRenderer() {
+    h.pdf.mockImplementation(async (id: string) => {
+      const row = h.tables.invoices!.find((r) => r.id === id)!;
+      if (!drukowalna(row.seller_data) || !drukowalna(row.buyer_data)) throw new TypeError("Cannot read properties of null (reading 'name')");
+      return { success: true, pdf: Buffer.from(`%PDF ${id}`), filename: 'x.pdf', qrStateKey: 'k', missingKodI: false };
+    });
+  }
+
+  it('prawdziwy renderer PDF rzuca przy fakturze bez sprzedawcy i nabywcy (dlatego paczka sprawdza strony przed wydrukiem)', async () => {
+    const faktura = finalizeInvoice({
+      internalNumber: 'FA/99/2026', type: 'VAT', issueDate: '2026-03-11',
+      seller: { nip: '5260001246', name: 'Hurtownia', address: ADRES },
+      buyer: { nip: '1234567890', name: 'Firma Testowa', address: ADRES },
+      payment: { currency: 'PLN', method: 'transfer' },
+      lines: [{ ordinal: 1, name: 'Towar', unit: 'szt.', quantity: 1, unitPriceNet: 50, vatRate: '23' }],
+    } as Parameters<typeof finalizeInvoice>[0]);
+    await expect(renderInvoicePdf({ ...faktura, seller: null, buyer: null } as unknown as Invoice)).rejects.toThrow(/Cannot read properties of null/);
+  });
+
+  it('paczka powstaje: XML z KSeF w paczce, brak PDF w spisie z powodem, reszta dokumentów bez zmian', async () => {
+    h.tables.invoices!.push(zeSkrzynki);
+    h.tables.xml_documents!.push({ id: 'x-z2', tenant_id: T, invoice_id: 'z2', storage_path: `${T}/ksef-inbox/z2.xml`, sha256_hash: 'h-z2' });
+    pdfJakRenderer();
+
+    const built = await buildArchivePackage({ ...ORDER, kind: 'archive' }, { now: NOW });
+    const files = rozpakuj(built.zip);
+
+    expect(files.has('faktury-zakupu/2026-03-11_5260001246_FA_99_2026.xml')).toBe(true);
+    expect(files.has('faktury-zakupu/2026-03-11_5260001246_FA_99_2026.pdf')).toBe(false);
+    // Pozostałe faktury mają PDF jak dotąd (dla nich renderer działa).
+    expect(files.has('faktury-sprzedazy/2026-03-05_FV_1_2026.pdf')).toBe(true);
+    expect(files.has('faktury-zakupu/2026-03-07_5260001246_ZK_7.pdf')).toBe(true);
+    expect(built.missing).toEqual([
+      expect.objectContaining({ dokument: 'Faktura zakupu FA/99/2026 (NIP 5260001246)', plik: 'PDF', powod: expect.stringMatching(/Oryginałem faktury jest plik XML z KSeF/) }),
+    ]);
+    // Wydruku nie próbujemy: renderer padłby na braku stron.
+    expect(h.pdf).not.toHaveBeenCalledWith('z2', T);
+    const spis = files.get('CO-JEST-W-PACZCE.txt')!.toString('utf8');
+    expect(spis).toContain('FA/99/2026');
+    expect(spis).toMatch(/nie ma pełnych danych sprzedawcy i nabywcy/);
+    expect(spis).not.toMatch(/[—–]/);
+  });
+
+  it('nieprzewidziany błąd wydruku faktury ze stronami: paczka powstaje, brak PDF w spisie z powodem, XML zostaje', async () => {
+    // Uwaga N3 czytelnika: wydruk to wizualizacja, oryginałem jest XML z KSeF, więc inny rzut renderera
+    // (np. brak danych płatności) nie może kończyć całej paczki dokumentów do przechowania.
+    h.pdf.mockImplementation(async (id: string) => {
+      if (id === 'z1') throw new TypeError("Cannot read properties of undefined (reading 'method')");
+      return { success: true, pdf: Buffer.from(`%PDF ${id}`), filename: 'x.pdf', qrStateKey: 'k', missingKodI: false };
+    });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const built = await buildArchivePackage({ ...ORDER, kind: 'archive' }, { now: NOW });
+    const files = rozpakuj(built.zip);
+    // Wpis dla operatora w logu workera (id faktury i treść błędu, bez danych klienta).
+    expect(log).toHaveBeenCalledWith('[archiwum] wydruk PDF faktury', 'z1', expect.stringContaining("reading 'method'"));
+    log.mockRestore();
+
+    expect(files.has('faktury-zakupu/2026-03-07_5260001246_ZK_7.xml')).toBe(true);
+    expect(files.has('faktury-zakupu/2026-03-07_5260001246_ZK_7.pdf')).toBe(false);
+    expect(files.has('faktury-sprzedazy/2026-03-05_FV_1_2026.pdf')).toBe(true);
+    expect(built.missing).toEqual([
+      expect.objectContaining({ dokument: 'Faktura zakupu ZK/7 (NIP 5260001246)', plik: 'PDF', powod: expect.stringMatching(/nie udało się zrobić wydruku PDF/) }),
+    ]);
+  });
+
+  it('odmowa wydruku z `generateInvoicePdf` (np. waluta inna niż PLN, #905 FZ-021, kod 409 w trasie): brak PDF w spisie z treścią odmowy, paczka powstaje', async () => {
+    const odmowa = 'Wydruku faktury w walucie innej niż PLN FaktWay jeszcze nie robi. Oryginałem faktury jest plik XML z KSeF.';
+    h.pdf.mockImplementation(async (id: string) =>
+      id === 's1'
+        ? { success: false, code: 'CURRENCY_NOT_SUPPORTED', error: odmowa }
+        : { success: true, pdf: Buffer.from(`%PDF ${id}`), filename: 'x.pdf', qrStateKey: 'k', missingKodI: false },
+    );
+
+    const built = await buildArchivePackage({ ...ORDER, kind: 'archive' }, { now: NOW });
+    const files = rozpakuj(built.zip);
+
+    expect(files.has('faktury-sprzedazy/2026-03-05_FV_1_2026.xml')).toBe(true);
+    expect(files.has('faktury-sprzedazy/2026-03-05_FV_1_2026.pdf')).toBe(false);
+    expect(built.missing).toEqual([expect.objectContaining({ dokument: 'Faktura sprzedaży FV/1/2026', plik: 'PDF', powod: odmowa })]);
+  });
+});
+

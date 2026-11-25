@@ -4,11 +4,15 @@
  * (`lib/jobs/runners/ksiegowosc-*.ts`) czytają dane i wysyłają.
  *
  * - Termin: 5 i 1 dzień kalendarzowy przed terminem z kalendarza (K1), tylko
- *   rozliczenia bez oznaczonej zapłaty. Kwota z najnowszej zatwierdzonej
+ *   rozliczenia bez oznaczonej zapłaty, a z zapłatą wtedy, gdy najnowsza
+ *   zapłacona wersja jest wyliczona przez moduł, a bieżące dane dają przy niej
+ *   brak (D32: osobne zdanie, bez kwoty). Kwota z najnowszej zatwierdzonej
  *   wersji (minus to, co już zapłacone), a bez niej ze szkicu; gdy dane
  *   zmieniły się po zatwierdzeniu (inny skrót wejść), ze szkicu, jak dopłata
- *   na stronie (F11-B2); bez kwoty, gdy moduł jej nie liczy (D7), samo
- *   przypomnienie o terminie.
+ *   na stronie (F11-B2); bez kwoty, gdy miesiąc się nie liczy (D31: brak
+ *   ustawień, błąd ksiąg, wyłącznik KPiR, D7) albo gdy bieżące dane dają dla
+ *   tej pozycji brak (FZ-030), samo przypomnienie o terminie, także przy
+ *   dopłacie po zapłaconej wersji.
  * - VAT: płatnik VAT składa JPK_V7M co miesiąc także przy VAT 0 zł (termin
  *   ten sam, 25.), więc kwota zero daje przypomnienie o pliku (F11-B5), chyba
  *   że MF przyjął już plik wysłany z FaktWay za ten miesiąc (`jpkPrzyjete`).
@@ -98,10 +102,15 @@ export interface PozycjaPrzypomnienia {
   rodzaj: RodzajRozliczenia;
   /** Kwota do zapłaty w groszach; `null`, gdy moduł jej nie liczy. */
   kwotaGr: number | null;
+  /**
+   * D32: najnowsza wersja jest oznaczona jako zapłacona (wyliczona przez moduł), a bieżące dane dają przy niej brak,
+   * więc dopłaty nie liczymy; treść nie pisze wtedy „bez oznaczonej zapłaty”. Zawsze z `kwotaGr: null`.
+   */
+  poZaplacie?: true;
 }
 
 /**
- * Rozliczenia grup bez oznaczonej zapłaty. Etap ZUS bez składek społecznych
+ * Rozliczenia grup bez oznaczonej zapłaty, a z zapłatą przy D32 (`poZaplacie`). Etap ZUS bez składek społecznych
  * (ulga na start, etat obok) pomija składki społeczne, chyba że silnik daje
  * dla nich brak: ulga się skończyła (6 miesięcy), a ustawień nie zmieniono,
  * albo etap zmienia się w trakcie miesiąca (F11-B1). Wtedy przypomnienie
@@ -124,13 +133,23 @@ export function niezaplacone(w: {
     if (rodzaj === 'zus_spoleczne' && etapBezSkladek && !brakSkladek) continue;
     const ostatnia = aktualne(w.rozliczenia).get(rodzaj) ?? null;
     const szkic = w.pozycje?.find((p) => p.rodzaj === rodzaj && p.ok);
+    // FZ-030: brak w szkicu pozycji (np. braki ewidencji albo strażnik F13 po zatwierdzeniu): „Ten miesiąc” pokazuje
+    // przy niej brak, więc przypomnienie bez kwoty, a nie kwota zatwierdzonej wersji. D31: tak samo, gdy miesiąc się nie
+    // liczy w ogóle (`pozycje: null`: brak ustawień, błąd ksiąg, wyłącznik KPiR, D7), bo strona pisze wtedy „Kwot … nie liczymy”.
+    const brakWSzkicu = w.pozycje?.some((p) => p.rodzaj === rodzaj && !p.ok) ?? false;
+    const bezKwoty = w.pozycje === null || brakWSzkicu;
     // F11-B2: dane zmienione po zatwierdzeniu: kwota według bieżących danych.
     const zmienione = !!ostatnia && !!szkic?.ok && szkic.wejsciaHash !== ostatnia.wejsciaHash;
-    const kwotaGr = zmienione && szkic?.ok ? szkic.kwotaGr : ostatnia ? ostatnia.kwotaGr : szkic?.ok ? szkic.kwotaGr : null;
+    const kwotaGr = bezKwoty ? null : zmienione && szkic?.ok ? szkic.kwotaGr : ostatnia ? ostatnia.kwotaGr : szkic?.ok ? szkic.kwotaGr : null;
     const zaplaconoGr = zaplacono(w.rozliczenia, rodzaj);
     if (kwotaGr === null) {
-      // Bez kwoty: przypomnienie tylko wtedy, gdy nic nie jest oznaczone jako zapłacone.
-      if (zaplaconoGr === 0) wynik.push({ rodzaj, kwotaGr: null });
+      // Bez kwoty: przypomnienie, gdy nic nie jest oznaczone jako zapłacone albo najnowsza wersja czeka na zapłatę
+      // (FZ-030: dopłata po zapłaconej wcześniejszej wersji nie może zniknąć razem z kwotą). D32: także gdy najnowsza
+      // zapłacona wersja jest wyliczona przez moduł, a szkic ma brak z danych (po zmianie danych może zostać dopłata);
+      // przy zapłacie spoza wyliczenia (`reczna`, kwota z PUE ZUS) cisza.
+      const zaplaconaWyliczona = ostatnia !== null && ostatnia.status === 'zaplacone' && !ostatnia.reczna;
+      if (zaplaconoGr === 0 || (ostatnia !== null && ostatnia.status !== 'zaplacone')) wynik.push({ rodzaj, kwotaGr: null });
+      else if (brakWSzkicu && zaplaconaWyliczona) wynik.push({ rodzaj, kwotaGr: null, poZaplacie: true });
       continue;
     }
     // F11-B5: VAT 0 zł nie ma zapłaty, ale JPK_V7M obowiązuje; kwota 0 zostaje w pozycji.
@@ -176,10 +195,15 @@ const jestVatZero = (p: PozycjaPrzypomnienia) => p.rodzaj === 'vat' && p.kwotaGr
 export function trescTerminu(w: { miesiac: string; termin: Termin; dni: DniPrzed; pozycje: readonly PozycjaPrzypomnienia[] }): Tresc {
   const data = formatIsoDatePl(w.termin.faktyczny);
   const kiedy = w.dni === 1 ? 'Jutro' : `Za ${w.dni} dni`;
-  const doZaplaty = w.pozycje.filter((p) => !jestVatZero(p));
+  const poZaplacie = w.pozycje.filter((p) => p.poZaplacie);
+  const doZaplaty = w.pozycje.filter((p) => !jestVatZero(p) && !p.poZaplacie);
   const zdania = [`${kiedy}, ${data}, mija termin za ${monthLabel(w.miesiac)}.`];
   if (doZaplaty.length > 0 || w.pozycje.length === 0) zdania.push(`Bez oznaczonej zapłaty: ${lista(doZaplaty)}.`);
-  if (doZaplaty.length < w.pozycje.length) {
+  // D32: zapłata jest oznaczona, więc treść tego nie przeczy; brak w danych może oznaczać dopłatę.
+  if (poZaplacie.length > 0) {
+    zdania.push(`Z oznaczoną zapłatą, ale bieżącej kwoty teraz nie liczymy, więc nie wiadomo, czy zostaje dopłata: ${lista(poZaplacie)}.`);
+  }
+  if (w.pozycje.some(jestVatZero)) {
     zdania.push(`VAT do zapłaty za ${monthLabel(w.miesiac)}: ${zl(0)}; JPK_V7M za ten miesiąc ma ten sam termin.`);
   }
   const podpis = podpisKwot(w.miesiac, w.pozycje);
