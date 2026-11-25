@@ -4,7 +4,13 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { generateJpkFa, type JpkInvoice } from '@/lib/exports/jpk-fa-generator';
-import { settlementRoundingRefusal, settlementVatSummaries, type AdvanceInvoiceSettlementRow } from '@/lib/ksef/fa3-advance-generator';
+import {
+  finalInvoiceRoundingRefusal,
+  settlementRoundingRefusal,
+  settlementVatSummaries,
+  type AdvanceInvoiceSettlementRow,
+} from '@/lib/ksef/fa3-advance-generator';
+import type { FinalInvoiceData } from '@/types/invoice-types';
 import type { InvoiceLineItem, VatRate } from '@/types/invoice';
 
 /**
@@ -92,6 +98,15 @@ describe('ustalenie 19: granica ujemnej reszty ROZ (D8)', () => {
       issuedInvoices: [fa],
     });
     expect(xml).toContain('ROZ/3/2026');
+  });
+
+  it('wysyłka szkicu zapisanego przed bramką: ta sama odmowa i zdanie, że stary szkic trzeba usunąć (karta C4, uwaga N5 czytelnika #960)', () => {
+    const dane = { lines: [{ name: 'Strona WWW', unit: 'szt.', quantity: 1, unitPriceNet: 1, vatRate: '23' }] } as unknown as FinalInvoiceData;
+    const zaliczki = [zaliczka({ internal_number: 'ZAL/7/2026', advance_amount: 1.23, vat_rate: '23', net_amount: 1.03, vat_amount: 0.2 })];
+    const odmowa = finalInvoiceRoundingRefusal(dane, zaliczki);
+    expect(odmowa).toContain('Faktura zaliczkowa ZAL/7/2026 ma VAT 0,20 zł');
+    expect(odmowa).toMatch(/Szkic tej faktury zapisano przed tą kontrolą, więc usuń go, a fakturę rozliczającą wystaw od nowa\.$/);
+    expect(finalInvoiceRoundingRefusal(dane, [zaliczka({ advance_amount: 1.23, vat_rate: '23' })])).toBeNull();
   });
 
   it('wysyłka: ostatnia bramka w submitInvoiceFullFlow po hamulcu ROZ, przed budową pliku (szkic zapisany przed bramką)', () => {
