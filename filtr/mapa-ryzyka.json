@@ -524,6 +524,7 @@
       "opis": "Kursy NBP i reguła dnia kursu (art. 31a ustawy o VAT, art. 11a ustawy o PIT).",
       "sciezki": [
         "lib/nbp/client.ts",
+        "lib/invoices/exchange-rate.ts",
         "lib/flo/nbp.ts",
         "lib/ocr/currency.ts",
         "lib/expenses/ksef-currency-review.ts",
