@@ -34,7 +34,7 @@ describe('NZ-ZAOKR-05: zaokrąglenie zaokrąglonej kwoty nic nie zmienia', () =>
   it('doZlotych i doPelnychZlotych są idempotentne', () => {
     fc.assert(
       fc.property(groszeZeZnakiem(), (gr) => {
-        // `===`, bo doZlotych(-1) daje -0 (bez znaczenia dla kwot: zaliczka idzie przez Math.max(0, …)).
+        // `===` zamiast `Object.is`: do FZ-001 doZlotych(-1) dawał -0 (dziś 0, pilnuje tego tests/unit/fz-001-zaokraglenie-jedna-funkcja.test.ts).
         expect(doZlotych(doZlotych(gr)) === doZlotych(gr)).toBe(true);
         expect(doPelnychZlotych(doPelnychZlotych(gr)) === doPelnychZlotych(gr)).toBe(true);
       }),
