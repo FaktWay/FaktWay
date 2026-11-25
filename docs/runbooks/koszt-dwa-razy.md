@@ -38,12 +38,18 @@ dokumencie.
 
 Za przełącznikiem `KOSZTY_LACZ_KOPIE_KSEF=true` w workerze (domyślnie
 wyłączony). **Nie włączać przed PR z interfejsem** (etykieta „kopia faktury
-z KSeF”, „Rozłącz”, zadanie „Połącz koszty”) i bez potwierdzenia Bartosza
-i księgowej: do tego czasu zadań nie widać, a „Rozłącz” jest tylko ścieżką
-operatora niżej. Bez przełącznika nic się nie łączy i zostaje odmowa opisana
-wyżej. Pary sprzed włączenia przełącznika, pary po błędzie łączenia w runnerze
-zdjęć i kopie wpisane po koszcie z KSeF niczego już same nie połączą (zostaje
-odmowa i jej wyjście).
+z KSeF”, „Rozłącz”, zadanie „Połącz koszty”), bez potwierdzenia Bartosza
+i księgowej i **tylko przy `KSEF_ENV=production`**: do tego czasu zadań nie
+widać, a „Rozłącz” jest tylko ścieżką operatora niżej. Bez przełącznika nic się
+nie łączy i zostaje odmowa opisana wyżej; wyłączenie przełącznika nie cofa
+połączeń, które już są.
+
+Same nie połączą się (zostaje odmowa i jej wyjście): pary sprzed włączenia
+przełącznika, pary po błędzie łączenia w runnerze zdjęć, kopie wpisane po
+koszcie z KSeF, koszt z KSeF w walucie obcej (powstaje poza KPiR, a po
+przeglądzie waluty nic się już nie uruchamia) i druga kopia, gdy pierwsza jest
+już połączona (zostaje w KPiR, więc odmowa wraca; wyjście „Uwzględnij
+w KPiR”).
 
 Po zapisie kosztu runner Skrzynki (`auto-categorize-inbox`, także przy
 ponowieniu, gdy koszt już jest) i runner zdjęć (`process-ocr`) wołają
@@ -78,29 +84,59 @@ sprawdzane (zaliczka PIT narastająco, nadwyżka VAT z poprzedniej deklaracji):
 pytanie do księgowej przed włączeniem.
 
 Decyzja klienta (`decide_ksef_expense_copy`, akcja serwerowa po MFA w PR
-z interfejsem): wybór kopii z zadania łączy ją (pozostałe kandydatki zostają
-osobnymi kosztami), „to osobne koszty” albo „Rozłącz” przywraca kopię do KPiR
-i zostaje śladem (`dismissed`), więc ponowienie runnera jej nie łączy. Uwaga:
-po „to osobne koszty” i „Rozłącz” odczyt okresu znowu odmawia (oba koszty
-liczą się w KPiR, a odczyt nie zna `expense_ksef_copies`); czy odczyt ma
-pomijać takie pary, rozstrzyga PR z interfejsem. Strażnik
+z interfejsem): wybór kopii z zadania łączy ją (tylko w środowisku faktury
+kosztu z KSeF), „to osobne koszty” albo „Rozłącz” przywraca kopię do KPiR
+(w każdym środowisku, więc para sprzed zmiany `KSEF_ENV` ma wyjście) i zostaje
+śladem (`dismissed`), więc ponowienie runnera jej nie łączy. Uwaga: odczyt
+okresu nie zna `expense_ksef_copies`, więc odmawia dalej, gdy oba koszty liczą
+się w KPiR: po „to osobne koszty” i „Rozłącz” oraz po wyborze jednej kopii
+(pozostałe kandydatki zostają w KPiR razem z kosztem z KSeF); wyjście
+„Uwzględnij w KPiR” przy kopii, a czy odczyt ma pomijać takie pary, rozstrzyga
+PR z interfejsem. Po „Rozłącz” koszt z KSeF zostaje z kategorią przejętą od
+kopii; poprzednia jest w audycie (`ksefCategoryBefore`). Strażnik
 `b_guard_linked_ksef_copy_expense` nie pozwala klientowi wliczyć połączonej
 kopii do KPiR inaczej niż przez „Rozłącz”.
 
-Rozłączenie przez operatora (przed PR z interfejsem; `<osoba>` to aktywny
-członek firmy, który zgłosił sprawę):
+Skutki uboczne do wiedzy operatora: połączenie zmienia `is_deductible` kopii
+(a przy przejęciu kategorii także kolumnę i nazwę kategorii kosztu z KSeF),
+więc akceptacja księgowej tych kosztów (00214) pokaże „Zmieniony po
+akceptacji”; karta FLO przy zdjęciu (FLO dziś niezamontowany) powstaje
+z odliczeniem sprzed połączenia; faktura do paragonu (00175) nie wyklucza kopii
+połączonych tutaj (rzadki przypadek: faktura uproszczona w KSeF, jej zdjęcie
+i faktura do paragonu za ten sam zakup).
+
+Przed zmianą `KSEF_ENV` (np. TEST na PROD) rozłączyć pary, których koszt
+z KSeF jest z faktury z innego środowiska niż nowe (po zmianie odczyt pominie
+koszt z KSeF, a kopia jest poza KPiR, więc dokument zniknąłby z KPiR):
+
+```sql
+SELECT m.tenant_id, m.ksef_expense_id, m.copy_expense_id, i.ksef_environment
+  FROM public.expense_ksef_copies AS m
+  JOIN public.expenses AS e ON e.id = m.ksef_expense_id
+  JOIN public.invoices AS i ON i.id = e.ksef_invoice_id
+ WHERE m.status = 'linked' AND i.ksef_environment <> '<nowe środowisko>';
+```
+
+Rozłączenie przez operatora (przed PR z interfejsem, który doda też skrypt
+w `scripts/ops/`; `<osoba>` to aktywny członek firmy, który zgłosił sprawę,
+i na niego zapisze się decyzja w audycie; `<środowisko>` to `KSEF_ENV`
+aplikacji, a rozłączenie działa przy każdym):
 
 ```sql
 SET ROLE service_role;
-SELECT public.decide_ksef_expense_copy('<firma>', '<koszt z KSeF>', '<osoba>', '<test|production>', NULL);
+SELECT public.decide_ksef_expense_copy('<firma>', '<koszt z KSeF>', '<osoba>', '<środowisko>', NULL);
 ```
 
 Ponowienie: drugie wywołanie zwraca `already_linked`, `candidates` bez nowych
 wierszy albo `dismissed`. W runnerze Skrzynki błąd łączenia zostawia znacznik
 `_pendingFullFetch`, a ponowienie (pg-boss albo cron uzupełniający) przechodzi
-gałęzią „koszt już jest” i łączy. W runnerze zdjęć błąd idzie tylko do logu
-i Sentry (`step: link-ksef-copy`), bo koszt ze zdjęcia jest zapisany, a odmowa
-odczytu i tak chroni KPiR i JPK.
+gałęzią „koszt już jest” i łączy. Przy trwałym błędzie łączenia znacznik zostaje,
+a po 6 próbach crona uzupełniającego jego alarm mówi o fakturach „bez kosztu lub
+XML” (koszt jest): wtedy Sentry z `link-ksef-copy` pokaże przyczynę, a do jej
+usunięcia przełącznik można wyłączyć (znacznik zgaśnie przy następnym
+przebiegu). W runnerze zdjęć błąd idzie tylko do logu i Sentry (`step:
+link-ksef-copy`), bo koszt ze zdjęcia jest zapisany, a odmowa odczytu i tak
+chroni KPiR i JPK.
 
 Sprawdzenie stanu firmy (tylko odczyt):
 

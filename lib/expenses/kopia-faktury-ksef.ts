@@ -1,12 +1,13 @@
 /**
  * FZ-022, decyzja D29 (`docs/koordynacja/DECYZJE-2026-11-25.md`, RP-KOSZT-01):
  * kopia faktury z KSeF (zdjęcie, wpis ręczny, import) łączy się z kosztem
- * z KSeF tego samego dokumentu, gdy jest dokładnie jedna i miesiące obu kosztów
- * nie są złożone. Wtedy do KPiR, VAT, JPK_V7M i kart kosztów idzie koszt z KSeF
+ * z KSeF tego samego dokumentu (z faktury przyjętej w środowisku KSeF
+ * aplikacji), gdy jest dokładnie jedna, ma to samo brutto, a miesiące obu
+ * kosztów nie są złożone. Wtedy do KPiR, VAT, JPK_V7M i kart kosztów idzie koszt z KSeF
  * (kwoty, data, numer KSeF), a kopia zostaje na liście poza KPiR
  * (`is_deductible = false`); kategoria nadana kopii ręcznie przechodzi na koszt
- * z KSeF. Kilka kopii albo miesiąc złożony: bez łączenia, zadanie „Połącz
- * koszty” i odmowa odczytu z #839 (`lib/expenses/jeden-koszt-dokumentu.ts`)
+ * z KSeF. Kilka kopii, inne brutto albo miesiąc złożony: bez łączenia, zadanie
+ * „Połącz koszty” i odmowa odczytu z #839 (`lib/expenses/jeden-koszt-dokumentu.ts`)
  * jak dotąd.
  *
  * Klucz dokumentu, wybór kandydatów, bezpiecznik miesiąca złożonego, blokady

@@ -19,9 +19,9 @@
 --              połączenie na koszt z KSeF i na kopię. Kategoria nadana kopii
 --              ręcznie przechodzi na koszt z KSeF, chyba że jemu klient też
 --              nadał ją ręcznie.
---   candidate  zadanie „Połącz koszty” do decyzji klienta: kilka kopii albo
---              miesiąc złożony. Odmowa odczytu z #839 zostaje, dopóki klient
---              nie zdecyduje.
+--   candidate  zadanie „Połącz koszty” do decyzji klienta: kilka kopii, inne
+--              brutto, kopia czekająca już na decyzję albo miesiąc złożony.
+--              Odmowa odczytu z #839 zostaje, dopóki klient nie zdecyduje.
 --   dismissed  ślad decyzji „to osobne koszty” albo rozłączenia: ponowienie
 --              runnera nie odtwarza ani zadania, ani połączenia.
 --
@@ -29,14 +29,18 @@
 -- rozliczenie w module zależne od kosztów (`tax_settlements`: zaliczka PIT,
 -- VAT, składka zdrowotna), wysyłka JPK_V7M z FaktWay na
 -- bramkę produkcyjną MF (bez odrzuconej i przerwanej) albo udany eksport KPiR
--- lub JPK_V7M za okres z tym miesiącem (jak „okresy złożone” w
+-- lub JPK_V7M za okres z tym miesiącem (szerzej niż „okresy złożone” w
 -- scripts/ops/koszt-dwa-razy.sql). Wtedy bez łączenia, tylko zadanie.
 -- Łączą się tylko koszty, które dziś oba liczą się w KPiR (`is_deductible`):
 -- klient, który już wyłączył jeden z nich (wyjście z odmowy #839), zdecydował
--- sam, a koszt z KSeF czekający na przegląd waluty nie wchodzi do KPiR. Koszt
--- z KSeF liczy się tylko z faktury przyjętej w środowisku KSeF aplikacji, jak
--- w odczytach (`filterExpensesForKsefEnvironment`): koszt z faktury TEST po
--- przejściu na PROD nie zabiera kopii z KPiR. Samo łączy się tylko przy tym
+-- sam, a koszt z KSeF czekający na przegląd waluty nie wchodzi do KPiR. Przy
+-- łączeniu koszt z KSeF liczy się tylko z faktury przyjętej w środowisku KSeF
+-- aplikacji, jak w odczytach (`filterExpensesForKsefEnvironment`), więc koszt
+-- z faktury z innego środowiska nie zabiera kopii z KPiR. Połączenie zrobione
+-- przed zmianą `KSEF_ENV` zostaje po niej (odczyt pominie wtedy koszt z KSeF,
+-- a kopia jest poza KPiR); rozłączenie działa w każdym środowisku, a runbook
+-- docs/runbooks/koszt-dwa-razy.md każe rozłączyć takie pary przed zmianą
+-- `KSEF_ENV` i włączać przełącznik tylko na produkcyjnym KSeF. Samo łączy się tylko przy tym
 -- samym brutto (kopia ze źle odczytanym numerem albo kwotą to zadanie, nie
 -- ciche wyjęcie prawdziwego kosztu z KPiR); zadanie nie zmienia kosztu z KSeF
 -- (bez „Nowa” w Skrzynce: `is_reviewed` pilnuje też przeglądu waluty).
@@ -348,7 +352,11 @@ BEGIN
       p_tenant_id, NULL, 'expense.ksef_copy_linked', 'expense', v_ksef.id,
       jsonb_build_object('copyExpenseId', v_copy.id, 'by', 'auto',
                          'copyWasDeductible', v_copy.is_deductible,
-                         'categoryFromCopy', v_kategoria)
+                         'categoryFromCopy', v_kategoria,
+                         -- Kategoria kosztu z KSeF sprzed przejęcia (po „Rozłącz” zostaje kategoria kopii).
+                         'ksefCategoryBefore', CASE WHEN v_kategoria THEN jsonb_build_object(
+                           'kpirColumn', v_ksef.kpir_column, 'categoryLabel', v_ksef.category_label,
+                           'method', v_ksef.categorization_method) END)
     );
     RETURN 'linked';
   END IF;
@@ -426,18 +434,20 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  -- Koszt z KSeF z faktury przyjętej w środowisku aplikacji (jak w odczytach).
+  -- Łączenie: koszt z KSeF z faktury przyjętej w środowisku aplikacji (jak w odczytach).
+  -- Rozłączenie i „to osobne koszty” (bez wybranej kopii) w każdym środowisku: para połączona
+  -- przed zmianą KSEF_ENV musi mieć wyjście (kopia wraca do KPiR).
   SELECT e.* INTO v_ksef FROM public.expenses AS e
    WHERE e.id = p_ksef_expense_id
      AND e.tenant_id = p_tenant_id
      AND e.source = 'ksef_inbox'
      AND e.ksef_invoice_id IS NOT NULL
-     AND EXISTS (
+     AND (p_copy_expense_id IS NULL OR EXISTS (
        SELECT 1 FROM public.invoices AS i
         WHERE i.id = e.ksef_invoice_id AND i.tenant_id = e.tenant_id
           AND i.direction = 'incoming' AND i.ksef_status = 'accepted'
           AND i.ksef_environment::text = p_ksef_environment
-     )
+     ))
    FOR UPDATE OF e;
   IF NOT FOUND THEN RETURN 'stale'; END IF;
 
@@ -491,7 +501,10 @@ BEGIN
       p_tenant_id, p_actor_user_id, 'expense.ksef_copy_linked', 'expense', p_ksef_expense_id,
       jsonb_build_object('copyExpenseId', v_copy.id, 'by', 'client',
                          'copyWasDeductible', v_copy.is_deductible,
-                         'categoryFromCopy', v_kategoria)
+                         'categoryFromCopy', v_kategoria,
+                         'ksefCategoryBefore', CASE WHEN v_kategoria THEN jsonb_build_object(
+                           'kpirColumn', v_ksef.kpir_column, 'categoryLabel', v_ksef.category_label,
+                           'method', v_ksef.categorization_method) END)
     );
     RETURN 'linked';
   END IF;

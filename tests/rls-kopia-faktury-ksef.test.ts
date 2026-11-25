@@ -107,9 +107,9 @@ async function polacz(org: string, expenseId: string): Promise<unknown> {
   return data;
 }
 
-async function decyzja(ksefId: string, copyId: string | null, aktor = ownerId): Promise<unknown> {
+async function decyzja(ksefId: string, copyId: string | null, aktor = ownerId, srodowisko = 'test'): Promise<unknown> {
   const { data, error } = await admin.rpc('decide_ksef_expense_copy', {
-    p_tenant_id: ORG, p_ksef_expense_id: ksefId, p_actor_user_id: aktor, p_ksef_environment: 'test', p_copy_expense_id: copyId,
+    p_tenant_id: ORG, p_ksef_expense_id: ksefId, p_actor_user_id: aktor, p_ksef_environment: srodowisko, p_copy_expense_id: copyId,
   });
   if (error) throw new Error(`decide_ksef_expense_copy: ${error.message}`);
   return data;
@@ -221,6 +221,10 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
     await koszt(ORG, NUMER, '2027-02-05', { kpir_column: 'col_11', category_label: 'Transport', categorization_method: 'manual' });
     expect(await polacz(ORG, ksef)).toBe('linked');
     expect(await stan(ksef)).toMatchObject({ kpir_column: 'col_11', category_label: 'Transport', categorization_method: 'manual' });
+    // Kategoria sprzed przejęcia zostaje w audycie (po „Rozłącz” kosztowi z KSeF zostaje kategoria kopii).
+    expect((await metadaneAudytu('expense.ksef_copy_linked', ksef))[0]).toMatchObject({
+      categoryFromCopy: true, ksefCategoryBefore: { kpirColumn: 'col_13', categoryLabel: 'Usługi', method: 'rule_keyword' },
+    });
 
     await cleanup();
     const ksefReczny = await zKsef(ORG, NUMER, '2027-02-05', { kpir_column: 'col_10', category_label: 'Towary', categorization_method: 'manual' });
@@ -296,7 +300,19 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
         const ksef = await zKsef(ORG, NUMER, '2027-02-05');
         const kopia = await koszt(ORG, NUMER, '2027-01-31');
         await zadanie(ksef, kopia);
+        expect((await metadaneAudytu('expense.ksef_copy_candidates', ksef))[0]).toMatchObject({ months: ['2027-01', '2027-02'] });
       }
+    });
+
+    it('złożony miesiąc kosztu z KSeF (kopia z niezłożonego miesiąca)', async () => {
+      const { error } = await admin.from('export_jobs').insert({
+        tenant_id: ORG, format: 'kpir_excel', period_start: '2027-02-01', period_end: '2027-02-28', status: 'completed',
+        completed_at: '2027-03-02T10:00:00Z', include_issued: true, include_received: true,
+      });
+      if (error) throw new Error(`export_jobs: ${error.message}`);
+      const ksef = await zKsef(ORG, NUMER, '2027-02-05');
+      const kopia = await koszt(ORG, NUMER, '2027-01-31');
+      await zadanie(ksef, kopia);
     });
   });
 
@@ -306,6 +322,14 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
     const b = await koszt(ORG, NUMER, '2027-02-05', { source: 'manual' });
     expect(await polacz(ORG, ksef)).toBe('candidates');
     expect((await polaczenia()).map((m) => m.status)).toEqual(['candidate', 'candidate']);
+    expect((await metadaneAudytu('expense.ksef_copy_candidates', ksef))[0]).toMatchObject({ reason: 'several_copies' });
+    // Klient wyłącza jedną kopię: druga zostaje jedyną, ale czeka już na decyzję, więc nie łączy się sama.
+    const wylacz = await admin.from('expenses').update({ is_deductible: false }).eq('id', b);
+    if (wylacz.error) throw wylacz.error;
+    expect(await polacz(ORG, ksef)).toBe('candidates');
+    expect(await stan(a)).toMatchObject({ is_deductible: true });
+    const przywroc = await admin.from('expenses').update({ is_deductible: true }).eq('id', b);
+    if (przywroc.error) throw przywroc.error;
 
     expect(await decyzja(ksef, a)).toBe('linked');
     expect(await stan(a)).toMatchObject({ is_deductible: false });
@@ -362,6 +386,13 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
     if (jpk.error) throw new Error(`jpk_submissions: ${jpk.error.message}`);
     const odrzucona = await admin.from('jpk_submissions').update({ stan: 'odrzucona', blad: 'odrzucona przez MF' }).eq('id', jpk.data.id);
     if (odrzucona.error) throw new Error(`jpk_submissions odrzucona: ${odrzucona.error.message}`);
+    const druga = await admin.from('jpk_submissions').insert({
+      tenant_id: ORG, okres: '2027-02-01', rodzaj: 'JPK_V7M', cel: 1, srodowisko: 'produkcja',
+      skrot_pliku: 'BM/SlQpito+9Ctp5oFY8PT+eS1PXNokUptIKKh3xMCw=', deklaracja: {},
+    }).select('id').single();
+    if (druga.error) throw new Error(`jpk_submissions: ${druga.error.message}`);
+    const przerwana = await admin.from('jpk_submissions').update({ stan: 'przerwana' }).eq('id', druga.data.id);
+    if (przerwana.error) throw new Error(`jpk_submissions przerwana: ${przerwana.error.message}`);
     const ksef = await zKsef(ORG);
     await koszt(ORG, NUMER, '2027-02-05');
     expect(await polacz(ORG, ksef)).toBe('linked');
@@ -377,7 +408,7 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
 
   it('klucz jak w odczycie: twarda spacja w numerze, NIP z „PL” i kreskami to ten sam dokument', async () => {
     const ksef = await zKsef(ORG);
-    const kopia = await koszt(ORG, `FV/7/02/2027${NBSP}`, '2027-02-05', { seller_nip: 'PL 526-000-12-46' });
+    const kopia = await koszt(ORG, `FV/7/${String.fromCharCode(0x202f)}02/2027${NBSP}`, '2027-02-05', { seller_nip: 'PL 526-000-12-46' });
     expect(await polacz(ORG, ksef)).toBe('linked');
     expect(await stan(kopia)).toMatchObject({ is_deductible: false });
   });
@@ -413,6 +444,19 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
     const zapis = await owner.from('expense_ksef_copies').update({ status: 'dismissed' }).eq('copy_expense_id', kopia).select('id');
     expect(zapis.error !== null || (zapis.data ?? []).length === 0).toBe(true);
     expect(await polaczenia()).toMatchObject([{ status: 'linked' }]);
+  });
+
+  it('decyzja: łączenie tylko w środowisku faktury, rozłączenie także po zmianie środowiska aplikacji (para sprzed zmiany KSEF_ENV)', async () => {
+    const ksef = await zKsef(ORG);
+    const a = await koszt(ORG, NUMER, '2027-02-05');
+    await koszt(ORG, NUMER, '2027-02-05', { source: 'manual' });
+    expect(await polacz(ORG, ksef)).toBe('candidates');
+    // Aplikacja już na innym środowisku: wybór kopii do faktury z KSeF TEST jest nieaktualny.
+    expect(await decyzja(ksef, a, ownerId, 'production')).toBe('stale');
+    expect(await decyzja(ksef, a)).toBe('linked');
+    // Rozłączenie po zmianie środowiska: kopia wraca do KPiR (bez tego zostałaby poza KPiR, a odczyt pomija koszt z TEST).
+    expect(await decyzja(ksef, null, ownerId, 'production')).toBe('separated');
+    expect(await stan(a)).toMatchObject({ is_deductible: true });
   });
 
   it('decyzja osoby spoza firmy: odmowa 42501, bez zmian', async () => {
