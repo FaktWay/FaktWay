@@ -192,6 +192,56 @@
       "zrodlo_planu": "§5 kalendarz 2027",
       "stan": "poza-v1",
       "uwagi": null
+    },
+    {
+      "id": "RP-TERM-05",
+      "regula": "Terminy KSeF w dniach roboczych (wysyłka faktury z trybu offline najpóźniej w następnym dniu roboczym, 7 dni roboczych po awarii albo niedostępności): odmowa wysyłki po terminie liczy dni robocze od poniedziałku do piątku bez świąt, czyli sobota jest wolna; alarm i mail o fakturze, która nie poszła, przychodzą tego samego dnia, w którym wysyłka się nie udała, a najpóźniej przed sobotą.",
+      "podstawa": [
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106nda ust. 2 („nie później niż w następnym dniu roboczym”), art. 106nh ust. 2 i art. 106nf ust. 4 (7 dni roboczych)"
+        },
+        {
+          "akt": "Ordynacja podatkowa",
+          "przepis": "art. 12 § 5 (termin kończący się w sobotę przesuwa się na następny dzień roboczy)"
+        },
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106ni (kary za uchybienia terminom KSeF od 1.01.2027, art. 23 pkt 4 ustawy z 16.06.2023)"
+        }
+      ],
+      "obowiazuje": {
+        "od": "2026-02-01",
+        "do": null
+      },
+      "obszary": [
+        "ksef.offline-upo",
+        "ksef.wysylka"
+      ],
+      "kod": [
+        "lib/ksiegowosc/kalendarz.ts#czyDzienRoboczy"
+      ],
+      "testy": [],
+      "parametry": [],
+      "niezmienniki": [],
+      "pewnosc": "srednia",
+      "wzorzec": null,
+      "interpretacja": "D16 (25.11.2026, pewność średnia): ustawa nie definiuje dnia roboczego, a materiały MF (FAQ, podręczniki KSeF 2.0 cz. I-III, tabela trybów) nie mówią, czy sobota nim jest; terminy z art. 106nda ust. 2, art. 106nh ust. 2 i art. 106nf ust. 4 to terminy prawa podatkowego, a art. 12 § 5 Ordynacji przesuwa termin kończący się w sobotę. Odmowa z krótszym terminem kazałaby wystawiać od nowa faktury, które są jeszcze w terminie, a wcześniejszy alarm usuwa ryzyko spóźnienia przy surowszym odczytaniu. Kalendarz dni roboczych jak w RP-TERM-02 (czyDzienRoboczy). Niezmiennik NZ-TERM-05.",
+      "do_rozstrzygniecia": {
+        "kto": "prawnik",
+        "pytanie": "Czy sobota jest dniem roboczym w terminach KSeF z art. 106nda ust. 2, art. 106nh ust. 2 i art. 106nf ust. 4 ustawy o VAT? FaktWay liczy dni robocze od poniedziałku do piątku bez świąt (sobota wolna), a alarm i mail o niewysłanej fakturze wysyła przed sobotą.",
+        "przypadki": [
+          "faktura z trybu offline wystawiona w piątek: wysyłka do poniedziałku (sobota wolna), alarm o nieudanej wysyłce w piątek"
+        ]
+      },
+      "sprawdzil": {
+        "ksiegowa": null,
+        "prawnik": null
+      },
+      "odczyt": "2026-11-25",
+      "zrodlo_planu": "D16 (docs/koordynacja/DECYZJE-2026-11-25.md), NZ-TERM-05, plan zero zgubionych faktur (B2a #797, B2b)",
+      "stan": "poza-v1",
+      "uwagi": "Odmowa wysyłki po terminie: #797 (B2a, w toku); alarm i mail: B2b; włączenie trybu offline u klientów po odpowiedzi prawnika. Wtedy stan „dziala”, kod odmowy i testy."
     }
   ]
 }
