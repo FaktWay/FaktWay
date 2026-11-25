@@ -79,14 +79,14 @@ function ReceiptMatchNote({ row }: { row: Pick<InboxRow, 'receiptMatch'> }) {
 }
 
 /** FZ-022, D29 (00215): w kosztach jest też kopia tej faktury spoza KSeF, zadanie „Połącz koszty”. */
-export const KSEF_COPY_TASK_NOTE = 'Kopia w kosztach: do połączenia';
+export const KSEF_COPY_TASK_NOTE = 'Kopia w kosztach: do decyzji';
 
 function KsefCopyNote({ row }: { row: Pick<InboxRow, 'ksefCopyTask'> }) {
   if (!row.ksefCopyTask) return null;
   return (
     <span
       className="text-xs text-amber-700 dark:text-amber-400"
-      title="W kosztach jest też kopia tej faktury spoza KSeF (zdjęcie albo wpis ręczny). Decyzja na stronie wydatku."
+      title="W kosztach jest też kopia tej faktury spoza KSeF (zdjęcie, wpis ręczny albo import). Decyzja na stronie wydatku."
     >
       {KSEF_COPY_TASK_NOTE}
     </span>

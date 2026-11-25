@@ -15,6 +15,8 @@ export interface KsefCopyDoc {
   gross: number;
   /** Źródło kosztu (`ocr_photo`, `manual`, `import`, `ksef_inbox`). */
   source: string;
+  /** Czy koszt liczy się dziś w KPiR („Uwzględnij w KPiR”). */
+  deductible: boolean;
 }
 
 export interface KsefCopyView {
@@ -26,6 +28,15 @@ export interface KsefCopyView {
   ksefExpenseId: string | null;
   /** Koszty z drugiej strony (przy kopii: koszt z KSeF). */
   docs: KsefCopyDoc[];
+  /** Ten koszt: data wystawienia (porównanie miesięcy) i to, czy liczy się w KPiR. */
+  self: { issueDate: string; deductible: boolean } | null;
+  /**
+   * Przy koszcie z KSeF po wyborze jednej z kilku kopii: pozostałe kopie z zadania (`dismissed`), które dalej liczą
+   * się w KPiR, więc przy tym samym numerze odczyt okresu odmawia dalej.
+   */
+  remaining: KsefCopyDoc[];
+  /** Przyczyna zadania z audytu (`filed_period`, `amount_differs`, `several_copies`, `pending_decision`) i jego miesiące. */
+  reason: { code: string; months: string[] } | null;
 }
 
 type CopyRow = { ksef_expense_id: string; copy_expense_id: string; status: string };
@@ -41,7 +52,7 @@ export async function loadKsefCopyView(supabase: unknown, tenantId: string, expe
   const client = db(supabase);
   const kolumny = 'ksef_expense_id, copy_expense_id, status';
   const [asKsef, asCopy] = await Promise.all([
-    client.from('expense_ksef_copies').select(kolumny).eq('tenant_id', tenantId).eq('ksef_expense_id', expenseId).in('status', OPEN),
+    client.from('expense_ksef_copies').select(kolumny).eq('tenant_id', tenantId).eq('ksef_expense_id', expenseId).in('status', [...OPEN, 'dismissed']),
     client.from('expense_ksef_copies').select(kolumny).eq('tenant_id', tenantId).eq('copy_expense_id', expenseId).in('status', OPEN),
   ]);
   if (asKsef.error || asCopy.error) {
@@ -49,34 +60,62 @@ export async function loadKsefCopyView(supabase: unknown, tenantId: string, expe
     return null;
   }
 
-  const ksefRows = (asKsef.data ?? []) as CopyRow[];
-  const copyRows = (asCopy.data ?? []) as CopyRow[];
+  const allKsefRows = (asKsef.data ?? []) as CopyRow[];
+  const ksefRows = allKsefRows.filter((r) => OPEN.includes(r.status));
+  const copyRows = ((asCopy.data ?? []) as CopyRow[]).filter((r) => OPEN.includes(r.status));
   const role: KsefCopyView['role'] | null = ksefRows.length ? 'ksef' : copyRows.length ? 'copy' : null;
   if (!role) return null;
   const rows = role === 'ksef' ? ksefRows : copyRows;
   const linked = rows.find((r) => r.status === 'linked');
   const other = (r: CopyRow) => (role === 'ksef' ? r.copy_expense_id : r.ksef_expense_id);
   const ids = linked ? [other(linked)] : [...new Set(rows.map(other))];
+  // Po wyborze jednej z kilku kopii pozostałe dostają `dismissed`, ale zostają w KPiR (00215).
+  const remainingIds = role === 'ksef' && linked ? allKsefRows.filter((r) => r.status === 'dismissed').map((r) => r.copy_expense_id) : [];
 
   const { data, error } = await client
     .from('expenses')
-    .select('id, document_number, issue_date, gross_amount, source')
+    .select('id, document_number, issue_date, gross_amount, source, is_deductible')
     .eq('tenant_id', tenantId)
-    .in('id', ids);
+    .in('id', [...new Set([expenseId, ...ids, ...remainingIds])]);
   if (error) {
     console.error('[expenses] odczyt kosztów kopii faktury z KSeF', error);
     return null;
   }
-  const docs = ((data ?? []) as Array<Record<string, unknown>>)
-    .map((d) => ({
-      expenseId: String(d.id),
-      number: typeof d.document_number === 'string' ? d.document_number.trim() || null : null,
-      issueDate: String(d.issue_date),
-      gross: Number(d.gross_amount ?? 0),
-      source: String(d.source),
-    }))
-    .sort((a, b) => a.issueDate.localeCompare(b.issueDate) || a.expenseId.localeCompare(b.expenseId));
-  return { role, state: linked ? 'linked' : 'candidates', ksefExpenseId: role === 'ksef' ? expenseId : null, docs };
+  const wiersze = ((data ?? []) as Array<Record<string, unknown>>).map((d) => ({
+    expenseId: String(d.id),
+    number: typeof d.document_number === 'string' ? d.document_number.trim() || null : null,
+    issueDate: String(d.issue_date),
+    gross: Number(d.gross_amount ?? 0),
+    source: String(d.source),
+    deductible: d.is_deductible === true,
+  }));
+  const kolejnosc = (a: KsefCopyDoc, b: KsefCopyDoc) => a.issueDate.localeCompare(b.issueDate) || a.expenseId.localeCompare(b.expenseId);
+  const docs = wiersze.filter((d) => ids.includes(d.expenseId)).sort(kolejnosc);
+  const remaining = wiersze.filter((d) => remainingIds.includes(d.expenseId) && d.deductible).sort(kolejnosc);
+  const ten = wiersze.find((d) => d.expenseId === expenseId);
+  const self = ten ? { issueDate: ten.issueDate, deductible: ten.deductible } : null;
+  const reason = role === 'ksef' && !linked ? await loadTaskReason(client, tenantId, expenseId) : null;
+  return { role, state: linked ? 'linked' : 'candidates', ksefExpenseId: role === 'ksef' ? expenseId : null, docs, self, remaining, reason };
+}
+
+/** Przyczyna i miesiące ostatniego zadania „Połącz koszty” z audytu (00215); błąd odczytu: `null` (ekran bez przyczyny). */
+async function loadTaskReason(client: SupabaseClient, tenantId: string, ksefExpenseId: string): Promise<KsefCopyView['reason']> {
+  const { data, error } = await client
+    .from('audit_logs')
+    .select('metadata, created_at')
+    .eq('tenant_id', tenantId)
+    .eq('action', 'expense.ksef_copy_candidates')
+    .eq('entity_id', ksefExpenseId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) {
+    console.error('[expenses] odczyt przyczyny zadania kopii faktury z KSeF', error);
+    return null;
+  }
+  const meta = ((data ?? [])[0] as { metadata?: { reason?: unknown; months?: unknown } } | undefined)?.metadata;
+  if (!meta || typeof meta.reason !== 'string') return null;
+  const months = Array.isArray(meta.months) ? meta.months.filter((m): m is string => typeof m === 'string') : [];
+  return { code: meta.reason, months };
 }
 
 /**

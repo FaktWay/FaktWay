@@ -1,5 +1,6 @@
 'use server';
 
+import * as Sentry from '@sentry/nextjs';
 import { revalidatePath } from 'next/cache';
 
 import { configuredKsefEnvironment } from '@/lib/ksef/claim-environment';
@@ -43,7 +44,7 @@ export async function decideKsefCopyAction(ksefExpenseId: string, copyExpenseId:
   const { user, tenantId } = auth;
   const environment = configuredKsefEnvironment();
   if (!environment) {
-    return { success: false as const, error: 'Nie udało się zapisać decyzji: środowisko KSeF aplikacji nie jest ustawione. Napisz do pomocy FaktWay.' };
+    return { success: false as const, error: 'Nie udało się zapisać decyzji: środowisko KSeF aplikacji nie jest ustawione (sprawa dla pomocy FaktWay).' };
   }
 
   const { data, error } = await (createAdminClient() as unknown as DecyzjaKopiiRpc).rpc('decide_ksef_expense_copy', {
@@ -54,10 +55,19 @@ export async function decideKsefCopyAction(ksefExpenseId: string, copyExpenseId:
     p_copy_expense_id: copyExpenseId,
   });
   if (error) {
-    return { success: false as const, error: 'Nie udało się zapisać decyzji. Spróbuj ponownie za chwilę.' };
+    // Ślad dla operatora (brak albo błąd funkcji 00215/00217); klient dostaje treść bez szczegółów bazy.
+    console.error('[expenses] decyzja o kopii faktury z KSeF', error.message);
+    Sentry.captureException(new Error(`decide_ksef_expense_copy: ${error.message}`), { tags: { area: 'koszty.kopia-ksef' }, extra: { tenantId, ksefExpenseId } });
+    return { success: false as const, error: 'Nie udało się zapisać decyzji. Zapis można ponowić za chwilę.' };
+  }
+  if (data === 'not_deductible') {
+    return {
+      success: false as const,
+      error: 'Koszt z KSeF jest wyłączony z KPiR, więc połączenie wyjęłoby z KPiR oba koszty. Decyzja nie została zapisana.',
+    };
   }
   if (data !== 'linked' && data !== 'separated') {
-    return { success: false as const, error: 'Koszty zmieniły się w międzyczasie. Odśwież stronę.' };
+    return { success: false as const, error: 'Koszty zmieniły się w międzyczasie, więc decyzja nie została zapisana. Po odświeżeniu strony widać aktualny stan.' };
   }
 
   revalidatePath('/expenses');

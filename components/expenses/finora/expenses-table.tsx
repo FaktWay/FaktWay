@@ -196,6 +196,8 @@ export function ExpensesTable({
         for (const row of filteredRows) {
           // Suma dnia w złotych: kwota w walucie bez kursu to nie złote (E17b).
           if (expenseAmountsCurrency(row.original) !== 'PLN') continue
+          // Kopia połączona z fakturą z KSeF (D29) to ten sam dokument co koszt z KSeF: bez drugiego liczenia w sumie dnia.
+          if (row.original.ksef_copy) continue
           const date = row.original.issue_date
           dayTotals.set(date, roundToCents((dayTotals.get(date) ?? 0) + Number(row.original.gross_amount)))
         }

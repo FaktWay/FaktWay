@@ -48,9 +48,11 @@ export default async function ExpenseDetailPage({
   }
 
   // Krok 1.3 (00175): faktura do paragonu i paragon z NIP (ostrzeżenie albo połączenie).
-  const receiptMatch = await loadReceiptMatchView(supabase, expense.tenant_id, expense.id);
-  // FZ-022, D29 (00215): kopia faktury z KSeF (zadanie „Połącz koszty” albo połączenie).
-  const ksefCopy = await loadKsefCopyView(supabase, expense.tenant_id, expense.id);
+  // FZ-022, D29 (00215): kopia faktury z KSeF (zadanie „Połącz koszty” albo połączenie), równolegle z paragonem.
+  const [receiptMatch, ksefCopy] = await Promise.all([
+    loadReceiptMatchView(supabase, expense.tenant_id, expense.id),
+    loadKsefCopyView(supabase, expense.tenant_id, expense.id),
+  ]);
 
   let photoUrl: string | null = null;
   if (
