@@ -39,6 +39,9 @@ export function invoiceRateReferenceDate(dates: { issueDate: string; taxPointDat
  * Kurs NBP (tabela A) do faktury w walucie obcej: tabela z ostatniego dnia
  * roboczego przed `invoiceRateReferenceDate`. Brak tabeli to `found: false`
  * z powodem; błąd sieci albo NBP rzuca (do ponowienia), jak przy kosztach.
+ * 404 z NBP przy poprawnym kodzie waluty znaczy także lukę w publikacji
+ * (`unknown_currency` z pustej listy), więc wołający pokazuje odmowę z wyjściem
+ * (wpisanie kursu z tabeli NBP), a nie kurs „w przybliżeniu”.
  */
 export async function nbpRateForInvoice(
   currency: string,

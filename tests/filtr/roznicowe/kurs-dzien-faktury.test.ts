@@ -38,13 +38,14 @@ afterAll(() => vi.unstubAllGlobals());
 
 describe('NZ-FA-06: dzień kursu faktury w walucie (art. 31a ust. 1 i 2)', () => {
   it('każdy dzień wystawienia 2026-2030, obowiązek od -30 do +30 dni: tabela z ostatniego dnia roboczego przed wcześniejszym z dni', async () => {
-    const odstepy = [-30, -7, -3, -1, 0, 1, 3, 7, 30];
+    // null: bez dnia obowiązku (domyślnie dzień wystawienia).
+    const odstepy = [null, -30, -7, -3, -1, 0, 1, 3, 7, 30];
     let sprawdzone = 0;
     for (let t = Date.UTC(2026, 0, 1); t <= Date.UTC(2030, 11, 31); t += DOBA) {
       const issueDate = iso(t);
       for (const o of odstepy) {
-        const taxPointDate = iso(t + o * DOBA);
-        const odniesienie = taxPointDate < issueDate ? taxPointDate : issueDate;
+        const taxPointDate = o === null ? null : iso(t + o * DOBA);
+        const odniesienie = taxPointDate !== null && taxPointDate < issueDate ? taxPointDate : issueDate;
         expect(invoiceRateReferenceDate({ issueDate, taxPointDate })).toBe(odniesienie);
 
         let oczekiwany = czas(odniesienie) - DOBA;
