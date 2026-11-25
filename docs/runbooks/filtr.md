@@ -86,8 +86,10 @@ sprawdzone pozycje.
 | `FILTR-RT-TM-04` | termin w sobotę, niedzielę, dzień ustawowo wolny albo nie jest datą (także przy pozycji bez kwoty) | komunikat i bez terminu |
 
 Zatrzymanej pozycji nie da się zatwierdzić, push o wyliczeniu i „Odłóż na
-podatek” jej nie liczą, a przypomnienie o terminie bierze kwotę ostatniej
-zatwierdzonej wersji z bazy albo wychodzi bez kwoty.
+podatek” jej nie liczą, a przypomnienie o terminie wychodzi przy niej bez kwoty
+(FZ-030), także po zapłacie wersji wyliczonej przez moduł (D32, osobne zdanie
+„dopłaty teraz nie liczymy”); błąd odczytu i ponowienia opisuje
+[`ksiegowosc-przypomnienia.md`](ksiegowosc-przypomnienia.md).
 
 ### Przypomnienia o terminach (`lib/bezpieczniki/przypomnienia.ts`)
 

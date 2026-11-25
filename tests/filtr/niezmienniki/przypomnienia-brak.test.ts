@@ -57,3 +57,53 @@ describe('FZ-030: brak w szkicu pozycji w przypomnieniu o terminie', () => {
     );
   });
 });
+
+/**
+ * D31 i D32 (FZ-030, `docs/koordynacja/DECYZJE-2026-11-25.md`): miesiąc, który się
+ * nie liczy (`pozycje: null`), nigdy nie daje kwoty; przy braku w szkicu i najnowszej
+ * zapłaconej wersji z kwotą przypomnienie wychodzi bez kwoty, gdy wersję wyliczył
+ * moduł (może zostać dopłata), a cisza, gdy to zapłata spoza wyliczenia (`reczna`,
+ * kwota z PUE ZUS).
+ */
+describe('D31 i D32: miesiąc bez kwot i zapłacona najnowsza wersja przy braku', () => {
+  const zZaplacona = (rodzaj: Rodzaj, wersje: { kwotaGr: number; zaplacona: boolean; skrot: string }[], kwotaGr: number, reczna: boolean): Rozliczenie[] => {
+    const r = rozliczenia(rodzaj, [...wersje, { kwotaGr, zaplacona: true, skrot: 'a' }]);
+    return r.map((v, i) => (i === r.length - 1 ? { ...v, reczna } : v));
+  };
+  const grupy = (rodzaj: Rodzaj) => (rodzaj === 'ryczalt' ? (['ryczalt'] as const) : (['zus'] as const));
+
+  it('D31: miesiąc, który się nie liczy, nigdy nie daje kwoty (dowolne wersje i zapłaty)', () => {
+    fc.assert(
+      fc.property(fc.constantFrom(...RODZAJE), wersjeArb, fc.boolean(), (rodzaj, wersje, reczna) => {
+        const r = rozliczenia(rodzaj, wersje).map((v) => ({ ...v, reczna }));
+        const wynik = niezaplacone({ grupy: grupy(rodzaj), rozliczenia: r, pozycje: null, profil: profil() });
+        expect(wynik.every((p) => p.kwotaGr === null), JSON.stringify(wersje)).toBe(true);
+      }),
+      opcje(),
+    );
+  });
+
+  it('D32: brak w szkicu i najnowsza zapłacona wersja wyliczona przez moduł: dokładnie przypomnienie bez kwoty, oznaczone jako po zapłacie', () => {
+    fc.assert(
+      fc.property(fc.constantFrom(...RODZAJE), wersjeArb, fc.integer({ min: 1, max: 300_000 }), (rodzaj, wersje, kwotaGr) => {
+        const r = zZaplacona(rodzaj, wersje, kwotaGr, false);
+        const pozycje: PozycjaZeSkrotem[] = [{ ok: false, rodzaj, termin: null, brak: 'Ewidencja przychodów ma braki w miesiącach: październik 2026.' }];
+        const wynik = niezaplacone({ grupy: grupy(rodzaj), rozliczenia: r, pozycje, profil: profil() }).filter((p) => p.rodzaj === rodzaj);
+        expect(wynik, JSON.stringify(wersje)).toEqual([{ rodzaj, kwotaGr: null, poZaplacie: true }]);
+      }),
+      opcje(),
+    );
+  });
+
+  it('D32: brak w szkicu i najnowsza zapłacona to zapłata spoza wyliczenia: cisza', () => {
+    fc.assert(
+      fc.property(fc.constantFrom(...RODZAJE), wersjeArb, fc.integer({ min: 1, max: 300_000 }), (rodzaj, wersje, kwotaGr) => {
+        const r = zZaplacona(rodzaj, wersje, kwotaGr, true);
+        const pozycje: PozycjaZeSkrotem[] = [{ ok: false, rodzaj, termin: null, brak: 'Ewidencja przychodów ma braki w miesiącach: październik 2026.' }];
+        const wynik = niezaplacone({ grupy: grupy(rodzaj), rozliczenia: r, pozycje, profil: profil() }).filter((p) => p.rodzaj === rodzaj);
+        expect(wynik, JSON.stringify(wersje)).toEqual([]);
+      }),
+      opcje(),
+    );
+  });
+});

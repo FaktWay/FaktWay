@@ -252,7 +252,28 @@ describe('FZ-030: brak w bieżących danych po zatwierdzeniu', () => {
       rozliczenia: [wersja('ryczalt', 153_600, { status: 'zaplacone', zaplaconeO: '2026-11-02' })],
       pozycje: [brak('ryczalt')],
       profil: PROFIL,
-    })).toEqual([{ rodzaj: 'ryczalt', kwotaGr: null }]);
+    })).toEqual([{ rodzaj: 'ryczalt', kwotaGr: null, poZaplacie: true }]);
+  });
+
+  it('D32: treść przy zapłaconej wersji nie pisze „bez oznaczonej zapłaty”, tylko że dopłaty teraz nie liczymy', () => {
+    const [t] = terminyNaDzis('2026-11-15');
+    const tylko = trescTerminu({ miesiac: '2026-10', termin: t.termin, dni: 5, pozycje: [{ rodzaj: 'ryczalt', kwotaGr: null, poZaplacie: true }] });
+    expect(tylko.tresc).toBe(
+      'Za 5 dni, 20.11.2026, mija termin za październik 2026. Oznaczone jako zapłacone, ale bieżące dane mają brak, więc dopłaty teraz nie liczymy: ryczałt.',
+    );
+    const razem = trescTerminu({
+      miesiac: '2026-10', termin: t.termin, dni: 1,
+      pozycje: [{ rodzaj: 'ryczalt', kwotaGr: null, poZaplacie: true }, { rodzaj: 'zdrowotna', kwotaGr: 83_058 }],
+    }).tresc;
+    expect(razem).toContain('Bez oznaczonej zapłaty: składka zdrowotna 830,58 zł.');
+    expect(razem).toContain('dopłaty teraz nie liczymy: ryczałt.');
+    expect(razem).not.toContain('Bez oznaczonej zapłaty: ryczałt');
+  });
+
+  it('D31: zatwierdzone 0 zł przy miesiącu bez kwot: przypomnienie bez kwoty (bieżących danych nie liczymy, więc 0 zł nie jest pewne)', () => {
+    expect(niezaplacone({ grupy: ['pit'], rozliczenia: [wersja('pit', 0)], pozycje: null, profil: PROFIL })).toEqual([{ rodzaj: 'pit', kwotaGr: null }]);
+    // VAT 0 zł przy miesiącu bez kwot: bez kwoty jak każda pozycja, nie zdanie o JPK_V7M (to zdanie tylko przy policzonym 0 zł).
+    expect(niezaplacone({ grupy: ['vat'], rozliczenia: [wersja('vat', 0)], pozycje: null, profil: PROFIL })).toEqual([{ rodzaj: 'vat', kwotaGr: null }]);
   });
 
   it('D32: najnowsza zapłacona to zapłata spoza wyliczenia (kwota z PUE ZUS), a szkic to brak: cisza', () => {

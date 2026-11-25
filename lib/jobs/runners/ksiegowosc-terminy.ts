@@ -62,7 +62,15 @@ async function jpkPrzyjete(admin: SupabaseClient, tenantId: string, miesiac: str
   }
 }
 
-export async function przypomnijOTerminie(admin: SupabaseClient, tenantId: string, t: TerminNaDzis): Promise<WynikFirmy> {
+/** Ponowienia zadania (rejestracja w `lib/jobs/handlers/package-b.ts`); ostatnia próba ma `attempt` równe tej liczbie. */
+export const PONOWIENIA_TERMINOW = 4;
+
+export async function przypomnijOTerminie(
+  admin: SupabaseClient,
+  tenantId: string,
+  t: TerminNaDzis,
+  opcje: { ostatniaProba?: boolean } = {},
+): Promise<WynikFirmy> {
   if (!(await czyKsiegowoscWlaczona(admin, tenantId, 'terminy')).wlaczony) return 'pominiete';
   const profil = wersjaNa(await czytajWersjeProfilu(admin, tenantId), monthRange(t.miesiac).to);
   if (!profil) return 'pominiete';
@@ -78,8 +86,18 @@ export async function przypomnijOTerminie(admin: SupabaseClient, tenantId: strin
   const dane = await czytajTenMiesiac(admin, tenantId, t.miesiac);
   // Bez odczytu zapłat nie wiadomo, co jest zapłacone: ponowienie zamiast przypomnienia „bez zapłaty”.
   if (!dane.ok && dane.braki.includes(BLAD_ODCZYTU_ROZLICZEN)) throw new Error(`Nie udało się odczytać rozliczeń firmy ${tenantId} za ${t.miesiac}`);
-  // D32 (FZ-030): przejściowy błąd odczytu danych VAT to ponowienie, nie przypomnienie bez kwoty.
-  if (dane.ok && dane.pozycje.some((p) => !p.ok && p.brak === BLAD_ODCZYTU_VAT)) throw new Error(`Nie udało się odczytać danych VAT firmy ${tenantId} za ${t.miesiac}`);
+  // D32 (FZ-030): błąd odczytu danych VAT w dniu przypomnienia o VAT to ponowienie, nie przypomnienie bez kwoty
+  // (inne terminy VAT nie dotyczy). Wyjście: ostatnia próba wysyła przypomnienie jak przy braku (VAT bez kwoty),
+  // z wpisem w Sentry, bo błąd bywa stały (np. korekta bez przyjętej faktury pierwotnej, worker bez KSEF_ENV),
+  // a etap przypomnienia nie wraca następnego dnia. Operator: docs/runbooks/ksiegowosc-przypomnienia.md.
+  const bladVat = grupy.includes('vat') && dane.ok && dane.pozycje.some((p) => p.rodzaj === 'vat' && !p.ok && p.brak === BLAD_ODCZYTU_VAT);
+  if (bladVat && !opcje.ostatniaProba) throw new Error(`Nie udało się odczytać danych VAT firmy ${tenantId} za ${t.miesiac}`);
+  if (bladVat) {
+    Sentry.captureException(new Error(`Błąd odczytu danych VAT firmy ${tenantId} za ${t.miesiac} po ponowieniach: przypomnienie bez kwoty VAT`), {
+      tags: { area: 'ksiegowosc.terminy' },
+      extra: { tenantId, miesiac: t.miesiac, etap: t.etap, krok: 'vat-ostatnia-proba' },
+    });
+  }
   const wejscie = { grupy, rozliczenia: dane.rozliczenia, pozycje: dane.ok ? dane.pozycje : null, profil };
   let pozycje = niezaplacone(wejscie);
   // F11-B5: VAT 0 zł przypomina o JPK_V7M, o ile MF nie przyjął już pliku z FaktWay za ten miesiąc.
@@ -137,7 +155,8 @@ export async function przypomnijOTerminie(admin: SupabaseClient, tenantId: strin
   return 'wyslane';
 }
 
-export async function runKsiegowoscTerminy({ step, logger }: JobContext) {
+export async function runKsiegowoscTerminy({ step, logger, attempt }: JobContext) {
+  const ostatniaProba = attempt >= PONOWIENIA_TERMINOW;
   const dzis = todayInWarsaw();
   const plan = terminyNaDzis(dzis);
   if (plan.length === 0) return { dzis, terminy: 0 };
@@ -149,7 +168,7 @@ export async function runKsiegowoscTerminy({ step, logger }: JobContext) {
   for (const tenantId of firmy) {
     for (const t of plan) {
       try {
-        licznik[await step.run(`${t.etap}-${t.miesiac}-${tenantId}`, () => przypomnijOTerminie(admin, tenantId, t))]++;
+        licznik[await step.run(`${t.etap}-${t.miesiac}-${tenantId}`, () => przypomnijOTerminie(admin, tenantId, t, { ostatniaProba }))]++;
       } catch (e) {
         doPonowienia++;
         Sentry.captureException(e, { tags: { area: 'ksiegowosc.terminy' }, extra: { tenantId, miesiac: t.miesiac, etap: t.etap } });
