@@ -952,6 +952,7 @@
           "quantity",
           "unit",
           "unit_price_net",
+          "unit_price_gross",
           "net_amount",
           "vat_rate",
           "vat_amount",
@@ -991,7 +992,19 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Cena jednostkowa netto. Przy pozycji w cenach brutto null, a cena jest w unit_price_gross."
+          },
+          "unit_price_gross": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Decimal"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cena jednostkowa brutto (FA(3) P_9B), gdy faktura ją podaje: faktura w cenach brutto albo faktura z KSeF z ceną brutto pozycji. Inaczej null. Do 4 miejsc po przecinku, jak cena netto."
           },
           "net_amount": {
             "oneOf": [

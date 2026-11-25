@@ -157,11 +157,14 @@ export function dzienPrzychodu(f: Pick<FakturaEwidencji, 'rodzaj' | 'dataWystawi
 
 /**
  * Kwota w groszach waluty po kursie NBP, zaokrąglona do grosza (połówka od
- * zera). Kurs skalowany przez 10^6 i iloczyn w BigInt, bez błędu float.
+ * zera). Kurs skalowany przez 10^8 i iloczyn w BigInt, bez błędu float:
+ * API NBP podaje kurs tabeli A za 1 jednostkę z najwyżej ośmioma miejscami po
+ * przecinku (IDR, np. 0,00022236 z 20.11.2026), a sześć miejsc ma m.in. HUF,
+ * JPY i KRW (FZ-020).
  */
 export function przeliczNaPln(kwotaGr: number, mid: number): number {
-  const skala = BigInt(1_000_000);
-  const kurs = BigInt(Math.round(mid * 1_000_000));
+  const skala = BigInt(100_000_000);
+  const kurs = BigInt(Math.round(mid * 100_000_000));
   const iloczyn = BigInt(Math.abs(kwotaGr)) * kurs;
   const grosze = Number((iloczyn + skala / BigInt(2)) / skala);
   return kwotaGr < 0 ? -grosze : grosze;

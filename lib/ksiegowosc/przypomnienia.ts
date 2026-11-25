@@ -7,8 +7,9 @@
  *   rozliczenia bez oznaczonej zapłaty. Kwota z najnowszej zatwierdzonej
  *   wersji (minus to, co już zapłacone), a bez niej ze szkicu; gdy dane
  *   zmieniły się po zatwierdzeniu (inny skrót wejść), ze szkicu, jak dopłata
- *   na stronie (F11-B2); bez kwoty, gdy moduł jej nie liczy (D7), samo
- *   przypomnienie o terminie.
+ *   na stronie (F11-B2); bez kwoty, gdy moduł jej nie liczy (D7) albo gdy
+ *   bieżące dane dają dla tej pozycji brak (FZ-030), samo przypomnienie
+ *   o terminie, także przy dopłacie po zapłaconej wersji.
  * - VAT: płatnik VAT składa JPK_V7M co miesiąc także przy VAT 0 zł (termin
  *   ten sam, 25.), więc kwota zero daje przypomnienie o pliku (F11-B5), chyba
  *   że MF przyjął już plik wysłany z FaktWay za ten miesiąc (`jpkPrzyjete`).
@@ -124,13 +125,18 @@ export function niezaplacone(w: {
     if (rodzaj === 'zus_spoleczne' && etapBezSkladek && !brakSkladek) continue;
     const ostatnia = aktualne(w.rozliczenia).get(rodzaj) ?? null;
     const szkic = w.pozycje?.find((p) => p.rodzaj === rodzaj && p.ok);
+    // FZ-030: brak w szkicu pozycji (np. braki ewidencji albo strażnik F13 po zatwierdzeniu): „Ten miesiąc” pokazuje
+    // przy niej brak, więc przypomnienie bez kwoty, a nie kwota zatwierdzonej wersji. Miesiąc, który się nie liczy w ogóle
+    // (`pozycje: null`), zostaje przy kwocie zatwierdzonej wersji, jak w K5 (do decyzji, zob. PR z FZ-030).
+    const bezKwoty = w.pozycje?.some((p) => p.rodzaj === rodzaj && !p.ok) ?? false;
     // F11-B2: dane zmienione po zatwierdzeniu: kwota według bieżących danych.
     const zmienione = !!ostatnia && !!szkic?.ok && szkic.wejsciaHash !== ostatnia.wejsciaHash;
-    const kwotaGr = zmienione && szkic?.ok ? szkic.kwotaGr : ostatnia ? ostatnia.kwotaGr : szkic?.ok ? szkic.kwotaGr : null;
+    const kwotaGr = bezKwoty ? null : zmienione && szkic?.ok ? szkic.kwotaGr : ostatnia ? ostatnia.kwotaGr : szkic?.ok ? szkic.kwotaGr : null;
     const zaplaconoGr = zaplacono(w.rozliczenia, rodzaj);
     if (kwotaGr === null) {
-      // Bez kwoty: przypomnienie tylko wtedy, gdy nic nie jest oznaczone jako zapłacone.
-      if (zaplaconoGr === 0) wynik.push({ rodzaj, kwotaGr: null });
+      // Bez kwoty: przypomnienie, gdy nic nie jest oznaczone jako zapłacone albo najnowsza wersja czeka na zapłatę
+      // (FZ-030: dopłata po zapłaconej wcześniejszej wersji nie może zniknąć razem z kwotą).
+      if (zaplaconoGr === 0 || (ostatnia !== null && ostatnia.status !== 'zaplacone')) wynik.push({ rodzaj, kwotaGr: null });
       continue;
     }
     // F11-B5: VAT 0 zł nie ma zapłaty, ale JPK_V7M obowiązuje; kwota 0 zostaje w pozycji.

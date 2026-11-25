@@ -23,7 +23,9 @@ import type { KsefEnvironment } from '@/types/ksef';
  * - „Po terminie” z daty w Europe/Warsaw, nie z `payment_status`.
  * - „Korekta” tylko dla faktur, które przyjmuje formularz
  *   `app/(dashboard)/invoices/new/correction/page.tsx`, i bez korekty w toku
- *   (`lib/invoices/correction-parents.ts`, K4).
+ *   (`lib/invoices/correction-parents.ts`, K4). Bez „Korekta” także faktura
+ *   z pozycją bez ceny netto albo ilości (np. w cenach brutto): formularz
+ *   takiej zawsze odmawia (`correctionRefusalFromLines`, ustalenie 17).
  * - „Zapłacone” (00158) dla każdej faktury sprzedaży przyjętej w KSeF z resztą do
  *   zapłaty, także spoza należności: importu nie ścigamy, ale jego zapłatę wolno
  *   oznaczyć. Ten sam zbiór warunków sprawdza RPC `mark_invoice_paid`.
@@ -55,6 +57,56 @@ export interface CorrectionContext {
   environment: KsefEnvironment;
   /** Rodzice z korektą w toku (`parentsWithOpenCorrection`). */
   openCorrectionParents: ReadonlySet<string>;
+  /**
+   * Faktury z pozycją, przy której formularz korekty zawsze odmawia
+   * (`CORRECTION_LINE_GAP_FILTER`). Lista czyta je dla kandydatów; szczegóły
+   * faktury liczą to samo z pozycji (`correctionRefusalFromLines`).
+   */
+  lineGapParents?: ReadonlySet<string>;
+}
+
+/** Pomoc FaktWay przy odmowie korekty, jak `CORRECTION_HELP_STEP` w `lib/invoices/issue-correction.ts`. */
+const CORRECTION_HELP_STEP = 'Napisz do nas, a przygotujemy korektę z Tobą.';
+
+/**
+ * Pozycje, przy których formularz korekty zawsze odmawia
+ * (`fetchParentInvoiceLines` w `lib/invoices/issue-correction.ts`): bez ceny
+ * netto (faktura w cenach brutto albo plik bez ceny netto) albo bez ilości.
+ */
+export const CORRECTION_LINE_GAP_FILTER = 'unit_price_net.is.null,quantity.is.null';
+
+export interface CorrectionLineFacts {
+  ordinal: number;
+  quantity: unknown;
+  unit_price_net: unknown;
+}
+
+/**
+ * Powód, dla którego formularz korekty odmówi tej faktury z powodu pozycji:
+ * ten sam tekst i ta sama kolejność sprawdzeń co `fetchParentInvoiceLines`
+ * (pierwsza pozycja po numerze; bez ceny netto z ceną brutto w dokumencie:
+ * „w cenach brutto”, inaczej „bez pełnej ilości lub ceny”), z wyjściem (pomoc
+ * FaktWay). Szczegóły faktury pokazują go zamiast przycisku „Korekta”
+ * (ustalenie 17). `label` jak w odmowie: numer faktury albo początek id.
+ * `null`, gdy pozycje korekty nie blokują.
+ */
+export function correctionRefusalFromLines(
+  lines: readonly CorrectionLineFacts[],
+  grossPrices: ReadonlyMap<number, number>,
+  label: string,
+): string | null {
+  const sorted = [...lines].sort((a, b) => a.ordinal - b.ordinal);
+  for (const line of sorted) {
+    if (line.unit_price_net == null && grossPrices.has(line.ordinal)) {
+      return `Faktura ${label} jest w cenach brutto (pozycje mają cenę brutto zamiast ceny netto), a korekty takiej faktury aplikacja jeszcze nie przygotowuje. ${CORRECTION_HELP_STEP}`;
+    }
+    if (line.quantity == null || line.unit_price_net == null ||
+        !Number.isFinite(Number(line.quantity)) ||
+        !Number.isFinite(Number(line.unit_price_net))) {
+      return `Faktura ${label} ma pozycję bez pełnej ilości lub ceny, więc korekty nie przygotujemy w aplikacji. ${CORRECTION_HELP_STEP}`;
+    }
+  }
+  return null;
 }
 
 /** Ten sam zbiór warunków co zapytanie formularza korekty + K4. */
@@ -67,7 +119,9 @@ function isCorrectionParentCandidate(row: ListRowFactsRow, environment: KsefEnvi
 }
 
 export function canCorrectInvoice(row: ListRowFactsRow, ctx: CorrectionContext): boolean {
-  return isCorrectionParentCandidate(row, ctx.environment) && !ctx.openCorrectionParents.has(row.id);
+  return isCorrectionParentCandidate(row, ctx.environment)
+    && !ctx.openCorrectionParents.has(row.id)
+    && !ctx.lineGapParents?.has(row.id);
 }
 
 function isFa3Paid(row: Pick<ListRowFactsRow, 'fa3_paid_date'>): boolean {
@@ -183,6 +237,29 @@ async function loadPageChildren(
   return { childIds, openCorrectionParents: parentsWithOpenCorrection(corrections), corrections: sums };
 }
 
+/**
+ * Kandydaci na rodzica korekty z pozycją, przy której formularz korekty
+ * zawsze odmawia (`CORRECTION_LINE_GAP_FILTER`, ustalenie 17). Odczyt pełny
+ * i liczony, jak dzieci: błąd rzuca, bo „nie wiem” to nie „pozycje pełne”.
+ */
+async function loadCorrectionLineGaps(
+  supabase: PageContext['supabase'],
+  ids: readonly string[],
+): Promise<Set<string>> {
+  const gaps = new Set<string>();
+  for (const chunk of chunks(ids, LOOKUP_CHUNK)) {
+    const lines = await readCompletePages('Nie można odczytać pozycji faktur na liście', (from, to) => supabase
+      .from('invoice_line_items')
+      .select('id, invoice_id', { count: 'exact' })
+      .in('invoice_id', chunk)
+      .or(CORRECTION_LINE_GAP_FILTER)
+      .order('id', { ascending: true })
+      .range(from, to));
+    for (const line of lines) gaps.add(line.invoice_id);
+  }
+  return gaps;
+}
+
 export async function loadInvoiceListRowFacts(
   supabase: PageContext['supabase'],
   tenantId: string,
@@ -202,12 +279,20 @@ export async function loadInvoiceListRowFacts(
       || isCorrectionParentCandidate(row, environment)
       || canMarkInvoicePaid(row, environment))
     .map((row) => row.id))];
-  const children: PageChildren = lookupIds.length > 0
-    ? await loadPageChildren(supabase, tenantId, lookupIds)
-    : { childIds: new Set(), openCorrectionParents: new Set(), corrections: new Map() };
+  const correctionIds = rows.filter((row) => isCorrectionParentCandidate(row, environment)).map((row) => row.id);
+  const [children, lineGapParents] = await Promise.all([
+    lookupIds.length > 0
+      ? loadPageChildren(supabase, tenantId, lookupIds)
+      : Promise.resolve<PageChildren>({ childIds: new Set(), openCorrectionParents: new Set(), corrections: new Map() }),
+    correctionIds.length > 0 ? loadCorrectionLineGaps(supabase, correctionIds) : Promise.resolve(new Set<string>()),
+  ]);
 
   const receivableCtx: ReceivableContext = { environment, childIds: children.childIds };
-  const correctionCtx: CorrectionContext = { environment, openCorrectionParents: children.openCorrectionParents };
+  const correctionCtx: CorrectionContext = {
+    environment,
+    openCorrectionParents: children.openCorrectionParents,
+    lineGapParents,
+  };
   const result = new Map<string, InvoiceListRowFacts>();
   for (const row of rows) {
     result.set(row.id, {

@@ -143,7 +143,7 @@ function liczacyKlient(tabele: Tables, log: Zapytanie[], zaklocenia: Zaklocenia 
 
 /** Strona odczytu stronami: sortowanie po `id` i okno strony (OFFSET przed sesją 33, `limit` po kluczu). */
 const czyStronami = (z: Zapytanie) =>
-  z.sortowanie.some(([kolumna]) => kolumna === 'id') && (z.range !== null || z.limit === STRONA);
+  z.sortowanie.some(([kolumna]) => kolumna === 'id') && (z.range !== null || z.limit === STRONA || z.limit === STRONA + 1);
 const kluczOdczytu = (z: Zapytanie) => `${z.tabela}|${z.kolumny}|${JSON.stringify(z.filtry)}`;
 
 /** Odczyty stronami: zapytania z tym samym `select` i filtrami, w kolejności. */
@@ -170,14 +170,15 @@ const ksztalt = (z: Zapytanie): Ksztalt => ({ count: z.count, head: z.head, poKl
  */
 function wzorPoKluczu(grupa: readonly Zapytanie[]): Ksztalt[] {
   const strony = grupa.filter((z) => !z.head);
+  const razem = strony[0]?.licznik ?? 0;
+  let przeczytane = 0;
   return [
-    ...strony.map((_, i) => ({
-      count: i === 0,
-      head: false,
-      poKluczu: i === 0 ? null : strony[i - 1]!.ostatnieId,
-      limit: STRONA,
-      range: null,
-    })),
+    ...strony.map((z, i) => {
+      // FZ-017: strona, której brakuje dokładnie pełnej strony do licznika, prosi o jeden wiersz więcej.
+      const limit = i > 0 && razem - przeczytane === STRONA ? STRONA + 1 : STRONA;
+      przeczytane += z.wiersze;
+      return { count: i === 0, head: false, poKluczu: i === 0 ? null : strony[i - 1]!.ostatnieId, limit, range: null };
+    }),
     ...(strony.length > 1 ? [{ count: true, head: true, poKluczu: null, limit: STRONA, range: null }] : []),
   ];
 }

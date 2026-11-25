@@ -32,7 +32,8 @@
  * - nabywca bez NIP i bez numeru VAT-UE, nieoznaczony jako firma, to konsument.
  */
 
-import { roundToCents } from '@/lib/xml/invoice-calculator';
+import { przeliczNaPln } from '@/lib/ksiegowosc/ewidencja';
+import { roundToCents, toGrosze } from '@/lib/xml/invoice-calculator';
 
 export const PROG_OSS_PLN = 42000;
 export const PROG_OSS_EURO = 10000;
@@ -94,8 +95,9 @@ function konsumentZUe(s: SprzedazDlaOss): boolean {
 function netPln(s: SprzedazDlaOss): number | null {
   const currency = (s.currency ?? '').trim().toUpperCase();
   if (currency === 'PLN') return s.net;
-  if (currency === '' || s.rateToPln === null || !(s.rateToPln > 0)) return null;
-  return roundToCents(s.net * s.rateToPln);
+  if (currency === '' || s.rateToPln === null || !Number.isFinite(s.rateToPln) || !(s.rateToPln > 0) || !Number.isFinite(s.net)) return null;
+  // Kwota razy kurs jedną funkcją na groszach (`przeliczNaPln`, NZ-KURS-03, FZ-019).
+  return przeliczNaPln(toGrosze(s.net), s.rateToPln) / 100;
 }
 
 function sumOf(items: readonly { issueDate: string; id: string; pln: number }[], limit: number) {

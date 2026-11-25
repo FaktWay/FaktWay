@@ -574,6 +574,20 @@ describe('zaliczka z telefonu', () => {
     expect(writes.filter((w) => w.table === 'invoices')).toEqual([]);
   });
 
+  it('rozliczenie z pozycją „zw”: 422 invoice_invalid ze zdaniem strony po polsku, bez zapisu (ustalenie 31)', async () => {
+    // Od planu zero C3 schemat pozycji telefonu zna „zw” (korekta faktury zwolnionej z VAT),
+    // a rozliczenie zaliczek „zw” nie obsługuje: odmawia schemat strony, nie walidacja telefonu.
+    const response = await wystaw({
+      wyslij: false,
+      rozliczenie: rozliczenie({ lines: [{ name: 'Projekt strony', unit: 'szt', quantity: 1, unitPriceNet: 4000, vatRate: 'zw' }] }),
+    });
+    expect(response.status).toBe(422);
+    const blad = await errorOf(response);
+    expect(blad.code).toBe('invoice_invalid');
+    expect(blad.message).not.toMatch(/Invalid|expected/);
+    expect(writes.filter((w) => w.table === 'invoices')).toEqual([]);
+  });
+
   it('treść spoza kontraktu (dwa rodzaje naraz, pole spoza): 400 invalid_request', async () => {
     for (const body of [
       { wyslij: false, zaliczka: zaliczka(), korekta: korekta() },
@@ -898,6 +912,53 @@ describe('FA(3) z treści telefonu: generator i XSD MF', () => {
     const data = (fake.enqueue.mock.calls[0]![0] as { correctionData: CorrectionInvoiceData }).correctionData;
     expect(data.linesBefore).toEqual([expect.objectContaining({ quantity: 2 })]);
     await xsdOk(generateCorrectionInvoiceXml(data));
+  });
+
+  it('korekta „przed / po” faktury „zw” z telefonu (plan zero C3): kontekst z „zw”, koperta z podstawą zwolnienia, XML KOR przechodzi XSD', async () => {
+    const parent = invoices.find((i) => i.id === PARENT)!;
+    Object.assign(parent, {
+      vat_total: 0,
+      gross_total: 1000,
+      fa3_data: { annotations: { cashMethod: 2, splitPayment: 2, vatExemptionBasis: 'art. 113 ust. 1 ustawy o VAT' } },
+    });
+    lines = [{ ...lines[0]!, vat_rate: 'zw', vat_amount: 0, gross_amount: 1000 }];
+    const kontekst = await kontekstKorekty(PARENT);
+    expect(kontekst.status).toBe(200);
+    expect(((await kontekst.json()) as { pozycje: Array<{ vatRate: string }> }).pozycje.map((p) => p.vatRate)).toEqual(['zw']);
+    const response = await wystaw({
+      wyslij: true,
+      korekta: korekta({ correctionType: 'before_after', amountChange: null, linesAfter: [{ name: 'Projekt', unit: 'szt', quantity: 1, unitPriceNet: 500, vatRate: 'zw' }] }),
+    });
+    expect(response.status).toBe(201);
+    const data = (fake.enqueue.mock.calls[0]![0] as { correctionData: CorrectionInvoiceData }).correctionData;
+    expect(data.annotations).toMatchObject({ vatExemptionBasis: 'art. 113 ust. 1 ustawy o VAT' });
+    const xml = generateCorrectionInvoiceXml(data);
+    expect(xml).toContain('<P_19>1</P_19>');
+    await xsdOk(xml);
+  });
+
+  it('korekta kwotowa faktury „zw” z telefonu (ustalenie 29): kontekst ze stawką „zw”, koperta z podstawą, XML KOR z P_13_7 i P_19 przechodzi XSD', async () => {
+    const parent = invoices.find((i) => i.id === PARENT)!;
+    Object.assign(parent, {
+      vat_total: 0,
+      gross_total: 1000,
+      fa3_data: { annotations: { cashMethod: 2, splitPayment: 2, vatExemptionBasis: 'art. 113 ust. 1 ustawy o VAT' } },
+    });
+    lines = [{ ...lines[0]!, vat_rate: 'zw', vat_amount: 0, gross_amount: 1000 }];
+    const kontekst = await kontekstKorekty(PARENT);
+    expect(kontekst.status).toBe(200);
+    expect(((await kontekst.json()) as { stawkaBezVat: string | null }).stawkaBezVat).toBe('zw');
+    const response = await wystaw({
+      wyslij: true,
+      korekta: korekta({ amountChange: { netDelta: -100, vatDelta: 0, grossDelta: -100, description: 'Rabat' } }),
+    });
+    expect(response.status).toBe(201);
+    const data = (fake.enqueue.mock.calls[0]![0] as { correctionData: CorrectionInvoiceData }).correctionData;
+    expect(data.annotations).toMatchObject({ vatExemptionBasis: 'art. 113 ust. 1 ustawy o VAT' });
+    const xml = generateCorrectionInvoiceXml(data);
+    expect(xml).toContain('<P_13_7>-100.00</P_13_7>');
+    expect(xml).toContain('<P_19>1</P_19>');
+    await xsdOk(xml);
   });
 
   it('rozliczenie zapisane z telefonu: XML ROZ z danych szkicu przechodzi XSD', async () => {

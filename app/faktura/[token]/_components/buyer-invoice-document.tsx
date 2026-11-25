@@ -221,7 +221,11 @@ export function BuyerInvoiceDocument({
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(line.quantity, 4)}</TableCell>
                     <TableCell className="text-muted-foreground">{line.unit ?? ''}</TableCell>
-                    <TableCell className="text-right tabular-nums">{formatNumber(line.unit_price_net, 4)}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {line.unit_price_net == null && line.unit_price_gross != null
+                        ? `${formatNumber(line.unit_price_gross, 4)} brutto`
+                        : formatNumber(line.unit_price_net, 4)}
+                    </TableCell>
                     <TableCell className="text-right">{vatRateLabel(line.vat_rate)}</TableCell>
                     <TableCell className="text-right tabular-nums">{formatNumber(line.net_amount)}</TableCell>
                     <TableCell className="pr-4 text-right font-medium tabular-nums">{formatNumber(line.gross_amount)}</TableCell>

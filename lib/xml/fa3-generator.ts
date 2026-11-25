@@ -211,6 +211,7 @@ function regularTextChecks(invoice: Invoice): Fa3TextCheck[] {
       limit: FA3_TEXT_LIMITS.nazwaBanku,
     },
     { label: 'Uwagi', value: invoice.notes, limit: FA3_TEXT_LIMITS.stopkaFaktury },
+    { label: 'Numer zamówienia', value: invoice.order?.number, limit: FA3_TEXT_LIMITS.nrZamowienia },
   ];
 }
 
@@ -407,10 +408,12 @@ function buildFa(
   buildFakturaDoParagonu(fa, invoice);
 
   for (const line of invoice.lines) {
-    buildFaWiersz(fa, line);
+    buildFaWiersz(fa, line, invoice.pricesGross === true);
   }
 
   buildPlatnosc(fa, invoice);
+
+  buildWarunkiTransakcji(fa, invoice);
 }
 
 function buildVatSummaries(fa: XMLBuilder, lines: InvoiceLineItem[]): void {
@@ -553,6 +556,7 @@ function buildFakturaDoParagonu(fa: XMLBuilder, invoice: Invoice): void {
 function buildFaWiersz(
   fa: XMLBuilder,
   line: InvoiceLineItem,
+  pricesGross = false,
 ): void {
   const wiersz = fa.ele('FaWiersz');
 
@@ -575,8 +579,21 @@ function buildFaWiersz(
   wiersz.ele('P_8A').txt(requireText(line.unit, `line[${line.ordinal}].unit`));
   wiersz.ele('P_8B').txt(formatDecimal(line.quantity, 4));
 
-  wiersz.ele('P_9A').txt(formatDecimal(line.unitPriceNet, 4));
-  wiersz.ele('P_11').txt(formatDecimal(line.netAmount));
+  if (pricesGross) {
+    // Art. 106e ust. 8: zamiast ceny i wartości netto cena jednostkowa brutto
+    // i wartość sprzedaży brutto (XSD: P_9B i P_11A „w przypadku zastosowania
+    // art. 106e ust. 7 i 8”). Sumy stawek (P_13_x, P_14_x) z podziału VAT stawki.
+    // Bez ceny brutto nie ma pliku (bramka `validateInvoice` odmawia wcześniej z numerem
+    // pozycji); tu ostatnia linia obrony przy `validate: false`, zamiast ceny 0 zł.
+    if (line.unitPriceGross === undefined || !Number.isFinite(line.unitPriceGross)) {
+      throw new Error(`FA(3): pozycja ${line.ordinal} faktury w cenach brutto nie ma ceny brutto.`);
+    }
+    wiersz.ele('P_9B').txt(formatDecimal(line.unitPriceGross, 4));
+    wiersz.ele('P_11A').txt(formatDecimal(line.grossAmount));
+  } else {
+    wiersz.ele('P_9A').txt(formatDecimal(line.unitPriceNet, 4));
+    wiersz.ele('P_11').txt(formatDecimal(line.netAmount));
+  }
 
   const mapping = VAT_RATE_MAP[line.vatRate];
   if (!mapping) {
@@ -630,6 +647,24 @@ function buildPlatnosc(
       rachunek.ele('NazwaBanku').txt(invoice.payment.bankName);
     }
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// <WarunkiTransakcji> (krok 2.8: numer zamówienia)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * `Fa/WarunkiTransakcji/Zamowienia` w XSD: po `Platnosc`, przed `Zamowienie`
+ * (zamówienie faktury zaliczkowej, tu nieużywane). W `Zamowienia` najpierw
+ * `DataZamowienia` (TDataU), potem `NrZamowienia`. Tylko gdy faktura ma numer
+ * zamówienia; bez niego nie powstaje nic, więc plik jest taki jak dotąd.
+ */
+function buildWarunkiTransakcji(fa: XMLBuilder, invoice: Invoice): void {
+  const order = invoice.order;
+  if (!order || order.number.trim() === '') return;
+  const zamowienia = fa.ele('WarunkiTransakcji').ele('Zamowienia');
+  if (order.date) zamowienia.ele('DataZamowienia').txt(formatDate(order.date));
+  zamowienia.ele('NrZamowienia').txt(order.number);
 }
 
 // ═══════════════════════════════════════════════════════════════

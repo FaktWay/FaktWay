@@ -242,8 +242,9 @@ describe('eksport danych konta ponad limit wierszy PostgREST (sesja 29)', () => 
     expect(data.audit_logs).toHaveLength(1501);
     expect(data.audit_logs[0]?.id).toBe(uuid(9999));
     expect(data.coverage.audit_logs).toEqual({ returned: 1501, total: 1501, truncated: false });
-    // Pierwszy odczyt: 3 strony i licznik kontrolny (1501 ≠ 1500); drugi: 4 strony i licznik.
-    expect(pg.state.requests.filter((request) => request.table === 'audit_logs')).toHaveLength(9);
+    // Pierwszy odczyt: 3 strony, a trzecia (pełna) prosi o wiersz ponad licznik i widzi nowy wpis (FZ-017);
+    // drugi: 4 strony i licznik kontrolny.
+    expect(pg.state.requests.filter((request) => request.table === 'audit_logs')).toHaveLength(8);
   });
 
   it('wpisy dopisywane w trakcie obu odczytów: odmowa, bez trzeciej próby', async () => {
@@ -255,7 +256,8 @@ describe('eksport danych konta ponad limit wierszy PostgREST (sesja 29)', () => 
     ];
 
     await expect(collectUserData(USER)).rejects.toThrow(/^account_export_count_unavailable$/);
-    expect(pg.state.requests.filter((request) => request.table === 'audit_logs')).toHaveLength(9);
+    // Pierwszy odczyt kończy trzecia strona z wierszem ponad licznik (FZ-017), drugi licznik kontrolny.
+    expect(pg.state.requests.filter((request) => request.table === 'audit_logs')).toHaveLength(8);
   });
 
   it('zwykłe konto: każda tabela jednym zapytaniem, bez licznika kontrolnego', async () => {

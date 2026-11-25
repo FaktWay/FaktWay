@@ -14,6 +14,7 @@ import {
 } from '@/lib/invoices/annotations';
 import { tytulPrzelewuNaDokumencie } from '@/lib/invoices/tytul-przelewu';
 import { lineCodesText } from '@/lib/invoices/line-codes';
+import { orderLine } from '@/lib/invoices/order-reference';
 import { RECEIPT_INVOICE_LABEL, receiptDetailsLine } from '@/lib/invoices/receipt-invoice';
 import { vatSummaryAgreesWithGross } from '@/lib/invoices/vat-summary';
 import { drawPdfLogo, type PdfLogo } from '@/lib/pdf/logo';
@@ -684,6 +685,12 @@ function drawFooter(
   if (exemption) {
     doc.font('body').fontSize(8).fillColor('#444444');
     doc.text(exemption, left, doc.y, { width });
+    doc.y += 4;
+  }
+  // Krok 2.8: numer zamówienia (FA(3) `WarunkiTransakcji/Zamowienia`); bez niego wydruk jak dotąd.
+  if (invoice.order) {
+    doc.font('body').fontSize(8).fillColor('#444444');
+    doc.text(orderLine(invoice.order), left, doc.y, { width });
     doc.y += 4;
   }
   if (invoice.notes) {

@@ -358,7 +358,7 @@
     },
     {
       "id": "RP-JPK-GTU-01",
-      "regula": "Oznaczenia GTU w JPK_V7M: wiersz ewidencji sprzedaży faktury ma GTU_01-GTU_13 równe 1 dla każdego oznaczenia jej pozycji, każde raz, w kolejności z XSD, także faktura do paragonu (FP); kwoty wiersza i deklaracji się nie zmieniają. Oznaczenie wybiera klient przy pozycji zwykłej faktury (formularz albo katalog produktów), to samo trafia do pliku FA(3) (GTU po P_12). Faktura z importu: oznaczenia z pliku KSeF, gdy każde jest kodem z listy. Korekta faktury z GTU w pozycjach daje odmowę, bo korekta w FaktWay nie zapisuje GTU pozycji.",
+      "regula": "Oznaczenia GTU w JPK_V7M: wiersz ewidencji sprzedaży faktury ma GTU_01-GTU_13 równe 1 dla każdego oznaczenia jej pozycji, każde raz, w kolejności z XSD, także faktura do paragonu (FP); kwoty wiersza i deklaracji się nie zmieniają. Oznaczenie wybiera klient przy pozycji zwykłej faktury (formularz albo katalog produktów), to samo trafia do pliku FA(3) (GTU po P_12). Faktura z importu: oznaczenia z pliku KSeF, gdy każde jest kodem z listy. Korekta FaktWay niesie oznaczenia pozycji faktury korygowanej i dostaje kody pozycji, których dotyczy: anulowanie wszystkich, korekta „przed/po” zmienionych i usuniętych (te same kody, co w jej pliku FA(3)), korekta kwotowa pozycji w stawce korekty, gdy mają jedno oznaczenie albo żadnego. Gdy FaktWay tego nie wie (pozycja dopisana albo o zmienionej nazwie w korekcie faktury z GTU, korekta kwotowa w stawce z różnymi oznaczeniami, pozycja, której oznaczeń FaktWay nie zna), odmowa.",
       "podstawa": [
         {
           "akt": "rozporządzenie Ministra Finansów, Inwestycji i Rozwoju z dnia 15 października 2019 r. w sprawie szczegółowego zakresu danych zawartych w deklaracjach podatkowych i w ewidencji w zakresie podatku od towarów i usług (Dz.U. 2019 poz. 1988 ze zm.)",
@@ -387,7 +387,8 @@
         "jpk.vat-fa",
         "ksiegowosc.vat",
         "faktury.fa3",
-        "faktury.wystawianie"
+        "faktury.wystawianie",
+        "faktury.korekty"
       ],
       "kod": [
         "lib/exports/jpk-v7m-generator.ts#generateJpkV7m",
@@ -397,7 +398,11 @@
         "lib/exports/data-fetcher.ts#gtuMarkingsOfFa3",
         "lib/invoices/line-codes.ts#isGtuCode",
         "lib/invoices/build-from-form.ts#buildInvoiceFromForm",
-        "lib/xml/fa3-generator.ts#generateFA3Xml"
+        "lib/xml/fa3-generator.ts#generateFA3Xml",
+        "lib/exports/data-fetcher.ts#fetchInvoicesForExport",
+        "lib/ksef/fa3-correction-generator.ts#correctionLinePairs",
+        "lib/ksef/fa3-correction-generator.ts#withCodesFromBefore",
+        "lib/invoices/line-codes.ts#lineCodesOf"
       ],
       "testy": [
         "tests/unit/jpk-v7m-gtu.test.ts > zbiór GTU_xx w wierszu = zbiór oznaczeń pozycji faktury",
@@ -405,12 +410,23 @@
         "tests/unit/jpk-v7m-gtu.test.ts > oznaczenie nie zmienia kwot",
         "tests/unit/jpk-v7m-gtu.test.ts > faktura do paragonu (FP) z GTU",
         "tests/unit/jpk-v7m-gtu.test.ts > GTU z pliku (poprawne kody) trafia do wiersza tej faktury",
-        "tests/unit/jpk-v7m-gtu.test.ts > korekta faktury FaktWay z GTU w pozycjach",
+        "tests/unit/jpk-v7m-gtu.test.ts > korekta kwotowa bez koperty faktury FaktWay z GTU w pozycjach",
         "tests/unit/jpk-v7m-gtu.test.ts > korekta faktury z importu z GTU w pliku KSeF",
         "tests/unit/jpk-v7m-gtu.test.ts > JPK_FA zgodny z XSD i EDI++ powstają bez odmowy i bez GTU",
         "tests/unit/import-data-sprzedazy-adnotacje.test.ts > oznaczenie GTU w pozycji (krok 2.6, część 2b-2)",
         "tests/unit/pozycje-gtu.test.ts > GTU po P_12 tej pozycji",
-        "tests/unit/produkty-podpowiedz-formularz.test.tsx > wybrane GTU idzie z formularza do akcji zapisu szkicu"
+        "tests/unit/produkty-podpowiedz-formularz.test.tsx > wybrane GTU idzie z formularza do akcji zapisu szkicu",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > zmiana ceny pozycji z GTU_12",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > zmiana tylko pozycji bez GTU",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > dopisana pozycja do faktury z GTU",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > zmiana nazwy pozycji faktury z GTU",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > anulowanie dotyczy wszystkich pozycji",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > kwotowa w stawce z pozycją z GTU_12 i pozycją bez GTU",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > kwotowa w stawce bez pozycji w stanie przed faktury z GTU",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > korekta sprzed zapisu kodów (koperta bez kodów) pozycji z GTU",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > łańcuch: korekta pozycji dopisanej wcześniejszą korektą faktury z GTU",
+        "tests/unit/jpk-v7m-gtu-korekta.test.ts > GTU wiersza = kody GTU w pliku FA(3) KOR",
+        "tests/unit/korekta-kody-pozycji.test.ts > wiersz „przed” ma kody swojej pozycji"
       ],
       "parametry": [],
       "niezmienniki": [],
@@ -420,10 +436,10 @@
         "opis": "MF, pytania i odpowiedzi JPK_VAT z deklaracją (oznaczenia GTU i faktury korygujące): wiele oznaczeń GTU w jednym wpisie, GTU także przy FP, korekta oznaczona, gdy dotyczy pozycji z GTU; sekwencja GTU_01-GTU_13 w XSD JPK_V7M(3) i typ TGTU w XSD FA(3)",
         "sprawdzono": "2026-11-14"
       },
-      "interpretacja": "Wiersz faktury dostaje GTU_xx = 1 dla każdego kodu jej pozycji (bez powtórzeń, w kolejności XSD), bez zmiany pól K_ i deklaracji. Źródło: pozycje faktury FaktWay (fa3_data.lines[].gtuCode, z formularza albo katalogu, to samo co GTU w pliku FA(3)) i oznaczenia z pliku KSeF faktury z importu (fa3_data.ksefMarkers.gtu), gdy każde jest kodem z listy; kod spoza listy daje odmowę jak dotąd. Program nie dobiera kodu i nie sprawdza, czy towar go wymaga (D8): pozycja bez GTU idzie bez oznaczenia, także w fakturze z importu (MF, pyt. 1: GTU nie musi być na fakturze). Korekta faktury, której pozycje mają GTU (faktura FaktWay albo z importu): odmowa z wyjściem (JpkV7mGtuCorrectionNotSupportedError) w pliku i w rozliczeniu modułu VAT, bo korekta nie zapisuje GTU pozycji (krok 2.6, część 2b-3). Korekta faktury bez GTU: wiersz bez oznaczeń. Dziś idą do JPK_V7M bez GTU, także gdy dotyczą towaru albo usługi z GTU (do części 2b-3): faktura zaliczkowa i faktura rozliczająca (formularze bez pola GTU) oraz korekta „przed/po” faktury bez GTU, która dopisuje pozycję (pozycja dopisana ma tylko wiersz „po”, lib/ksef/fa3-correction-generator.ts, a korekta nie ma pola GTU). Pozycja ma jedno oznaczenie GTU (jak FaWiersz/GTU w FA(3)), więc towar z dwoma oznaczeniami (np. GTU_02 i GTU_03, MF pyt. 14) wymaga dwóch pozycji z tymi kodami.",
+      "interpretacja": "Wiersz faktury dostaje GTU_xx = 1 dla każdego kodu jej pozycji (bez powtórzeń, w kolejności XSD), bez zmiany pól K_ i deklaracji. Źródło: pozycje faktury FaktWay (fa3_data.lines[].gtuCode, z formularza albo katalogu, to samo co GTU w pliku FA(3)) i oznaczenia z pliku KSeF faktury z importu (fa3_data.ksefMarkers.gtu), gdy każde jest kodem z listy; kod spoza listy daje odmowę jak dotąd. Program nie dobiera kodu i nie sprawdza, czy towar go wymaga (D8): pozycja bez GTU idzie bez oznaczenia, także w fakturze z importu (MF, pyt. 1: GTU nie musi być na fakturze). Korekta FaktWay (krok 2.6, część 2b-3): stan przed bierze PKWiU i GTU pozycji z dokumentu faktury korygowanej (fa3_data.lines po numerze pozycji; w łańcuchu z dokumentu ostatniej korekty), pozycja „po” kody swojej pary „przed” o tej samej nazwie (to samo parowanie co plik FA(3) KOR, correctionLinePairs), pozycja dopisana i pozycja sparowana po kolejności ze zmienioną nazwą żadnych (FaktWay nie wie, czy to ta sama pozycja); kody z żądania się nie liczą. Wiersz korekty w JPK_V7M dostaje kody pozycji, których korekta dotyczy (MF, pyt. 8): anulowanie wszystkich pozycji stanu przed, korekta „przed/po” pozycji zmienionych i usuniętych (te same kody, co w jej pliku FA(3)), korekta kwotowa pozycji w stawce korekty, gdy wszystkie mają to samo oznaczenie (ten kod) albo żadna (bez oznaczeń). Pozycja stanu przed bez kodu jest pozycją bez GTU, gdy faktura korygowana ma pozycje o tej nazwie i żadna nie ma GTU; inaczej FaktWay jej oznaczenia nie zna (korekta wystawiona przed zapisem kodów w korektach, pozycja dopisana wcześniejszą korektą, faktura z importu z oznaczeniami całego pliku). Odmowa z wyjściem (JpkV7mGtuCorrectionNotSupportedError) w pliku i w rozliczeniu modułu VAT, gdy korekta faktury z GTU dotyczy pozycji o nieznanym oznaczeniu, dopisuje pozycję albo zmienia nazwę pozycji (taka pozycja nie ma w FaktWay kodów) albo jest kwotowa w stawce z różnymi oznaczeniami, z pozycjami z GTU i bez albo bez pozycji w stanie przed; komunikat podaje numer korekty, faktury korygowanej i kody, a przy korekcie kwotowej drogę przez korektę pozycji. Korekta faktury bez GTU: wiersz bez oznaczeń. Dziś idą do JPK_V7M bez GTU, także gdy dotyczą towaru albo usługi z GTU: faktura zaliczkowa i faktura rozliczająca (formularze bez pola GTU) oraz korekta „przed/po” faktury bez GTU, która dopisuje pozycję (pozycja dopisana nie ma w FaktWay pola GTU). Wiersz korekty kwotowej w pliku FA(3) jest bez GTU (korekta kwotowa nie wskazuje pozycji, a GTU w FA(3) jest polem pozycji, opcjonalnym). Pozycja ma jedno oznaczenie GTU (jak FaWiersz/GTU w FA(3)), więc towar z dwoma oznaczeniami (np. GTU_02 i GTU_03, MF pyt. 14) wymaga dwóch pozycji z tymi kodami.",
       "do_rozstrzygniecia": {
         "kto": "księgowa",
-        "pytanie": "Faktura zaliczkowa, faktura rozliczająca i korekta „przed/po”, która dopisuje pozycję do faktury bez GTU, nie mają w FaktWay pola GTU, więc ich wiersz w JPK_V7M jest bez oznaczenia, także gdy dotyczą towaru albo usługi z GTU (MF, pyt. 5: oznaczenia GTU dotyczą też faktur zaliczkowych). FaktWay nie informuje dziś o tym klienta ani przy wystawianiu, ani przy pliku JPK_V7M. Czy do czasu pola GTU w tych dokumentach (krok 2.6, część 2b-3) JPK_V7M może powstawać bez tych oznaczeń, czy plik z taką fakturą ma być wstrzymany z komunikatem?",
+        "pytanie": "Faktura zaliczkowa, faktura rozliczająca i korekta „przed/po”, która dopisuje pozycję do faktury bez GTU, nie mają w FaktWay pola GTU, więc ich wiersz w JPK_V7M jest bez oznaczenia, także gdy dotyczą towaru albo usługi z GTU (MF, pyt. 5: oznaczenia GTU dotyczą też faktur zaliczkowych). FaktWay nie informuje dziś o tym klienta ani przy wystawianiu, ani przy pliku JPK_V7M. Korekta, która dopisuje pozycję do faktury z GTU, wstrzymuje JPK_V7M z komunikatem. Czy do czasu pola GTU w tych dokumentach JPK_V7M może powstawać bez tych oznaczeń, czy plik z taką fakturą ma być wstrzymany z komunikatem?",
         "przypadki": []
       },
       "sprawdzil": {
@@ -433,7 +449,7 @@
       "odczyt": "2026-11-14",
       "zrodlo_planu": "PLAN-KOMPLETNA-APLIKACJA 2.6",
       "stan": "dziala",
-      "uwagi": "Krok 2.6, część 2b-2. JPK_FA(4) i EDI++ nie mają pola GTU: zaimportowana faktura z GTU dalej je wstrzymuje (decyzja C5b z 06.10.2026), a ostrzeżenie importu mówi o JPK_FA i JPK_V7M (do poprawy osobno); własna faktura FaktWay z GTU ich nie wstrzymuje. Raportów z kasy (RO) i korekt z art. 89a ust. 1 i 4 FaktWay nie wykazuje, więc GTU przy nich nie dotyczy."
+      "uwagi": "Krok 2.6, części 2b-2 i 2b-3. JPK_FA(4) i EDI++ nie mają pola GTU: zaimportowana faktura z GTU dalej je wstrzymuje (decyzja C5b z 06.10.2026), a ostrzeżenie importu mówi o JPK_FA i JPK_V7M (do poprawy osobno); własna faktura FaktWay z GTU ich nie wstrzymuje. Raportów z kasy (RO) i korekt z art. 89a ust. 1 i 4 FaktWay nie wykazuje, więc GTU przy nich nie dotyczy."
     },
     {
       "id": "RP-WAL-01",
@@ -1245,7 +1261,7 @@
     },
     {
       "id": "RP-RYCZ-ODL-02",
-      "regula": "Kolejna zapłacona wersja rozliczenia liczy się do odliczeń tylko dopłatą ponad najwyższą zapłaconą wersję okresu, w miesiącu tej zapłaty.",
+      "regula": "Kolejna zapłacona wersja rozliczenia liczy się do odliczeń tylko dopłatą ponad najwyższą zapłaconą wersję okresu, w miesiącu tej zapłaty. Gdy zapłacone wersje okresu składek społecznych różnie dzielą kwotę między Fundusz Pracy i część bez FP (któraś zwiększa część bez FP bardziej niż kwotę, także przy niższej kwocie, albo ma część bez FP lub FP większe niż wersja najwyższa, czyli ostatnia z największą kwotą), każda kwota liczona z odliczeń od miesiąca pierwszej zapłaty okresu to brak z obiema wersjami i wyjściem „Cofnij” wersji z błędnym podziałem (FZ-027).",
       "podstawa": [
         {
           "akt": "ustawa o zryczałtowanym podatku dochodowym od niektórych przychodów osiąganych przez osoby fizyczne",
@@ -1264,11 +1280,15 @@
         "ksiegowosc.rozliczenia"
       ],
       "kod": [
-        "lib/ksiegowosc/ten-miesiac.ts#przyrostyZaplat"
+        "lib/ksiegowosc/ten-miesiac.ts#przyrostyZaplat",
+        "lib/ksiegowosc/kpir.ts#zmianyPodzialu"
       ],
       "testy": [
         "tests/unit/ksiegowosc-ten-miesiac.test.ts > kolejna zapłacona wersja liczy się tylko dopłatą",
-        "tests/unit/ksiegowosc-ten-miesiac-dane.test.ts > zaległe składki za listopad zapłacone w styczniu"
+        "tests/unit/ksiegowosc-ten-miesiac-dane.test.ts > zaległe składki za listopad zapłacone w styczniu",
+        "tests/unit/ksiegowosc-ten-miesiac.test.ts > FZ-027: zmiana podziału zapłaconych składek między FP i część bez FP",
+        "tests/unit/ksiegowosc-kpir.test.ts > FZ-027: zmiana podziału zapłaconych składek przy skali",
+        "tests/filtr/niezmienniki/podzial-skladek.test.ts > "
       ],
       "parametry": [],
       "niezmienniki": [],
@@ -2465,7 +2485,7 @@
     },
     {
       "id": "RP-KPIR-FP-01",
-      "regula": "Fundusz Pracy i Fundusz Solidarnościowy z zapłaconych składek to przy skali i liniowym koszt w kolumnie 13 w dniu zapłaty (z przyrostów zapłaconych wersji); składki społeczne (przy liniowym także zdrowotna) odlicza się od dochodu, nie wpisuje do KPiR.",
+      "regula": "Fundusz Pracy i Fundusz Solidarnościowy z zapłaconych składek to przy skali i liniowym koszt w kolumnie 13 w dniu zapłaty (z przyrostów zapłaconych wersji); składki społeczne (przy liniowym także zdrowotna) odlicza się od dochodu, nie wpisuje do KPiR. Gdy zapłacone wersje okresu różnie dzielą kwotę między FP i część bez FP (warunek jak w RP-RYCZ-ODL-02), KPiR ma brak w dniu każdej zapłaty okresu z nazwą okresu, obiema wersjami i wyjściem „Cofnij” wersji z błędnym podziałem, a nie koszt i odliczenie z tych samych pieniędzy (FZ-027).",
       "podstawa": [
         {
           "akt": "ustawa o podatku dochodowym od osób fizycznych",
@@ -2480,12 +2500,16 @@
         "ksiegowosc.kpir"
       ],
       "kod": [
-        "lib/ksiegowosc/kpir.ts#zaplatyFunduszuPracy"
+        "lib/ksiegowosc/kpir.ts#zaplatyFunduszuPracy",
+        "lib/ksiegowosc/kpir.ts#zmianyPodzialu"
       ],
       "testy": [
         "tests/unit/ksiegowosc-kpir.test.ts > FP z przyrostów zapłaconych wersji",
         "tests/unit/ksiegowosc-kpir.test.ts > wiersz kolumny 13 w dniu zapłaty",
-        "tests/unit/ksiegowosc-kpir-dane.test.ts > Fundusz Pracy (K7.3)"
+        "tests/unit/ksiegowosc-kpir-dane.test.ts > Fundusz Pracy (K7.3)",
+        "tests/unit/ksiegowosc-kpir-dane.test.ts > FZ-027: wersja, która dzieli tę samą kwotę inaczej",
+        "tests/filtr/niezmienniki/ksiegi-uzupelnienie.test.ts > NZ-PIT-08: wersja, która przesuwa kwotę",
+        "tests/filtr/niezmienniki/podzial-skladek.test.ts > skala"
       ],
       "parametry": [],
       "niezmienniki": [],
@@ -3059,6 +3083,73 @@
       "zrodlo_planu": "§7",
       "stan": "dziala",
       "uwagi": null
+    },
+    {
+      "id": "RP-KOSZT-01",
+      "regula": "Jeden dokument kosztu to jeden koszt w KPiR i jedno odliczenie VAT: ten sam dokument (NIP sprzedawcy, numer i rok wystawienia, bez względu na rodzaj) z KSeF i spoza KSeF (zdjęcie, wpis ręczny, import) albo jako kopia spoza KSeF nie wchodzi do kosztów okresu dwa razy; odczyt okresu odmawia z numerem, datą, źródłami i wyjściem.",
+      "podstawa": [
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 86 ust. 1 i ust. 2 pkt 1 lit. a"
+        },
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106e ust. 1 pkt 2"
+        },
+        {
+          "akt": "ustawa o podatku dochodowym od osób fizycznych",
+          "przepis": "art. 22 ust. 1"
+        },
+        {
+          "akt": "rozporządzenie MF w sprawie prowadzenia podatkowej księgi przychodów i rozchodów",
+          "przepis": "Dz.U. 2025 poz. 1299, załącznik (wzór i objaśnienia)"
+        },
+        {
+          "akt": "zasada programu",
+          "przepis": "F11-C1 (KPiR modułu), FZ-022"
+        }
+      ],
+      "obowiazuje": {
+        "od": "2026-01-01",
+        "do": null
+      },
+      "obszary": [
+        "koszty",
+        "raporty.kpir",
+        "jpk.vat-fa",
+        "ksiegowosc.kpir",
+        "ksiegowosc.vat",
+        "szacunki"
+      ],
+      "kod": [
+        "lib/expenses/jeden-koszt-dokumentu.ts#zdublowanyDokument",
+        "lib/expenses/jeden-koszt-dokumentu.ts#kluczDokumentuKosztu",
+        "lib/expenses/jeden-koszt-dokumentu.ts#assertJedenKosztNaDokument"
+      ],
+      "testy": [
+        "tests/unit/koszt-jeden-dokument.test.ts > KPiR i JPK_V7M okresu nie liczą faktury dwa razy",
+        "tests/unit/koszt-jeden-dokument.test.ts > dubel z lutego nie zatrzymuje stycznia",
+        "tests/unit/jeden-koszt-dokumentu.test.ts > faktura z tym samym NIP-em i numerem w innym roku to inna faktura",
+        "tests/unit/jeden-koszt-dokumentu.test.ts > dwa koszty z KSeF z tym samym kluczem"
+      ],
+      "parametry": [],
+      "niezmienniki": [],
+      "pewnosc": "srednia",
+      "wzorzec": null,
+      "interpretacja": "Klucz: NIP sprzedawcy (10 cyfr), numer bez odstępów i wielkości liter oraz rok wystawienia (sprzedawca może co rok zaczynać numerację od nowa); rodzaju w kluczu nie ma, bo faktura uproszczona z KSeF ma rodzaj „invoice”, a jej zdjęcie z OCR „simplified_invoice”. Dubel: koszt z KSeF i koszt spoza KSeF dowolnego rodzaju; dwa koszty spoza KSeF z tą samą kwotą brutto albo, przy fakturach, w tej samej kolumnie KPiR; dwa paragony tylko przy tym samym dniu i kwocie brutto (wiele kas pod jednym NIP-em). Bez odmowy: dwa koszty z KSeF (dla KSeF to dwa dokumenty, np. faktura i korekta) i faktura spoza KSeF rozpisana na dwie kolumny KPiR z różnymi kwotami. Odmowa dotyczy odczytu okresu, w którym są oba koszty; para w dwóch okresach albo przez przełom roku, numer zapisany inaczej niż odstępami i wielkością liter oraz dwie kopie spoza KSeF z różną kwotą i kolumną przechodzą bez odmowy.",
+      "do_rozstrzygniecia": {
+        "kto": "księgowa",
+        "pytanie": "Czy jedną fakturę kosztową można wpisać do KPiR jako dwa wiersze z tym samym numerem dowodu (np. towar w kolumnie 10, transport w kolumnie 11), i czy paragon z tym samym numerem, dniem i kwotą brutto wgrany dwa razy zawsze jest tym samym dokumentem?",
+        "przypadki": []
+      },
+      "sprawdzil": {
+        "ksiegowa": null,
+        "prawnik": null
+      },
+      "odczyt": "2026-11-17",
+      "zrodlo_planu": "FZ-022 (docs/filtr/USTALENIA.md), F11-C1",
+      "stan": "dziala",
+      "uwagi": "Zapis jednego kosztu przy drugim źródle czeka na decyzję Bartosza (FZ-022); do tego czasu odmowa przy odczycie."
     }
   ]
 }

@@ -23,6 +23,8 @@ export const KOLUMNY_FAKTURY = [
   'id, internal_number, invoice_kind, issue_date, sale_date, payment_due_date',
   'ksef_status, ksef_number, net_total, vat_total, gross_total, currency',
   'payment_status, paid_amount, buyer_nip, is_b2c, buyer_id_type, buyer_data, seller_data, payment_data, notes',
+  // Faktura z „dzieckiem” (korektą, rozliczeniem) nie jest należnością (U42, `naleznosciOtwarte`).
+  'parent_invoice_id, advance_invoice_ids',
   'last_error, last_error_field, last_error_suggestion, created_at',
   `invoice_line_items(${KOLUMNY_POZYCJI})`,
 ].join(', ');
@@ -71,6 +73,9 @@ export type WierszFaktury = {
   seller_data?: unknown;
   payment_data?: unknown;
   notes?: string | null;
+  /** Korekta wskazuje fakturę pierwotną, rozliczenie (ROZ) rozliczane zaliczki: dziecko wyklucza rodzica z należności. */
+  parent_invoice_id?: string | null;
+  advance_invoice_ids?: string[] | null;
   last_error?: string | null;
   last_error_field?: string | null;
   last_error_suggestion?: string | null;
@@ -236,6 +241,7 @@ export function fakturaZBazy(w: WierszFaktury): Faktura {
     : undefined;
   const komunikat = tekst(w.last_error);
   const doZaplatyRozliczenia = kwotaDoZaplatyRozliczenia(w);
+  const zaliczki = (Array.isArray(w.advance_invoice_ids) ? w.advance_invoice_ids : []).filter((id): id is string => typeof id === 'string' && id.trim() !== '');
   return {
     id: w.id,
     numer: tekst(w.internal_number) || 'Bez numeru',
@@ -269,6 +275,8 @@ export function fakturaZBazy(w: WierszFaktury): Faktura {
     dataSprzedazy: tekst(w.sale_date) || undefined,
     zaplacono: !zaplacona && zaplacono > 0 ? zaplacono : undefined,
     ...(doZaplatyRozliczenia === undefined ? {} : { kwotaDoZaplaty: doZaplatyRozliczenia }),
+    ...(tekst(w.parent_invoice_id) ? { rodzicId: tekst(w.parent_invoice_id) } : {}),
+    ...(zaliczki.length > 0 ? { zaliczkiId: zaliczki } : {}),
   };
 }
 

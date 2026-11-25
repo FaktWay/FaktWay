@@ -1,5 +1,7 @@
 import { MARGIN_SCHEME_LABELS } from '@/lib/invoices/annotations';
+import { documentGrossPrices } from '@/lib/invoices/document-lines';
 import { documentLineCodes, type DocumentLineCodes } from '@/lib/invoices/line-codes';
+import { orderFromJson } from '@/lib/invoices/order-reference';
 import { isReceiptInvoiceColumns, receiptFromJson } from '@/lib/invoices/receipt-invoice';
 import type { CorrectedInvoiceRef } from '@/lib/pdf/invoice-renderer';
 import { isTenantStoragePath } from '@/lib/storage/tenant-path';
@@ -50,6 +52,12 @@ export interface InvoicePdfData {
    * albo niepełny zapis): PDF ma samo oznaczenie. Z danymi: `invoice.receipt`.
    */
   receiptInvoiceMarker: boolean;
+  /**
+   * Waluta faktury wielkimi literami (`loadInvoiceForPdf` zawsze ją ustawia);
+   * bez waluty w wierszu albo bez pola złote, jak domyślna kolumny. PDF drukuje
+   * kwoty tylko w złotych, więc inna waluta to odmowa (FZ-021, `generateInvoicePdf`).
+   */
+  currency?: string;
   /** Cache: PDF jest ważny gdy pdf_generated_at >= updated_at. */
   updatedAt: string | null;
   pdfStoragePath: string | null;
@@ -71,6 +79,7 @@ interface LineItemRow {
 interface InvoiceRow {
   id: string;
   tenant_id: string;
+  currency?: string | null;
   internal_number: string | null;
   invoice_type: string | null;
   issue_date: string;
@@ -90,10 +99,14 @@ interface InvoiceRow {
   annotations: unknown;
   /** `fa3_data->receipt`: faktura do paragonu z FaktWay (krok 1.2). */
   receipt?: unknown;
+  /** `fa3_data->order`: numer i data zamówienia (krok 2.8). */
+  order_ref?: unknown;
   /** `fa3_data->ksefLineFields`: pola pozycji z pliku KSeF (import), m.in. cena brutto P_9B. */
   ksef_line_fields?: unknown;
-  /** `fa3_data->lines`: PKWiU i GTU pozycji (krok 2.6, część 2b-3c), jak w pliku FA(3). */
+  /** `fa3_data->lines`: PKWiU i GTU pozycji (krok 2.6, część 2b-3c), jak w pliku FA(3); cena brutto przy cenach brutto. */
   document_lines?: unknown;
+  /** `fa3_data->pricesGross`: faktura FaktWay w cenach brutto (plan cen brutto). */
+  prices_gross?: unknown;
   /** `fa3_data->ksefMarkers->>fp`: FP z pliku KSeF (import, C5b). */
   ksef_fp?: string | null;
   updated_at: string | null;
@@ -108,14 +121,16 @@ interface InvoiceRow {
 const SELECT = `
   id, tenant_id, internal_number, invoice_type, issue_date, sale_date,
   ksef_number, ksef_status, offline_idempotency_key, seller_nip, xml_storage_path,
-  net_total, vat_total, gross_total, notes, updated_at,
+  net_total, vat_total, gross_total, currency, notes, updated_at,
   parent_invoice_id, correction_reason,
   pdf_storage_path, pdf_generated_at, seller_data, buyer_data, payment_data,
   annotations:fa3_data->annotations,
   receipt:fa3_data->receipt,
+  order_ref:fa3_data->order,
   ksef_fp:fa3_data->ksefMarkers->>fp,
   ksef_line_fields:fa3_data->ksefLineFields,
   document_lines:fa3_data->lines,
+  prices_gross:fa3_data->pricesGross,
   invoice_line_items(
     ordinal, name, unit, quantity, unit_price_net,
     net_amount, vat_rate, vat_amount, gross_amount
@@ -132,18 +147,12 @@ const KNOWN_TYPES: ReadonlySet<string> = new Set<InvoiceType>([
   'KOR_ROZ',
 ]);
 
-/** Cena brutto (P_9B) pozycji o numerze `ordinal` z `fa3_data.ksefLineFields`; brak = `undefined`. */
-function grossPriceFromFile(raw: unknown, ordinal: number | null): number | undefined {
-  if (!Array.isArray(raw)) return undefined;
-  const hit = raw.find((f) => f && typeof f === 'object' && (f as { ordinal?: unknown }).ordinal === ordinal);
-  const price = (hit as { P_9B?: unknown } | undefined)?.P_9B;
-  return typeof price === 'number' && Number.isFinite(price) ? price : undefined;
-}
 
-function mapLine(row: LineItemRow, fileFields?: unknown, codes?: DocumentLineCodes): InvoiceLineItem {
-  // Import z cenami brutto: baza ma NULL, a nie cenę 0 (F12-E4).
+function mapLine(row: LineItemRow, grossPrices: Map<number, number>, codes?: DocumentLineCodes): InvoiceLineItem {
+  // Ceny brutto (import F12-E4 i faktura FaktWay w cenach brutto): baza ma NULL, a nie cenę 0;
+  // cena brutto (P_9B) z dokumentu faktury (`documentGrossPrices`).
   const netMissing = row.unit_price_net === null;
-  const gross = netMissing ? grossPriceFromFile(fileFields, row.ordinal) : undefined;
+  const gross = netMissing && row.ordinal != null ? grossPrices.get(row.ordinal) : undefined;
   return {
     ...(netMissing ? { unitPriceNetMissing: true as const } : {}),
     ...(gross !== undefined ? { unitPriceGross: gross } : {}),
@@ -224,8 +233,13 @@ export async function loadInvoiceForPdf(
   const row = res.data;
 
   const lineCodes = documentLineCodes(row.document_lines);
+  const grossPrices = documentGrossPrices({
+    pricesGross: row.prices_gross,
+    lines: row.document_lines,
+    ksefLineFields: row.ksef_line_fields,
+  });
   const lines = (row.invoice_line_items ?? [])
-    .map((l) => mapLine(l, row.ksef_line_fields, l.ordinal == null ? undefined : lineCodes.get(l.ordinal)))
+    .map((l) => mapLine(l, grossPrices, l.ordinal == null ? undefined : lineCodes.get(l.ordinal)))
     .sort((a, b) => a.ordinal - b.ordinal);
 
   const rawType = (row.invoice_type ?? 'VAT').toUpperCase();
@@ -236,6 +250,8 @@ export async function loadInvoiceForPdf(
   // Krok 1.2: paragon tylko w pełnym kształcie; każde inne oznaczenie FP daje samo „Faktura do paragonu”.
   const receipt = receiptFromJson(row.receipt);
   const receiptInvoice = isReceiptInvoiceColumns(row.receipt, row.ksef_fp);
+  // Krok 2.8: numer zamówienia tylko w pełnym kształcie; zły zapis to brak wiersza na wydruku.
+  const order = orderFromJson(row.order_ref);
 
   const invoice: Invoice = {
     internalNumber: row.internal_number ?? row.id.slice(0, 8),
@@ -252,6 +268,7 @@ export async function loadInvoiceForPdf(
     notes: row.notes ?? undefined,
     annotations: readAnnotations(row.annotations),
     ...(receipt ? { receipt } : {}),
+    ...(order ? { order } : {}),
   };
 
   return {
@@ -268,6 +285,7 @@ export async function loadInvoiceForPdf(
     correctedInvoice: await readCorrectedInvoice(admin, row),
     receiptInvoiceMarker: receiptInvoice && !receipt,
     updatedAt: row.updated_at,
+    currency: (row.currency ?? 'PLN').trim().toUpperCase() || 'PLN',
     pdfStoragePath: row.pdf_storage_path,
     pdfGeneratedAt: row.pdf_generated_at,
   };

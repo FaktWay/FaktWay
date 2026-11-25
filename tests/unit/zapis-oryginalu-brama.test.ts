@@ -1127,3 +1127,47 @@ describe('wyjątki i czystość', () => {
     expect(JSON.parse(JSON.stringify(first.gate))).toEqual(first.gate);
   });
 });
+
+describe('plik FaktWay w cenach brutto (P_9B, P_11A, ceny brutto (a)): brama importable, lustro 4.8 przechodzi', () => {
+  /**
+   * Faktura w cenach brutto z generatora FaktWay (`pricesGross`): każda pozycja ma `P_9B` i `P_11A`,
+   * żadna `P_9A`, `P_11` ani `P_11Vat`. To plik z naszego generatora, więc brama nie wysyła go do
+   * przeglądu operatora; zapis K buduje pozycje jak import faktur od brutto (C5c).
+   */
+  function buildBrutto(): Built {
+    const invoice = finalizeInvoice({
+      internalNumber: 'FV/GR/BR', type: 'VAT', issueDate: ISSUE, saleDate: ISSUE, seller: SELLER, buyer: BUYER_B2B,
+      pricesGross: true,
+      lines: [
+        { ordinal: 1, name: 'Kawa', unit: 'szt.', quantity: 3, unitPriceNet: 0, unitPriceGross: 5.49, vatRate: '23' },
+        { ordinal: 2, name: 'Książka', unit: 'szt.', quantity: 2, unitPriceNet: 0, unitPriceGross: 20.99, vatRate: '8' },
+      ],
+      payment: TRANSFER,
+    });
+    expect(validateInvoice(invoice, NOW)).toEqual([]);
+    const xml = generateFA3Xml(invoice, { generatedAt: GENERATED_AT });
+    return { invoice, xml, number: 'FV/GR/BR', ksefNumber: `${SELLER_NIP}-20260910-GR9999999999-AF` };
+  }
+
+  it('importable, bez problemów, reguły ORIGINAL_GATE_RULES; lustro 4.8 przechodzi; sumy podglądu jak faktura', () => {
+    const b = buildBrutto();
+    expect(b.xml).toContain('<P_9B>');
+    expect(b.xml).not.toContain('<P_9A>');
+    const ev = gateOf(b.xml, b);
+    expect({ kind: ev.gate.kind, problems: ev.gate.problems, rules: ev.gate.rules }).toEqual({ kind: 'importable', problems: [], rules: ORIGINAL_GATE_RULES });
+    expect(mirrorProblemOf(b.xml, b)).toBeNull();
+    const preview = previewOf(ev);
+    expect({ net: Number(preview.totals.net), vat: Number(preview.totals.vat), gross: Number(preview.totals.gross) })
+      .toEqual({ net: b.invoice.netTotal, vat: b.invoice.vatTotal, gross: b.invoice.grossTotal });
+  });
+
+  it('kształt, którego generator nie pisze, zostaje w przeglądzie: P_9B obok P_9A, P_11Vat, pozycje brutto i netto w jednym pliku', () => {
+    const b = buildBrutto();
+    const zNetto = replaceOnce(b.xml, '<P_9B>', '<P_9A>4.4634</P_9A><P_9B>');
+    expect(gateOf(zNetto, b).gate.problems).toContain('gross-prices');
+    const zVat = replaceOnce(b.xml, '</P_11A>', '</P_11A><P_11Vat>3.08</P_11Vat>');
+    expect(gateOf(zVat, b).gate.problems).toContain('gross-prices');
+    const mieszany = replaceOnce(b.xml, '<P_9B>20.9900</P_9B><P_11A>41.98</P_11A>', '<P_9A>19.4352</P_9A><P_11>38.87</P_11>');
+    expect(gateOf(mieszany, b).gate.problems).toContain('gross-prices');
+  });
+});

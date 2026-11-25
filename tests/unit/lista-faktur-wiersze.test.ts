@@ -16,6 +16,7 @@ vi.mock('@/lib/ksef/claim-environment', () => ({
 }));
 
 import { getReceivables } from '@/lib/dashboard/receivables';
+import { orPredicate } from '@/lib/demo/fake-postgrest';
 import {
   canCorrectInvoice,
   canMarkInvoicePaid,
@@ -62,6 +63,8 @@ interface ClientOptions {
   serverCap?: number;
   withholdCount?: boolean;
   failOn?: (filters: ReadonlyArray<[string, string, unknown]>) => boolean;
+  /** Wiersze `invoice_line_items` (ustalenie 17: pozycje bez ceny netto albo ilości). */
+  lines?: Row[];
 }
 
 /** Klient w pamięci: filtry PostgREST użyte przez moduł, liczenie `exact`, strony. */
@@ -103,6 +106,7 @@ function client(rows: Row[], options: ClientOptions = {}) {
         }),
         overlaps: (c: string, v: string[]) => add('overlaps', c, v, (r) =>
           Array.isArray(r[c]) && (r[c] as string[]).some((x) => v.includes(x))),
+        or: (expr: string) => add('or', '', expr, orPredicate(expr)),
         order: (c: string) => { ordering.push(c); return builder; },
         range: (from: number, to: number) => { range = [from, to]; return builder; },
         then<T, E = never>(
@@ -113,7 +117,7 @@ function client(rows: Row[], options: ClientOptions = {}) {
           if (options.failOn?.(filters)) {
             return Promise.resolve({ data: null, count: null, error: { message: 'boom' } }).then(resolve, reject);
           }
-          const source = table === 'invoices' ? rows : [];
+          const source = table === 'invoices' ? rows : table === 'invoice_line_items' ? (options.lines ?? []) : [];
           const matching = source.filter((r) => predicates.every((p) => p(r)));
           matching.sort((a, b) => {
             for (const c of ordering) {
@@ -347,7 +351,8 @@ describe('odczyt dzieci dla strony listy', () => {
     const a = invoice();
     const b = invoice();
     const { c } = await facts([a, b]);
-    const childReads = c.log.filter((q) => q.filters.some(([op]) => op === 'in' || op === 'overlaps'));
+    // Dzieci to faktury; pozycje kandydatów na korektę (ustalenie 17) czyta osobne zapytanie niżej.
+    const childReads = c.log.filter((q) => q.table === 'invoices' && q.filters.some(([op]) => op === 'in' || op === 'overlaps'));
     expect(childReads).toHaveLength(2);
     for (const q of childReads) expect(q.filters).toContainEqual(['eq', 'tenant_id', TENANT]);
     expect(childReads.flatMap((q) => q.filters)).toEqual(expect.arrayContaining([
@@ -377,6 +382,30 @@ describe('odczyt dzieci dla strony listy', () => {
     const { c, map } = await facts([draft]);
     expect(c.log).toHaveLength(0);
     expect(map.get(draft.id as string)).toEqual({ payment: null, outstanding: null, canCorrect: false, canMarkPaid: false });
+  });
+
+  it('pozycje kandydatów na korektę: jedno zapytanie o braki ceny netto albo ilości, zawężone do wierszy strony (ustalenie 17)', async () => {
+    const pelna = invoice();
+    const brutto = invoice();
+    const lines = [
+      { id: 'l-1', invoice_id: pelna.id, unit_price_net: 100, quantity: 1 },
+      { id: 'l-2', invoice_id: brutto.id, unit_price_net: null, quantity: 1 },
+    ];
+    const c = client([pelna, brutto], { lines });
+    const map = await loadInvoiceListRowFacts(c as unknown as Supabase, TENANT, [pelna, brutto].map(asRow), NOW);
+    expect(map.get(pelna.id as string)!.canCorrect).toBe(true);
+    expect(map.get(brutto.id as string)!.canCorrect).toBe(false);
+    const lineReads = c.log.filter((q) => q.table === 'invoice_line_items');
+    expect(lineReads).toHaveLength(1);
+    expect(lineReads[0]!.filters).toEqual(expect.arrayContaining([
+      ['in', 'invoice_id', [pelna.id, brutto.id]],
+      ['or', '', 'unit_price_net.is.null,quantity.is.null'],
+    ]));
+  });
+
+  it('błąd odczytu pozycji — wyjątek, nie „pozycje pełne” (ustalenie 17)', async () => {
+    const row = invoice();
+    await expect(facts([row], [row], { failOn: (f) => f.some(([op]) => op === 'or') })).rejects.toThrow(/pozycji faktur/);
   });
 
   it('błąd odczytu dzieci — wyjątek, nie „bez dzieci”', async () => {

@@ -171,6 +171,15 @@ describe('F11-A4: stany trwałe z odczytu faktur to osobne komunikaty z wyjście
     expect(sentry.captureException).not.toHaveBeenCalled();
   });
 
+  it('ten sam dokument kosztu dwa razy (FZ-022): komunikat z numerem i wyjściem w Kosztach, bez Sentry', async () => {
+    const { ZdublowanyKosztError } = await import('@/lib/expenses/jeden-koszt-dokumentu');
+    mocks.bladFaktur = new ZdublowanyKosztError({ numer: 'FV/7/02/2027', sprzedawca: 'Sklep Przykład', ile: 2, zKsef: true });
+    const w = await czytajVat(client, 'firma-1', '2026-10', 0);
+    expect(w).toMatchObject({ ok: false, komunikat: expect.stringContaining('FV/7/02/2027') });
+    expect(w).toMatchObject({ komunikat: expect.stringContaining('Uwzględnij w KPiR') });
+    expect(sentry.captureException).not.toHaveBeenCalled();
+  });
+
   it('przyjęte faktury bez środowiska KSeF: komunikat o zgłoszeniu w Pomocy, bez Sentry', async () => {
     const { AcceptedInvoiceEnvironmentIncompleteError } = await import('@/lib/ksef/accounting-provenance');
     mocks.bladFaktur = new AcceptedInvoiceEnvironmentIncompleteError();

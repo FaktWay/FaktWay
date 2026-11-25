@@ -11,9 +11,11 @@ import { generateFA3Xml, InvoiceValidationError } from '@/lib/xml/fa3-generator'
 import { claimXmlGeneratedAt } from '@/lib/ksef/xml-generated-at';
 import { assertSpecialInvoiceData } from '@/lib/ksef/special-invoice-data';
 import { isRozSubmission, ROZ_SUBMISSION_HOLD_MESSAGE } from '@/lib/ksef/roz-submission-hold';
+import { CENY_BRUTTO_WYLACZONE, czyCenyBruttoWlaczone, czyFakturaWCenachBrutto } from '@/lib/invoices/ceny-brutto-wylacznik';
 import { RECEIPT_ONLY_REGULAR_MESSAGE } from '@/lib/invoices/receipt-invoice';
 import { assertSpecialIssueDateToday } from '@/lib/ksef/special-issue-date';
 import { InvoiceXmlSchemaError, validateInvoiceXml } from '@/lib/xml/validator';
+import { describeFa3SchemaErrors } from '@/lib/xml/fa3-pola';
 import { uploadInvoiceXml } from '@/lib/storage/r2';
 
 import {
@@ -90,6 +92,15 @@ export async function submitInvoiceFullFlow(
   if (invoice.receipt !== undefined && (correctionData != null || advanceData != null || finalPayload != null)) {
     throw new InvoiceValidationError([RECEIPT_ONLY_REGULAR_MESSAGE]);
   }
+  // Wyłącznik cen brutto (RP-FA-BRUTTO-01, B4.0 zasada 2): jedyne miejsce, przez
+  // które idzie każda nowa wysyłka, także ponowienie z kopii z crona i od operatora
+  // (zdarzenie bez kolejki klienta). Uzgodnienie wcześniejszej wysyłki tu nie
+  // dochodzi. Odmowa przed plikiem, archiwum i POST; runner kończy ją bez ponowień
+  // (INVALID_DOCUMENT, powrót do szkicu). Błąd odczytu flagi rzuca zwykły błąd, więc
+  // job ponawia próbę zamiast wysłać.
+  if (czyFakturaWCenachBrutto(invoice) && !(await czyCenyBruttoWlaczone())) {
+    throw new InvoiceValidationError([CENY_BRUTTO_WYLACZONE]);
+  }
 
   const configuredEnv = requireMatchingKsefEnvironment(env);
   await requireKsefVerificationForBackgroundJob(tenantId);
@@ -116,8 +127,12 @@ export async function submitInvoiceFullFlow(
   //    (limit otwartych sesji per podmiot + czas dostępu do API).
   const validation = await validateInvoiceXml(xml);
   if (!validation.valid) {
+    // Operator dostaje surowy tekst libxml (`errors`). Klient dostaje zdanie
+    // z nazwą pola ze ścieżki w pliku (U3); gdy pola nie da się nazwać bez
+    // zgadywania, `customer` jest puste i wysyłka pokazuje ogólne zdanie.
     throw new InvoiceXmlSchemaError(
       validation.errors.map((e) => `Linia ${e.line}: ${e.message}`),
+      describeFa3SchemaErrors(xml, validation.errors.map((e) => e.message)) ?? undefined,
     );
   }
 

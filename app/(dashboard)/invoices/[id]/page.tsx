@@ -9,9 +9,11 @@ import {
   type InvoicePaymentEntry,
   type InvoicePaymentsData,
 } from '@/lib/invoices/invoice-payments';
-import { canCorrectInvoice, canMarkInvoicePaid } from '@/lib/invoices/list-row-facts';
+import { canCorrectInvoice, canMarkInvoicePaid, correctionRefusalFromLines } from '@/lib/invoices/list-row-facts';
 import { canChangeInvoicePayment } from '@/lib/invoices/manual-payment';
+import { documentGrossPrices } from '@/lib/invoices/document-lines';
 import { documentLineCodes } from '@/lib/invoices/line-codes';
+import { orderReferenceView } from '@/lib/invoices/order-reference';
 import { receiptInvoiceView } from '@/lib/invoices/receipt-invoice';
 import { canDuplicateInvoice, canSetAsRecurring } from '@/lib/invoices/recurring/visibility';
 import { buyerLinkRefusal, canManageBuyerLinks } from '@/lib/invoice-share/policy';
@@ -182,15 +184,19 @@ export default async function InvoiceDetailPage({
   // Krok 2.6, część 2b-3c: PKWiU i GTU pozycji z dokumentu faktury (to samo co
   // w pliku FA(3)); do widoku idą same kody, reszta `fa3_data` zostaje na serwerze.
   const lineCodes = documentLineCodes((invoice.fa3_data as { lines?: unknown } | null)?.lines);
+  // Ceny brutto (import i faktura FaktWay w cenach brutto): cena brutto pozycji z dokumentu.
+  const grossPrices = documentGrossPrices(invoice.fa3_data as Parameters<typeof documentGrossPrices>[0]);
   const lines = ((invoice.invoice_line_items ?? []) as InvoiceDetailLine[])
     .slice()
     .sort((a, b) => a.ordinal - b.ordinal)
     .map((line) => {
       const codes = lineCodes.get(line.ordinal);
+      const gross = line.unit_price_net == null ? grossPrices.get(line.ordinal) : undefined;
       return {
         ...line,
         ...(codes?.pkwiuCode ? { pkwiu_code: codes.pkwiuCode } : {}),
         ...(codes?.gtuCode ? { gtu_code: codes.gtuCode } : {}),
+        ...(gross !== undefined ? { unit_price_gross: gross } : {}),
       };
     });
 
@@ -203,7 +209,14 @@ export default async function InvoiceDetailPage({
     gross_total: invoice.gross_total,
     payment_data: invoice.payment_data,
   });
-  const canCorrect = await loadCanCorrect(supabase, invoice, env);
+  // Ustalenie 17: faktura z pozycją bez ceny netto albo ilości (np. w cenach brutto)
+  // nie dostaje „Korekta”, bo formularz korekty i tak odmówi; zamiast linku powód
+  // z wyjściem, ten sam tekst co odmowa formularza (`correctionRefusalFromLines`).
+  const correctable = await loadCanCorrect(supabase, invoice, env);
+  const correctionRefusal = correctable
+    ? correctionRefusalFromLines(lines, grossPrices, internalNumber?.trim() || String(invoice.id).slice(0, 8))
+    : null;
+  const canCorrect = correctable && correctionRefusal === null;
   const paymentPanel = await loadPaymentPanel(supabase, invoice, env, membership?.role ?? null);
   const paymentHistory = await loadPaymentHistory(supabase, invoice, env, membership?.role ?? null, paymentPanel);
   const qr = await loadQr(supabase, invoice);
@@ -239,6 +252,7 @@ export default async function InvoiceDetailPage({
     split_payment: splitPayment,
     amount_due: amountDue,
     can_correct: canCorrect,
+    correction_refusal: correctionRefusal,
     // N1: „Ustaw jako cykliczną” tylko dla faktury, którą przyjmie akcja tworzenia (te same warunki).
     can_set_recurring: canSetAsRecurring({
       direction: invoice.direction as string | null,
@@ -292,6 +306,8 @@ export default async function InvoiceDetailPage({
     ksef_imported_original: importedOriginalProvenance(invoice.fa3_data),
     // Krok 1.2: oznaczenie FP i dane paragonu jako gotowy tekst, fa3_data zostaje na serwerze.
     receipt_invoice: receiptInvoiceView(invoice.fa3_data),
+    // Krok 2.8: numer zamówienia jako gotowy wiersz, reszta `fa3_data` zostaje na serwerze.
+    order_reference: orderReferenceView(invoice.fa3_data),
   };
 
   return <InvoiceDetailView key={initial.id} initial={initial} />;

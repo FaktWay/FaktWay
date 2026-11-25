@@ -163,7 +163,10 @@ const INVOICES = [
   invoiceRow(INVOICE_B2_OVERDUE, TENANT_B, { issue_date: '2026-09-01', payment_due_date: '2026-09-15', payment_status: 'overdue', internal_number: 'FV/B/PO' }),
 ];
 
-const LINE_ITEMS = [
+/** Pozycje w kształcie odpowiedzi PostgREST; przy cenach brutto `unit_price_net` jest pusta (ustalenie 9). */
+type LineItemRow = Record<string, unknown> & { invoice_id: string };
+
+const LINE_ITEMS: LineItemRow[] = [
   { invoice_id: INVOICE_A1, ordinal: 1, name: 'Usługa programistyczna', quantity: '1.000', unit: 'szt.', unit_price_net: '1000.00', net_amount: '1000.00', vat_rate: '23', vat_amount: '230.00', gross_amount: '1230.00' },
   { invoice_id: INVOICE_B1, ordinal: 1, name: 'Cudza pozycja', quantity: '1.000', unit: 'szt.', unit_price_net: '1.00', net_amount: '1.00', vat_rate: '23', vat_amount: '0.23', gross_amount: '1.23' },
 ];
@@ -540,6 +543,31 @@ describe('get_invoice', () => {
     expect(foreign.isError).toBe(true);
     expect(foreign.text).toMatch(/nie ma takiej faktury/i);
     expect(JSON.stringify(foreign.data)).not.toContain('FV/B/2026');
+  });
+
+  it('faktura w cenach brutto: cena brutto pozycji z dokumentu, cena netto pusta (ustalenie 9)', async () => {
+    const GROSS = 'a6a6a6a6-0000-4000-8000-000000000006';
+    const invoicesBefore = INVOICES.length;
+    const linesBefore = LINE_ITEMS.length;
+    INVOICES.push(invoiceRow(GROSS, TENANT_A, {
+      prices_gross: true, document_lines: [{ ordinal: 1, name: 'Bilet', unitPriceGross: 123.45 }], ksef_line_fields: null,
+    }));
+    LINE_ITEMS.push({
+      invoice_id: GROSS, ordinal: 1, name: 'Bilet', quantity: '2.0000', unit: 'szt.', unit_price_net: null,
+      net_amount: '200.73', vat_rate: '23', vat_amount: '46.17', gross_amount: '246.90',
+    });
+    try {
+      const gross = await toolResult(await call(KEYS.a!.key, 'get_invoice', { id: GROSS }));
+      expect(gross.isError).toBe(false);
+      expect(((gross.data.invoice as Json).items as Json[])[0]).toMatchObject({
+        unit_price_net: null, unit_price_gross: 123.45, gross_amount: 246.9,
+      });
+      const net = await toolResult(await call(KEYS.a!.key, 'get_invoice', { id: INVOICE_A1 }));
+      expect(((net.data.invoice as Json).items as Json[])[0]).toMatchObject({ unit_price_net: 1000, unit_price_gross: null });
+    } finally {
+      INVOICES.length = invoicesBefore;
+      LINE_ITEMS.length = linesBefore;
+    }
   });
 
   it('zły identyfikator: błąd wejścia, bez zapytania o dane', async () => {

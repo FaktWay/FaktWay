@@ -1,11 +1,11 @@
-import { roundToCents } from '@/lib/xml/invoice-calculator';
+import { roundToCents, toGrosze, vatFromGrossGrosze, vatFromNetCents } from '@/lib/xml/invoice-calculator';
 import type { ZeroVatAmountChangeRate } from '@/types/invoice-types';
 
 type AmountChange = {
   netDelta: number;
   vatDelta: number;
   grossDelta: number;
-  /** Jawna stawka bez VAT z faktury pierwotnej (np I, np II, oo). */
+  /** Jawna stawka bez VAT z faktury pierwotnej (np I, np II, oo, zw). */
   vatRate?: ZeroVatAmountChangeRate;
 };
 type Rate = '23' | '8' | '5' | '0' | ZeroVatAmountChangeRate;
@@ -30,9 +30,17 @@ export function resolveAmountChangeVatRate(change: AmountChange): Rate {
   }
 
   const rates = [
-    ['23', 0.23], ['8', 0.08], ['5', 0.05], ['0', 0],
+    ['23', 23], ['8', 8], ['5', 5], ['0', 0],
   ] as const;
-  const matches = rates.filter(([, rate]) => roundToCents(netDelta * rate) === vatDelta);
+  // Najpierw VAT od netto (art. 106e ust. 1 pkt 14), jak dotąd. Wzór od brutto (ust. 7
+  // i 10: faktura za abonament) tylko, gdy żadna stawka nie pasuje od netto, żeby drobne
+  // kwoty nie stały się niejednoznaczne. Czy faktura liczy od brutto, sprawdza serwer.
+  // VAT od netto w groszach całkowitych (art. 106e ust. 11: od 0,5 grosza w górę), nie
+  // `roundToCents(netto × stawka)` na liczbach zmiennoprzecinkowych (FZ-025).
+  const fromNet = rates.filter(([, rate]) => toGrosze(vatFromNetCents(netDelta, rate)) === toGrosze(vatDelta));
+  const matches = fromNet.length > 0
+    ? fromNet
+    : rates.filter(([label]) => vatFromGrossGrosze(toGrosze(grossDelta), Number(label)) === toGrosze(vatDelta));
   if (matches.length !== 1) {
     throw new Error('Korekta kwotowa: stawka VAT jest niejednoznaczna lub nieobsługiwana.');
   }
@@ -41,8 +49,8 @@ export function resolveAmountChangeVatRate(change: AmountChange): Rate {
 
 /**
  * Stawka bez VAT dla korekty kwotowej z pozycji faktury pierwotnej: gdy WSZYSTKIE
- * pozycje mają tę samą stawkę `np` / `np_ii` / `oo`, korekta ją przejmuje
- * (z kwot — VAT 0 — nie da się jej odróżnić od „0 KR”). Inaczej `undefined`
+ * pozycje mają tę samą stawkę `np` / `np_ii` / `oo` / `zw`, korekta ją przejmuje
+ * (z kwot przy VAT 0 nie da się jej odróżnić od „0 KR”). Inaczej `undefined`
  * i stawkę wyznaczają kwoty (`resolveAmountChangeVatRate`). Wspólne dla
  * serwera (akcja korekty) i formularza.
  */
@@ -52,5 +60,5 @@ export function zeroVatRateFromParentLines(
   const rates = new Set(lines.map((l) => l.vatRate));
   if (rates.size !== 1) return undefined;
   const [rate] = [...rates];
-  return rate === 'np' || rate === 'np_ii' || rate === 'oo' ? rate : undefined;
+  return rate === 'np' || rate === 'np_ii' || rate === 'oo' || rate === 'zw' ? rate : undefined;
 }

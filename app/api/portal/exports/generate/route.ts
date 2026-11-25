@@ -12,6 +12,7 @@ import { fetchInvoicesForExport } from '@/lib/exports/data-fetcher';
 import { exportScopeFor } from '@/lib/exports/export-scope';
 import { OutgoingInvoiceCurrencyNotSupportedError } from '@/lib/exports/currency-guard';
 import { KsefExpenseCurrencyNotSupportedError } from '@/lib/expenses/ksef-currency-review';
+import { ZdublowanyKosztError } from '@/lib/expenses/jeden-koszt-dokumentu';
 import { MissingIssuerAddressError, readIssuerRegisteredAddress } from '@/lib/exports/issuer-address';
 import { generateJpkFa, JpkDocumentNotSupportedError, JpkFaCorrectionNotSupportedError, JpkFaForeignCurrencyNotSupportedError } from '@/lib/exports/jpk-fa-generator';
 import { assertJpkMatchesSchema, JpkSchemaError } from '@/lib/exports/jpk-schema-check';
@@ -214,7 +215,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (e) {
-    if (e instanceof KsefExpenseCurrencyNotSupportedError) {
+    if (e instanceof KsefExpenseCurrencyNotSupportedError || e instanceof ZdublowanyKosztError) {
       return NextResponse.json({ error: e.message }, { status: 422 });
     }
     const errorId = Sentry.captureException(e, {

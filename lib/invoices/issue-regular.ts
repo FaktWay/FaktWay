@@ -9,6 +9,7 @@ import {
   type TenantSnapshot,
 } from '@/lib/invoices/build-from-form';
 import { readTenantCashMethodForIssuance } from '@/lib/invoices/cash-method';
+import { odmowaCenBrutto } from '@/lib/invoices/ceny-brutto-wylacznik';
 import { issueDateNotTodayError } from '@/lib/invoices/issue-date';
 import { enqueueKsefSubmitAfterDraft, type TokenSessionSendActor } from '@/lib/invoices/ksef-submit-enqueue';
 import {
@@ -141,6 +142,14 @@ async function insertInvoiceAndLines(
   // Krok 2.4: faktura z proformy albo oferty niesie powiązanie w tym samym INSERT
   // (`uq_invoices_sales_quote_seq`, 00198); zwykła faktura ma wiersz bez zmian.
   const salesQuote = salesQuoteIssue?.link;
+
+  // Wyłącznik cen brutto (RP-FA-BRUTTO-01, B4.0 zasada 2): jedyny zapis zwykłej
+  // faktury (szkic, „Wystaw i wyślij”, telefon, faktura cykliczna, proforma).
+  // Odmowa przed INSERT: bez wiersza, okresu faktury cyklicznej i kolejki.
+  // Sprawdzamy zbudowaną fakturę i wartości formularza (metodę cen wybiera
+  // formularz), więc odmowa nie zależy od tego, jak budowanie czyta metodę.
+  const grossRefusal = await odmowaCenBrutto('zapis', invoice, formValues);
+  if (grossRefusal) return { success: false, error: grossRefusal.tekst };
 
   const { data: inserted, error: invErr } = await supabase
     .from('invoices')

@@ -9,18 +9,28 @@
  * - w okresie jest dokument z importu, którego JPK nie wykaże (W9): pozycja
  *   ze stawką spoza FaktWay albo zaimportowana korekta / zaliczka / ROZ,
  * - GUS nie zna adresu firmy z województwem, powiatem i gminą.
+ *
+ * Faktury i pozycje okresu czytają helpery stronicowania (FZ-018). Faktury
+ * `readCompletePagesByKey` (licznik, kolejność po `id`, licznik kontrolny),
+ * jak eksport: limit serwera poniżej strony albo zapis w trakcie to wyjątek
+ * (krok paczki się ponawia), a nie cicha niepełna lista. Pozycje faktur
+ * z importu `readAllByIdInList` (paczki identyfikatorów, każda do pustej
+ * strony), więc mały limit serwera nie ucina listy; licznika nie ma, ale
+ * pozycje faktur z importu się nie zmieniają (eksport czyta je
+ * `readCompletePagesByKey` w paczkach po 100).
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { readCompletePagesByKey } from '@/lib/accounting/read-complete-pages';
 import { MissingIssuerAddressError, readIssuerRegisteredAddress } from '@/lib/exports/issuer-address';
 import { amountsOf, JpkFaCorrectionNotSupportedError, type JpkInvoice } from '@/lib/exports/jpk-fa-generator';
 import { attachKsefLineFields, importedContentFlags } from '@/lib/exports/data-fetcher';
 import { jpkAnnotationsFromJson } from '@/lib/xml/fa3-annotations';
 import { requireConfiguredKsefEnvironment } from '@/lib/ksef/claim-environment';
+import { readAllByIdInList } from '@/lib/pagination/in-list';
 import { VAT_RATES } from '@/lib/xml/fa3-p12';
 
-const PAGE = 1000;
 const LINE_CHUNK = 200;
 
 interface PeriodInvoice {
@@ -46,6 +56,7 @@ interface PeriodInvoice {
 }
 
 interface PeriodLine {
+  id: string;
   invoice_id: string;
   /** C5c: numer pozycji — para z `fa3_data.ksefLineFields` (jak eksport). */
   ordinal?: number | null;
@@ -67,24 +78,26 @@ async function unsupportedDocumentReason(
   params: { tenantId: string; periodStart: string; periodEnd: string },
 ): Promise<string | null> {
   const environment = requireConfiguredKsefEnvironment();
-  const invoices: PeriodInvoice[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await client
+  const invoices = await readCompletePagesByKey<PeriodInvoice>('Nie można sprawdzić faktur okresu', ({ afterId, limit, count, head }) => {
+    let query = client
       .from('invoices')
-      .select('id, internal_number, ksef_number, invoice_kind, invoice_type, origin, net_total, vat_total, annotations:fa3_data->annotations, annotation_problems:fa3_data->annotationProblems, sale_dates:fa3_data->saleDates, ksef_markers:fa3_data->ksefMarkers, receipt:fa3_data->receipt, line_amount_problems:fa3_data->lineAmountProblems, line_amount_totals_unknown:fa3_data->lineAmountTotalsUnknown, ksef_line_fields:fa3_data->ksefLineFields')
+      .select(
+        'id, internal_number, ksef_number, invoice_kind, invoice_type, origin, net_total, vat_total, annotations:fa3_data->annotations, annotation_problems:fa3_data->annotationProblems, sale_dates:fa3_data->saleDates, ksef_markers:fa3_data->ksefMarkers, receipt:fa3_data->receipt, line_amount_problems:fa3_data->lineAmountProblems, line_amount_totals_unknown:fa3_data->lineAmountTotalsUnknown, ksef_line_fields:fa3_data->ksefLineFields',
+        count ? { count: 'exact', head } : undefined,
+      )
       .eq('tenant_id', params.tenantId)
       .eq('direction', 'outgoing')
       .eq('ksef_status', 'accepted')
       .eq('ksef_environment', environment)
       .gte('issue_date', params.periodStart)
-      .lte('issue_date', params.periodEnd)
-      .order('id', { ascending: true })
-      .range(from, from + PAGE - 1);
-    if (error) throw new Error(`Nie można sprawdzić faktur okresu: ${error.message}`);
-    const page = (data ?? []) as PeriodInvoice[];
-    invoices.push(...page);
-    if (page.length < PAGE) break;
-  }
+      .lte('issue_date', params.periodEnd);
+    if (afterId !== null) query = query.gt('id', afterId);
+    return query.order('id', { ascending: true }).limit(limit) as unknown as PromiseLike<{
+      data: PeriodInvoice[] | null;
+      count?: number | null;
+      error: { message: string } | null;
+    }>;
+  });
 
   const asJpk = (inv: PeriodInvoice, lines: readonly PeriodLine[] | null): JpkInvoice => {
     const type = (inv.invoice_type ?? '').toUpperCase();
@@ -139,19 +152,14 @@ async function unsupportedDocumentReason(
   const imported = invoices.filter((inv) => inv.origin === 'ksef_import');
   for (let i = 0; i < imported.length; i += LINE_CHUNK) {
     const chunk = imported.slice(i, i + LINE_CHUNK);
-    const lines: PeriodLine[] = [];
-    for (let from = 0; ; from += PAGE) {
-      const { data, error } = await client
+    const lines = await readAllByIdInList<PeriodLine>('Nie można sprawdzić pozycji faktur z importu', chunk.map((inv) => inv.id), (values, afterId, limit) => {
+      let query = client
         .from('invoice_line_items')
-        .select('invoice_id, ordinal, vat_rate, net_amount, vat_amount')
-        .in('invoice_id', chunk.map((inv) => inv.id))
-        .order('id', { ascending: true })
-        .range(from, from + PAGE - 1);
-      if (error) throw new Error(`Nie można sprawdzić pozycji faktur z importu: ${error.message}`);
-      const page = (data ?? []) as PeriodLine[];
-      lines.push(...page);
-      if (page.length < PAGE) break;
-    }
+        .select('id, invoice_id, ordinal, vat_rate, net_amount, vat_amount')
+        .in('invoice_id', values);
+      if (afterId !== null) query = query.gt('id', afterId);
+      return query.order('id', { ascending: true }).limit(limit) as unknown as PromiseLike<{ data: PeriodLine[] | null; error: { message: string } | null }>;
+    });
     for (const inv of chunk) {
       const reason = refusal(asJpk(inv, lines.filter((l) => l.invoice_id === inv.id)));
       if (reason) return reason;

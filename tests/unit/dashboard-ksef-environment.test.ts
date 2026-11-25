@@ -218,15 +218,17 @@ describe('dashboard figures after a KSeF environment switch', () => {
       totalGross: 12000,
     });
     expect(series.currentSeries.at(-1)).toBe(12000);
+    // FZ-017: każda strona po pierwszej zaczyna się od ostatniego przeczytanego wiersza (zakładka).
     expect(ranges).toContainEqual([0, 499]);
-    expect(ranges).toContainEqual([500, 999]);
-    expect(ranges).toContainEqual([1000, 1499]);
+    expect(ranges).toContainEqual([499, 998]);
+    expect(ranges).toContainEqual([998, 1497]);
   });
 
   it('fails the monthly amount instead of returning the first page after a later read error', async () => {
     const bulk = Array.from({ length: 1200 }, (_, index) =>
       invoice('2026-09-10', 'accepted', 'production', 10, String(index).padStart(4, '0')));
-    const { client } = queryClient(bulk, 500);
+    // Druga strona (od zakładki, FZ-017).
+    const { client } = queryClient(bulk, 499);
 
     await expect(getMonthlyFigures(
       client, TENANT, new Date('2026-09-15T12:00:00Z'),

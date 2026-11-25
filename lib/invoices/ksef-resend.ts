@@ -64,6 +64,9 @@ interface ResendRow {
 /** Kolumny źródła ponowienia (A4b) + stan wysyłki. */
 const RESEND_ROW_COLUMNS = `${KSEF_RESEND_SOURCE_COLUMNS}, ksef_status, direction, invoice_type, last_error_code` as const;
 
+/** Błąd bazy przy odczycie faktury do ponownej wysyłki: klient spróbuje ponownie, a nie szuka faktury, która jest. */
+export const KSEF_RESEND_READ_FAILED = 'Nie udało się odczytać faktury, więc nie wysłaliśmy jej ponownie. Spróbuj ponownie za chwilę.';
+
 /**
  * „Wyślij ponownie” (cykl życia faktury, PR 3b — K3): `failed → queued` przez
  * RPC `requeue_ksef_send` w jednej transakcji ze zleceniem pg-boss. Kto i kiedy:
@@ -94,9 +97,9 @@ export async function resendInvoice(
       .eq('tenant_id', tenantId)
       .maybeSingle();
 
-    if (error || !data) {
-      return { success: false, error: KSEF_SEND_MESSAGES.notFound };
-    }
+    // Ustalenie 25 (uwaga N1 czytelnika): błąd bazy przy odczycie to nie brak faktury.
+    if (error) return { success: false, error: KSEF_RESEND_READ_FAILED };
+    if (!data) return { success: false, error: KSEF_SEND_MESSAGES.notFound };
     const row = data as unknown as ResendRow;
     const env = configuredKsefEnvironment();
     const now = new Date();

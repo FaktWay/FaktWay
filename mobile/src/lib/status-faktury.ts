@@ -53,6 +53,67 @@ export function pozostaloDoZaplaty(f: Faktura): number {
   return f.kwotaDoZaplaty === undefined ? reszta : Math.max(0, reszta);
 }
 
+/** Faktura w złotych: PLN albo brak waluty (jak `isPlnOrUnset` strony); waluty obce nie dodają się do złotówek. */
+export const wZlotych = (f: Faktura) => !f.waluta || f.waluta === 'PLN';
+
+/**
+ * Id faktur, które mają „dziecko” na liście: ktoś wskazuje je w `parent_invoice_id`
+ * (korekta) albo w `advance_invoice_ids` (rozliczenie zaliczki), w dowolnym
+ * statusie dziecka, także szkic i odrzucone. Jak `loadTenantChildIds` strony
+ * (`lib/dashboard/receivables.ts`) i NOT EXISTS w widoku `invoices_overdue`
+ * (00145). Lista telefonu to faktury jednej firmy od najnowszej, a dziecko jest
+ * zawsze nowsze od rodzica, więc rodzic na liście ma tu swoje dzieci.
+ */
+function idZDzieckiem(faktury: readonly Faktura[]): Set<string> {
+  const ids = new Set<string>();
+  for (const f of faktury) {
+    if (f.rodzicId) ids.add(f.rodzicId);
+    for (const id of f.zaliczkiId ?? []) ids.add(id);
+  }
+  return ids;
+}
+
+/**
+ * Faktury, które liczą się do należności (karta „Do zapłaty od klientów”,
+ * licznik „Po terminie”): jedna reguła dla sum na ekranie Faktury, w częściach
+ * `getReceivables` strony (§2.4 pkt 11), które telefon umie sprawdzić ze swoich
+ * kolumn. Czekają na zapłatę (`doZaplaty`) i:
+ * - nie są korektą (korekt nie liczymy nigdy, także w plus),
+ * - nie mają „dziecka” (zaliczka z rozliczeniem, faktura z korektą liczą się
+ *   przez dziecko albo wcale, nie drugi raz),
+ * - mają dodatnią resztę do zapłaty (rozliczenie w całości pokryte
+ *   zaliczkami nie jest pozycją „po terminie”).
+ * Czego telefon nie sprawdza: pochodzenia (`origin`: import z KSeF, strona
+ * liczy tylko sprzedaż z aplikacji), środowiska KSeF i znaczników FP, bo
+ * `KOLUMNY_FAKTURY` ich nie czyta (ustalenie U42c). Telefon liczy też fakturę
+ * „w drodze do KSeF” (`doZaplaty`), serwer dopiero przyjętą.
+ */
+export function naleznosciOtwarte(faktury: readonly Faktura[]): Faktura[] {
+  const zDzieckiem = idZDzieckiem(faktury);
+  return faktury.filter((f) => doZaplaty(f) && f.rodzaj !== 'korygujaca' && !zDzieckiem.has(f.id) && pozostaloDoZaplaty(f) > 0);
+}
+
+/**
+ * Ile klienci jeszcze winni w złotych: `pozostaloDoZaplaty` z faktur w PLN
+ * (na fakturze rozliczającej reszta po zaliczkach, od wpłat częściowych
+ * odjęte), nie suma `brutto`. Suma `brutto` to wartość faktur, nie należność.
+ */
+export function sumaDoZaplaty(faktury: readonly Faktura[]): number {
+  return faktury.reduce((s, f) => s + (wZlotych(f) ? pozostaloDoZaplaty(f) : 0), 0);
+}
+
+/**
+ * Karta „Do zapłaty od klientów” na ekranie Faktury: ile klienci winni w sumie
+ * (`razem`), ile z tego po terminie i które to faktury (`zalegle`). Jedno
+ * złożenie dla ekranu i testu (`tests/unit/mobile-naleznosci-dzieci.test.ts`),
+ * żeby nikt nie zsumował listy obok reguły `naleznosciOtwarte`.
+ */
+export function kartaNaleznosci(faktury: readonly Faktura[], dzis: string): { otwarte: Faktura[]; zalegle: Faktura[]; razem: number; poTerminie: number } {
+  const otwarte = naleznosciOtwarte(faktury);
+  const zalegle = otwarte.filter((f) => statusFaktury(f, dzis).zalegla);
+  return { otwarte, zalegle, razem: sumaDoZaplaty(otwarte), poTerminie: sumaDoZaplaty(zalegle) };
+}
+
 /** „1 faktura”, „2 faktury”, „5 faktur”, „22 faktury” (polska liczba mnoga). */
 export function ileFaktur(n: number): string {
   if (n === 1) return '1 faktura';

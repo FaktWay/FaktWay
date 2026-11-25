@@ -22,15 +22,20 @@
  *   pozycji w stawce równa się P_13_x tej stawki. Stawki z opisów pól: P_13_1
  *   23 albo 22 %, P_13_2 8 albo 7 %, P_13_3 5 %, P_13_6_1 „0 KR”, P_13_6_2
  *   „0 WDT”, P_13_6_3 „0 EX”, P_13_7 „zw”, P_13_8 „np I”, P_13_9 „np II”,
- *   P_13_10 „oo”. Pozycja z inną stawką (ryczałt taksówek, OSS, marża) albo
- *   bez P_11 (np. P_11A przy fakturze od brutto) wyłącza kontrole 02 i 03
- *   dla tej faktury: wzoru nie da się wtedy sprawdzić z samego pliku.
+ *   P_13_10 „oo”. Faktura w cenach brutto (art. 106e ust. 7 i 8, RP-FA-BRUTTO-01:
+ *   pozycja z P_11A bez P_11): suma P_11A pozycji w stawce równa się P_13_x
+ *   + P_14_x tej stawki (WB = netto + podatek), a stawka bez podatku samemu
+ *   P_13_x; stawka z pozycjami obu rodzajów bez tego porównania. Pozycja
+ *   z inną stawką (ryczałt taksówek, OSS, marża) albo bez P_11 i P_11A
+ *   wyłącza kontrole 02 i 03 dla tej faktury: wzoru nie da się wtedy
+ *   sprawdzić z samego pliku.
  * - FILTR-RT-FA3-03 (NZ-FA-02, NZ-ZAOKR-06, RP-FA-ZAL-01): P_14_x różni się
  *   od P_13_x razy stawka najwyżej o zaokrąglenie: (100 + stawka) / 2 setnych
  *   grosza na pozycję w tej stawce. Pół grosza na pozycję daje podatek od
  *   netto (od pozycji albo od sumy w stawce); podatek od brutto (art. 106e
- *   ust. 7, np. faktura za abonament, i wzór zaliczki z art. 106f ust. 1
- *   pkt 3) odchyla się o pół grosza × (100 + stawka) / 100. Zła stawka albo
+ *   ust. 7, np. faktura za abonament i faktura w cenach brutto, i wzór zaliczki
+ *   z art. 106f ust. 1 pkt 3) odchyla się o pół grosza × (100 + stawka) / 100.
+ *   Zła stawka albo
  *   błąd o złotówkę wychodzą daleko poza tę granicę. Faktura VAT: grupy
  *   z pozycji FaWiersz; faktura zaliczkowa: jedna „pozycja” na stawkę, stawka
  *   z wierszy zamówienia (P_12Z), bez sprawdzenia, gdy zamówienie ma w tej
@@ -166,27 +171,54 @@ function sprawdzSume(fa: Wezel, zglos: Zglos): void {
   if (suma !== p15) zglos(KODY_FA3.suma, 'P_15 różni się od sumy pól P_13_x i P_14_x');
 }
 
+/** Sumy pozycji jednej stawki: netto z P_11 i brutto z P_11A (faktura w cenach brutto) w groszach. */
+interface SumyStawki {
+  netto: bigint;
+  brutto: bigint;
+  zNetto: bigint;
+  zBrutto: bigint;
+  ile: bigint;
+}
+
 function sprawdzPozycje(fa: Wezel, pozycje: Wezel[], zglos: Zglos): void {
-  const sumy = new Map<string, { netto: bigint; ile: bigint }>();
+  const sumy = new Map<string, SumyStawki>();
   for (const pozycja of pozycje) {
     const stawka = tekst(pozycja, 'P_12');
     const pole = STAWKI_FA3.find((s) => (s.stawki as readonly string[]).includes(stawka ?? ''));
+    // Pozycja w cenach netto ma P_11; w cenach brutto (art. 106e ust. 8) P_11A zamiast P_11.
     const netto = pozycja.P_11 === undefined ? null : grosze(pozycja, 'P_11');
-    // Stawka spoza listy albo pozycja bez P_11: wzoru nie da się sprawdzić z pliku.
-    if (!pole || netto === null) return;
-    const dotad = sumy.get(pole.netto) ?? { netto: ZERO, ile: ZERO };
-    sumy.set(pole.netto, { netto: dotad.netto + netto, ile: dotad.ile + JEDEN });
+    const brutto = netto !== null || pozycja.P_11A === undefined ? null : grosze(pozycja, 'P_11A');
+    // Stawka spoza listy albo pozycja bez P_11 i P_11A: wzoru nie da się sprawdzić z pliku.
+    if (!pole || (netto === null && brutto === null)) return;
+    const dotad = sumy.get(pole.netto) ?? { netto: ZERO, brutto: ZERO, zNetto: ZERO, zBrutto: ZERO, ile: ZERO };
+    sumy.set(pole.netto, {
+      netto: dotad.netto + (netto ?? ZERO),
+      brutto: dotad.brutto + (brutto ?? ZERO),
+      zNetto: dotad.zNetto + (netto === null ? ZERO : JEDEN),
+      zBrutto: dotad.zBrutto + (brutto === null ? ZERO : JEDEN),
+      ile: dotad.ile + JEDEN,
+    });
   }
   for (const pole of STAWKI_FA3) {
     const p13 = grosze(fa, pole.netto);
-    const zPozycji = sumy.get(pole.netto) ?? { netto: ZERO, ile: ZERO };
+    const zPozycji = sumy.get(pole.netto) ?? { netto: ZERO, brutto: ZERO, zNetto: ZERO, zBrutto: ZERO, ile: ZERO };
     if (p13 === null) {
       zglos(KODY_FA3.pozycje, `pole ${pole.netto} nie jest kwotą albo występuje więcej niż raz`);
       continue;
     }
-    if (p13 !== zPozycji.netto) zglos(KODY_FA3.pozycje, `${pole.netto} różni się od sumy P_11 pozycji w tej stawce`);
+    const p14 = 'podatek' in pole ? grosze(fa, pole.podatek) : ZERO;
+    if (zPozycji.zBrutto === ZERO) {
+      if (p13 !== zPozycji.netto) zglos(KODY_FA3.pozycje, `${pole.netto} różni się od sumy P_11 pozycji w tej stawce`);
+    } else if (zPozycji.zNetto === ZERO && p14 !== null && p13 + p14 !== zPozycji.brutto) {
+      // Ceny brutto: wartość sprzedaży brutto stawki = netto stawki + podatek (art. 106e ust. 7 i 9).
+      zglos(
+        KODY_FA3.pozycje,
+        'podatek' in pole
+          ? `${pole.netto} i ${pole.podatek} razem różnią się od sumy P_11A pozycji w tej stawce`
+          : `${pole.netto} różni się od sumy P_11A pozycji w tej stawce`,
+      );
+    }
     if (!('podatek' in pole)) continue;
-    const p14 = grosze(fa, pole.podatek);
     if (p14 === null) {
       zglos(KODY_FA3.podatek, `pole ${pole.podatek} nie jest kwotą albo występuje więcej niż raz`);
       continue;

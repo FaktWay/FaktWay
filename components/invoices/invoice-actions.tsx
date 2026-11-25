@@ -52,6 +52,11 @@ interface Props {
      */
     can_correct?: boolean;
     /**
+     * Ustalenie 17: zamiast linku „Korekta” powód odmowy formularza korekty
+     * z wyjściem (faktura z pozycją bez ceny netto albo ilości).
+     */
+    correction_refusal?: string | null;
+    /**
      * N1: faktura może być wzorem faktury cyklicznej — w karcie „Dokument”
      * pojawia się „Ustaw jako cykliczną” (arkusz na `/invoices/recurring?wzor=`).
      */
@@ -275,6 +280,9 @@ export function InvoiceActions({ invoice, canManageSend = false, section = 'all'
           <RiEditLine />
           Korekta
         </Link>
+      )}
+      {!invoice.can_correct && invoice.correction_refusal && (
+        <p className={cn('text-xs text-muted-foreground', full)}>{invoice.correction_refusal}</p>
       )}
       {invoice.can_duplicate && (
         <Link

@@ -1,7 +1,9 @@
 import { readCompletePages } from '@/lib/accounting/read-complete-pages';
+import { documentKey, nip10 } from '@/lib/expenses/document-identity';
 import { kpirCostAmount } from '@/lib/categorization/kpir-cost';
 import { KSEF_INVOICE_CATEGORY, KSEF_INVOICE_COST_SOURCE } from '@/lib/dashboard/ksef-invoice-cost';
 import { assertKsefExpensesReadyForPln } from '@/lib/expenses/ksef-currency-review';
+import { assertJedenKosztNaDokument } from '@/lib/expenses/jeden-koszt-dokumentu';
 import { filterExpensesForKsefEnvironment } from '@/lib/expenses/ksef-environment';
 import { costDocumentType, documentAllowsVatDeduction } from '@/lib/expenses/vat-deduction-document';
 import { isSubjectiveVatExemption, readTenantVatExemption } from '@/lib/invoices/vat-exemption';
@@ -73,7 +75,7 @@ export interface CostEntry {
 const PROVENANCE_READ_FAILED = 'KSeF expense invoice provenance check is unavailable';
 
 const EXPENSE_COLUMNS =
-  'id, source, ksef_invoice_id, issue_date, seller_nip, seller_name, document_number, category_label, net_amount, vat_amount, gross_amount, vat_deductible_amount, document_type, is_reviewed, ocr_extracted_data';
+  'id, source, ksef_invoice_id, issue_date, seller_nip, seller_name, document_number, category_label, net_amount, vat_amount, gross_amount, vat_deductible_amount, document_type, is_reviewed, ocr_extracted_data, kpir_column';
 
 /**
  * Koszty z zakresu `[from, toExclusive)` (daty RRRR-MM-DD), posortowane po
@@ -86,7 +88,9 @@ const EXPENSE_COLUMNS =
  * - koszt ze skrzynki KSeF bez uzgodnionego środowiska — „Koszty ze skrzynki
  *   KSeF wymagają uzgodnienia środowiska KSeF” (oryginał w `cause`);
  * - koszt KSeF w walucie obcej bez przeglądu i kursu —
- *   `KsefExpenseCurrencyNotSupportedError` bez zmian.
+ *   `KsefExpenseCurrencyNotSupportedError` bez zmian;
+ * - ten sam dokument kosztu dwa razy (zdjęcie i Skrzynka KSeF) —
+ *   `ZdublowanyKosztError` z numerem dokumentu (FZ-022).
  */
 export async function getCosts(
   supabase: PageContext['supabase'],
@@ -137,6 +141,10 @@ export async function getCosts(
       return new Map((data ?? []).map((row) => [row.id as string, row.currency as string | null]));
     },
   );
+
+  // FZ-022: ta sama faktura ze zdjęcia (albo ręczna) i ze Skrzynki KSeF to dwa
+  // koszty; karta zatrzymuje się z numerem dokumentu zamiast liczyć go dwa razy.
+  assertJedenKosztNaDokument(visible);
 
   visible.sort((a, b) =>
     a.issue_date.localeCompare(b.issue_date) || a.id.localeCompare(b.id));
@@ -240,18 +248,6 @@ interface PurchaseRow {
 
 const text = (value: unknown): string | null =>
   typeof value === 'string' && value.trim() ? value.trim() : null;
-
-/** NIP do porównań: same cyfry, dokładnie 10 — inaczej brak. */
-function nip10(value: unknown): string | null {
-  const digits = typeof value === 'string' ? value.replace(/\D/g, '') : '';
-  return digits.length === 10 ? digits : null;
-}
-
-/** Numer dokumentu do porównań: bez odstępów i wielkości liter („fv 1/10” = „FV1/10”). */
-function documentKey(value: unknown): string | null {
-  const key = typeof value === 'string' ? value.replace(/\s+/g, '').toUpperCase() : '';
-  return key || null;
-}
 
 function purchaseNumber(row: PurchaseRow): string | null {
   return text(row.internal_number) ?? text(row.ksef_number);

@@ -80,3 +80,17 @@ export const GTU_CODE_MESSAGE = 'Wybierz kod GTU z listy albo zostaw pole puste.
 export function isPkwiuCode(value: unknown): value is string {
   return typeof value === 'string' && value.length <= PKWIU_MAX_LENGTH && PKWIU_PATTERN.test(value);
 }
+
+/**
+ * Poprawne kody pozycji z zapisanych danych (dokument faktury `fa3_data.lines`,
+ * koperta korekty): PKWiU bez spacji na brzegach i GTU z listy, inne pominięte.
+ * Krok 2.6, część 2b-3: kody faktury korygowanej w wierszach korekty.
+ */
+export function lineCodesOf(line: { pkwiuCode?: unknown; gtuCode?: unknown } | null | undefined): { pkwiuCode?: string; gtuCode?: GtuCode } {
+  const pkwiu = typeof line?.pkwiuCode === 'string' ? line.pkwiuCode.trim() : '';
+  const gtu = line?.gtuCode;
+  return {
+    ...(isPkwiuCode(pkwiu) ? { pkwiuCode: pkwiu } : {}),
+    ...(isGtuCode(gtu) ? { gtuCode: gtu } : {}),
+  };
+}

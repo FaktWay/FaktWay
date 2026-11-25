@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { Stack, useLocalSearchParams, usePreventRemove, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActionSheetIOS, Alert, Platform, StyleSheet, View } from 'react-native';
+import { ActionSheetIOS, Alert, Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import {
   bruttoPozycji,
@@ -62,6 +62,7 @@ import { szukajWGus, useKontekstKorekty, useWyliczenie, useZaliczkiDoRozliczenia
 import { useStanFaktur, type ZapisNaKoncie } from '@/stan/faktury';
 import { useKolory } from '@/wyglad/kolory';
 import { CEL_DOTYKU, MARGINES, ODSTEP, PROMIEN_PIGULKI } from '@/wyglad/odstepy';
+import { etykietaPrzyciskuWysylki, MAKS_SKALA_TEKSTU_PASKA, tytulPrzyciskuWysylki } from '@/wyglad/pasek-dolny';
 
 const TYTUL: Record<RodzajFaktury, string> = {
   vat: 'Nowa faktura',
@@ -244,6 +245,9 @@ function FormularzFaktury() {
   const [edycjaSzczegolow, setEdycjaSzczegolow] = useState(false);
   const [rozwinieta, setRozwinieta] = useState<number | null>(wzorFaktury ? null : 0);
   const [podglad, setPodglad] = useState(false);
+  // Pasek na dole przy dużym tekście jest wyższy: miejsce pod nim wynika z jego zmierzonej wysokości (obchód U38).
+  const { fontScale } = useWindowDimensions();
+  const [wysokoscPaska, setWysokoscPaska] = useState(WYSOKOSC_PASKA);
   // Zaliczka.
   const [wartoscUmowy, setWartoscUmowy] = useState('');
   const [kwotaZaliczki, setKwotaZaliczki] = useState(edytowana?.rodzaj === 'zaliczkowa' ? doPola(edytowana.brutto) : '');
@@ -525,6 +529,9 @@ function FormularzFaktury() {
       metodaPlatnosci: metoda,
       rachunek: metoda === 'Przelew' ? rachunek : undefined,
       mpp,
+      // Powiązania od razu na liście (do odświeżenia z bazy): zaliczka z rozliczeniem i faktura z korektą nie liczą się na karcie podwójnie.
+      ...(rodzaj === 'rozliczajaca' && idWybranych.length > 0 ? { zaliczkiId: idWybranych } : {}),
+      ...(rodzaj === 'korygujaca' && zrodlo ? { rodzicId: zrodlo.id } : {}),
       uwagi: [rodzaj === 'korygujaca' ? `Przyczyna korekty: ${przyczyna.trim()}` : '', uwagi.trim()].filter(Boolean).join('\n') || undefined,
     };
     if (edytowana && !zBazy) {
@@ -612,6 +619,7 @@ function FormularzFaktury() {
         : rodzaj === 'korygujaca'
           ? zmianaKorekty
           : sumaNetto + sumaVat;
+  const kwotaPrzycisku = doZaplatyFormularza === undefined ? undefined : kwota(doZaplatyFormularza);
   const terminData = dodajDni(dataWyst, Number(termin));
   const znanyNabywca = nabywcy.some((k) => k.nazwa === nazwa);
   const nabywcaZwiniety = znanyNabywca && !edycjaNabywcy && !bledy.nazwa && !bledy.nip && !bledy.adres;
@@ -679,7 +687,7 @@ function FormularzFaktury() {
       ) : null}
       <PrzyciskPaska strona="prawa" tytul={trwa === 'szkic' ? 'Zapisujemy…' : 'Szkic'} onPress={() => void zapisz(false)} />
 
-      <EkranListy keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets contentContainerStyle={{ paddingBottom: WYSOKOSC_PASKA + ODSTEP.xl }}>
+      <EkranListy keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets contentContainerStyle={{ paddingBottom: wysokoscPaska + ODSTEP.xl }}>
         {podglad ? (
           // Podgląd przed KSeF (WZORCE-MOBBIN.md 3.2): to, co zobaczy nabywca, bez pól.
           <>
@@ -1123,7 +1131,13 @@ function FormularzFaktury() {
 
       {/* Przypięte na dole jak w Revolut Business: podgląd i wysyłka z kwotą (makieta z 12.11.2026). */}
       {/* W arkuszu `useSafeAreaInsets` zawyża dolny margines (sprawdzone w symulatorze), więc stałe 32 pt nad paskiem domowym. */}
-      <View style={[styles.pasek, { paddingBottom: ODSTEP.xxl, backgroundColor: kolory.tloGrupowane }]}>
+      <View
+        style={[styles.pasek, { paddingBottom: ODSTEP.xxl, backgroundColor: kolory.tloGrupowane }]}
+        // Tylko w górę: pasek z kółkiem zamiast napisu (trwa wysyłka) jest niższy, a treść nie ma skakać.
+        onLayout={(e) => {
+          const wysokosc = Math.ceil(e.nativeEvent.layout.height);
+          setWysokoscPaska((p) => Math.max(p, wysokosc));
+        }}>
         <Dotyk
           onPress={() => setPodglad((p) => !p)}
           accessibilityRole="button"
@@ -1134,12 +1148,14 @@ function FormularzFaktury() {
         <View style={styles.rozciagniety}>
           {wysylkaWstrzymana ? (
             // Wysyłka tego rodzaju wstrzymana także na stronie (zdanie w podsumowaniu): główna akcja to szkic.
-            <PrzyciskGlowny tytul="Zapisz szkic" ikona="file-text-line" trwa={trwa === 'szkic'} onPress={() => void zapisz(false)} />
+            <PrzyciskGlowny tytul="Zapisz szkic" ikona="file-text-line" trwa={trwa === 'szkic'} maksSkalaTekstu={MAKS_SKALA_TEKSTU_PASKA} onPress={() => void zapisz(false)} />
           ) : (
             <PrzyciskGlowny
-              tytul={doZaplatyFormularza === undefined ? przyciskWyslij : `${przyciskWyslij} · ${kwota(doZaplatyFormularza)}`}
+              tytul={tytulPrzyciskuWysylki(przyciskWyslij, kwotaPrzycisku, fontScale)}
+              etykietaDostepnosci={etykietaPrzyciskuWysylki(przyciskWyslij, kwotaPrzycisku)}
               ikona="send-plane-line"
               trwa={trwa === 'wyslij'}
+              maksSkalaTekstu={MAKS_SKALA_TEKSTU_PASKA}
               onPress={() => void zapisz(true)}
             />
           )}

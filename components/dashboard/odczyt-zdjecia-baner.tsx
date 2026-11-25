@@ -24,7 +24,8 @@ type Settled = { jobId: string } & Outcome;
  * (`getOcrJobStatusAction`, RLS: tylko zadania aktywnej firmy) lekką pętlą
  * `startPollLoop` (jedno pytanie naraz, rosnący odstęp, karta w tle nie pyta,
  * limit 3 minut), z pierwszym pytaniem od razu. Mówi: czytamy, gotowe (link do
- * kosztu), nie udało się (zrób wyraźniejsze zdjęcie), nie znaleźliśmy zadania,
+ * kosztu), nie udało się (zrób wyraźniejsze zdjęcie albo wpisz koszt ręcznie,
+ * formularz z kroku 3.8 na `/expenses/new`), nie znaleźliśmy zadania,
  * trwa dłużej niż zwykle (bez obietnicy wyniku). Wartości `blad` i
  * `brak-zdjecia` pochodzą z trasy udostępniania. Chwilowy błąd odczytu stanu
  * nie kończy czekania (inaczej klient wgrywałby zdjęcie drugi raz i powstał
@@ -95,9 +96,13 @@ export function OdczytZdjeciaBaner() {
     alert = true;
     text = (
       <>
-        Nie udało się przyjąć tego zdjęcia. Spróbuj udostępnić je jeszcze raz albo{' '}
+        Nie udało się przyjąć tego zdjęcia. Spróbuj udostępnić je jeszcze raz,{' '}
         <Link href="/expenses" className="font-semibold underline underline-offset-4">
           dodaj wydatek w Kosztach
+        </Link>{' '}
+        albo{' '}
+        <Link href="/expenses/new" className="font-semibold underline underline-offset-4">
+          wpisz koszt ręcznie
         </Link>
         .
       </>
@@ -122,6 +127,10 @@ export function OdczytZdjeciaBaner() {
         Nie udało się odczytać tego zdjęcia. Zrób wyraźniejsze zdjęcie i dodaj je{' '}
         <Link href="/expenses" className="font-semibold underline underline-offset-4">
           w Kosztach
+        </Link>{' '}
+        albo{' '}
+        <Link href="/expenses/new" className="font-semibold underline underline-offset-4">
+          wpisz koszt ręcznie
         </Link>
         .
       </>

@@ -106,7 +106,12 @@ ENV NEXT_OUTPUT=standalone \
 # (CI: exit 134, „heap out of memory”, 3592 z 4094 MB po ok. 130 s). Na app-1
 # build zużyje więcej swapu: przed wdrożeniem `swapon --show` (co najmniej 10 GB)
 # albo budowa drogą GitHub Actions (runbook wdrozenie-produkcji.md).
-ENV NODE_OPTIONS="--max-old-space-size=5120"
+# 23.11.2026: 5120 → 6144 MB. „Next build” w CI padał 22-23.11 cztery razy
+# z „heap out of memory” przy 5120 MB (PR #878, #880, grupy kolejki #839 i #888).
+# Obrazy produkcyjne budują się na GitHub Actions (ubuntu-24.04, 16 GB). Na app-1
+# (budowa ze źródła, tylko zapas) build zje jeszcze więcej swapu: przed taką budową
+# `swapon --show` co najmniej 12 GB.
+ENV NODE_OPTIONS="--max-old-space-size=6144"
 RUN pnpm build
 
 # ── worker: proces jobów pg-boss (Etap 7 migracji Hetzner) ──

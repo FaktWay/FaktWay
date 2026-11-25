@@ -37,13 +37,13 @@ import type { InvoiceFormValues } from '@/lib/schemas/invoice-form';
  */
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-const SZKOLENIE: ProductSuggestion = { id: 'p1', name: 'Szkolenie BHP', unit: 'godz.', priceNet: 150, vatRate: '8', pkwiuCode: null, gtuCode: null };
+const SZKOLENIE: ProductSuggestion = { id: 'p1', name: 'Szkolenie BHP', unit: 'godz.', priceNet: 150, priceGross: null, vatRate: '8', pkwiuCode: null, gtuCode: null };
 const KONSULTACJA: ProductSuggestion = {
-  id: 'p2', name: 'Konsultacja szkoleniowa', unit: 'usł.', priceNet: null, vatRate: null, pkwiuCode: null, gtuCode: null,
+  id: 'p2', name: 'Konsultacja szkoleniowa', unit: 'usł.', priceNet: null, priceGross: null, vatRate: null, pkwiuCode: null, gtuCode: null,
 };
 // Krok 2.6, część 2b: produkt z PKWiU (2b-1) i GTU (2b-2) w katalogu.
 const SZKOLENIE_Z_KODAMI: ProductSuggestion = {
-  id: 'p3', name: 'Szkolenie z kodami', unit: 'godz.', priceNet: 200, vatRate: '23', pkwiuCode: '85.59.13.0', gtuCode: 'GTU_12',
+  id: 'p3', name: 'Szkolenie z kodami', unit: 'godz.', priceNet: 200, priceGross: null, vatRate: '23', pkwiuCode: '85.59.13.0', gtuCode: 'GTU_12',
 };
 
 let container: HTMLDivElement;

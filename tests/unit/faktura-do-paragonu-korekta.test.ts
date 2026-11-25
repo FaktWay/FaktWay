@@ -44,7 +44,7 @@ vi.mock('@/lib/supabase/server', () => ({
         ...st.parentExtra,
       };
       const result = () => {
-        if (table === 'tenants') return { data: { id: TENANT, nip: '1234567890', name: 'Firma testowa', address_json: null }, error: null };
+        if (table === 'tenants') return { data: { id: TENANT, nip: '1234567890', name: 'Firma testowa', address_json: { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' } }, error: null };
         if (table === 'invoice_line_items') {
           return { data: [{ name: 'Rower', unit: 'szt.', quantity: 1, unit_price_net: 1000, vat_rate: '23' }], error: null };
         }

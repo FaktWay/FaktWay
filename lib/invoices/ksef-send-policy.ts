@@ -73,7 +73,8 @@ export const KSEF_SEND_MESSAGES = {
   askManager: 'Poproś właściciela lub administratora firmy.',
   resetDone: 'Faktura wróciła do szkicu. Popraw ją i wyślij ponownie.',
   resetFailed: 'Nie udało się przywrócić szkicu. Spróbuj ponownie.',
-  notFound: 'Nie można znaleźć faktury w tej organizacji.',
+  // Ustalenie 25: powód i wyjście zamiast gołego „nie można znaleźć”.
+  notFound: 'Nie znaleziono faktury w tej firmie. Mogła zostać usunięta albo w innej karcie wybrano inną firmę. Odśwież listę faktur.',
 } as const;
 
 type SpecialKind = 'correction' | 'advance' | 'final';

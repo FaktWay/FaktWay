@@ -2,16 +2,19 @@
  * Zwykła faktura VAT z wartości formularza: obiekt `Invoice` i wiersze szkicu
  * w bazie. Jedna droga dla formularza (`components/invoices/actions.ts`)
  * i publicznego API (`POST /api/v1/invoices`, krok 7.1 planu kompletnej
- * aplikacji): te same kwoty (`calculateLineItem`, `roundToCents`), adnotacje,
- * nabywca i kolumny wiersza. Kod przeniesiony bez zmian z akcji formularza.
+ * aplikacji): te same kwoty (`calculateLineItem`, `roundToCents`; przy cenach
+ * brutto `grossPricedFormLines`), adnotacje, nabywca i kolumny wiersza. Kod
+ * przeniesiony bez zmian z akcji formularza.
  *
  * Czysty moduł: bez bazy i bez Next. Plik `'use server'` eksportuje tylko akcje.
  */
 
 import { buildInvoiceAnnotations } from '@/lib/invoices/annotations';
 import { isGtuCode } from '@/lib/invoices/line-codes';
+import { orderFromFormValues } from '@/lib/invoices/order-reference';
 import { addressCountryForKodUE, parseVatUe } from '@/lib/invoices/vat-ue';
 import {
+  grossPricedFormLines,
   receiptBuyerKindOfForm,
   receiptFromFormValues,
   type InvoiceFormValues,
@@ -48,14 +51,19 @@ export function buildInvoiceFromForm(
   /** Metoda kasowa VAT firmy (P_16, #76). */
   cashMethod: boolean,
 ): Invoice {
-  const lines: InvoiceLineItem[] = values.lines.map((line, idx) => {
+  // Plan cen brutto, PR (b): jedna metoda cen na fakturę. Przy cenach brutto
+  // pozycje liczy `grossPricedFormLines` (VAT od sumy brutto stawki,
+  // RP-FA-BRUTTO-01), to samo liczenie co podgląd sum w formularzu; brak ceny
+  // brutto zostaje brakiem (bramka wysyłki odmawia z numerem pozycji), nie 0 zł.
+  const pricesGross = values.pricesGross === true;
+  const lines: InvoiceLineItem[] = pricesGross
+    ? grossPricedFormLines(values.lines).map((line, idx) => ({ ...line, ...lineCodesOfForm(values.lines[idx]!) }))
+    : values.lines.map((line, idx) => {
     const calc = calculateLineItem({
       quantity: line.quantity,
       unitPriceNet: line.unitPriceNet,
       vatRate: line.vatRate,
     });
-    // Krok 2.6, część 2b-1: PKWiU z jawnym typem tylko, gdy jest (puste pole = brak).
-    const pkwiuCode = line.pkwiuCode?.trim();
     return {
       ordinal: idx + 1,
       name: line.name,
@@ -66,11 +74,7 @@ export function buildInvoiceFromForm(
       netAmount: calc.netAmount,
       vatAmount: calc.vatAmount,
       grossAmount: calc.grossAmount,
-      ...(pkwiuCode ? { pkwiuCode } : {}),
-      // Krok 2.6, część 2b-2: oznaczenie GTU tylko z listy (puste pole = brak).
-      // Akcje przekazują dalej także niesparsowane wartości, więc kod jeszcze raz
-      // sprawdzony tutaj; to samo oznaczenie idzie do FA(3) i do JPK_V7M.
-      ...(isGtuCode(line.gtuCode) ? { gtuCode: line.gtuCode } : {}),
+      ...lineCodesOfForm(line),
     };
   });
 
@@ -196,6 +200,9 @@ export function buildInvoiceFromForm(
     ? receiptFromFormValues(values, receiptBuyerKindOfForm(values))
     : undefined;
 
+  // Numer zamówienia (krok 2.8): klucz tylko z numerem, faktura bez niego jak dotąd.
+  const order = orderFromFormValues(values);
+
   return {
     internalNumber: values.internalNumber,
     type: 'VAT',
@@ -216,6 +223,24 @@ export function buildInvoiceFromForm(
     }),
     notes: values.notes && values.notes.length ? values.notes : undefined,
     ...(receipt ? { receipt } : {}),
+    ...(order ? { order } : {}),
+    // Klucz tylko przy cenach brutto: faktura w cenach netto ma kształt jak dotąd.
+    ...(pricesGross ? { pricesGross: true as const } : {}),
+  };
+}
+
+/**
+ * PKWiU i GTU pozycji z formularza, ta sama reguła przy cenach netto i brutto.
+ * Krok 2.6, część 2b-1: PKWiU z jawnym typem tylko, gdy jest (puste pole = brak).
+ * Część 2b-2: oznaczenie GTU tylko z listy (puste pole = brak). Akcje przekazują
+ * dalej także niesparsowane wartości, więc kod jeszcze raz sprawdzony tutaj; to
+ * samo oznaczenie idzie do FA(3) i do JPK_V7M.
+ */
+function lineCodesOfForm(line: InvoiceFormValues['lines'][number]): Pick<InvoiceLineItem, 'pkwiuCode' | 'gtuCode'> {
+  const pkwiuCode = line.pkwiuCode?.trim();
+  return {
+    ...(pkwiuCode ? { pkwiuCode } : {}),
+    ...(isGtuCode(line.gtuCode) ? { gtuCode: line.gtuCode } : {}),
   };
 }
 
@@ -318,7 +343,9 @@ export function draftLineRows(invoice: Invoice) {
     name: line.name,
     unit: line.unit,
     quantity: line.quantity,
-    unit_price_net: line.unitPriceNet,
+    // Faktura w cenach brutto nie ma ceny netto (`unitPriceNetMissing`): NULL zamiast 0,
+    // jak import od brutto (F12-E4); PDF i widoki biorą wtedy cenę brutto z dokumentu (#837).
+    unit_price_net: line.unitPriceNetMissing ? null : line.unitPriceNet,
     net_amount: line.netAmount,
     vat_rate: line.vatRate,
     vat_amount: line.vatAmount,
