@@ -22,7 +22,11 @@ import { memoryClient, type MemoryTables, type Row } from './helpers/baza-w-pami
  * w KPiR”), jak KPiR modułu (F11-C1, `lib/ksiegowosc/kpir-dane.ts`). Inne
  * okresy liczą się jak dotąd; para rozdzielona na dwa okresy nie jest
  * odmową odczytu miesiąca (luka FZ-022, zamknie ją zapis). Zapis jednego
- * kosztu przy drugim źródle czeka na decyzję (FZ-022, `.fails`).
+ * kosztu przy drugim źródle (decyzja D29, 00215): runnery wołają
+ * `link_ksef_expense_copy`, a kopia wypada z KPiR; tylko z przełącznikiem
+ * `KOSZTY_LACZ_KOPIE_KSEF=true` (bez niego zostaje odmowa z #839). Funkcję
+ * w bazie (klucz, bezpiecznik miesiąca złożonego, kategoria, blokady) sprawdza
+ * `tests/rls-kopia-faktury-ksef.test.ts`; tu atrapa łączy jedyną kopię.
  *
  * Prawdziwa ścieżka: runnery `runProcessOcr` i `runAutoCategorizeInbox`
  * zapisują koszty w tej samej bazie w pamięci, a odczyty KPiR i JPK_V7M
@@ -50,6 +54,8 @@ const state = vi.hoisted(() => ({
   tables: {} as Record<string, Array<Record<string, unknown>>>,
   xml: new Map<string, string>(),
   doc: {} as Record<string, unknown>,
+  // Ile kolejnych wywołań `link_ksef_expense_copy` kończy się błędem bazy (np. limit czasu blokady).
+  bladLaczenia: 0,
 }));
 
 vi.mock('@/lib/ksef/inbox-xml', () => ({
@@ -100,6 +106,7 @@ const { getCostsWithKsefPurchases } = await import('@/lib/dashboard/costs');
 const { customerErrorDetail } = await import('@/lib/dashboard/customer-error');
 const { onExportsGenerateExhausted } = await import('@/lib/jobs/runners/exports-generate');
 const { NonRetriableError } = await import('@/lib/jobs/errors');
+const { kluczDokumentuKosztu } = await import('@/lib/expenses/jeden-koszt-dokumentu');
 
 /**
  * Baza w pamięci z wartościami domyślnymi kosztu (00034), osadzeniem
@@ -141,11 +148,49 @@ function db() {
         }, fail);
       return q;
     },
-    async rpc(name: string) {
+    async rpc(name: string, args: Record<string, unknown> = {}) {
       if (name === 'match_receipt_to_ksef_invoice') return { data: 'no_candidates', error: null };
+      if (name === 'link_ksef_expense_copy') {
+        if (state.bladLaczenia > 0) {
+          state.bladLaczenia -= 1;
+          return { data: null, error: { message: 'canceling statement due to lock timeout' } };
+        }
+        return { data: polaczWPamieci(String(args.p_expense_id), String(args.p_ksef_environment)), error: null };
+      }
       return { data: null, error: { message: `unknown rpc ${name}` } };
     },
   };
+}
+
+/**
+ * Atrapa `link_ksef_expense_copy` (00215) dla tej bazy w pamięci: jedyny koszt z KSeF tego dokumentu z faktury
+ * środowiska aplikacji i jedyna liczona kopia spoza KSeF z tym samym brutto łączą się (kopia `is_deductible = false`,
+ * wiersz `linked`), kilka kopii albo inne brutto to zadanie. Bez bezpiecznika miesiąca złożonego i kategorii (te
+ * sprawdza test na bazie).
+ */
+function polaczWPamieci(expenseId: string, srodowisko: string): string {
+  const tables = state.tables as MemoryTables;
+  const wszystkie = tables.expenses ?? [];
+  const ten = wszystkie.find((e) => e.id === expenseId);
+  const klucz = ten ? kluczDokumentuKosztu(ten as never) : null;
+  if (!klucz) return 'not_applicable';
+  const tegoDokumentu = wszystkie.filter((e) => kluczDokumentuKosztu(e as never) === klucz);
+  const srodowiskoFaktury = (e: Row) => (tables.invoices ?? []).find((i) => i.id === e.ksef_invoice_id)?.ksef_environment;
+  const zKsef = tegoDokumentu.filter((e) => e.source === 'ksef_inbox' && e.ksef_invoice_id && srodowiskoFaktury(e) === srodowisko);
+  if (zKsef.length !== 1) return zKsef.length === 0 ? 'no_ksef_original' : 'ambiguous_ksef';
+  const polaczenia = (tables.expense_ksef_copies ??= []);
+  if (polaczenia.some((m) => m.ksef_expense_id === zKsef[0].id && m.status === 'linked')) return 'already_linked';
+  const kopie = tegoDokumentu.filter((e) => e.source !== 'ksef_inbox' && !e.ksef_invoice_id && e.is_deductible === true);
+  if (kopie.length === 0) return 'no_candidates';
+  if (kopie.length > 1 || Number(kopie[0].gross_amount) !== Number(zKsef[0].gross_amount)) {
+    for (const k of kopie) {
+      if (!polaczenia.some((m) => m.copy_expense_id === k.id)) polaczenia.push({ ksef_expense_id: zKsef[0].id, copy_expense_id: k.id, status: 'candidate' });
+    }
+    return 'candidates';
+  }
+  polaczenia.push({ ksef_expense_id: zKsef[0].id, copy_expense_id: kopie[0].id, status: 'linked', copy_was_deductible: true });
+  kopie[0].is_deductible = false;
+  return 'linked';
 }
 
 const ctx: JobContext = {
@@ -256,6 +301,7 @@ const KOLEJNOSCI = [
 
 beforeEach(() => {
   vi.stubEnv('KSEF_ENV', 'test');
+  state.bladLaczenia = 0;
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -413,16 +459,93 @@ describe('FZ-022: bez odmowy, gdy to nie ten sam dokument', () => {
   });
 });
 
-describe('FZ-022: zapis jednego kosztu przy drugim źródle (decyzja Bartosza)', () => {
-  // Cel zapisu niezależny od wariantu „połącz sam” i „czekaj na przegląd”: jeden
-  // koszt w KPiR i JPK, z numerem KSeF (JPK_V7M(3) wymaga NrKSeF), bez odmowy.
-  // Przy decyzji „zostać przy odmowie” ten test się usuwa, a FZ-022 zamyka.
-  it.fails.each(KOLEJNOSCI)('%s: jeden koszt z numerem KSeF w KPiR i JPK_V7M, bez odmowy (FZ-022)', async (_kolejnosc, przebieg) => {
+describe('FZ-022: zapis jednego kosztu przy drugim źródle (decyzja D29, przełącznik KOSZTY_LACZ_KOPIE_KSEF)', () => {
+  // Jeden koszt w KPiR i JPK, z numerem KSeF (JPK_V7M(3) wymaga NrKSeF), bez odmowy; kopia zostaje na liście poza KPiR.
+  it.each(KOLEJNOSCI)('%s: jeden koszt z numerem KSeF w KPiR i JPK_V7M, bez odmowy (FZ-022)', async (_kolejnosc, przebieg) => {
+    vi.stubEnv('KOSZTY_LACZ_KOPIE_KSEF', 'true');
     baza();
     await przebieg();
     const { kpirOdmowa, wKpir, jpk } = await odczyty();
     expect(kpirOdmowa).toBeNull();
     expect(wKpir).toBe(1);
     expect(jpk).toEqual({ odmowa: null, wJpk: 1, vatDoOdliczenia: 23, nrKsef: [NR_KSEF] });
+    // Kopia zostaje na liście kosztów (ze zdjęciem), tylko poza KPiR; koszt z KSeF liczy się dalej.
+    expect(koszty().map((e) => [e.source, e.is_deductible]).sort()).toEqual([['ksef_inbox', true], ['ocr_photo', false]]);
+    expect((state.tables as MemoryTables).expense_ksef_copies).toMatchObject([{ status: 'linked' }]);
+  });
+
+  it('błąd łączenia w Skrzynce zostawia znacznik, a ponowienie (koszt już jest) łączy', async () => {
+    vi.stubEnv('KOSZTY_LACZ_KOPIE_KSEF', 'true');
+    baza();
+    await zdjecie();
+    state.bladLaczenia = 1;
+    await expect(skrzynka()).rejects.toThrow('lock timeout');
+    expect(koszty().every((e) => e.is_deductible === true)).toBe(true);
+    // Znacznik `_pendingFullFetch` został, więc ponowienie przechodzi gałęzią „koszt już jest” i łączy.
+    expect((state.tables as MemoryTables).invoices![0].fa3_data).toMatchObject({ _pendingFullFetch: true });
+    await skrzynka();
+    expect(koszty().filter((e) => e.source === 'ocr_photo').map((e) => e.is_deductible)).toEqual([false]);
+    expect((state.tables as MemoryTables).expense_ksef_copies).toMatchObject([{ status: 'linked' }]);
+    const { kpirOdmowa, wKpir } = await odczyty();
+    expect([kpirOdmowa, wKpir]).toEqual([null, 1]);
+  });
+
+  it('błąd łączenia w runnerze zdjęć: koszt ze zdjęcia zapisany, zadanie OCR kończy się, odmowa z #839 zostaje', async () => {
+    vi.stubEnv('KOSZTY_LACZ_KOPIE_KSEF', 'true');
+    baza();
+    await skrzynka();
+    state.bladLaczenia = 1;
+    await zdjecie();
+    expect((state.tables as MemoryTables).ocr_jobs!.find((j) => j.id === OCR_JOB)).toMatchObject({ status: 'completed' });
+    expect(koszty().every((e) => e.is_deductible === true)).toBe(true);
+    const { kpirOdmowa } = await odczyty();
+    expect(kpirOdmowa).toContain(NUMER);
+  });
+
+  it('koszt z faktury z innego środowiska KSeF (np. TEST po przejściu na PROD): nie zabiera kopii z KPiR', async () => {
+    vi.stubEnv('KOSZTY_LACZ_KOPIE_KSEF', 'true');
+    baza([fakturaZSkrzynki({ ksef_environment: 'production' })]);
+    // Koszt z KSeF jest w bazie, ale aplikacja działa na KSeF TEST (KSEF_ENV), więc odczyty go nie liczą.
+    (state.tables as MemoryTables).expenses!.push({
+      id: 'ksef-prod', tenant_id: TENANT, source: 'ksef_inbox', ksef_invoice_id: INVOICE, seller_nip: SELLER_NIP, seller_name: 'Sklep Przykład',
+      document_number: NUMER, document_type: 'invoice', issue_date: '2027-02-05', net_amount: 100, vat_amount: 23, gross_amount: 123,
+      vat_deductible_amount: 23, is_deductible: true, is_reviewed: true, kpir_column: 'col_13',
+    });
+    await zdjecie();
+    expect(koszty().find((e) => e.source === 'ocr_photo')).toMatchObject({ is_deductible: true });
+    expect((state.tables as MemoryTables).expense_ksef_copies ?? []).toEqual([]);
+  });
+
+  it('zdjęcie z innym brutto niż faktura z KSeF (źle odczytana kwota albo numer innej faktury): zadanie, bez łączenia', async () => {
+    vi.stubEnv('KOSZTY_LACZ_KOPIE_KSEF', 'true');
+    baza();
+    await skrzynka();
+    await zdjecie(zdjecieFaktury({ net_amount: 1000, vat_amount: 230, gross_amount: 1230 }));
+    expect(koszty().every((e) => e.is_deductible === true)).toBe(true);
+    expect(((state.tables as MemoryTables).expense_ksef_copies ?? []).map((m) => m.status)).toEqual(['candidate']);
+  });
+
+  it('bez przełącznika nic się nie łączy: oba koszty w kosztach i odmowa z #839 jak dotąd', async () => {
+    baza();
+    await zdjecie();
+    await skrzynka();
+    expect(koszty().every((e) => e.is_deductible === true)).toBe(true);
+    expect((state.tables as MemoryTables).expense_ksef_copies ?? []).toEqual([]);
+    const { kpirOdmowa, jpk } = await odczyty();
+    expect(kpirOdmowa).toContain(NUMER);
+    expect(jpk.odmowa).toContain(NUMER);
+  });
+
+  it('dwie kopie tej samej faktury (zdjęcie wgrane dwa razy) i faktura z KSeF: bez łączenia, zadanie i odmowa z numerem', async () => {
+    vi.stubEnv('KOSZTY_LACZ_KOPIE_KSEF', 'true');
+    baza();
+    await zdjecie();
+    await zdjecie(zdjecieFaktury(), OCR_JOB_2);
+    await skrzynka();
+    expect(koszty().every((e) => e.is_deductible === true)).toBe(true);
+    expect(((state.tables as MemoryTables).expense_ksef_copies ?? []).map((m) => m.status)).toEqual(['candidate', 'candidate']);
+    const { kpirOdmowa, jpk } = await odczyty();
+    expect(kpirOdmowa).toContain(NUMER);
+    expect(jpk.odmowa).toContain(NUMER);
   });
 });

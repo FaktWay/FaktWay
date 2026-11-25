@@ -169,6 +169,9 @@ export const ACTION_LABELS: Record<string, string> = {
   'expense.receipt_invoice_linked': 'Połączono paragon z fakturą do paragonu',
   'expense.receipt_invoice_candidates': 'Możliwy podwójny koszt: paragon i faktura do niego',
   'expense.receipt_invoice_separated': 'Uznano paragon i fakturę za osobne koszty',
+  'expense.ksef_copy_linked': 'Połączono kopię faktury z kosztem z KSeF',
+  'expense.ksef_copy_candidates': 'Możliwa kopia faktury z KSeF: do połączenia',
+  'expense.ksef_copy_separated': 'Uznano kopię i fakturę z KSeF za osobne koszty',
   // Produkty i usługi, archiwum dokumentów.
   'product.created': 'Dodano produkt lub usługę',
   'product.updated': 'Zmieniono produkt lub usługę',
