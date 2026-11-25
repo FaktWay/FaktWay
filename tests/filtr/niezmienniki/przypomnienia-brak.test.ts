@@ -72,13 +72,48 @@ describe('D31 i D32: miesiąc bez kwot i zapłacona najnowsza wersja przy braku'
   };
   const grupy = (rodzaj: Rodzaj) => (rodzaj === 'ryczalt' ? (['ryczalt'] as const) : (['zus'] as const));
 
-  it('D31: miesiąc, który się nie liczy, nigdy nie daje kwoty (dowolne wersje i zapłaty)', () => {
+  const WSZYSTKIE = ['ryczalt', 'pit', 'zus_spoleczne', 'zdrowotna', 'vat'] as const;
+  const grupaDla = (rodzaj: (typeof WSZYSTKIE)[number]) =>
+    rodzaj === 'zus_spoleczne' || rodzaj === 'zdrowotna' ? (['zus'] as const) : ([rodzaj] as const);
+
+  it('D31: miesiąc, który się nie liczy, nigdy nie daje kwoty, a bez zapłaty albo przy niezapłaconej najnowszej wersji przypomnienie wychodzi', () => {
     fc.assert(
-      fc.property(fc.constantFrom(...RODZAJE), wersjeArb, fc.boolean(), (rodzaj, wersje, reczna) => {
-        const r = rozliczenia(rodzaj, wersje).map((v) => ({ ...v, reczna }));
-        const wynik = niezaplacone({ grupy: grupy(rodzaj), rozliczenia: r, pozycje: null, profil: profil() });
-        expect(wynik.every((p) => p.kwotaGr === null), JSON.stringify(wersje)).toBe(true);
+      fc.property(fc.constantFrom(...WSZYSTKIE), wersjeArb, fc.array(fc.boolean(), { maxLength: 3 }), (rodzaj, wersje, reczne) => {
+        const r: Rozliczenie[] = rozliczenia('ryczalt', wersje).map((v, i) => ({ ...v, id: `${rodzaj}-${i + 1}`, rodzaj, reczna: reczne[i] ?? false }));
+        const p = profil();
+        const wynik = niezaplacone({ grupy: grupaDla(rodzaj), rozliczenia: r, pozycje: null, profil: p }).filter((x) => x.rodzaj === rodzaj);
+        expect(wynik.every((x) => x.kwotaGr === null), JSON.stringify(wersje)).toBe(true);
+        // Składki społeczne w uldze na start albo przy etacie obok pomija etap ZUS (bez braku w szkicu).
+        const pominiete = rodzaj === 'zus_spoleczne' && (p.zusEtap === 'ulga_na_start' || p.zusEtap === 'etat_obok');
+        const najnowsza = r.at(-1);
+        const niczegoNieZaplacono = r.every((v) => v.status !== 'zaplacone' || v.kwotaGr === 0);
+        if (!pominiete && (niczegoNieZaplacono || (najnowsza && najnowsza.status !== 'zaplacone'))) {
+          expect(wynik, JSON.stringify(wersje)).toEqual([{ rodzaj, kwotaGr: null }]);
+        }
       }),
+      opcje(),
+    );
+  });
+
+  it('D32: decyduje najnowsza zapłacona wersja: wyliczona daje przypomnienie po zapłacie, spoza wyliczenia ciszę (wcześniejsze wersje dowolne)', () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...RODZAJE),
+        wersjeArb,
+        fc.array(fc.boolean(), { maxLength: 3 }),
+        fc.integer({ min: 1, max: 300_000 }),
+        fc.boolean(),
+        (rodzaj, wersje, reczne, kwotaGr, recznaNajnowszej) => {
+          const r = zZaplacona(rodzaj, wersje, kwotaGr, recznaNajnowszej).map((v, i, all) =>
+            i < all.length - 1 ? { ...v, reczna: reczne[i] ?? false } : v,
+          );
+          const pozycje: PozycjaZeSkrotem[] = [{ ok: false, rodzaj, termin: null, brak: 'Ewidencja przychodów ma braki w miesiącach: październik 2026.' }];
+          const wynik = niezaplacone({ grupy: grupy(rodzaj), rozliczenia: r, pozycje, profil: profil() }).filter((p) => p.rodzaj === rodzaj);
+          expect(wynik, JSON.stringify({ wersje, reczne, recznaNajnowszej })).toEqual(
+            recznaNajnowszej ? [] : [{ rodzaj, kwotaGr: null, poZaplacie: true }],
+          );
+        },
+      ),
       opcje(),
     );
   });

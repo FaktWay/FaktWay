@@ -2,7 +2,8 @@
  * `cron.ksiegowosc-terminy` (plan księgowości JDG, K5, sekcja 9): codziennie
  * o 08:00 przypomina firmom w pilotażu o terminach ryczałtu albo zaliczki
  * PIT i składek ZUS,
- * 5 i 1 dzień przed terminem, jeśli rozliczenie nie ma oznaczonej zapłaty.
+ * 5 i 1 dzień przed terminem, jeśli rozliczenie nie ma oznaczonej zapłaty
+ * albo (D32) najnowsza zapłacona wersja wyliczona ma brak w bieżących danych.
  * Push do członków firmy, mail do właściciela i wpis w dzwonku (00188).
  *
  * Idempotencja: `tax_notifications` (etap `termin-N:RRRR-MM-DD`), wpis przed
@@ -87,13 +88,14 @@ export async function przypomnijOTerminie(
   // Bez odczytu zapłat nie wiadomo, co jest zapłacone: ponowienie zamiast przypomnienia „bez zapłaty”.
   if (!dane.ok && dane.braki.includes(BLAD_ODCZYTU_ROZLICZEN)) throw new Error(`Nie udało się odczytać rozliczeń firmy ${tenantId} za ${t.miesiac}`);
   // D32 (FZ-030): błąd odczytu danych VAT w dniu przypomnienia o VAT to ponowienie, nie przypomnienie bez kwoty
-  // (inne terminy VAT nie dotyczy). Wyjście: ostatnia próba wysyła przypomnienie jak przy braku (VAT bez kwoty),
-  // z wpisem w Sentry, bo błąd bywa stały (np. korekta bez przyjętej faktury pierwotnej, worker bez KSEF_ENV),
-  // a etap przypomnienia nie wraca następnego dnia. Operator: docs/runbooks/ksiegowosc-przypomnienia.md.
+  // (inne terminy VAT nie dotyczy). Wyjście: ostatnia próba idzie dalej jak przy braku, z wpisem w Sentry, bo błąd
+  // bywa stały (np. korekta bez przyjętej faktury pierwotnej, worker bez KSEF_ENV), a etap przypomnienia nie wraca
+  // następnego dnia: VAT bez oznaczonej zapłaty wychodzi bez kwoty, a VAT oznaczony jako zapłacony bez zdania po
+  // zapłacie (błąd odczytu to nie brak z danych). Operator: docs/runbooks/ksiegowosc-przypomnienia.md.
   const bladVat = grupy.includes('vat') && dane.ok && dane.pozycje.some((p) => p.rodzaj === 'vat' && !p.ok && p.brak === BLAD_ODCZYTU_VAT);
   if (bladVat && !opcje.ostatniaProba) throw new Error(`Nie udało się odczytać danych VAT firmy ${tenantId} za ${t.miesiac}`);
   if (bladVat) {
-    Sentry.captureException(new Error(`Błąd odczytu danych VAT firmy ${tenantId} za ${t.miesiac} po ponowieniach: przypomnienie bez kwoty VAT`), {
+    Sentry.captureException(new Error(`Błąd odczytu danych VAT firmy ${tenantId} za ${t.miesiac} po ponowieniach (ostatnia próba)`), {
       tags: { area: 'ksiegowosc.terminy' },
       extra: { tenantId, miesiac: t.miesiac, etap: t.etap, krok: 'vat-ostatnia-proba' },
     });
@@ -105,6 +107,7 @@ export async function przypomnijOTerminie(
   if (pozycje.some((p) => p.rodzaj === 'vat' && p.kwotaGr === 0) && (await jpkPrzyjete(admin, tenantId, t.miesiac))) {
     pozycje = niezaplacone({ ...wejscie, jpkPrzyjete: true });
   }
+  if (bladVat) pozycje = pozycje.filter((p) => !(p.rodzaj === 'vat' && p.poZaplacie));
   if (pozycje.length === 0) return 'pominiete';
 
   // Strażnik przypomnień (żelazny filtr F13 część 5): kwota z zatwierdzonej wersji

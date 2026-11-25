@@ -9,9 +9,10 @@
  *   brak (D32: osobne zdanie, bez kwoty). Kwota z najnowszej zatwierdzonej
  *   wersji (minus to, co już zapłacone), a bez niej ze szkicu; gdy dane
  *   zmieniły się po zatwierdzeniu (inny skrót wejść), ze szkicu, jak dopłata
- *   na stronie (F11-B2); bez kwoty, gdy moduł jej nie liczy (D7) albo gdy
- *   bieżące dane dają dla tej pozycji brak (FZ-030), samo przypomnienie
- *   o terminie, także przy dopłacie po zapłaconej wersji.
+ *   na stronie (F11-B2); bez kwoty, gdy miesiąc się nie liczy (D31: brak
+ *   ustawień, błąd ksiąg, wyłącznik KPiR, D7) albo gdy bieżące dane dają dla
+ *   tej pozycji brak (FZ-030), samo przypomnienie o terminie, także przy
+ *   dopłacie po zapłaconej wersji.
  * - VAT: płatnik VAT składa JPK_V7M co miesiąc także przy VAT 0 zł (termin
  *   ten sam, 25.), więc kwota zero daje przypomnienie o pliku (F11-B5), chyba
  *   że MF przyjął już plik wysłany z FaktWay za ten miesiąc (`jpkPrzyjete`).
@@ -199,7 +200,9 @@ export function trescTerminu(w: { miesiac: string; termin: Termin; dni: DniPrzed
   const zdania = [`${kiedy}, ${data}, mija termin za ${monthLabel(w.miesiac)}.`];
   if (doZaplaty.length > 0 || w.pozycje.length === 0) zdania.push(`Bez oznaczonej zapłaty: ${lista(doZaplaty)}.`);
   // D32: zapłata jest oznaczona, więc treść tego nie przeczy; brak w danych może oznaczać dopłatę.
-  if (poZaplacie.length > 0) zdania.push(`Oznaczone jako zapłacone, ale bieżące dane mają brak, więc dopłaty teraz nie liczymy: ${lista(poZaplacie)}.`);
+  if (poZaplacie.length > 0) {
+    zdania.push(`Z oznaczoną zapłatą, ale bieżącej kwoty teraz nie liczymy, więc nie wiadomo, czy zostaje dopłata: ${lista(poZaplacie)}.`);
+  }
   if (w.pozycje.some(jestVatZero)) {
     zdania.push(`VAT do zapłaty za ${monthLabel(w.miesiac)}: ${zl(0)}; JPK_V7M za ten miesiąc ma ten sam termin.`);
   }

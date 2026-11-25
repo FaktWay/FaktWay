@@ -255,18 +255,18 @@ describe('FZ-030: brak w bieżących danych po zatwierdzeniu', () => {
     })).toEqual([{ rodzaj: 'ryczalt', kwotaGr: null, poZaplacie: true }]);
   });
 
-  it('D32: treść przy zapłaconej wersji nie pisze „bez oznaczonej zapłaty”, tylko że dopłaty teraz nie liczymy', () => {
+  it('D32: treść przy zapłaconej wersji nie pisze „bez oznaczonej zapłaty”, tylko że bieżącej kwoty teraz nie liczymy', () => {
     const [t] = terminyNaDzis('2026-11-15');
     const tylko = trescTerminu({ miesiac: '2026-10', termin: t.termin, dni: 5, pozycje: [{ rodzaj: 'ryczalt', kwotaGr: null, poZaplacie: true }] });
     expect(tylko.tresc).toBe(
-      'Za 5 dni, 20.11.2026, mija termin za październik 2026. Oznaczone jako zapłacone, ale bieżące dane mają brak, więc dopłaty teraz nie liczymy: ryczałt.',
+      'Za 5 dni, 20.11.2026, mija termin za październik 2026. Z oznaczoną zapłatą, ale bieżącej kwoty teraz nie liczymy, więc nie wiadomo, czy zostaje dopłata: ryczałt.',
     );
     const razem = trescTerminu({
       miesiac: '2026-10', termin: t.termin, dni: 1,
       pozycje: [{ rodzaj: 'ryczalt', kwotaGr: null, poZaplacie: true }, { rodzaj: 'zdrowotna', kwotaGr: 83_058 }],
     }).tresc;
     expect(razem).toContain('Bez oznaczonej zapłaty: składka zdrowotna 830,58 zł.');
-    expect(razem).toContain('dopłaty teraz nie liczymy: ryczałt.');
+    expect(razem).toContain('nie wiadomo, czy zostaje dopłata: ryczałt.');
     expect(razem).not.toContain('Bez oznaczonej zapłaty: ryczałt');
   });
 
