@@ -353,7 +353,8 @@ function NadwyzkaVat({ vat, miesiac }: { vat: VatWyniku; miesiac: string }) {
 /**
  * Zapłaty spoza wyliczenia (K7.2, D15): składki za okres, którego moduł nie
  * liczy, z kwotą z PUE ZUS. Lista pokazuje zapłacone w tym miesiącu i te,
- * którym brakuje daty zapłaty (wtedy datę ustawia się tutaj).
+ * którym brakuje daty zapłaty (wtedy datę ustawia się tutaj); w pierwszym
+ * miesiącu ekranu także zapłacone wcześniej, bo strony za 2025 r. nie ma (FZ-036).
  */
 function ZaplatySpozaWyliczenia({ zaplaty, canEdit, dzis, miesiac }: { zaplaty: Rozliczenie[]; canEdit: boolean; dzis: string; miesiac: string }) {
   const koniec = monthRange(miesiac).to;
