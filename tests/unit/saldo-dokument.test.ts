@@ -85,8 +85,23 @@ describe('teksty (D27, D28)', () => {
 
   it('saldo w złotych z groszami po polsku', () => {
     expect(balanceSummarySentence(12345.5).replace(/\u00a0/g, ' ')).toBe(
-      'Saldo należności wystawcy od adresata według ewidencji wystawcy: 12 345,50 PLN.',
+      'Saldo wymienionych faktur według ewidencji wystawcy: 12 345,50 PLN.',
     );
+  });
+
+  it('D57: dwa nowe powody pominięcia mają kod z bazy i tekst z wyjściem', () => {
+    expect(OMITTED_REASONS).toContain('advance_settled');
+    expect(OMITTED_REASONS).toContain('awaiting_ksef_number');
+    expect(OMITTED_REASON_LABELS.advance_settled).toMatch(/rozliczając/);
+    expect(OMITTED_REASON_LABELS.advance_settled).toMatch(/oznacz/);
+    expect(OMITTED_REASON_LABELS.awaiting_ksef_number).toMatch(/numer KSeF/);
+  });
+
+  it('D59: osobny tekst odmowy wysyłki przy wyłączonym wyłączniku, bez rady wysyłki ręcznej', () => {
+    expect(BALANCE_TEXTS.emailDisabled).toBe(
+      'Wysyłka potwierdzeń salda z FaktWay jest teraz wstrzymana. Wystawiony dokument można pobrać w PDF.',
+    );
+    expect(BALANCE_TEXTS.emailDisabled).not.toBe(BALANCE_REFUSALS.disabled);
   });
 });
 
@@ -111,6 +126,26 @@ describe('PDF', () => {
     }));
     expect(napisy).toContain('ROZ/1/2026 *');
     expect(napisy).toContain(`* ${BALANCE_SETTLEMENT_NOTE}`);
+  });
+
+  it('D58: przy ROZ kolumna „Kwota brutto” to kwota po zaliczkach (P_15), nie całe zamówienie', async () => {
+    const napisy = await wydruk(dokument({
+      items: [pozycja({ number: 'ROZ/1/2026', kind: 'final', type: 'ROZ', gross: 10000, amountDue: 7000, paid: 2000, outstanding: 5000 })],
+      total: 5000,
+    }));
+    expect(napisy).toContain('7000,00');
+    expect(napisy).not.toContain('10000,00');
+    expect(BALANCE_SETTLEMENT_NOTE).toBe(
+      'Faktura rozliczająca zaliczki: kwota brutto to kwota pozostała do zapłaty po zaliczkach (art. 106f ust. 3 ustawy o VAT).',
+    );
+  });
+
+  it('D57: PDF nie wymienia pominiętych faktur', async () => {
+    const napisy = (await wydruk(dokument({
+      omitted: [{ invoiceId: ID, number: 'FV/POMINIETA/9', ksefNumber: null, issueDate: '2026-10-01', kind: 'regular', type: 'VAT', currency: null, gross: 500, reason: 'awaiting_ksef_number' }],
+    } as Partial<BalancePdfInput>))).join('\n');
+    expect(napisy).not.toContain('FV/POMINIETA/9');
+    expect(napisy).not.toContain(OMITTED_REASON_LABELS.awaiting_ksef_number);
   });
 
   it('powtarzalny: ten sam dokument daje te same bajty (data utworzenia to chwila wystawienia)', async () => {
