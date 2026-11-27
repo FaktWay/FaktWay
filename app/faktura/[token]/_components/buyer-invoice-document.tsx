@@ -10,6 +10,7 @@ import { formatTimestampDatePl } from '@/lib/format/iso-date';
 import { formatWarsawDateTime } from '@/lib/format/warsaw-date';
 import type { BuyerInvoiceView, BuyerParty } from '@/lib/invoice-share/buyer-invoice';
 import { formatInvoiceDate } from '@/lib/invoices/display-date';
+import { sellerIdentifier } from '@/lib/invoices/vat-ue';
 import { lineCodesText } from '@/lib/invoices/line-codes';
 import { vatSummaryAgreesWithGross, vatSummaryByRate } from '@/lib/invoices/vat-summary';
 import { cn } from '@/lib/utils';
@@ -56,13 +57,15 @@ function vatRateLabel(rate: string | null): string {
   return /^\d+(?:[.,]\d+)?$/.test(rate) ? `${rate}%` : rate;
 }
 
-function PartyLines({ party }: { party: BuyerParty }) {
+function PartyLines({ party, sellerRates }: { party: BuyerParty; sellerRates?: readonly (string | null | undefined)[] }) {
+  // Sprzedawca przy usłudze „np II”: numer VAT UE z prefiksem PL, jak w pliku FA(3) (ustalenie 28).
+  const seller = sellerRates && party.nip ? sellerIdentifier(party.nip, sellerRates) : null;
   return (
     <div className="text-muted-foreground space-y-1 text-sm">
       {party.name && <p className="text-foreground font-medium">{party.name}</p>}
       {party.addressLine1 && <p>{party.addressLine1}</p>}
       {party.addressLine2 && <p>{party.addressLine2}</p>}
-      {party.nip ? <p>NIP: {party.nip}</p> : party.vatUeNumber ? <p>VAT UE: {party.vatUeNumber}</p> : null}
+      {seller ? <p>{seller.label}: {seller.value}</p> : party.nip ? <p>NIP: {party.nip}</p> : party.vatUeNumber ? <p>VAT UE: {party.vatUeNumber}</p> : null}
     </div>
   );
 }
@@ -170,7 +173,7 @@ export function BuyerInvoiceDocument({
           <div className="bg-muted/50 flex flex-wrap items-start justify-between gap-6 p-6">
             <div className="min-w-0 space-y-2">
               <h2 className="text-sm font-medium">Sprzedawca</h2>
-              <PartyLines party={view.seller} />
+              <PartyLines party={view.seller} sellerRates={view.lines.map((line) => line.vat_rate)} />
             </div>
             <div className="space-y-1 text-sm sm:text-right">
               <h2 className="text-base font-semibold">{heading}</h2>

@@ -63,7 +63,7 @@ function rpcClient(supabase: AuthContext['supabase']): SupabaseClient {
   return supabase as unknown as SupabaseClient;
 }
 
-async function writerContext(expectedTenantId?: string): Promise<{ ok: true; ctx: AuthContext } | { ok: false; error: string }> {
+async function writerContext(expectedTenantId?: string, disabledText: string = BALANCE_REFUSALS.disabled): Promise<{ ok: true; ctx: AuthContext } | { ok: false; error: string }> {
   let ctx: AuthContext;
   try {
     ctx = await requireUserAndActiveOrg(expectedTenantId === undefined ? undefined : { expectedTenantId });
@@ -78,7 +78,7 @@ async function writerContext(expectedTenantId?: string): Promise<{ ok: true; ctx
   } catch {
     return { ok: false, error: BALANCE_TEXTS.flagUnknown };
   }
-  if (!enabled) return { ok: false, error: BALANCE_REFUSALS.disabled };
+  if (!enabled) return { ok: false, error: disabledText };
   return { ok: true, ctx };
 }
 
@@ -183,7 +183,7 @@ export async function sendBalanceConfirmationEmailAction(confirmationId: string,
   const recipient = normalizeNoteRecipient(typeof recipientEmail === 'string' ? recipientEmail : '');
   if (!recipient) return { success: false, error: BALANCE_TEXTS.emailInvalid };
   if (typeof confirmationId !== 'string' || !UUID_SHAPE.test(confirmationId)) return { success: false, error: BALANCE_TEXTS.notFound };
-  const auth = await writerContext();
+  const auth = await writerContext(undefined, BALANCE_TEXTS.emailDisabled);
   if (!auth.ok) return { success: false, error: auth.error };
   const { supabase, tenantId } = auth.ctx;
 

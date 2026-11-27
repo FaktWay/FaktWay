@@ -17,7 +17,7 @@ import { lineCodesText } from '@/lib/invoices/line-codes';
 import { orderLine } from '@/lib/invoices/order-reference';
 import { RECEIPT_INVOICE_LABEL, receiptDetailsLine } from '@/lib/invoices/receipt-invoice';
 import { vatSummaryAgreesWithGross } from '@/lib/invoices/vat-summary';
-import { SELLER_VAT_UE_PREFIX, sellerNeedsVatUePrefix } from '@/lib/invoices/vat-ue';
+import { sellerIdentifier } from '@/lib/invoices/vat-ue';
 import { drawPdfLogo, type PdfLogo } from '@/lib/pdf/logo';
 import { PUBLIC_SITE_DOMAIN, PUBLIC_SITE_URL } from '@/lib/site';
 import { roundToCents } from '@/lib/xml/invoice-calculator';
@@ -69,6 +69,12 @@ export interface RenderInvoiceOptions {
    * (`lib/pdf/logo-odczyt.ts`). Brak = nagłówek jak dotąd.
    */
   logo?: PdfLogo | null;
+  /**
+   * Stawki pozycji stanów przed i po z koperty korekty (`correctionEnvelopeVatRates`).
+   * Pozycje wiersza korekty mają tylko stan po, a prefiks PL sprzedawcy zależy też od stanu
+   * przed, jak w pliku FA(3) korekty (ustalenie 28). Brak = same pozycje wiersza.
+   */
+  correctionVatRates?: readonly string[];
 }
 
 /**
@@ -202,7 +208,7 @@ export async function renderInvoicePdf(
     drawPreviewNotice(doc, opts.previewNotice, left, pageWidth);
     drawCorrectedInvoice(doc, opts.correctedInvoice, left, pageWidth);
     drawReceiptInvoice(doc, receiptInvoiceLines(invoice, opts.receiptInvoiceMarker === true), left, pageWidth);
-    drawParties(doc, invoice, left, pageWidth);
+    drawParties(doc, invoice, left, pageWidth, opts.correctionVatRates);
     drawLineItems(doc, invoice, left, pageWidth);
     drawVatSummary(doc, invoice, left, pageWidth);
     drawPayment(doc, invoice, transferTitleOnPdf(invoice, opts.ksefNumber), left, pageWidth);
@@ -369,6 +375,7 @@ function drawParties(
   invoice: Invoice,
   left: number,
   width: number,
+  correctionVatRates: readonly string[] = [],
 ): void {
   const colWidth = (width - 20) / 2;
   const top = doc.y;
@@ -398,15 +405,18 @@ function drawParties(
 
   // W8 (plan zero C2): przy usłudze „np II” numer VAT UE sprzedawcy, czyli NIP
   // z prefiksem PL, jak `PrefiksPodatnika` w pliku FA(3) (RP-FA-VATUE-01).
-  const sellerVatUe = sellerNeedsVatUePrefix(invoice.lines.map((line) => line.vatRate));
+  const sellerId = sellerIdentifier(invoice.seller.nip, [
+    ...invoice.lines.map((line) => line.vatRate),
+    ...correctionVatRates,
+  ]);
   block(
     left,
     'Sprzedawca',
     invoice.seller.name,
-    sellerVatUe ? `${SELLER_VAT_UE_PREFIX}${invoice.seller.nip}` : invoice.seller.nip,
+    sellerId.value,
     invoice.seller.address.addressLine1,
     invoice.seller.address.addressLine2,
-    sellerVatUe ? 'VAT UE' : 'NIP',
+    sellerId.label,
   );
   const sellerBottom = doc.y;
 

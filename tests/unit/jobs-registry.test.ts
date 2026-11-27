@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { allEventQueues, CRON_JOBS } from '@/lib/jobs/queues';
 import { getRegisteredJobs } from '@/lib/jobs/registry';
+import { PONOWIENIA_MIESIACA } from '@/lib/jobs/runners/ksiegowosc-miesiac';
 import { PONOWIENIA_TERMINOW } from '@/lib/jobs/runners/ksiegowosc-terminy';
 
 // Side-effect: rejestracje paczek.
@@ -120,6 +121,7 @@ describe('rejestr jobów', () => {
     // Przypomnienia o terminach (FZ-030, D32): ostatnia próba (`attempt === PONOWIENIA_TERMINOW`) wysyła przypomnienie
     // mimo błędu odczytu VAT, więc liczba ponowień w rejestracji musi być tą samą stałą.
     expect(byQueue.get('cron.ksiegowosc-terminy')?.maxRetries).toBe(PONOWIENIA_TERMINOW);
+    expect(byQueue.get('cron.ksiegowosc-miesiac')?.maxRetries).toBe(PONOWIENIA_MIESIACA);
   });
 
   it('dunning ma limit równoległości per tenant (grupa pg-boss)', () => {

@@ -42,7 +42,10 @@ vi.mock('@/lib/ksiegowosc/parametry', async (orig) => {
     },
   };
 });
-vi.mock('@/lib/ksiegowosc/ewidencja-dane', () => ({ czytajEwidencje: async () => mocks.ewidencja }));
+vi.mock('@/lib/ksiegowosc/ewidencja-dane', async (orig) => ({
+  ...(await orig<typeof import('@/lib/ksiegowosc/ewidencja-dane')>()),
+  czytajEwidencje: async () => mocks.ewidencja,
+}));
 vi.mock('@/lib/ksiegowosc/wylacznik', async (orig) => {
   const prawdziwy = await orig<typeof import('@/lib/ksiegowosc/wylacznik')>();
   return {
@@ -387,3 +390,34 @@ describe('VAT w odczycie „Ten miesiąc” (K7.1)', () => {
   });
 });
 
+
+describe('D63 (FZ-030): błąd odczytu odróżniony od braku w danych', () => {
+  const SKALA: WersjaProfilu = { ...PROFIL, forma: 'skala', stawkaDomyslna: null };
+  const kpirBlad = (poprzedni: string) => (rok: number) =>
+    rok === 2026
+      ? { ok: false, komunikat: poprzedni }
+      : { ok: true, kpir: zbudujKpir({ rok, faktury: [], koszty: [], wpisy: [], wersje: [SKALA], kursy: new Map() }), wpisy: [], wersje: [SKALA] };
+
+  beforeEach(() => {
+    mocks.ewidencja = { ok: true, ewidencja: ewidencja(2027, []), wersje: [SKALA], wpisy: [] };
+  });
+
+  it('styczeń: komunikat odczytu KPiR poprzedniego roku to bladOdczytuPoprzedniego, komunikat z danych (waluta) nie', async () => {
+    const { KOMUNIKAT_ODCZYT } = await import('@/lib/ksiegowosc/ewidencja-dane');
+    mocks.kpir = kpirBlad(KOMUNIKAT_ODCZYT);
+    const zBledem = await czytajTenMiesiac(client, 't1', '2027-01');
+    expect(zBledem).toMatchObject({ ok: true, bladOdczytuPoprzedniego: true });
+    mocks.kpir = kpirBlad('Część kosztów z KSeF jest w walucie obcej i czeka na przegląd kursu.');
+    expect(await czytajTenMiesiac(client, 't1', '2027-01')).not.toHaveProperty('bladOdczytuPoprzedniego');
+  });
+
+  it('błąd odczytu KPiR bieżącego roku i ewidencji to bladOdczytu, odmowa z danych nie', async () => {
+    const { KOMUNIKAT_ODCZYT } = await import('@/lib/ksiegowosc/ewidencja-dane');
+    mocks.kpir = () => ({ ok: false, komunikat: KOMUNIKAT_ODCZYT });
+    expect(await czytajTenMiesiac(client, 't1', '2027-02')).toMatchObject({ ok: false, bladOdczytu: true });
+    mocks.kpir = () => ({ ok: false, komunikat: 'Koszt jest zdublowany.' });
+    expect(await czytajTenMiesiac(client, 't1', '2027-02')).not.toHaveProperty('bladOdczytu');
+    mocks.ewidencja = { ok: false, komunikat: KOMUNIKAT_ODCZYT, wersje: [PROFIL] };
+    expect(await czytajTenMiesiac(client, 't1', '2027-02')).toMatchObject({ ok: false, bladOdczytu: true });
+  });
+});

@@ -238,7 +238,7 @@ describe('sendBalanceConfirmationEmailAction', () => {
     db.tables.balance_confirmations = [dokument({ tenant_id: 'ten-2' })];
     expect(await sendBalanceConfirmationEmailAction(DOK, ODBIORCA)).toEqual({ success: false, error: BALANCE_TEXTS.notFound });
     mocks.flag.mockResolvedValueOnce(false);
-    expect(await sendBalanceConfirmationEmailAction(DOK, ODBIORCA)).toEqual({ success: false, error: BALANCE_REFUSALS.disabled });
+    expect(await sendBalanceConfirmationEmailAction(DOK, ODBIORCA)).toEqual({ success: false, error: BALANCE_TEXTS.emailDisabled });
     expect(mocks.resendSend).not.toHaveBeenCalled();
   });
 });

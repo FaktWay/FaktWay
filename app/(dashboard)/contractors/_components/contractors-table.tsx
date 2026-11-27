@@ -49,6 +49,8 @@ export interface ContractorTableRow {
    * `null`, gdy należności nie dało się policzyć — kolumny pokazują „—”.
    */
   receivables: { outstanding: number; overdueCount: number } | null;
+  /** Pokaż przycisk „Potwierdzenie salda” (wyłącznik, rola, NIP kontrahenta). */
+  balanceAvailable?: boolean;
 }
 
 const VAT_LABELS: Record<VatStatus, string> = {
