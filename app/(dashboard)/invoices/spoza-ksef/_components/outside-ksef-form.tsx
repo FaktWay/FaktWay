@@ -39,7 +39,7 @@ const POLE =
 
 const STAWKA_ETYKIETA: Record<string, string> = { '0': '0%', zw: 'zw', np: 'np' };
 
-const zl = (v: number | null) => (v === null ? '—' : v.toFixed(2).replace('.', ',') + ' zł');
+const zl = (v: number | null) => (v === null ? 'brak' : v.toFixed(2).replace('.', ',') + ' zł');
 
 /**
  * Formularz wpisu faktury wystawionej poza KSeF (krok 1.6, PR C; D22-D24).
