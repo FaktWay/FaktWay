@@ -3086,7 +3086,7 @@
     },
     {
       "id": "RP-KOSZT-01",
-      "regula": "Jeden dokument kosztu to jeden koszt w KPiR i jedno odliczenie VAT: ten sam dokument (NIP sprzedawcy, numer i rok wystawienia, bez względu na rodzaj) z KSeF i spoza KSeF (zdjęcie, wpis ręczny, import) albo jako kopia spoza KSeF nie wchodzi do kosztów okresu dwa razy; odczyt okresu odmawia z numerem, datą, źródłami i wyjściem.",
+      "regula": "Jeden dokument kosztu to jeden koszt w KPiR i jedno odliczenie VAT: ten sam dokument (NIP sprzedawcy, numer i rok wystawienia, bez względu na rodzaj) z KSeF i spoza KSeF (zdjęcie, wpis ręczny, import) albo jako kopia spoza KSeF nie wchodzi do kosztów okresu dwa razy; odczyt okresu odmawia z numerem, datą, źródłami i wyjściem, a pewna kopia faktury z KSeF (jedna kopia z tym samym brutto przy jednym koszcie z KSeF, miesiące niezłożone) łączy się z kosztem z KSeF (do KPiR, VAT i JPK_V7M idzie koszt z KSeF, kopia zostaje poza KPiR).",
       "podstawa": [
         {
           "akt": "ustawa o podatku od towarów i usług",
@@ -3095,6 +3095,10 @@
         {
           "akt": "ustawa o podatku od towarów i usług",
           "przepis": "art. 106e ust. 1 pkt 2"
+        },
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106na ust. 3"
         },
         {
           "akt": "ustawa o podatku dochodowym od osób fizycznych",
@@ -3106,7 +3110,7 @@
         },
         {
           "akt": "zasada programu",
-          "przepis": "F11-C1 (KPiR modułu), FZ-022"
+          "przepis": "F11-C1 (KPiR modułu), FZ-022, D29 i D30 (docs/koordynacja/DECYZJE-2026-11-25.md)"
         }
       ],
       "obowiazuje": {
@@ -3124,32 +3128,41 @@
       "kod": [
         "lib/expenses/jeden-koszt-dokumentu.ts#zdublowanyDokument",
         "lib/expenses/jeden-koszt-dokumentu.ts#kluczDokumentuKosztu",
-        "lib/expenses/jeden-koszt-dokumentu.ts#assertJedenKosztNaDokument"
+        "lib/expenses/jeden-koszt-dokumentu.ts#assertJedenKosztNaDokument",
+        "lib/expenses/kopia-faktury-ksef.ts#polaczKopieFakturyKsef",
+        "lib/expenses/kopia-faktury-ksef.ts#laczenieKopiiWlaczone"
       ],
       "testy": [
         "tests/unit/koszt-jeden-dokument.test.ts > KPiR i JPK_V7M okresu nie liczą faktury dwa razy",
         "tests/unit/koszt-jeden-dokument.test.ts > dubel z lutego nie zatrzymuje stycznia",
         "tests/unit/jeden-koszt-dokumentu.test.ts > faktura z tym samym NIP-em i numerem w innym roku to inna faktura",
-        "tests/unit/jeden-koszt-dokumentu.test.ts > dwa koszty z KSeF z tym samym kluczem"
+        "tests/unit/jeden-koszt-dokumentu.test.ts > dwa koszty z KSeF z tym samym kluczem",
+        "tests/unit/koszt-jeden-dokument.test.ts > jeden koszt z numerem KSeF w KPiR i JPK_V7M, bez odmowy",
+        "tests/unit/koszt-jeden-dokument.test.ts > bez przełącznika nic się nie łączy",
+        "tests/rls-kopia-faktury-ksef.test.ts > jedna kopia (numer małymi literami ze spacją)",
+        "tests/rls-kopia-faktury-ksef.test.ts > bezpiecznik D29: miesiąc złożony daje zadanie",
+        "tests/rls-kopia-faktury-ksef.test.ts > inne brutto kopii",
+        "tests/unit/jeden-koszt-dokumentu.test.ts > koszty spoza KSeF z różnymi kwotami (dokument rozpisany na dwie kolumny KPiR)",
+        "tests/unit/jeden-koszt-dokumentu.test.ts > paragon: ten sam numer z innego dnia albo z inną kwotą to inny paragon"
       ],
       "parametry": [],
       "niezmienniki": [],
       "pewnosc": "srednia",
       "wzorzec": null,
-      "interpretacja": "Klucz: NIP sprzedawcy (10 cyfr), numer bez odstępów i wielkości liter oraz rok wystawienia (sprzedawca może co rok zaczynać numerację od nowa); rodzaju w kluczu nie ma, bo faktura uproszczona z KSeF ma rodzaj „invoice”, a jej zdjęcie z OCR „simplified_invoice”. Dubel: koszt z KSeF i koszt spoza KSeF dowolnego rodzaju; dwa koszty spoza KSeF z tą samą kwotą brutto albo, przy fakturach, w tej samej kolumnie KPiR; dwa paragony tylko przy tym samym dniu i kwocie brutto (wiele kas pod jednym NIP-em). Bez odmowy: dwa koszty z KSeF (dla KSeF to dwa dokumenty, np. faktura i korekta) i faktura spoza KSeF rozpisana na dwie kolumny KPiR z różnymi kwotami. Odmowa dotyczy odczytu okresu, w którym są oba koszty; para w dwóch okresach albo przez przełom roku, numer zapisany inaczej niż odstępami i wielkością liter oraz dwie kopie spoza KSeF z różną kwotą i kolumną przechodzą bez odmowy.",
+      "interpretacja": "Klucz: NIP sprzedawcy (10 cyfr), numer bez odstępów i wielkości liter oraz rok wystawienia (sprzedawca może co rok zaczynać numerację od nowa); rodzaju w kluczu nie ma, bo faktura uproszczona z KSeF ma rodzaj „invoice”, a jej zdjęcie z OCR „simplified_invoice”. Dubel: koszt z KSeF i koszt spoza KSeF dowolnego rodzaju; dwa koszty spoza KSeF z tą samą kwotą brutto albo, przy fakturach, w tej samej kolumnie KPiR; dwa paragony tylko przy tym samym dniu i kwocie brutto (wiele kas pod jednym NIP-em). Bez odmowy: dwa koszty z KSeF (dla KSeF to dwa dokumenty, np. faktura i korekta) i faktura spoza KSeF rozpisana na dwie kolumny KPiR z różnymi kwotami. Odmowa dotyczy odczytu okresu, w którym są oba koszty; para w dwóch okresach albo przez przełom roku, numer zapisany inaczej niż odstępami i wielkością liter oraz dwie kopie spoza KSeF z różną kwotą i kolumną przechodzą bez odmowy. D29 (zapis przy drugim źródle, 00215): jedyna kopia spoza KSeF z tym samym kluczem łączy się z kosztem z KSeF, gdy miesiąc wystawienia żadnego z nich nie jest złożony; kopia wypada z KPiR i odliczenia, kategoria nadana jej ręcznie przechodzi na koszt z KSeF. Od 2026 r. fakturą jest dokument w KSeF (otrzymany w dniu nadania numeru), a zdjęcie to kopia. Ponad literę D29 (dopowiedziane w kodzie, do potwierdzenia przez księgową): to samo brutto, oba koszty liczą się dziś w KPiR, dokładnie jeden koszt z KSeF z faktury przyjętej w środowisku KSeF aplikacji; miesiąc złożony szerzej niż w D29 (rozliczenie modułu zależne od kosztów: zaliczka PIT, VAT, składka zdrowotna, każdy zapisany wiersz; wysyłka JPK_V7M na bramkę produkcyjną w każdym stanie poza odrzuconą i przerwaną; udany eksport KPiR albo JPK_V7M obejmujący miesiąc), a sprawdzany jest tylko miesiąc wystawienia obu kosztów, bez późniejszych miesięcy. Zadanie dla klienta powstaje przy kilku kopiach, innym brutto, kopii czekającej już na decyzję albo miesiącu złożonym; w pozostałych przypadkach (dwa koszty z KSeF z tym numerem, koszt z KSeF poza KPiR albo z innego środowiska, brak kopii) zostaje sama odmowa odczytu. Łączą runner Skrzynki (koszt z KSeF po zdjęciu, wpisie ręcznym albo imporcie) i runner zdjęć (zdjęcie po koszcie z KSeF); wpis ręczny i import po koszcie z KSeF nie łączą się same, zostaje odmowa. Za przełącznikiem KOSZTY_LACZ_KOPIE_KSEF, domyślnie wyłączonym. D30: jedną fakturę kosztową można rozpisać na dwa wiersze KPiR z tym samym numerem dowodu (np. towar w kolumnie 10, transport w 11) i program jej nie odrzuca przy różnych kwotach; paragon z tym samym numerem, dniem i kwotą brutto to ten sam dokument, a fałszywa odmowa ma wyjście („Uwzględnij w KPiR”).",
       "do_rozstrzygniecia": {
         "kto": "księgowa",
-        "pytanie": "Czy jedną fakturę kosztową można wpisać do KPiR jako dwa wiersze z tym samym numerem dowodu (np. towar w kolumnie 10, transport w kolumnie 11), i czy paragon z tym samym numerem, dniem i kwotą brutto wgrany dwa razy zawsze jest tym samym dokumentem?",
+        "pytanie": "Potwierdzenie decyzji D29 i D30 przed włączeniem u klientów: (1) czy zamiast zdjęcia albo wpisu ręcznego tej samej faktury (ten sam NIP, numer i rok, to samo brutto) do KPiR i odliczenia VAT ma iść koszt z KSeF z jego kwotami i datą; (2) czy wystarcza bezpiecznik miesiąca złożonego tylko dla miesiąca wystawienia obu kosztów, czy trzeba sprawdzać też późniejsze miesiące (zaliczka PIT narastająco, nadwyżka VAT z poprzedniej deklaracji); (3) czy jedną fakturę kosztową można wpisać do KPiR jako dwa wiersze z tym samym numerem dowodu (np. towar w kolumnie 10, transport w kolumnie 11); (4) czy paragon z tym samym numerem, dniem i kwotą brutto wgrany dwa razy zawsze jest tym samym dokumentem?",
         "przypadki": []
       },
       "sprawdzil": {
         "ksiegowa": null,
         "prawnik": null
       },
-      "odczyt": "2026-11-17",
-      "zrodlo_planu": "FZ-022 (docs/filtr/USTALENIA.md), F11-C1",
+      "odczyt": "2026-11-25",
+      "zrodlo_planu": "FZ-022 (docs/filtr/USTALENIA.md), F11-C1, D29 i D30 (docs/koordynacja/DECYZJE-2026-11-25.md)",
       "stan": "dziala",
-      "uwagi": "Zapis jednego kosztu przy drugim źródle czeka na decyzję Bartosza (FZ-022); do tego czasu odmowa przy odczycie."
+      "uwagi": "Zapis przy drugim źródle według D29: migracja 00215 i runnery Skrzynki i zdjęć za przełącznikiem KOSZTY_LACZ_KOPIE_KSEF (domyślnie wyłączony do potwierdzenia przez Bartosza i księgową; włączać tylko na produkcyjnym KSeF, zalecenie runbooka docs/runbooks/koszt-dwa-razy.md, kod tego nie wymusza); bez przełącznika odmowa przy odczycie jak dotąd. Odpowiedź D30 Bartosza (pewność średnia) w interpretacji, do potwierdzenia przez księgową."
     }
   ]
 }
