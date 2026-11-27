@@ -6,7 +6,7 @@ konfiguracji, która nie pozwala jobom zniknąć po cichu.
 
 | Hamulec | Kiedy działa | Co widzi użytkownik |
 |---|---|---|
-| Wyłącznik `killAllKsefSubmissions` | operator włącza go SQL-em | „Wysyłka faktur do KSeF jest chwilowo wstrzymana…”: pierwsza wysyłka — faktura zostaje szkicem; „Wyślij ponownie” — „tej wysyłki nie wykonaliśmy”, faktura zostaje z błędem wysyłki; w jobie (`KSEF_PAUSED`) — zwykła wyjdzie automatycznie po zdjęciu, KOR/ZAL tylko w dniu wystawienia |
+| Wyłącznik `killAllKsefSubmissions` | operator włącza go SQL-em | „Wysyłka faktur do KSeF jest chwilowo wstrzymana…”: pierwsza wysyłka — faktura zostaje szkicem; „Wyślij ponownie” — „tej wysyłki nie wykonaliśmy”, faktura zostaje z błędem wysyłki; w jobie (`KSEF_PAUSED`) — zwykłą automat (I7) wznowi po zdjęciu tylko do końca następnego dnia roboczego po dacie wystawienia (B2a; po terminie klient wystawia ją od nowa), KOR/ZAL tylko w dniu wystawienia |
 | Blokada korekt (`KOR_HOLD`) | zawsze przy `KSEF_ENV=production` | „Wysyłka faktur korygujących… wstrzymana do czasu poprawki ich kwot”: przy wysyłce korekta zostaje szkicem; w jobie — „po zdjęciu blokady tej korekty sami nie wyślemy”, bez przycisków, napisz do pomocy FaktFlow (pomoc@faktflow.pl) |
 | Blokada ROZ (`ROZ_HOLD_RECONCILE`) | zawsze (wcześniejsza zmiana) | „Wysyłka faktur rozliczeniowych… wstrzymana”: przy wysyłce dokument zostaje szkicem; w jobie — „po zdjęciu blokady tej faktury sami nie wyślemy”, bez przycisków, napisz do pomocy FaktFlow |
 | `JOBS_BACKEND` jawny | poza lokalnym środowiskiem | brak zmiennej = zlecenie odrzucone, worker nie startuje |

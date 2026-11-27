@@ -113,6 +113,27 @@ describe('FA(3) — np II, faktura zwykła (AUD-70)', () => {
     expect(wynik.valid).toBe(true);
   });
 
+  it('W8: np II, NIP sprzedawcy z prefiksem PL (PrefiksPodatnika, art. 97 ust. 10 pkt 3) jako pierwszy element Podmiot1, zgodna z XSD', async () => {
+    const xml = generateFA3Xml(faktura());
+    expect(xml).toContain('<Podmiot1><PrefiksPodatnika>PL</PrefiksPodatnika><DaneIdentyfikacyjne><NIP>5260001246</NIP>');
+    expect(xml.match(/<PrefiksPodatnika>/g)).toHaveLength(1);
+    const wynik = await validateInvoiceXml(xml);
+    expect(wynik.errors).toEqual([]);
+    expect(wynik.valid).toBe(true);
+  });
+
+  it('W8: faktura bez np II (23 % dla firmy z UE, np I) bez PrefiksPodatnika', () => {
+    expect(generateFA3Xml(faktura({ lines: [{ ...USLUGA_NP_II, vatRate: '23' }] }))).not.toContain('PrefiksPodatnika');
+    expect(generateFA3Xml(faktura({
+      buyer: {
+        nip: '5252241585',
+        name: 'Klient sp. z o.o.',
+        address: { countryCode: 'PL', addressLine1: 'ul. Klienta 10', addressLine2: '02-001 Warszawa' },
+      },
+      lines: [{ ...USLUGA_NP_II, vatRate: 'np' }],
+    }))).not.toContain('PrefiksPodatnika');
+  });
+
   it('np I („np”) bez zmian: P_12 „np I”, P_13_8, P_18=2', async () => {
     const xml = generateFA3Xml(
       faktura({
@@ -369,6 +390,23 @@ describe('ZAL / ROZ — np II nieobsługiwane; KOR — np II tylko z nabywcą z 
     expect(xml).toContain('<P_13_9>-100.00</P_13_9>');
     expect(xml).toContain('<P_18>1</P_18>');
     expect((await validateInvoiceXml(xml)).valid).toBe(true);
+  });
+
+  it('W8: KOR z pozycją np II (nabywca z UE): NIP sprzedawcy z prefiksem PL, XSD poprawny; KOR bez np II bez prefiksu', async () => {
+    const buyer = {
+      type: 'eu' as const,
+      vatUeNumber: 'DE123456789',
+      name: 'Kunde GmbH',
+      address: { countryCode: 'DE', addressLine1: 'Hauptstrasse 1', addressLine2: '10115 Berlin' },
+    };
+    const xml = generateCorrectionInvoiceXml(korekta({ buyer }), { prettyPrint: false });
+    expect(xml).toContain('<Podmiot1><PrefiksPodatnika>PL</PrefiksPodatnika><DaneIdentyfikacyjne>');
+    expect((await validateInvoiceXml(xml)).valid).toBe(true);
+    const zwykla = generateCorrectionInvoiceXml(
+      korekta({ linesBefore: [pozycja('23', 1000)], linesAfter: [pozycja('23', 900)] }),
+      { prettyPrint: false },
+    );
+    expect(zwykla).not.toContain('PrefiksPodatnika');
   });
 
   it('KOR bez np II — bez zmian (P_18=2, XSD poprawny)', async () => {

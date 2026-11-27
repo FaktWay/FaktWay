@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JobContext } from '@/lib/jobs/registry';
 import { KsefApiError } from '@/lib/ksef/client';
 import type { Invoice } from '@/types/invoice';
+import { todayInWarsaw } from '@/lib/format/warsaw-date';
 
 const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
@@ -86,7 +87,7 @@ vi.mock('@/lib/supabase/server', () => ({
               id: '11111111-1111-4111-8111-111111111111',
               ksef_status: 'queued', ksef_number: null, ksef_environment: 'test',
               invoice_kind: 'regular', invoice_type: 'VAT', internal_number: 'FV 1/2026',
-              fa3_data: { internalNumber: 'FV 1/2026', type: 'VAT' },
+              fa3_data: { internalNumber: 'FV 1/2026', type: 'VAT', issueDate: TODAY_PL },
             },
         error: null,
       }),
@@ -102,6 +103,11 @@ vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn(), captureMessage: vi
 import { KsefInvoiceRejectedError, submitInvoice } from '@/lib/ksef/submit';
 import { runSubmitInvoice } from '@/lib/jobs/runners/submit-invoice';
 import type { KsefAuth } from '@/lib/ksef/auth';
+
+// B2a: zwykła faktura wychodzi do KSeF do końca następnego dnia roboczego po dacie
+// wystawienia, a bezpiecznik runnera i haka sesji liczy od prawdziwego zegara —
+// faktura przechodząca przez wysyłkę ma więc datę „dziś” w Polsce (stała data by się zestarzała).
+const TODAY_PL = todayInWarsaw();
 
 /**
  * Odrzucenie w STATUSIE faktury (kod ≥ 400 z pollingu) to decyzja KSeF
@@ -263,7 +269,7 @@ describe('job wysyłki: odrzucenie w statusie kończy się bez ponowień', () =>
     tenantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     nip: '1234567890',
     environment: 'test' as const,
-    invoice: { internalNumber: 'FV 1/2026', type: 'VAT' } as Invoice,
+    invoice: { internalNumber: 'FV 1/2026', type: 'VAT', issueDate: TODAY_PL } as Invoice,
   };
 
   it.each([

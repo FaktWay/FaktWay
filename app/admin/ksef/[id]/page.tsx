@@ -175,7 +175,7 @@ export default async function AdminKsefInvoicePage(props: { params: Promise<{ id
           <span>otwarty wpis sent / zamiar intent: <strong>{openSent ? 'TAK' : 'nie'}</strong></span>
           <span>dane do ponownej wysyłki: <strong>{resendFacts.sendData === 'stored' ? 'zapisane' : 'brak'}</strong></span>
           <span>rodzaj wstrzymany w tym środowisku: <strong>{resendFacts.kindHeld ? 'TAK' : 'nie'}</strong></span>
-          <span>data wystawienia minęła (dokument specjalny): <strong>{resendFacts.issueDatePassed ? 'TAK' : 'nie'}</strong></span>
+          <span>po terminie wysyłki dla daty wystawienia: <strong>{resendFacts.issueDatePassed ? 'TAK' : 'nie'}</strong></span>
           <span>KSEF_ENV aplikacji: <strong>{environment ?? 'nieustawione'}</strong></span>
         </div>
       </section>

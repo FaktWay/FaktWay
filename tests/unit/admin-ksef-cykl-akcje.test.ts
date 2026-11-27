@@ -233,7 +233,7 @@ function row(extra: Record<string, unknown> = {}) {
     id: ID, tenant_id: TENANT, direction: 'outgoing', invoice_kind: 'regular', ksef_status: 'failed',
     last_error_code: 'INFRA', internal_number: 'FV/9', tenants: { nip: '5260001246' },
     issue_date: TODAY, special_data: null,
-    fa3_data: { internalNumber: 'FV/9', type: 'VAT', lines: [{ ordinal: 1 }], seller: { nip: '5260001246' } },
+    fa3_data: { internalNumber: 'FV/9', type: 'VAT', issueDate: TODAY, lines: [{ ordinal: 1 }], seller: { nip: '5260001246' } },
     ...extra,
   };
 }
@@ -614,7 +614,8 @@ describe('A5: odmowy operatora w dzienniku prób (ksef_send_attempts)', () => {
   });
 
   it('firma i faktura bez NIP-u → NO_NIP', async () => {
-    m.invoice = row({ tenants: { nip: null }, fa3_data: { internalNumber: 'FV/9', type: 'VAT', lines: [{ ordinal: 1 }], seller: {} } });
+    // Kopia FA(3) ma datę wystawienia jak każda prawdziwa (bez niej fakty B2a odmawiają fail-closed przed NIP-em).
+    m.invoice = row({ tenants: { nip: null }, fa3_data: { internalNumber: 'FV/9', type: 'VAT', issueDate: TODAY, lines: [{ ordinal: 1 }], seller: {} } });
 
     const result = await operatorRequeueAction(ID, { reconcileOnly: false });
 

@@ -39,19 +39,25 @@ import { resendInvoiceAction } from '@/components/invoices/actions-detail';
 import { KSEF_RESEND_SOURCE_COLUMNS } from '@/lib/invoices/ksef-requeue-event';
 import { KSEF_SPECIAL_SEND_MESSAGES } from '@/lib/invoices/ksef-send-policy';
 import { finalizeInvoice } from '@/lib/xml/invoice-calculator';
+import { addDaysToIsoDate, todayInWarsaw } from '@/lib/format/warsaw-date';
 
 const invoiceId = '11111111-1111-4111-8111-111111111111';
 const tenantId = '22222222-2222-4222-8222-222222222222';
 
+// B2a: zwykła faktura wychodzi do KSeF do końca następnego dnia roboczego po dacie
+// wystawienia, a fakty ponowienia liczą termin od prawdziwego zegara — faktura
+// w teście ma więc datę „dziś” w Polsce (stała data by się zestarzała).
+const TODAY_PL = todayInWarsaw();
+
 const snapshot = finalizeInvoice({
   internalNumber: 'FV 2/10/2026',
   type: 'VAT',
-  issueDate: '2026-10-01',
-  saleDate: '2026-10-01',
+  issueDate: TODAY_PL,
+  saleDate: TODAY_PL,
   seller: { nip: '5260001246', name: 'Firma', address: { countryCode: 'PL', addressLine1: 'ul. A 1', addressLine2: '00-001 Warszawa' } },
   buyer: { nip: '5252241585', name: 'Klient', address: { countryCode: 'PL', addressLine1: 'ul. B 2', addressLine2: '00-002 Warszawa' } },
   lines: [{ ordinal: 1, name: 'Usługa', unit: 'szt', quantity: 1, unitPriceNet: 100, vatRate: '23' }],
-  payment: { currency: 'PLN', dueDate: '2026-10-15', method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
+  payment: { currency: 'PLN', dueDate: addDaysToIsoDate(TODAY_PL, 14)!, method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
 });
 
 beforeEach(() => {
@@ -81,7 +87,7 @@ it.each([
   ['final', 'failed', /faktur rozliczeniowych do KSeF jest wstrzymana/, () => KSEF_SPECIAL_SEND_MESSAGES.kindHeld('final')],
   ['correction', 'rejected', /treść korekty/, () => KSEF_SPECIAL_SEND_MESSAGES.rejected('correction')],
 ] as const)('blocks %s/%s resend before any job or status update', async (kind, status, reason, message) => {
-  mocks.row = { ksef_status: status, direction: 'outgoing', invoice_kind: kind, invoice_type: 'KOR', last_error_code: 'INFRA', issue_date: '2026-10-01', fa3_data: snapshot, special_data: null };
+  mocks.row = { ksef_status: status, direction: 'outgoing', invoice_kind: kind, invoice_type: 'KOR', last_error_code: 'INFRA', issue_date: TODAY_PL, fa3_data: snapshot, special_data: null };
 
   const result = await resendInvoiceAction(invoiceId);
 
@@ -96,7 +102,7 @@ it.each([
 });
 
 it('regular/failed is requeued through the lifecycle RPC, never by a session status update', async () => {
-  mocks.row = { ksef_status: 'failed', direction: 'outgoing', invoice_kind: 'regular', invoice_type: 'VAT', last_error_code: 'INFRA', issue_date: '2026-10-01', fa3_data: snapshot, special_data: null };
+  mocks.row = { ksef_status: 'failed', direction: 'outgoing', invoice_kind: 'regular', invoice_type: 'VAT', last_error_code: 'INFRA', issue_date: TODAY_PL, fa3_data: snapshot, special_data: null };
 
   expect(await resendInvoiceAction(invoiceId)).toEqual({ success: true });
   expect(mocks.enqueue).toHaveBeenCalledWith(expect.objectContaining({ mode: { kind: 'requeue', actorUserId: 'fixture-user' } }));

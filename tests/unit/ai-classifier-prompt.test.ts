@@ -4,7 +4,9 @@ import type { ExtractedInvoice } from '@/lib/ocr/schema';
 
 const createMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@/lib/anthropic/client', () => ({
+// Prawdziwe stałe modułu (limity czasu z LIM-05), atrapa tylko klienta i modelu.
+vi.mock('@/lib/anthropic/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/anthropic/client')>()),
   getAnthropic: () => ({ messages: { create: createMock } }),
   OCR_MODEL: 'test-model',
 }));
