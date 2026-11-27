@@ -52,6 +52,7 @@ COMMENT ON COLUMN public.invoices.origin IS
   'Skąd wziął się dokument. Znacznik TRWAŁY — w odróżnieniu od notes, którego klient może dotknąć. Wszystko poza ''app'' jest wykluczone z oceny terminowości kontrahenta (K-03) i z kontroli ciągłości numeracji. ''outside_ksef'' (00221): faktura wystawiona w 2026 r. poza KSeF, dopisana przez klienta do historii; liczy się w księgach, nie ma numeru KSeF ani pliku XML.';
 
 -- 2. Kształt wiersza
+ALTER TABLE public.invoices DROP CONSTRAINT IF EXISTS invoices_outside_ksef_shape;
 ALTER TABLE public.invoices
   ADD CONSTRAINT invoices_outside_ksef_shape
   CHECK (
@@ -73,6 +74,7 @@ ALTER TABLE public.invoices
   );
 
 -- 3. Zakres dat (D21)
+ALTER TABLE public.invoices DROP CONSTRAINT IF EXISTS invoices_outside_ksef_issue_date_2026;
 ALTER TABLE public.invoices
   ADD CONSTRAINT invoices_outside_ksef_issue_date_2026
   CHECK (

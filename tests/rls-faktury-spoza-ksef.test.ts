@@ -61,14 +61,12 @@ describe.skipIf(!hasDatabase)('00221: faktury spoza KSeF w bazie (D21, D22)', ()
   beforeAll(async () => {
     const { error } = await admin.from('tenants').upsert(
       [
-        { id: ORG, nip: '5260221001', name: 'Firma 00221 A', ksef_verified_environment: 'test' },
-        { id: ORG_B, nip: '5260221002', name: 'Firma 00221 B' },
+        { id: ORG, nip: '5260221001', name: 'Firma 00221 A', ksef_verified_at: '2026-01-01T00:00:00Z', ksef_verified_environment: 'test' },
+        { id: ORG_B, nip: '5260221002', name: 'Firma 00221 B', ksef_verified_at: null, ksef_verified_environment: null },
       ],
       { onConflict: 'id' },
     );
     if (error) throw error;
-    await admin.from('tenants').update({ ksef_verified_environment: 'test' }).eq('id', ORG);
-    await admin.from('tenants').update({ ksef_verified_environment: null }).eq('id', ORG_B);
   }, 60_000);
 
   beforeEach(cleanup);
