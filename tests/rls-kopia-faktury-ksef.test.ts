@@ -459,6 +459,27 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
     expect(await stan(a)).toMatchObject({ is_deductible: true });
   });
 
+  it('00217: decyzja nie łączy przy koszcie z KSeF poza KPiR (not_deductible, bez zmian), a „to osobne dokumenty” działa', async () => {
+    const ksef = await zKsef(ORG);
+    const a = await koszt(ORG, NUMER, '2027-02-05');
+    await koszt(ORG, NUMER, '2027-02-05', { source: 'manual' });
+    expect(await polacz(ORG, ksef)).toBe('candidates');
+    // Klient zgodnie z wyjściem z odmowy wyłącza koszt z KSeF, a potem wybiera kopię.
+    const wylacz = await admin.from('expenses').update({ is_deductible: false }).eq('id', ksef);
+    if (wylacz.error) throw wylacz.error;
+    expect(await decyzja(ksef, a)).toBe('not_deductible');
+    expect(await stan(a)).toMatchObject({ is_deductible: true });
+    expect((await polaczenia()).map((m) => m.status)).toEqual(['candidate', 'candidate']);
+    expect(await decyzja(ksef, null)).toBe('separated');
+    // Po włączeniu kosztu z KSeF łączenie wraca.
+    await cleanup();
+    const ksef2 = await zKsef(ORG);
+    const a2 = await koszt(ORG, NUMER, '2027-02-05');
+    await koszt(ORG, NUMER, '2027-02-05', { source: 'manual' });
+    expect(await polacz(ORG, ksef2)).toBe('candidates');
+    expect(await decyzja(ksef2, a2)).toBe('linked');
+  });
+
   it('decyzja osoby spoza firmy: odmowa 42501, bez zmian', async () => {
     const ksef = await zKsef(ORG);
     await koszt(ORG, NUMER, '2027-02-05');

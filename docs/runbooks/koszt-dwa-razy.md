@@ -37,12 +37,14 @@ dokumencie.
 ## Łączenie kopii z kosztem z KSeF (decyzja D29, 00215)
 
 Za przełącznikiem `KOSZTY_LACZ_KOPIE_KSEF=true` w workerze (domyślnie
-wyłączony). **Nie włączać przed PR z interfejsem** (etykieta „kopia faktury
-z KSeF”, „Rozłącz”, zadanie „Połącz koszty”), bez potwierdzenia Bartosza
-i księgowej i **tylko przy `KSEF_ENV=production`**: do tego czasu zadań nie
-widać, a „Rozłącz” jest tylko ścieżką operatora niżej. Bez przełącznika nic się
-nie łączy i zostaje odmowa opisana wyżej; wyłączenie przełącznika nie cofa
-połączeń, które już są.
+wyłączony). **Włączać dopiero po potwierdzeniu Bartosza i księgowej i tylko
+przy `KSEF_ENV=production`.** Interfejs (PR z interfejsem D29) jest gotowy: na
+stronie kosztu z KSeF zadanie „Połącz koszty” z wyborem kopii i „To osobne
+dokumenty”, przy połączeniu „Rozłącz”; przy kopii informacja z odesłaniem do
+faktury z KSeF i zablokowane „Uwzględnij w KPiR”; w Skrzynce KSeF dopisek
+„Kopia w kosztach: do decyzji”, na liście kosztów dopisek „Kopia faktury
+z KSeF”. Bez przełącznika nic się nie łączy i zostaje odmowa opisana wyżej;
+wyłączenie przełącznika nie cofa połączeń, które już są.
 
 Same nie połączą się (zostaje odmowa i jej wyjście): pary sprzed włączenia
 przełącznika, pary po błędzie łączenia w runnerze zdjęć, kopie wpisane po
@@ -83,16 +85,17 @@ złożone” węziej (tylko eksporty i przyjęta wysyłka). Miesiące późniejs
 sprawdzane (zaliczka PIT narastająco, nadwyżka VAT z poprzedniej deklaracji):
 pytanie do księgowej przed włączeniem.
 
-Decyzja klienta (`decide_ksef_expense_copy`, akcja serwerowa po MFA w PR
-z interfejsem): wybór kopii z zadania łączy ją (tylko w środowisku faktury
+Decyzja klienta (`decide_ksef_expense_copy`, akcja serwerowa po MFA
+`app/actions/kopia-faktury-ksef.ts`): wybór kopii z zadania łączy ją (tylko w środowisku faktury
 kosztu z KSeF), „to osobne koszty” albo „Rozłącz” przywraca kopię do KPiR
 (w każdym środowisku, więc para sprzed zmiany `KSEF_ENV` ma wyjście) i zostaje
 śladem (`dismissed`), więc ponowienie runnera jej nie łączy. Uwaga: odczyt
 okresu nie zna `expense_ksef_copies`, więc odmawia dalej, gdy oba koszty liczą
 się w KPiR: po „to osobne koszty” i „Rozłącz” oraz po wyborze jednej kopii
 (pozostałe kandydatki zostają w KPiR razem z kosztem z KSeF); wyjście
-„Uwzględnij w KPiR” przy kopii, a czy odczyt ma pomijać takie pary, rozstrzyga
-PR z interfejsem. Po „Rozłącz” koszt z KSeF zostaje z kategorią przejętą od
+„Uwzględnij w KPiR” przy kopii albo poprawienie numeru lub daty w kopii (ekran
+mówi tylko o numerze), a czy odczyt ma pomijać takie pary, rozstrzyga sesja decyzji
+(do tego czasu bez zmiany odczytu). Po „Rozłącz” koszt z KSeF zostaje z kategorią przejętą od
 kopii; poprzednia jest w audycie (`ksefCategoryBefore`). Strażnik
 `b_guard_linked_ksef_copy_expense` nie pozwala klientowi wliczyć połączonej
 kopii do KPiR inaczej niż przez „Rozłącz”.
@@ -117,10 +120,12 @@ SELECT m.tenant_id, m.ksef_expense_id, m.copy_expense_id, i.ksef_environment
  WHERE m.status = 'linked' AND i.ksef_environment <> '<nowe środowisko>';
 ```
 
-Rozłączenie przez operatora (przed PR z interfejsem, który doda też skrypt
-w `scripts/ops/`; `<osoba>` to aktywny członek firmy, który zgłosił sprawę,
-i na niego zapisze się decyzja w audycie; `<środowisko>` to `KSEF_ENV`
-aplikacji, a rozłączenie działa przy każdym):
+Klient rozłącza sam („Rozłącz” na stronie kosztu z KSeF). Rozłączenie przez
+operatora tylko w wyjątkach (np. firma bez dostępu do aplikacji); `<osoba>` to
+aktywny członek firmy, który zgłosił sprawę, i na niego zapisze się decyzja
+w audycie; `<środowisko>` to `KSEF_ENV` aplikacji, a rozłączenie działa przy
+każdym. Przy zasadzie „przełącznik tylko przy produkcji” pary z innego
+środowiska nie powstają, więc zbiorczego rozłączania nie przewidujemy:
 
 ```sql
 SET ROLE service_role;

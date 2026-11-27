@@ -597,7 +597,7 @@
         "lib/ocr/**",
         "app/actions/expenses.ts",
         "lib/jobs/runners/{auto-categorize-inbox,process-ocr}.ts",
-        "app/actions/{expense-payments,plik-przelewow,receipt-invoice-match}.ts",
+        "app/actions/{expense-payments,plik-przelewow,receipt-invoice-match,kopia-faktury-ksef}.ts",
         "app/api/uploads/expense/route.ts",
         "app/actions/expense-thread.ts",
         "app/actions/expense-acceptance.ts",
@@ -1054,7 +1054,8 @@
       "sciezki": [
         "supabase/migrations/{00034,00123,00127,00128,00175,00177,00196,00206}_*.sql",
         "supabase/migrations/00212_*.sql",
-        "supabase/migrations/00215_*.sql"
+        "supabase/migrations/00215_*.sql",
+        "supabase/migrations/00217_*.sql"
       ]
     },
     {
