@@ -16,7 +16,10 @@ chroni przed drugim przypomnieniem przy ponowieniu.
 
 | Co | Kiedy | Co się dzieje |
 |---|---|---|
-| Rozliczenia (`BLAD_ODCZYTU_ROZLICZEN`) | każdy termin | ponowienie; po ostatniej próbie przypomnienie tej firmy przepada (bez odczytu zapłat nie wiadomo, co jest zapłacone) |
+| Rozliczenia (`bladOdczytuRozliczen`, D63 z FZ-041, RP-PRZYP-01) | każdy termin | ponowienie; po ostatniej próbie przypomnienie tej firmy przepada (bez odczytu zapłat nie wiadomo, co jest zapłacone), w Sentry `krok: odczyt-ostatnia-proba` |
+| Profil, ewidencja, KPiR bieżącego roku (`bladOdczytu`, D63) | każdy termin | ponowienie; ostatnia próba idzie dalej jak miesiąc bez kwot (przypomnienie bez kwoty, zapłaty są znane), w Sentry `krok: odczyt-ostatnia-proba` |
+| KPiR roku poprzedniego, składka zdrowotna w styczniu (`bladOdczytuPoprzedniego`, D63) | termin ZUS za styczeń | ponowienie; ostatnia próba: zdrowotna bez kwoty i bez zdania po zapłacie, w Sentry `krok: kpir-poprzedni-ostatnia-proba` |
+| „Wyliczone” (`cron.ksiegowosc-miesiac`, D63) | dni uruchomień crona | błąd odczytu (miesiąc, VAT, KPiR poprzedniego roku) to ponowienie; ostatnia próba wysyła bez pozycji z błędem albo pomija, w Sentry `krok: odczyt-ostatnia-proba` |
 | Dane VAT (`BLAD_ODCZYTU_VAT`, D32 z FZ-030) | tylko w dniu przypomnienia o VAT | ponowienie; ostatnia próba idzie dalej jak przy braku: VAT bez oznaczonej zapłaty wychodzi bez kwoty („Bez oznaczonej zapłaty: VAT.”), a VAT oznaczony jako zapłacony nie dostaje przypomnienia (błąd odczytu to nie brak z danych); w Sentry błąd z `krok: vat-ostatnia-proba` |
 
 Błąd odczytu VAT w inny dzień (np. 15. przed terminem ryczałtu i ZUS) niczego

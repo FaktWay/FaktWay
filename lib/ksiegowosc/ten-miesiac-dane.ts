@@ -18,7 +18,7 @@ import { readCompletePages } from '@/lib/accounting/read-complete-pages';
 import { zglosAlarmy } from '@/lib/bezpieczniki/alarm';
 import { sprawdzTenMiesiac } from '@/lib/bezpieczniki/ten-miesiac';
 import { monthRange } from '@/lib/expenses/month';
-import { czytajEwidencje } from '@/lib/ksiegowosc/ewidencja-dane';
+import { czytajEwidencje, KOMUNIKAT_ODCZYT } from '@/lib/ksiegowosc/ewidencja-dane';
 import { czytajKpir } from '@/lib/ksiegowosc/kpir-dane';
 import { czytajWersjeProfilu, type WersjaProfilu } from '@/lib/ksiegowosc/profil';
 import { BLAD_ODCZYTU_VAT, brakNadwyzki, czytajVat, type DaneVat } from '@/lib/ksiegowosc/vat-dane';
@@ -67,8 +67,25 @@ export type DaneMiesiaca =
       rozliczenia: Rozliczenie[];
       /** Zapłaty spoza wyliczenia (K7.2): zapłacone w tym miesiącu i jeszcze bez daty zapłaty. */
       zaplatyReczne: Rozliczenie[];
+      /**
+       * D63 (FZ-030): styczeń, KPiR roku poprzedniego się nie odczytała (baza nie odpowiedziała), więc składka zdrowotna
+       * ma brak. To błąd odczytu, nie brak z danych: crony ponawiają zadanie, a ostatnia próba idzie dalej bez kwoty.
+       */
+      bladOdczytuPoprzedniego?: true;
     }
-  | { ok: false; braki: string[]; rozliczenia: Rozliczenie[]; zaplatyReczne: Rozliczenie[] };
+  | {
+      ok: false;
+      braki: string[];
+      rozliczenia: Rozliczenie[];
+      zaplatyReczne: Rozliczenie[];
+      /** D63 (FZ-030): przyczyną jest błąd odczytu (rozliczenia, profil, ewidencja albo KPiR), nie brak w danych klienta. */
+      bladOdczytu?: true;
+      /**
+       * D63, RP-PRZYP-01: sam odczyt rozliczeń nie odpowiedział (`rozliczenia` puste z błędu, nie z danych), więc nie wiadomo,
+       * co firma zapłaciła. Crony po ostatniej próbie nie wysyłają wtedy zdania „bez oznaczonej zapłaty”.
+       */
+      bladOdczytuRozliczen?: true;
+    };
 
 export const KOLUMNY_ROZLICZENIA =
   'id, okres, rodzaj, wersja, kwota_gr, termin, status, wejscia_hash, zatwierdzone_o, zaplacone_o, spoleczne_bez_fp:migawka->spoleczneBezFpGr, reczna:migawka->reczna';
@@ -198,7 +215,7 @@ export async function czytajTenMiesiac(client: SupabaseClient, tenantId: string,
   const vat = vatMiesiaca(daneVat);
   if (!odczyt.ok) {
     console.error('[ten-miesiac] rozliczenia', odczyt.e instanceof Error ? odczyt.e.message : odczyt.e);
-    return { ok: false, braki: [BLAD_ODCZYTU_ROZLICZEN], rozliczenia: [], zaplatyReczne: [] };
+    return { ok: false, braki: [BLAD_ODCZYTU_ROZLICZEN], rozliczenia: [], zaplatyReczne: [], bladOdczytu: true, bladOdczytuRozliczen: true };
   }
   const tegoMiesiaca = odczyt.r.filter((r) => r.miesiac === miesiac);
   // FZ-036: strony sprzed pierwszego miesiąca (styczeń 2026, `miesiacZParametrow` od 2026 r.) nie ma, więc zapłata
@@ -208,7 +225,7 @@ export async function czytajTenMiesiac(client: SupabaseClient, tenantId: string,
   const zaplatyReczne = odczyt.r.filter((r) => r.reczna && (r.status === 'zatwierdzone' || (r.zaplaconeO !== null && miesiacListy(r.zaplaconeO) === miesiac)));
   if (!wersjeOdczyt.ok) {
     console.error('[ten-miesiac] profil', wersjeOdczyt.e instanceof Error ? wersjeOdczyt.e.message : wersjeOdczyt.e);
-    return { ok: false, braki: [BLAD_ODCZYTU_ROZLICZEN], rozliczenia: tegoMiesiaca, zaplatyReczne };
+    return { ok: false, braki: [BLAD_ODCZYTU_ROZLICZEN], rozliczenia: tegoMiesiaca, zaplatyReczne, bladOdczytu: true };
   }
   const forma = wersjaMiesiaca(wersjeOdczyt.w, miesiac)?.forma ?? 'ryczalt';
   // Skala i liniowy (K7) za obszarem `kpir`; wołający sprawdził już globalny stop i flagę firmy.
@@ -234,7 +251,7 @@ export async function czytajTenMiesiac(client: SupabaseClient, tenantId: string,
   if (d7.size === sekcje.length && !vatNaEkranie) return { ok: false, braki: [...new Set(d7.values())], rozliczenia: tegoMiesiaca, zaplatyReczne };
 
   const ksiegi = await czytajKsiegi(client, tenantId, miesiac, forma, wersjeOdczyt.w);
-  if (!ksiegi.ok) return { ok: false, braki: [ksiegi.komunikat], rozliczenia: tegoMiesiaca, zaplatyReczne };
+  if (!ksiegi.ok) return { ok: false, braki: [ksiegi.komunikat], rozliczenia: tegoMiesiaca, zaplatyReczne, ...(ksiegi.bladOdczytu ? { bladOdczytu: true as const } : {}) };
 
   const platnosci: Platnosc[] = odczyt.r
     .filter((r) => r.status === 'zaplacone' && r.zaplaconeO)
@@ -267,7 +284,15 @@ export async function czytajTenMiesiac(client: SupabaseClient, tenantId: string,
   const podatek = forma === 'ryczalt' ? { ryczalt: wartosci(p?.ryczalt) } : { [forma]: wartosci(p?.[forma]) };
   const parametryWersja = skrot(stabilnyJson({ ...podatek, zus: wartosci(p?.zus), zdrowotna: wartosci(pz?.zdrowotna) })).slice(0, 16);
 
-  return { ok: true, wynik: sprawdzony, pozycje, parametryWersja, rozliczenia: tegoMiesiaca, zaplatyReczne };
+  return {
+    ok: true,
+    wynik: sprawdzony,
+    pozycje,
+    parametryWersja,
+    rozliczenia: tegoMiesiaca,
+    zaplatyReczne,
+    ...(ksiegi.bladOdczytuPoprzedniego ? { bladOdczytuPoprzedniego: true as const } : {}),
+  };
 }
 
 /**
@@ -321,19 +346,23 @@ async function czytajKsiegi(
   miesiac: string,
   forma: WersjaProfilu['forma'],
   wersje: readonly WersjaProfilu[],
-): Promise<{ ok: true; wejscie: Pick<Parameters<typeof tenMiesiac>[0], 'ewidencja' | 'kpir'> } | { ok: false; komunikat: string }> {
+): Promise<
+  | { ok: true; wejscie: Pick<Parameters<typeof tenMiesiac>[0], 'ewidencja' | 'kpir'>; bladOdczytuPoprzedniego?: true }
+  | { ok: false; komunikat: string; bladOdczytu?: true }
+> {
   const rok = Number(miesiac.slice(0, 4));
   if (forma === 'ryczalt') {
     const e = await czytajEwidencje(client, tenantId, rok, { wersje });
-    return e.ok ? { ok: true, wejscie: { ewidencja: e.ewidencja } } : e;
+    return e.ok ? { ok: true, wejscie: { ewidencja: e.ewidencja } } : { ...e, ...(e.komunikat === KOMUNIKAT_ODCZYT ? { bladOdczytu: true as const } : {}) };
   }
   const [biezacy, poprzedni] = await Promise.all([
     czytajKpir(client, tenantId, rok, { wersje }),
     miesiac.endsWith('-01') ? czytajKpir(client, tenantId, rok - 1, { wersje }) : null,
   ]);
-  if (!biezacy.ok) return biezacy;
+  if (!biezacy.ok) return { ...biezacy, ...(biezacy.komunikat === KOMUNIKAT_ODCZYT ? { bladOdczytu: true as const } : {}) };
   return {
     ok: true,
+    ...(poprzedni && !poprzedni.ok && poprzedni.komunikat === KOMUNIKAT_ODCZYT ? { bladOdczytuPoprzedniego: true as const } : {}),
     wejscie: {
       kpir: {
         rok: biezacy.kpir,
