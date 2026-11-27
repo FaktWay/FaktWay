@@ -16,7 +16,10 @@ import { memoryClient, type Row } from './helpers/baza-w-pamieci';
 const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   auth: vi.fn(),
+  sentry: vi.fn(),
 }));
+
+vi.mock('@sentry/nextjs', () => ({ captureException: mocks.sentry }));
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
@@ -67,6 +70,12 @@ function baza(copies: Row[], expenses: ExpenseRow[] = [KSEF, KOPIA_A, KOPIA_B]) 
 
 const k = (copy: string, status: string, ksef = KSEF_ID): Row => ({ tenant_id: TENANT, ksef_expense_id: ksef, copy_expense_id: copy, status });
 
+async function ekranZ(expense: ExpenseRow, copies: Row[], expenses: ExpenseRow[], audit: Row[] = []) {
+  const db = memoryClient({ expenses: expenses as unknown as Row[], expense_ksef_copies: copies, audit_logs: audit });
+  const ksefCopy = await loadKsefCopyView(db, TENANT, expense.id);
+  return renderToStaticMarkup(<ExpenseEditForm expense={expense} photoUrl={null} ksefCurrency="PLN" ksefCopy={ksefCopy} />);
+}
+
 async function ekran(expense: ExpenseRow, copies: Row[]) {
   const ksefCopy = await loadKsefCopyView(baza(copies), TENANT, expense.id);
   return renderToStaticMarkup(<ExpenseEditForm expense={expense} photoUrl={null} ksefCurrency="PLN" ksefCopy={ksefCopy} />);
@@ -80,7 +89,7 @@ describe('strona kosztu: kopia faktury z KSeF (D29)', () => {
     expect(markup).toContain('Wpis ręczny FV/7/02/2027 z 06.02.2027, 123,00 zł');
     expect(markup.match(/Połącz koszty/g)).toHaveLength(2);
     expect(markup).toContain('To osobne dokumenty');
-    expect(markup).toContain('dopóki przy jednym z kosztów nie wyłączy się');
+    expect(markup).toContain('okres dalej się nie liczy, dopóki przy kopii nie wyłączy się');
   });
 
   it('połączona kopia przy koszcie z KSeF: informacja i „Rozłącz”, bez wyboru', async () => {
@@ -89,7 +98,13 @@ describe('strona kosztu: kopia faktury z KSeF (D29)', () => {
     expect(markup).toContain('>Rozłącz<');
     expect(markup).not.toContain('Połącz koszty');
     expect(markup).toContain(`href="/expenses/${COPY_A}"`);
-    expect(markup).not.toContain(`href="/expenses/${COPY_B}"`);
+    // Druga kopia z zadania dalej liczy się w KPiR: ekran ją wskazuje (przy tym samym numerze okres się nie liczy).
+    expect(markup).toContain('Pozostała kopia z zadania została w KPiR');
+    expect(markup).toContain(`href="/expenses/${COPY_B}"`);
+    // Druga kopia wyłączona z KPiR: nic do dopowiedzenia.
+    const bez = await ekranZ(KSEF, [k(COPY_A, 'linked'), k(COPY_B, 'dismissed')], [KSEF, KOPIA_A, { ...KOPIA_B, is_deductible: false }]);
+    expect(bez).not.toContain('Pozostała kopia');
+    expect(bez).not.toContain(`href="/expenses/${COPY_B}"`);
   });
 
   it('połączona kopia: informacja z odesłaniem do faktury z KSeF, „Uwzględnij w KPiR” zablokowane, bez przycisków decyzji', async () => {
@@ -158,6 +173,7 @@ describe('decideKsefCopyAction: decyzja klienta', () => {
     vi.stubEnv('KSEF_ENV', 'test');
     mocks.rpc.mockReset();
     mocks.auth.mockReset();
+    mocks.sentry.mockReset();
     mocks.auth.mockResolvedValue({ user: { id: USER }, tenantId: TENANT });
   });
   afterEach(() => vi.unstubAllEnvs());
@@ -178,9 +194,13 @@ describe('decideKsefCopyAction: decyzja klienta', () => {
 
   it('nieaktualne dane, błąd bazy, złe identyfikatory, brak sesji i brak środowiska KSeF: odmowa z treścią', async () => {
     mocks.rpc.mockResolvedValue({ data: 'stale', error: null });
-    expect(await decideKsefCopyAction(KSEF_ID, COPY_A)).toEqual({ success: false, error: 'Koszty zmieniły się w międzyczasie. Odśwież stronę.' });
+    expect(await decideKsefCopyAction(KSEF_ID, COPY_A)).toEqual({
+      success: false,
+      error: 'Koszty zmieniły się w międzyczasie, więc decyzja nie została zapisana. Po odświeżeniu strony widać aktualny stan.',
+    });
     mocks.rpc.mockResolvedValue({ data: null, error: { message: 'boom' } });
-    expect(await decideKsefCopyAction(KSEF_ID, null)).toMatchObject({ success: false, error: 'Nie udało się zapisać decyzji. Spróbuj ponownie za chwilę.' });
+    expect(await decideKsefCopyAction(KSEF_ID, null)).toMatchObject({ success: false, error: 'Nie udało się zapisać decyzji. Zapis można ponowić za chwilę.' });
+    expect(mocks.sentry).toHaveBeenCalledTimes(1);
     expect(await decideKsefCopyAction('zly', null)).toMatchObject({ success: false, error: 'Nieprawidłowe dane kosztów' });
     mocks.auth.mockRejectedValue(new Error('brak sesji'));
     expect(await decideKsefCopyAction(KSEF_ID, null)).toMatchObject({ success: false, error: 'Brak autoryzacji' });
@@ -189,5 +209,65 @@ describe('decideKsefCopyAction: decyzja klienta', () => {
     mocks.rpc.mockClear();
     expect(await decideKsefCopyAction(KSEF_ID, null)).toMatchObject({ success: false });
     expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('kopia faktury z KSeF: przypadki z przeglądu (A do E)', () => {
+  const luty = wydatek(KSEF_ID, { source: 'ksef_inbox', ksef_invoice_id: 'inv-1', issue_date: '2027-02-05' });
+  const styczen = wydatek(COPY_A, { issue_date: '2027-01-31' });
+  const audyt = (reason: string, months: string[]): Row[] => [
+    { tenant_id: TENANT, action: 'expense.ksef_copy_candidates', entity_id: KSEF_ID, created_at: '2027-02-06T10:00:00Z', metadata: { reason, months } },
+  ];
+
+  it('A: koszt z KSeF poza KPiR: bez „Połącz koszty”, z wyjaśnieniem; „To osobne dokumenty” zostaje', async () => {
+    const markup = await ekranZ({ ...luty, is_deductible: false }, [k(COPY_A, 'candidate')], [{ ...luty, is_deductible: false }, KOPIA_A]);
+    expect(markup).toContain('wyłączony z KPiR, więc liczy się kopia');
+    expect(markup).toContain('najpierw włącza się przy niej „Uwzględnij w KPiR”');
+    expect(markup).not.toContain('Połącz koszty');
+    expect(markup).toContain('To osobne dokumenty');
+    // Po połączeniu i wyłączeniu kosztu z KSeF: ostrzeżenie, że dokument nie wchodzi ani do KPiR, ani do VAT.
+    const polaczone = await ekranZ({ ...luty, is_deductible: false }, [k(COPY_A, 'linked')], [{ ...luty, is_deductible: false }, { ...KOPIA_A, is_deductible: false }]);
+    expect(polaczone).toContain('nie wchodzi teraz ani do KPiR, ani do VAT');
+  });
+
+  it('B: kopia z innego miesiąca: tekst mówi, że oba koszty liczą się teraz, a przy tym samym miesiącu o odmowie okresu', async () => {
+    const inny = await ekranZ(luty, [k(COPY_A, 'candidate')], [luty, styczen]);
+    expect(inny).toContain('z innego miesiąca');
+    expect(inny).toContain('każdy w swoim miesiącu');
+    expect(inny).not.toContain('się nie liczą, żeby nie wpisać');
+    const ten = await ekranZ(luty, [k(COPY_A, 'candidate')], [luty, KOPIA_A]);
+    expect(ten).toContain('się nie liczą, żeby nie wpisać kosztu ani VAT podwójnie');
+    expect(ten).not.toContain('każdy w swoim miesiącu');
+    // Ta sama różnica widoczna z kopii.
+    const kopia = await ekranZ(styczen, [k(COPY_A, 'candidate')], [luty, styczen]);
+    expect(kopia).toContain('z innego miesiąca');
+    expect(kopia).toContain('dwa razy');
+  });
+
+  it('C: przyczyna zadania z audytu: złożony miesiąc z nazwą i kwota brutto; bez audytu brak przyczyny', async () => {
+    const zlozony = await ekranZ(luty, [k(COPY_A, 'candidate')], [luty, KOPIA_A], audyt('filed_period', ['2027-02']));
+    expect(zlozony).toContain('jest już złożony');
+    expect(zlozony).toContain('Połączenie zmieni koszty i VAT złożonego okresu');
+    const kwota = await ekranZ(luty, [k(COPY_A, 'candidate')], [luty, KOPIA_A], audyt('amount_differs', []));
+    expect(kwota).toContain('kwota brutto kopii jest inna niż na fakturze z KSeF');
+    expect(await ekranZ(luty, [k(COPY_A, 'candidate')], [luty, KOPIA_A])).not.toContain('nie połączyły się same');
+  });
+
+  it('D: przy kilku złożonych miesiącach nazwy wszystkich, a po połączeniu przyczyny już nie ma', async () => {
+    const dwa = await ekranZ(luty, [k(COPY_A, 'candidate')], [luty, styczen], audyt('filed_period', ['2027-01', '2027-02']));
+    expect(dwa).toContain('jeden z miesięcy (');
+    const polaczone = await ekranZ(luty, [k(COPY_A, 'linked')], [luty, styczen], audyt('filed_period', ['2027-02']));
+    expect(polaczone).not.toContain('nie połączyły się same');
+  });
+
+  it('E: koszt z KSeF poza KPiR: akcja zwraca odmowę z treścią i niczego nie odświeża', async () => {
+    mocks.auth.mockResolvedValue({ user: { id: USER }, tenantId: TENANT });
+    vi.stubEnv('KSEF_ENV', 'test');
+    mocks.rpc.mockResolvedValue({ data: 'not_deductible', error: null });
+    expect(await decideKsefCopyAction(KSEF_ID, COPY_A)).toEqual({
+      success: false,
+      error: 'Koszt z KSeF jest wyłączony z KPiR, więc połączenie wyjęłoby z KPiR oba koszty. Decyzja nie została zapisana.',
+    });
+    vi.unstubAllEnvs();
   });
 });
