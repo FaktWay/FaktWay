@@ -319,12 +319,15 @@ export function InvoiceDetailView({ initial }: { initial: InvoiceDetailInitial }
                 'last_error_code' in row
                   ? row.last_error_code as string | null
                   : prev.last_error_code,
+              // Nowy stan wiersza zastępuje pole także wartością null (inaczej zostaje stara podpowiedź).
               last_error_field:
-                (row.last_error_field as string | null | undefined) ??
-                prev.last_error_field,
+                'last_error_field' in row
+                  ? (row.last_error_field as string | null)
+                  : prev.last_error_field,
               last_error_suggestion:
-                (row.last_error_suggestion as string | null | undefined) ??
-                prev.last_error_suggestion,
+                'last_error_suggestion' in row
+                  ? (row.last_error_suggestion as string | null)
+                  : prev.last_error_suggestion,
             };
           });
         },
