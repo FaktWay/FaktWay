@@ -681,6 +681,7 @@ function jpkLines(lines: EnvelopeLine[], amounts: ReadonlyArray<{ netAmount: num
     unit: line.unit,
     quantity: line.quantity,
     unitPriceNet: line.unitPriceNet,
+    ...(line.unitPriceGross !== undefined ? { unitPriceGross: line.unitPriceGross } : {}),
     netAmount: amounts[i]!.netAmount,
     vatRate: line.vatRate,
     vatAmount: amounts[i]!.vatAmount,

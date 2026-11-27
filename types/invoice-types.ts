@@ -165,6 +165,14 @@ export interface CorrectionInvoiceData extends InvoiceCommonFields {
   correctionType: CorrectionType;
   correctionReason: string; // wymagane! np. "Błąd w nazwie nabywcy", "Zwrot towaru"
 
+  /**
+   * Faktura korygowana jest w cenach brutto (plan cen brutto, krok (e) cz. 2,
+   * decyzja D6): wiersze pliku mają `P_9B` i `P_11A`, stan po liczy się od sum
+   * brutto stawek. Nadaje je tylko serwer korekty (`normalizePayload`), za
+   * wyłącznikiem `grossPricesEnabled`; z żądania się nie liczy.
+   */
+  pricesGross?: true;
+
   /** FA(3) `TypKorekty`: 1 / 2 / 3 (domyślnie „2”). */
   typKorekty?: '1' | '2' | '3';
 
@@ -199,6 +207,12 @@ export interface CorrectionInvoiceData extends InvoiceCommonFields {
      * bo z samych kwot (VAT 0) nie da się jej odróżnić od 0%.
      */
     vatRate?: ZeroVatAmountChangeRate;
+    /**
+     * Stawka korekty kwotowej faktury w cenach brutto (D6): ustala ją serwer
+     * ze stanu faktury i kwoty brutto, bo z samych kwot bywa niejednoznaczna.
+     * Z żądania się nie liczy.
+     */
+    grossRate?: '23' | '8' | '5' | '0';
   };
 }
 

@@ -237,6 +237,8 @@ export interface JpkInvoiceLine {
   unit: string;
   quantity: number;
   unitPriceNet: number;
+  /** Cena brutto pozycji stanu korekty faktury w cenach brutto (D6): parowanie pozycji zmienionych (`correctionLinePairs`). */
+  unitPriceGross?: number;
   netAmount: number;
   vatRate: string; // '23', '8', '5', '0', 'zw', 'oo', 'np', 'np_ii'
   /** VAT pozycji z faktury — P_14_x musi się zgadzać z fakturą co do grosza. */

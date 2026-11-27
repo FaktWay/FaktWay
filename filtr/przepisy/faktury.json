@@ -318,6 +318,77 @@
       "uwagi": "Kształt FA(3) faktury za abonament (P_9A i P_11 przy VAT od brutto) czeka na księgową (wiersz #760 dziennika planu); korekta zachowuje ten sam kształt (P_9A cena netto z faktury, P_11 netto z brutto)."
     },
     {
+      "id": "RP-FA-KOR-03",
+      "regula": "Korekta faktury w cenach brutto liczy się tą samą metodą co faktura: stan przed z zapisu pozycji, stan po z cenami brutto (P_9B, P_11A), podatek każdej stawki, której korekta dotyka, ze wzoru od sumy brutto stawki po korekcie, KP = WB × SP / (100 + SP), a różnica po stawkach to stan po minus stan przed. Korekta kwotowa: nowa suma brutto stawki (zapis plus zmiana brutto), podatek od niej ze wzoru, różnica wobec zapisu; nie podatek od samej różnicy brutto. Stawka bez zmian zostaje z zapisu.",
+      "podstawa": [
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106j ust. 2 pkt 5 (kwota korekty podstawy opodatkowania i podatku z podziałem na stawki)"
+        },
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 106e ust. 7, 8 i 11 (faktura w cenach brutto: podatek od sumy brutto stawki, cena i wartość brutto, zaokrąglenie do grosza)"
+        },
+        {
+          "akt": "schemat FA(3) Ministerstwa Finansów (lib/xml/schemas/fa3/schemat.xsd)",
+          "przepis": "FaWiersz: P_9B i P_11A; opis pól P_13_1 i P_14_1 faktury korygującej (kwota różnicy)"
+        }
+      ],
+      "obowiazuje": {
+        "od": "2026-01-01",
+        "do": null
+      },
+      "obszary": [
+        "faktury.korekty",
+        "faktury.kwoty",
+        "faktury.fa3"
+      ],
+      "kod": [
+        "lib/invoices/calculator.ts#correctionStateAmounts",
+        "lib/invoices/issue-correction.ts#saveCorrectionDraft",
+        "lib/invoices/issue-correction.ts#getCorrectionParentContext",
+        "lib/ksef/fa3-correction-generator.ts#generateCorrectionInvoiceXml",
+        "lib/xml/invoice-calculator.ts#grossPricedLines",
+        "lib/xml/invoice-calculator.ts#vatFromGrossGrosze"
+      ],
+      "testy": [
+        "tests/unit/korekta-ceny-brutto.test.ts > „przed / po”: Kawa 3 z 1,00 na 1,08 zł",
+        "tests/unit/korekta-ceny-brutto.test.ts > „przed / po” z pozycją dopisaną i usuniętą w dwóch stawkach",
+        "tests/unit/korekta-ceny-brutto.test.ts > anulowanie: wiersze z ceną brutto",
+        "tests/unit/korekta-ceny-brutto.test.ts > korekta kwotowa: nowa suma brutto stawki",
+        "tests/unit/korekta-ceny-brutto.test.ts > korekta kwotowa z VAT od samej różnicy brutto: odmowa",
+        "tests/unit/korekta-ceny-brutto.test.ts > niezmiennik D6: faktura plus korekta",
+        "tests/unit/korekta-ceny-brutto.test.ts > faktura z importu z VAT stawki innym niż wzór",
+        "tests/unit/korekta-ceny-brutto.test.ts > wyłącznik cen brutto wyłączony",
+        "tests/unit/korekta-ceny-brutto-odmowa.test.ts > korekta faktury w cenach brutto: odmowa z nazwą przyczyny i wyjściem"
+      ],
+      "parametry": [],
+      "niezmienniki": [],
+      "pewnosc": "srednia",
+      "wzorzec": {
+        "poziom": 5,
+        "opis": "decyzja D6 z 25.11.2026 (docs/koordynacja/DECYZJE-2026-11-25.md): brak urzędowego przykładu korekty faktury w cenach brutto (poziom 4) i podpisu księgowej (poziom 3); metoda ta sama co RP-FA-BRUTTO-01 i RP-FA-KOR-02 (faktura za abonament), art. 106j ust. 2 pkt 5; do potwierdzenia przez księgową przed włączeniem u klientów",
+        "sprawdzono": "2026-11-27"
+      },
+      "interpretacja": "Korekta ma ten sam wyłącznik co faktura (grossPricesEnabled): przy wyłączonym zostaje odmowa z wyjściem z #888. Stan przed to pozycje z zapisu (recordedAmounts) z ceną brutto z dokumentu (documentGrossPrices: pricesGross i lines albo P_9B z importu); każda pozycja musi mieć cenę brutto i stawkę z podatkiem, inaczej odmowa. Stan po liczy correctionStateAmounts: w stawce, której korekta dotyka (pozycja zmieniona, dopisana albo usunięta), grossPricedLines od wszystkich pozycji „po” stawki, więc podatek stawki to wzór od sumy brutto; stawka bez zmian ma kwoty z zapisu (faktura z importu z VAT innym niż wzór nie dostaje różnicy tam, gdzie nic nie korygowano). P_13_x i P_14_x to różnica stanów (differenceSummaries), P_15 różnica brutto. Wiersze pliku: P_9B i P_11A zamiast P_9A i P_11; korekta kwotowa ma wiersz z różnicą brutto. Korekta kwotowa: stawkę wyznacza serwer wśród stawek faktury z kwot (zmiana brutto, VAT = wzór od nowej sumy brutto stawki minus VAT z zapisu, netto = brutto minus VAT); inne kwoty od klienta to odmowa z kwotami, które przejdą. Po korekcie kwotowej faktury w cenach brutto kolejna kwotowa odmawia (stan stawek po niej nie jest jednoznaczny). Znacznik pricesGross i stawkę korekty nadaje tylko serwer. Formularz korekty pozycji („przed / po”) ma dziś pola tylko z ceną netto, więc nie jest dostępny dla faktury w cenach brutto (anulowanie i korekta kwotowa działają).",
+      "do_rozstrzygniecia": {
+        "kto": "księgowa",
+        "pytanie": "Korekta faktury w cenach brutto: czy podatek stanu po liczyć ze wzoru od sumy brutto każdej stawki po korekcie, a różnicę wykazać jako stan po minus stan przed (tak robi kod, decyzja D6), czy od samej różnicy brutto? Czy wiersze korekty mają P_9B i P_11A, czy także P_9A i P_11? Ta sama odpowiedź co przy RP-FA-BRUTTO-01.",
+        "przypadki": [
+          "faktura w cenach brutto, trzy pozycje po 1,00 zł przy 23 % (VAT stawki 0,56), jedna cena na 1,08 zł: stan po WB 3,08, KP 0,58, różnica VAT 0,02, netto 0,06, brutto 0,08 (a nie 0,01 VAT od samej różnicy 0,08)",
+          "korekta kwotowa tej faktury o brutto +0,08 zł: VAT +0,02 zł, netto +0,06 zł"
+        ]
+      },
+      "sprawdzil": {
+        "ksiegowa": null,
+        "prawnik": null
+      },
+      "odczyt": "2026-11-27",
+      "zrodlo_planu": "PLAN-KOMPLETNA-APLIKACJA, ceny brutto (e) część 2, decyzja D6",
+      "stan": "dziala",
+      "uwagi": "Za wyłącznikiem grossPricesEnabled (domyślnie wyłączony), pewność średnia: włączenie u klientów po potwierdzeniu przez księgową. JPK_V7M i JPK_FA korygują stany z koperty tą samą funkcją (correctionStateAmounts), bez osobnego testu JPK dla korekty faktury w cenach brutto: do sprawdzenia przy włączaniu. Telefon (mobile/) nie wysyła znacznika pricesGross, więc korekta kwotowa faktury w cenach brutto z telefonu odmawia ogólnym komunikatem o kwotach: osobne ustalenie."
+    },
+    {
       "id": "RP-FA-BRUTTO-01",
       "regula": "Faktura w cenach brutto: kwota podatku każdej stawki od sumy wartości sprzedaży brutto stawki, KP = WB × SP / (100 + SP), do grosza; suma wartości netto stawki = WB − KP; pozycje mają cenę jednostkową brutto i wartość sprzedaży brutto zamiast ceny i wartości netto (FA(3): P_9B i P_11A zamiast P_9A i P_11); P_13_x i P_14_x to sumy stawek, P_15 suma wartości brutto.",
       "podstawa": [

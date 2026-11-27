@@ -244,6 +244,8 @@ function correctionDataFromForm(v: CorrectionFormParsed): CorrectionInvoiceData 
     linesBefore: v.linesBefore,
     linesAfter: v.linesAfter,
     amountChange: v.amountChange,
+    // Faktura w cenach brutto (D6): znacznik z kontekstu; serwer sprawdza go sam i przy zapisie nadaje własny.
+    ...(v.pricesGross ? { pricesGross: true as const } : {}),
   };
 }
 
@@ -292,6 +294,7 @@ function buildDefaultCorrectionFormValues(
     // Stawka np / np. II / oo nie wynika z kwot (VAT 0 to także „0 KR”) —
     // korekta kwotowa bierze ją z pozycji faktury pierwotnej.
     amountChange: emptyAmountChange(zeroVatRateFromParentLines(ctx.linesBefore)),
+    ...(ctx.pricesGross ? { pricesGross: true as const } : {}),
   };
 }
 
