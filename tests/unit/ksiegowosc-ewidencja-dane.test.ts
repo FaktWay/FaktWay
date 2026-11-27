@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it, vi } from 'vitest';
 
-import { czytajEwidencje, KOMUNIKAT_ODCZYT, KOMUNIKAT_SRODOWISKO, kontrahentJpk, rodzajFaktury } from '@/lib/ksiegowosc/ewidencja-dane';
+import { czytajEwidencje, czytajFakturyRoku, KOMUNIKAT_ODCZYT, KOMUNIKAT_SRODOWISKO, kontrahentJpk, rodzajFaktury } from '@/lib/ksiegowosc/ewidencja-dane';
 import { kwotaNaGrosze, wpisSchema } from '@/lib/ksiegowosc/wpisy-reczne';
 
 /**
@@ -15,6 +15,8 @@ type Wywolanie = { tabela: string; metoda: string; args: unknown[] };
 
 interface Dane {
   faktury?: Record<string, unknown>[];
+  /** Faktury poza rokiem, czytane tylko po `in('id', …)` (faktury pierwotne korekt, D35). */
+  rodzice?: Record<string, unknown>[];
   pozycje?: Record<string, unknown>[];
   wersje?: Record<string, unknown>[];
   wpisy?: Record<string, unknown>[] | 'brak_tabeli';
@@ -25,11 +27,15 @@ interface Dane {
 function atrapa(dane: Dane) {
   const wywolania: Wywolanie[] = [];
   const from = (tabela: string) => {
-    const stan = { head: false, tylkoZeStawka: false, ids: null as string[] | null };
+    const stan = { head: false, tylkoZeStawka: false, ids: null as string[] | null, idsFaktur: null as string[] | null };
     const wynik = () => {
       if (tabela === 'invoices' && stan.head) return { count: dane.niepelneSrodowisko ?? 0, error: null };
       if (tabela === 'invoices') {
         if (dane.bladFaktur) return { data: null, count: null, error: { message: 'timeout' } };
+        if (stan.idsFaktur) {
+          const r = [...(dane.faktury ?? []), ...(dane.rodzice ?? [])].filter((x) => stan.idsFaktur!.includes(x.id as string));
+          return { data: r, count: r.length, error: null };
+        }
         const f = dane.faktury ?? [];
         return { data: f, count: f.length, error: null };
       }
@@ -57,6 +63,7 @@ function atrapa(dane: Dane) {
             if (prop === 'select' && (args[1] as { head?: boolean } | undefined)?.head) stan.head = true;
             if (prop === 'not') stan.tylkoZeStawka = true;
             if (prop === 'in' && args[0] === 'invoice_id') stan.ids = args[1] as string[];
+            if (prop === 'in' && args[0] === 'id' && tabela === 'invoices') stan.idsFaktur = args[1] as string[];
             return lancuch;
           };
         },
@@ -185,5 +192,86 @@ describe('wpis ręczny: kwota i schemat', () => {
     expect(ok.success && ok.data).toMatchObject({ dokument: 'DW/1', kwota: 1000, stawkaPb: 1250, opis: null });
     expect(wpisSchema.safeParse({ rodzaj: 'inny', dataPrzychodu: '2026-02-01', dokument: 'DW/1', kwota: '10', stawkaPb: 2300, opis: null }).success).toBe(false);
     expect(wpisSchema.safeParse({ rodzaj: 'inny', dataPrzychodu: '2025-12-31', dokument: 'DW/1', kwota: '10', stawkaPb: 300, opis: null }).success).toBe(false);
+  });
+});
+
+/**
+ * D35 (RP-KOR-01): korekta z błędu rachunkowego wchodzi w okres faktury
+ * pierwotnej. Prawdziwa ścieżka odczytu (`czytajFakturyRoku` i ewidencja) na
+ * atrapie bazy; faktury pierwotne czytane po `parent_invoice_id`.
+ */
+describe('korekta z błędu rachunkowego: okres faktury pierwotnej', () => {
+  const pierwotna = (z: Record<string, unknown> = {}) => faktura({ id: 'p1', internal_number: 'FV/2/2026', issue_date: '2026-03-12', sale_date: '2026-03-10', ...z });
+  const korekta = (z: Record<string, unknown> = {}) =>
+    faktura({
+      id: 'k1', internal_number: 'KOR/1/2026', issue_date: '2026-05-04', sale_date: null, net_total: -200, invoice_kind: 'correction', invoice_type: 'KOR',
+      correction_cause: 'blad_rachunkowy', parent_invoice_id: 'p1', ...z,
+    });
+
+  it('korekta wchodzi w dzień przychodu faktury pierwotnej, a pierwotna jest czytana po id w obrębie firmy', async () => {
+    const { client, wywolania } = atrapa({ faktury: [korekta()], rodzice: [pierwotna()], wersje: [PROFIL] });
+    const wynik = await czytajEwidencje(client, 'firma-1', 2026, { kurs: vi.fn() });
+    if (!wynik.ok) throw new Error(wynik.komunikat);
+    expect(wynik.ewidencja.wiersze.map((w) => [w.dowod, w.dataPrzychodu, w.kwotaGr])).toEqual([['KOR/1/2026', '2026-03-10', -200_00]]);
+    expect(wynik.ewidencja.wiersze[0].uwagi).toContain('sprawdź, czy trzeba poprawić rozliczenie');
+    const odczytPierwotnej = wywolania.filter((w) => w.tabela === 'invoices' && (w.metoda === 'in' || (w.metoda === 'eq' && w.args[0] === 'tenant_id')));
+    expect(odczytPierwotnej.some((w) => w.metoda === 'in' && w.args[0] === 'id' && (w.args[1] as string[]).includes('p1'))).toBe(true);
+  });
+
+  it('korekta korekty: idzie po łańcuchu do pierwszej faktury, która nie jest korektą', async () => {
+    const { client } = atrapa({
+      faktury: [korekta({ id: 'k2', internal_number: 'KOR/2/2026', parent_invoice_id: 'k0' })],
+      rodzice: [korekta({ id: 'k0', internal_number: 'KOR/0/2026', correction_cause: null, parent_invoice_id: 'p1' }), pierwotna()],
+      wersje: [PROFIL],
+    });
+    const wynik = await czytajEwidencje(client, 'firma-1', 2026, { kurs: vi.fn() });
+    if (!wynik.ok) throw new Error(wynik.komunikat);
+    expect(wynik.ewidencja.wiersze.map((w) => [w.dowod, w.dataPrzychodu])).toEqual([['KOR/2/2026', '2026-03-10']]);
+  });
+
+  it('łańcuch dłuższy niż limit albo brak faktury pierwotnej: komunikat z numerem korekty i drogą do Pomocy, nie ogólny błąd', async () => {
+    const lancuch = Array.from({ length: 8 }, (_, i) => korekta({ id: `c${i}`, internal_number: `KOR/C${i}`, correction_cause: null, parent_invoice_id: i === 7 ? 'p1' : `c${i + 1}` }));
+    const dlugi = atrapa({ faktury: [korekta({ parent_invoice_id: 'c0' })], rodzice: [...lancuch, pierwotna()], wersje: [PROFIL] });
+    const brak = atrapa({ faktury: [korekta()], rodzice: [], wersje: [PROFIL] });
+    for (const { client } of [dlugi, brak]) {
+      const wynik = await czytajFakturyRoku(client, 'firma-1', 2026, { kurs: vi.fn() });
+      expect(wynik.ok).toBe(false);
+      if (wynik.ok) return;
+      expect(wynik.komunikat).not.toBe(KOMUNIKAT_ODCZYT);
+      expect(wynik.komunikat).toContain('KOR/1/2026');
+      expect(wynik.komunikat).toContain('Pomocy');
+      expect(wynik.komunikat).toContain('Nie pokazujemy niepełnych kwot');
+    }
+  });
+
+  it('korekta wystawiona po końcu roku trafia do roku faktury pierwotnej', async () => {
+    const { client } = atrapa({
+      faktury: [korekta({ issue_date: '2027-02-10' })],
+      rodzice: [pierwotna({ issue_date: '2026-12-22', sale_date: '2026-12-20' })],
+      wersje: [PROFIL],
+    });
+    const wynik = await czytajEwidencje(client, 'firma-1', 2026, { kurs: vi.fn() });
+    if (!wynik.ok) throw new Error(wynik.komunikat);
+    expect(wynik.ewidencja.wiersze.map((w) => [w.dowod, w.dataPrzychodu])).toEqual([['KOR/1/2026', '2026-12-20']]);
+  });
+
+  it('waluta obca: kurs NBP z dnia przychodu faktury pierwotnej, nie z dnia wystawienia korekty', async () => {
+    const kurs = vi.fn().mockResolvedValue({ found: true, gapDays: 1, rate: { currency: 'EUR', mid: 4.25, tableNo: '048/A/NBP/2026', effectiveDate: '2026-03-09' } });
+    const { client } = atrapa({ faktury: [korekta({ currency: 'EUR', net_total: -100 })], rodzice: [pierwotna({ currency: 'EUR' })], wersje: [PROFIL] });
+    const wynik = await czytajEwidencje(client, 'firma-1', 2026, { kurs });
+    if (!wynik.ok) throw new Error(wynik.komunikat);
+    expect(kurs).toHaveBeenCalledTimes(1);
+    expect(kurs).toHaveBeenCalledWith('EUR', '2026-03-10');
+    expect(wynik.ewidencja.wiersze.map((w) => [w.dataPrzychodu, w.kwotaGr])).toEqual([['2026-03-10', -425_00]]);
+  });
+
+  it('inna przyczyna albo brak przyczyny: dzień wystawienia korekty i zero odczytów faktury pierwotnej', async () => {
+    for (const przyczyna of ['nowa_okolicznosc', 'blad_w_dniu_sprzedazy', null]) {
+      const { client, wywolania } = atrapa({ faktury: [korekta({ correction_cause: przyczyna })], rodzice: [pierwotna()], wersje: [PROFIL] });
+      const wynik = await czytajEwidencje(client, 'firma-1', 2026, { kurs: vi.fn() });
+      if (!wynik.ok) throw new Error(wynik.komunikat);
+      expect(wynik.ewidencja.wiersze.map((w) => [w.dataPrzychodu, w.uwagi])).toEqual([['2026-05-04', 'Korekta (różnica)']]);
+      expect(wywolania.some((w) => w.tabela === 'invoices' && w.metoda === 'in')).toBe(false);
+    }
   });
 });

@@ -200,7 +200,6 @@ export interface CorrectionInvoiceFormProps {
   numbering?: InvoiceNumbering | null;
 }
 
-// Daty w czasie polskim, nie UTC (F-013).
 // D35: przyczyna korekty ustala okres w VAT, PIT i ryczałcie.
 const PRZYCZYNA_KOREKTY_ITEMS = [
   { value: 'blad_rachunkowy', label: 'Błąd rachunkowy albo oczywista omyłka' },
@@ -208,6 +207,7 @@ const PRZYCZYNA_KOREKTY_ITEMS = [
   { value: 'nowa_okolicznosc', label: 'Nowa okoliczność po sprzedaży (rabat, zwrot, zmiana ceny)' },
 ]
 
+// Daty w czasie polskim, nie UTC (F-013).
 const TYPOLOGY_KOREKTY_ITEMS = (
   Object.entries(TYPOLOGY_KOREKTY_LABELS) as [CorrectionFormParsed['typKorekty'], string][]
 ).map(([value, label]) => ({ value, label }))
@@ -726,8 +726,8 @@ function CorrectionFillForm({ parentRow, defaults, onPickOther, tenantId, number
     form.handleSubmit(
       async (data) => {
         if (!data.correctionCause) {
-          form.setError('correctionCause', { message: 'Wybierz przyczynę korekty: od niej zależy, w którym okresie rozliczysz korektę.' });
-          toast.error('Wybierz przyczynę korekty')
+          form.setError('correctionCause', { message: 'Wybierz, czego dotyczy korekta: od tego zależy, w którym okresie rozliczysz korektę.' });
+          toast.error('Wybierz, czego dotyczy korekta')
           return
         }
         startSending(async () => {
@@ -893,7 +893,7 @@ function CorrectionFillForm({ parentRow, defaults, onPickOther, tenantId, number
         </div>
 
         <div>
-          <Label htmlFor="kor-przyczyna-rodzaj" className={labelClass}>Rodzaj przyczyny (obowiązkowe przy wysyłce)</Label>
+          <Label htmlFor="kor-przyczyna-rodzaj" className={labelClass}>Czego dotyczy korekta (obowiązkowe przy wysyłce)</Label>
           <Select
             value={correctionCause ?? ''}
             items={PRZYCZYNA_KOREKTY_ITEMS}
@@ -908,7 +908,7 @@ function CorrectionFillForm({ parentRow, defaults, onPickOther, tenantId, number
               aria-invalid={form.formState.errors.correctionCause ? true : undefined}
               aria-describedby="kor-przyczyna-rodzaj-opis"
             >
-              <SelectValue placeholder="Wybierz przyczynę" />
+              <SelectValue placeholder="Wybierz, czego dotyczy" />
             </SelectTrigger>
             <SelectContent>
               {PRZYCZYNA_KOREKTY_ITEMS.map((o) => (

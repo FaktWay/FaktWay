@@ -37,6 +37,10 @@ export const STAWKI_JPK_EWP_PB = [1700, 1500, 1400, 1250, 1200, 1000, 850, 550, 
 /** D35: przyczyna korekty (kolumna `invoices.correction_cause`). */
 export type PrzyczynaKorekty = 'blad_rachunkowy' | 'blad_w_dniu_sprzedazy' | 'nowa_okolicznosc';
 
+/** Uwaga przy korekcie z błędu rachunkowego: wchodzi w okres, który mógł być już rozliczony (ten sam tekst w `kpir.ts`). */
+const UWAGA_KOREKTA_BLAD_RACHUNKOWY =
+  'Korekta (różnica), błąd rachunkowy lub omyłka: okres faktury pierwotnej; sprawdź, czy trzeba poprawić rozliczenie za ten okres';
+
 export type RodzajFaktury = 'zwykla' | 'korekta' | 'zaliczka' | 'rozliczenie';
 
 export interface FakturaEwidencji {
@@ -386,7 +390,7 @@ function stawkiFaktury(f: FakturaEwidencji, wersja: WersjaProfilu, kwotaGr: numb
 function uwagiFaktury(f: FakturaEwidencji): string[] {
   if (f.rodzaj === 'korekta') {
     return f.przyczynaKorekty === 'blad_rachunkowy' && f.dzienPierwotny
-      ? ['Korekta (różnica), błąd rachunkowy lub omyłka: okres faktury pierwotnej']
+      ? [UWAGA_KOREKTA_BLAD_RACHUNKOWY]
       : ['Korekta (różnica)'];
   }
   if (f.rodzaj === 'zaliczka') return ['Zaliczka'];

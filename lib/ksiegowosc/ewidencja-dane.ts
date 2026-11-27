@@ -112,6 +112,20 @@ interface WierszPierwotnej {
   parent_invoice_id: string | null;
 }
 
+/** Korekta z błędu rachunkowego bez odczytywalnej faktury pierwotnej: odczyt kończy się komunikatem z numerem korekty. */
+class BrakFakturyPierwotnej extends Error {
+  constructor(
+    readonly idKorekty: string,
+    readonly numerKorekty: string,
+  ) {
+    super(`korekta ${idKorekty}: nie znaleziono faktury pierwotnej`);
+  }
+}
+
+const komunikatBrakuPierwotnej = (numer: string) =>
+  `Nie możemy ustalić okresu korekty ${numer}: wybrano błąd rachunkowy, ale nie znaleźliśmy faktury, której ona dotyczy. ` +
+  'Nie pokazujemy niepełnych kwot. Zgłoś to w Pomocy z numerem korekty, a sprawdzimy powiązanie z fakturą pierwotną.';
+
 const KOLUMNY_PIERWOTNEJ = 'id, issue_date, sale_date, invoice_kind, invoice_type, parent_invoice_id';
 const MAKS_GLEBOKOSC_LANCUCHA = 5;
 
@@ -155,7 +169,7 @@ async function dniPierwotne(
       r = r.parent_invoice_id ? znane.get(r.parent_invoice_id) : undefined;
     }
     if (!r || rodzajFaktury(r.invoice_kind, r.invoice_type) === 'korekta') {
-      throw new Error(`korekta ${w.id}: nie znaleziono faktury pierwotnej`);
+      throw new BrakFakturyPierwotnej(w.id, (w.internal_number ?? w.ksef_number ?? w.id).trim());
     }
     wynik.set(w.id, kpirSaleEventDate({ saleDate: r.sale_date, issueDate: r.issue_date }));
   }
@@ -394,6 +408,7 @@ export async function czytajFakturyRoku(
     return { ok: true, faktury, kursy: await kursy(faktury, rok, opcje.kurs ?? nbpRateForCost) };
   } catch (e) {
     console.error('[ewidencja] odczyt', e instanceof Error ? e.message : e);
+    if (e instanceof BrakFakturyPierwotnej) return { ok: false, komunikat: komunikatBrakuPierwotnej(e.numerKorekty) };
     return { ok: false, komunikat: KOMUNIKAT_ODCZYT };
   }
 }

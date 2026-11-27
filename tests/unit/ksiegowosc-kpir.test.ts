@@ -349,3 +349,20 @@ describe('FZ-027: zmiana podziału zapłaconych składek przy skali', () => {
     }
   });
 });
+
+describe('KPiR: korekta z błędu rachunkowego (D35, RP-KOR-01)', () => {
+  it('wchodzi w dniu przychodu faktury pierwotnej z uwagą o okresie; inna przyczyna w dniu wystawienia', () => {
+    const k = zbudujKpir(
+      wejscie({
+        faktury: [
+          faktura('2026-05-04', -20_000, { rodzaj: 'korekta', dataSprzedazy: null, numer: 'KOR/1', przyczynaKorekty: 'blad_rachunkowy', dzienPierwotny: '2026-03-10' }),
+          faktura('2026-05-05', -10_000, { rodzaj: 'korekta', dataSprzedazy: null, numer: 'KOR/2', przyczynaKorekty: 'nowa_okolicznosc', dzienPierwotny: null }),
+        ],
+      }),
+    );
+    expect(k.wiersze.map((w) => [w.dowod, w.data, w.kwoty.k7, w.uwagi])).toEqual([
+      ['KOR/1', '2026-03-10', -20_000, 'Korekta (różnica), błąd rachunkowy lub omyłka: okres faktury pierwotnej; sprawdź, czy trzeba poprawić rozliczenie za ten okres'],
+      ['KOR/2', '2026-05-05', -10_000, 'Korekta (różnica)'],
+    ]);
+  });
+});
