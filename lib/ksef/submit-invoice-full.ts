@@ -85,20 +85,20 @@ export async function submitInvoiceFullFlow(
     finalData: finalPayload?.finalData,
     finalAdvanceSettlementRows: finalPayload?.advanceSettlementRows,
   })) {
-    throw new InvoiceValidationError([ROZ_SUBMISSION_HOLD_MESSAGE]);
+    throw new InvoiceValidationError([ROZ_SUBMISSION_HOLD_MESSAGE], { ownExit: true });
   }
   // Ustalenie 19 (D8): ostatnia bramka przed wysyłką faktury rozliczającej, której szkic
   // zapisano przed bramką przy zapisie. Dziś wysyłkę ROZ zatrzymuje hamulec wyżej, więc
   // bramka działa po jego zdjęciu (karta C4). Odmowa przed plikiem, archiwum i POST.
   if (finalPayload != null && finalPayload.advanceSettlementRows.length > 0) {
     const rounding = finalInvoiceRoundingRefusal(finalPayload.finalData, finalPayload.advanceSettlementRows);
-    if (rounding) throw new InvoiceValidationError([rounding]);
+    if (rounding) throw new InvoiceValidationError([rounding], { ownExit: true });
   }
   // Krok 1.2: generatory korekty, zaliczki i rozliczenia nie piszą `FP`, więc
   // paragon przy danych specjalnych zniknąłby z XML po cichu. Odmowa przed
   // generowaniem XML, archiwum i wysyłką (zdarzenie z formularza tego nie ma).
   if (invoice.receipt !== undefined && (correctionData != null || advanceData != null || finalPayload != null)) {
-    throw new InvoiceValidationError([RECEIPT_ONLY_REGULAR_MESSAGE]);
+    throw new InvoiceValidationError([RECEIPT_ONLY_REGULAR_MESSAGE], { ownExit: true });
   }
   // Wyłącznik cen brutto (RP-FA-BRUTTO-01, B4.0 zasada 2): jedyne miejsce, przez
   // które idzie każda nowa wysyłka, także ponowienie z kopii z crona i od operatora
@@ -107,7 +107,7 @@ export async function submitInvoiceFullFlow(
   // (INVALID_DOCUMENT, powrót do szkicu). Błąd odczytu flagi rzuca zwykły błąd, więc
   // job ponawia próbę zamiast wysłać.
   if (czyFakturaWCenachBrutto(invoice) && !(await czyCenyBruttoWlaczone())) {
-    throw new InvoiceValidationError([CENY_BRUTTO_WYLACZONE]);
+    throw new InvoiceValidationError([CENY_BRUTTO_WYLACZONE], { ownExit: true });
   }
 
   const configuredEnv = requireMatchingKsefEnvironment(env);

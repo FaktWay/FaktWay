@@ -111,7 +111,7 @@ describe('ustalenie 19: granica ujemnej reszty ROZ (D8)', () => {
 
   it('wysyłka: ostatnia bramka w submitInvoiceFullFlow po hamulcu ROZ, przed budową pliku (szkic zapisany przed bramką)', () => {
     const kod = readFileSync(join(process.cwd(), 'lib/ksef/submit-invoice-full.ts'), 'utf8');
-    const hamulec = kod.indexOf('throw new InvoiceValidationError([ROZ_SUBMISSION_HOLD_MESSAGE]);');
+    const hamulec = kod.indexOf('throw new InvoiceValidationError([ROZ_SUBMISSION_HOLD_MESSAGE], { ownExit: true });');
     const bramka = kod.indexOf('finalInvoiceRoundingRefusal(finalPayload.finalData, finalPayload.advanceSettlementRows)');
     const plik = kod.indexOf('generateFinalInvoiceXml(finalPayload.finalData');
     expect(hamulec).toBeGreaterThan(0);

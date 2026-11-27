@@ -142,13 +142,25 @@ export interface GenerateXmlOptions {
 }
 
 export class InvoiceValidationError extends Error {
-  constructor(public readonly errors: string[]) {
+  /**
+   * `true`: komunikat sam podaje przyczynę i wyjście („usuń szkic”, „wystaw w
+   * cenach netto”, „napisz do nas”), a w danych faktury nie ma pola do poprawy.
+   * Tekst dla klienta nie dokleja wtedy „Popraw wskazane dane.”
+   * (`komunikat-klienta.ts`).
+   */
+  public readonly ownExit: boolean;
+
+  constructor(
+    public readonly errors: string[],
+    options?: { ownExit?: boolean },
+  ) {
     super(
       `Faktura zawiera ${errors.length} ${
         errors.length === 1 ? 'błąd' : 'błędów'
       } walidacji:\n${errors.join('\n')}`,
     );
     this.name = 'InvoiceValidationError';
+    this.ownExit = options?.ownExit === true;
   }
 }
 
@@ -512,7 +524,7 @@ function buildAdnotacje(
   if (hasZwLine) {
     const basis = a.vatExemptionBasis?.trim();
     if (!basis) {
-      throw new InvoiceValidationError([ZW_WITHOUT_BASIS_MESSAGE]);
+      throw new InvoiceValidationError([ZW_WITHOUT_BASIS_MESSAGE], { ownExit: true });
     }
     zwolnienie.ele('P_19').txt('1');
     // C5b: rodzaj podstawy z importu KSeF (P_19B dyrektywa, P_19C inna); brak = P_19A.
@@ -527,7 +539,7 @@ function buildAdnotacje(
   if (a.newMeansOfTransport === 1) {
     throw new InvoiceValidationError([
       'FaktWay nie wystawia faktur dostawy nowych środków transportu (P_22) — tej faktury nie da się utworzyć w FaktWay z oryginału KSeF.',
-    ]);
+    ], { ownExit: true });
   }
   adn.ele('NoweSrodkiTransportu').ele('P_22N').txt('1');
 
@@ -539,7 +551,7 @@ function buildAdnotacje(
   if (a.marginScheme) {
     throw new InvoiceValidationError([
       `FaktWay nie wystawia faktur w procedurze marży (${a.marginScheme}) — tej faktury nie da się utworzyć w FaktWay z oryginału KSeF.`,
-    ]);
+    ], { ownExit: true });
   }
   adn.ele('PMarzy').ele('P_PMarzyN').txt('1');
 }
@@ -563,7 +575,7 @@ function buildFakturaDoParagonu(fa: XMLBuilder, invoice: Invoice): void {
   const receipt = invoice.receipt;
   if (!receipt) return;
   if (invoice.type !== 'VAT') {
-    throw new InvoiceValidationError([RECEIPT_ONLY_REGULAR_MESSAGE]);
+    throw new InvoiceValidationError([RECEIPT_ONLY_REGULAR_MESSAGE], { ownExit: true });
   }
   fa.ele('FP').txt('1');
   const entries: Array<[string, string]> = [
