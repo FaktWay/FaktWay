@@ -134,6 +134,8 @@ export interface CorrectionPairLine {
   unit: string;
   quantity: number;
   unitPriceNet: number;
+  /** Cena brutto pozycji faktury w cenach brutto: zmiana ceny brutto to korekta pozycji (D6). */
+  unitPriceGross?: number;
   vatRate: string;
 }
 
@@ -148,6 +150,7 @@ function sameLine(a: CorrectionPairLine, b: CorrectionPairLine): boolean {
     a.unit === b.unit &&
     a.quantity === b.quantity &&
     a.unitPriceNet === b.unitPriceNet &&
+    a.unitPriceGross === b.unitPriceGross &&
     a.vatRate === b.vatRate
   );
 }
@@ -280,6 +283,8 @@ function toPreparedLineItems(
       unit: line.unit,
       quantity: line.quantity,
       unitPriceNet: line.unitPriceNet,
+      // Cena brutto pozycji (D6): wiersz korekty faktury w cenach brutto ma P_9B i P_11A.
+      ...(line.unitPriceGross !== undefined ? { unitPriceGross: line.unitPriceGross } : {}),
       vatRate: line.vatRate as VatRate,
       // Krok 2.6, część 2b-3: PKWiU bez spacji na brzegach, sprawdzone schematem
       // pozycji (`pkwiuCodeSchema`); dotąd filtr gubił kody z kropkami. GTU
@@ -442,7 +447,7 @@ function euBuyerAddressCountry(buyer: BuyerEU, vat: ParsedVatUe): string {
   return country;
 }
 
-function appendFaWiersze(fa: XMLBuilder, lines: CorrectionRow[]): void {
+function appendFaWiersze(fa: XMLBuilder, lines: CorrectionRow[], pricesGross = false): void {
   for (const line of lines) {
     const wiersz = fa.ele('FaWiersz');
 
@@ -457,8 +462,18 @@ function appendFaWiersze(fa: XMLBuilder, lines: CorrectionRow[]): void {
 
     wiersz.ele('P_8A').txt(requireText(line.unit, `line[${line.ordinal}].unit`));
     wiersz.ele('P_8B').txt(formatDecimal(line.quantity, 4));
-    wiersz.ele('P_9A').txt(formatDecimal(line.unitPriceNet, 4));
-    wiersz.ele('P_11').txt(formatDecimal(line.netAmount));
+    if (pricesGross) {
+      // Art. 106e ust. 8 (D6): korekta faktury w cenach brutto, jak ta faktura: cena
+      // jednostkowa brutto i wartość sprzedaży brutto zamiast netto (XSD: P_9B, P_11A).
+      if (line.unitPriceGross === undefined || !Number.isFinite(line.unitPriceGross)) {
+        throw new Error(`FA(3) KOR: pozycja ${line.ordinal} korekty faktury w cenach brutto nie ma ceny brutto.`);
+      }
+      wiersz.ele('P_9B').txt(formatDecimal(line.unitPriceGross, 4));
+      wiersz.ele('P_11A').txt(formatDecimal(line.grossAmount));
+    } else {
+      wiersz.ele('P_9A').txt(formatDecimal(line.unitPriceNet, 4));
+      wiersz.ele('P_11').txt(formatDecimal(line.netAmount));
+    }
 
     const mapping = VAT_RATE_MAP[line.vatRate];
     if (!mapping) {
@@ -546,6 +561,8 @@ function correctionAmounts(
         unit: 'szt.',
         quantity: 1,
         unitPriceNet: roundToCents(ac.netDelta),
+        // Korekta kwotowa faktury w cenach brutto: wiersz z różnicą brutto (P_9B, P_11A).
+        ...(data.pricesGross === true ? { unitPriceGross: roundToCents(ac.grossDelta) } : {}),
         vatRate: rate,
         netAmount: roundToCents(ac.netDelta),
         vatAmount: roundToCents(ac.vatDelta),
@@ -743,7 +760,7 @@ export function generateCorrectionInvoiceXml(
     daneKor.ele('NrKSeFN').txt('1');
   }
 
-  appendFaWiersze(fa, preparedLines);
+  appendFaWiersze(fa, preparedLines, data.pricesGross === true);
 
   buildPlatnosc(fa, data);
 

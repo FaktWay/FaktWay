@@ -337,6 +337,9 @@ export const correctionInvoiceSchema = z
     linesBefore: z.array(correctionLineSchema).optional(),
     linesAfter: z.array(correctionLineSchema).optional(),
 
+    /** Faktura korygowana w cenach brutto (D6): nadaje ją serwer, z żądania się nie liczy. */
+    pricesGross: z.literal(true).optional(),
+
     amountChange: z
       .object({
         netDelta: z.number(),
@@ -351,6 +354,8 @@ export const correctionInvoiceSchema = z
           .refine(isXmlSafe, NO_CONTROL_CHARS_MESSAGE),
         /** Stawka bez VAT z faktury pierwotnej (np I / np II / oo) — nie wynika z kwot. */
         vatRate: z.enum(['np', 'np_ii', 'oo', 'zw']).optional(),
+        /** Stawka faktury w cenach brutto (D6): nadaje ją serwer, z żądania się nie liczy. */
+        grossRate: z.enum(['23', '8', '5', '0']).optional(),
       })
       .optional(),
   })
@@ -370,6 +375,10 @@ export const correctionInvoiceSchema = z
   )
   .refine((data) => {
     if (data.correctionType !== 'amount_change' || !data.amountChange) return true;
+    // Faktura w cenach brutto (D6): VAT korekty to wzór od sumy brutto stawki, nie od samej zmiany, więc
+    // stawki nie wyznaczają tu same kwoty. Znacznik z formularza tylko odracza tę kontrolę: serwer
+    // (`normalizePayload`) sam sprawdza fakturę i kwoty, a bez faktury w cenach brutto liczy jak dotąd.
+    if (data.pricesGross === true) return true;
     try {
       resolveAmountChangeVatRate(data.amountChange);
       return true;

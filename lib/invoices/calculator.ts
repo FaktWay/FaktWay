@@ -13,6 +13,7 @@ import type { InvoiceTotals } from '@/lib/xml/invoice-calculator';
 import {
   calculateInvoiceTotals as summarizePreparedLineItems,
   calculateLineItem,
+  grossPricedLines,
   roundToCents,
 } from '@/lib/xml/invoice-calculator';
 
@@ -43,7 +44,18 @@ export function negatedAmounts(amounts: LineAmounts): LineAmounts {
 /** Ta sama pozycja w obu stanach korekty: jak `sameLine` w `lib/ksef/fa3-correction-generator.ts`. */
 function sameCorrectionLine(a: InvoiceLine, b: InvoiceLine): boolean {
   return a.name === b.name && a.unit === b.unit && a.quantity === b.quantity &&
-    a.unitPriceNet === b.unitPriceNet && a.vatRate === b.vatRate;
+    a.unitPriceNet === b.unitPriceNet && a.unitPriceGross === b.unitPriceGross && a.vatRate === b.vatRate;
+}
+
+/**
+ * Korekta faktury w cenach brutto (D6, RP-FA-BRUTTO-01 i RP-FA-KOR-03): stan po
+ * ma ceny brutto każdej pozycji, a stan przed też (z faktury). Faktura
+ * za abonament ma cenę brutto tylko w stanie przed (znak metody dla odmowy), więc
+ * jej korekta „przed/po” nie jest w cenach brutto.
+ */
+function isGrossPricedCorrection(before: readonly InvoiceLine[], after: readonly InvoiceLine[]): boolean {
+  return after.length > 0 && after.every((l) => l.unitPriceGross !== undefined) &&
+    before.every((l) => l.unitPriceGross !== undefined);
 }
 
 /**
@@ -61,16 +73,63 @@ export function correctionStateAmounts(
 ): { before: LineAmounts[]; after: LineAmounts[] } {
   const beforeAmounts = before.map(lineAmounts);
   const unchanged: Array<LineAmounts | undefined> = after.map(() => undefined);
+  const matchedBefore = new Set<number>();
   before.forEach((b, bi) => {
     const ai = after.findIndex((a, i) => unchanged[i] === undefined && sameCorrectionLine(b, a));
-    if (ai !== -1) unchanged[ai] = beforeAmounts[bi];
+    if (ai !== -1) {
+      unchanged[ai] = beforeAmounts[bi];
+      matchedBefore.add(bi);
+    }
   });
+  if (isGrossPricedCorrection(before, after)) {
+    return { before: beforeAmounts, after: grossStateAfter(before, after, unchanged, matchedBefore) };
+  }
   return {
     before: beforeAmounts,
     after: after.map((a, i) =>
       unchanged[i] ?? calculateLineItem({ quantity: a.quantity, unitPriceNet: a.unitPriceNet, vatRate: a.vatRate as VatRate }),
     ),
   };
+}
+
+/**
+ * Stan po korekty faktury w cenach brutto (decyzja D6 z 25.11.2026, art. 106e
+ * ust. 7 i 11 ustawy o VAT): w każdej stawce, której korekta dotyka, podatek
+ * stanu po to wzór od sumy brutto wszystkich pozycji „po” tej stawki,
+ * KP = WB × SP / (100 + SP) (`grossPricedLines`, ten sam podział na pozycje co
+ * na fakturze), więc faktura i jej korekty zgadzają się z nową fakturą w cenach
+ * brutto z pozycjami po korekcie. Różnica po stawkach to stan po minus stan
+ * przed z zapisu (art. 106j ust. 2 pkt 5), nie podatek od samej różnicy brutto.
+ * Stawka bez zmian (każda pozycja „po” ma swoją bez zmian „przed” i żadna
+ * „przed” nie zniknęła) zostaje z kwot zapisu, żeby nie wykazać różnicy tam,
+ * gdzie nic nie korygowano.
+ */
+function grossStateAfter(
+  before: readonly InvoiceLine[],
+  after: readonly InvoiceLine[],
+  unchanged: ReadonlyArray<LineAmounts | undefined>,
+  matchedBefore: ReadonlySet<number>,
+): LineAmounts[] {
+  const result: LineAmounts[] = after.map((_, i) => unchanged[i] ?? { netAmount: 0, vatAmount: 0, grossAmount: 0 });
+  for (const rate of new Set(after.map((l) => l.vatRate))) {
+    const afterIdx = after.flatMap((l, i) => (l.vatRate === rate ? [i] : []));
+    const beforeIdx = before.flatMap((l, i) => (l.vatRate === rate ? [i] : []));
+    if (afterIdx.every((i) => unchanged[i] !== undefined) && beforeIdx.every((i) => matchedBefore.has(i))) continue;
+    const computed = grossPricedLines(afterIdx.map((i) => ({
+      ordinal: i + 1,
+      name: after[i]!.name,
+      unit: after[i]!.unit,
+      quantity: after[i]!.quantity,
+      unitPriceNet: 0,
+      unitPriceGross: after[i]!.unitPriceGross,
+      vatRate: rate as VatRate,
+    })));
+    afterIdx.forEach((i, k) => {
+      const { netAmount, vatAmount, grossAmount } = computed[k]!;
+      result[i] = { netAmount, vatAmount, grossAmount };
+    });
+  }
+  return result;
 }
 
 function domainLineToPrepared(line: InvoiceLine, ordinal: number): InvoiceLineItem {
