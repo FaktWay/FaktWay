@@ -272,7 +272,7 @@ describe('wyłącznik cen brutto w schemacie formularza (invoiceFormSchemaFor)',
   });
 
   it('włączony: ten sam schemat co invoiceFormSchema (ceny brutto i ceny netto przechodzą)', () => {
-    expect(invoiceFormSchemaFor({ cenyBrutto: true })).toBe(invoiceFormSchema);
+    expect(invoiceFormSchemaFor({ cenyBrutto: true, waluty: true })).toBe(invoiceFormSchema);
     expect(bledyPrzy(true, wartosci())).toEqual([]);
     expect(bledyPrzy(true, netto())).toEqual([]);
   });
