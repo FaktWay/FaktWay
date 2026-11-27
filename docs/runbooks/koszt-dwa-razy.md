@@ -80,10 +80,10 @@ rozjazd `upper` bazy i JS daje tylko brak połączenia) i:
 Miesiąc złożony: rozliczenie w module zależne od kosztów (`tax_settlements`:
 zaliczka PIT, VAT, składka zdrowotna), wysyłka JPK_V7M z FaktWay na bramkę
 produkcyjną w każdym stanie poza odrzuconą i przerwaną albo udany eksport KPiR
-lub JPK_V7M za okres z tym miesiącem. Zapytanie operatora niżej liczy „okresy
-złożone” węziej (tylko eksporty i przyjęta wysyłka). Miesiące późniejsze nie są
-sprawdzane (zaliczka PIT narastająco, nadwyżka VAT z poprzedniej deklaracji):
-pytanie do księgowej przed włączeniem.
+lub JPK_V7M za okres z tym miesiącem albo późniejszym (D65, migracja 00220:
+zaliczka PIT narastająco, nadwyżka VAT z poprzedniej deklaracji, więc
+zgłoszenie za późniejszy miesiąc składa też wcześniejsze). Zapytanie operatora
+niżej liczy „okresy złożone” węziej (tylko eksporty i przyjęta wysyłka).
 
 Decyzja klienta (`decide_ksef_expense_copy`, akcja serwerowa po MFA
 `app/actions/kopia-faktury-ksef.ts`): wybór kopii z zadania łączy ją (tylko w środowisku faktury
