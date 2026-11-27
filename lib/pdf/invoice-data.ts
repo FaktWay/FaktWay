@@ -3,6 +3,7 @@ import { documentGrossPrices } from '@/lib/invoices/document-lines';
 import { documentLineCodes, type DocumentLineCodes } from '@/lib/invoices/line-codes';
 import { orderFromJson } from '@/lib/invoices/order-reference';
 import { isReceiptInvoiceColumns, receiptFromJson } from '@/lib/invoices/receipt-invoice';
+import { correctionEnvelopeVatRates } from '@/lib/invoices/vat-ue';
 import type { CorrectedInvoiceRef } from '@/lib/pdf/invoice-renderer';
 import { isTenantStoragePath } from '@/lib/storage/tenant-path';
 import { createAdminClient } from '@/lib/supabase/server';
@@ -47,6 +48,8 @@ export interface InvoicePdfData {
   xmlSha256Hex: string | null;
   /** Korekta: faktura, której dotyczy (art. 106j ust. 2); inne faktury — `null`. */
   correctedInvoice: CorrectedInvoiceRef | null;
+  /** Stawki stanów przed i po korekty z koperty (ustalenie 28); puste poza korektą. */
+  correctionVatRates: string[];
   /**
    * Faktura do paragonu bez czytelnych danych paragonu (FP z importu KSeF
    * albo niepełny zapis): PDF ma samo oznaczenie. Z danymi: `invoice.receipt`.
@@ -78,6 +81,7 @@ interface LineItemRow {
 
 interface InvoiceRow {
   id: string;
+  special_data?: unknown;
   tenant_id: string;
   currency?: string | null;
   internal_number: string | null;
@@ -122,7 +126,7 @@ const SELECT = `
   id, tenant_id, internal_number, invoice_type, issue_date, sale_date,
   ksef_number, ksef_status, offline_idempotency_key, seller_nip, xml_storage_path,
   net_total, vat_total, gross_total, currency, notes, updated_at,
-  parent_invoice_id, correction_reason,
+  parent_invoice_id, correction_reason, special_data,
   pdf_storage_path, pdf_generated_at, seller_data, buyer_data, payment_data,
   annotations:fa3_data->annotations,
   receipt:fa3_data->receipt,
@@ -283,6 +287,7 @@ export async function loadInvoiceForPdf(
     sellerNip: row.seller_nip ?? (invoice.seller as { nip?: string } | null)?.nip ?? null,
     xmlSha256Hex: await readXmlHash(admin, row),
     correctedInvoice: await readCorrectedInvoice(admin, row),
+    correctionVatRates: correctionEnvelopeVatRates(row.special_data),
     receiptInvoiceMarker: receiptInvoice && !receipt,
     updatedAt: row.updated_at,
     currency: (row.currency ?? 'PLN').trim().toUpperCase() || 'PLN',

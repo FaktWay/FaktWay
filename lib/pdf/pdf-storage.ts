@@ -34,7 +34,8 @@ import {
 // w kluczu zapobiega oddaniu z pamięci PDF sprzed zmiany renderera.
 // v10 (24.11): numer VAT UE sprzedawcy (NIP z prefiksem PL) przy usłudze „np II”
 // (plan zero, karta C2, W8). Faktura bez „np II” ma ten sam wydruk.
-const PDF_RENDERER_VERSION = 10;
+// v11 (27.11): prefiks PL sprzedawcy korekty liczony też ze stanu przed (ustalenie 28)
+const PDF_RENDERER_VERSION = 11;
 
 function parseYearMonth(issueDate: string): { year: string; month: string } {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(issueDate)) {

@@ -68,7 +68,8 @@ describe('PDF: „odwrotne obciążenie” tak jak P_18 w XML', () => {
     // v7 (krok 1.4): tytuł przelewu z numerem KSeF; wersja rośnie z każdą zmianą wyglądu PDF.
     // v9 (krok 2.8): wiersz „Zamówienie” przy fakturze z numerem zamówienia; zmiana wydruku podbija wersję (pdf-storage.ts).
     // v10 (plan zero C2, W8): numer VAT UE sprzedawcy przy usłudze „np II”.
-    expect(draftKey).toMatch(/^ten-1\/2026\/10\/inv-1\.v10\.[0-9a-f]{32}\.pdf$/);
+    // v11 (ustalenie 28): prefiks PL sprzedawcy korekty liczony też ze stanu przed.
+    expect(draftKey).toMatch(/^ten-1\/2026\/10\/inv-1\.v11\.[0-9a-f]{32}\.pdf$/);
     expect(buildInvoicePdfKey('ten-1', 'inv-1', '2026-10-01', 'https://qr.ksef.mf.gov.pl/invoice/1234567890/hash', 'KSEF-1'))
       .not.toBe(draftKey);
   });

@@ -195,6 +195,19 @@ describe('szczegóły faktury na ekranie (F-094)', () => {
     expect(t).toMatch(/Montaż w DE.*np(?!\.)/);
   });
 
+  it('usługa „np II”: sprzedawca z numerem „VAT UE: PL…” (ustalenie 28)', () => {
+    const np = { ordinal: 1, name: 'Programowanie', unit: 'usł.', quantity: '1', unit_price_net: '2000', vat_rate: 'np_ii', net_amount: '2000', vat_amount: '0', gross_amount: '2000' };
+    const zwykly = render(base);
+    expect(zwykly).toContain('NIP: ');
+    const t = render({ ...base, lines: [np] });
+    expect(t).toMatch(/VAT UE: PL\d{10}/);
+  });
+
+  it('korekta: „np II” tylko w stanie przed daje „VAT UE: PL…” (stawki z koperty)', () => {
+    const t = render({ ...base, correction_vat_rates: ['np_ii', '23'] });
+    expect(t).toMatch(/VAT UE: PL\d{10}/);
+  });
+
   it('czas przyjęcia w KSeF po polsku, w strefie Europe/Warsaw', () => {
     const t = render(base);
     expect(t).toContain('02.10.2026, 07:12');
