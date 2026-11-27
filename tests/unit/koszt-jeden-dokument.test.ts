@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { polaczKopieFakturyKsef } from '@/lib/expenses/kopia-faktury-ksef';
 import type { JobContext } from '@/lib/jobs/registry';
 
 import { memoryClient, type MemoryTables, type Row } from './helpers/baza-w-pamieci';
@@ -207,7 +208,7 @@ function fakturaZSkrzynki(o: Row = {}): Row {
     direction: 'incoming',
     origin: 'ksef_inbox',
     ksef_status: 'accepted',
-    ksef_environment: 'test',
+    ksef_environment: 'production',
     ksef_number: NR_KSEF,
     internal_number: NUMER,
     issue_date: '2027-02-05',
@@ -269,7 +270,7 @@ const zdjecie = async (doc: Row = zdjecieFaktury(), zadanie = OCR_JOB) => {
   state.doc = doc;
   await runProcessOcr({ ocrJobId: zadanie, tenantId: TENANT }, ctx);
 };
-const skrzynka = (invoiceId = INVOICE) => runAutoCategorizeInbox({ invoiceId, tenantId: TENANT, environment: 'test' }, ctx);
+const skrzynka = (invoiceId = INVOICE) => runAutoCategorizeInbox({ invoiceId, tenantId: TENANT, environment: process.env.KSEF_ENV === 'test' ? 'test' : 'production' }, ctx);
 const koszty = () => (state.tables as MemoryTables).expenses!;
 const kluczNumeru = (numer: unknown) => String(numer ?? '').replace(/\s+/g, '').toUpperCase();
 const LUTY = { month: '2', year: '2027', od: '2027-02-01', do: '2027-02-28' };
@@ -300,7 +301,8 @@ const KOLEJNOSCI = [
 ] as const;
 
 beforeEach(() => {
-  vi.stubEnv('KSEF_ENV', 'test');
+  // D68: łączenie kopii działa tylko przy KSeF produkcyjnym, więc to jest środowisko testów; TEST ma osobny przypadek niżej.
+  vi.stubEnv('KSEF_ENV', 'production');
   state.bladLaczenia = 0;
 });
 afterEach(() => vi.unstubAllEnvs());
@@ -504,8 +506,8 @@ describe('FZ-022: zapis jednego kosztu przy drugim źródle (decyzja D29, przeł
 
   it('koszt z faktury z innego środowiska KSeF (np. TEST po przejściu na PROD): nie zabiera kopii z KPiR', async () => {
     vi.stubEnv('KOSZTY_LACZ_KOPIE_KSEF', 'true');
-    baza([fakturaZSkrzynki({ ksef_environment: 'production' })]);
-    // Koszt z KSeF jest w bazie, ale aplikacja działa na KSeF TEST (KSEF_ENV), więc odczyty go nie liczą.
+    baza([fakturaZSkrzynki({ ksef_environment: 'test' })]);
+    // Koszt z KSeF jest w bazie, ale aplikacja działa na KSeF PROD (KSEF_ENV), więc odczyty go nie liczą.
     (state.tables as MemoryTables).expenses!.push({
       id: 'ksef-prod', tenant_id: TENANT, source: 'ksef_inbox', ksef_invoice_id: INVOICE, seller_nip: SELLER_NIP, seller_name: 'Sklep Przykład',
       document_number: NUMER, document_type: 'invoice', issue_date: '2027-02-05', net_amount: 100, vat_amount: 23, gross_amount: 123,
@@ -514,6 +516,26 @@ describe('FZ-022: zapis jednego kosztu przy drugim źródle (decyzja D29, przeł
     await zdjecie();
     expect(koszty().find((e) => e.source === 'ocr_photo')).toMatchObject({ is_deductible: true });
     expect((state.tables as MemoryTables).expense_ksef_copies ?? []).toEqual([]);
+  });
+
+  // D68: dokumenty z KSeF TEST nie są fakturami (Podręcznik KSeF 2.0 cz. II, pkt 3.2.1), więc przy KSEF_ENV=test przełącznik
+  // nie łączy: oba koszty zostają w KPiR do odmowy #839, a worker ostrzega w logu (bez błędu).
+  it.each(KOLEJNOSCI)('%s: przy KSEF_ENV=test przełącznik nie łączy, zostaje odmowa i ostrzeżenie w logu (D68)', async (_kolejnosc, przebieg) => {
+    vi.stubEnv('KSEF_ENV', 'test');
+    vi.stubEnv('KOSZTY_LACZ_KOPIE_KSEF', 'true');
+    baza([fakturaZSkrzynki({ ksef_environment: 'test' })]);
+    const ostrzezenia: string[] = [];
+    const wynik = await polaczKopieFakturyKsef({ rpc: () => { throw new Error('RPC nie ma być wołane'); } }, {
+      tenantId: TENANT, expenseId: 'x', environment: 'test', logger: { warn: (m) => ostrzezenia.push(m) },
+    });
+    expect(wynik).toBe('inne_srodowisko');
+    expect(ostrzezenia).toHaveLength(1);
+    expect(ostrzezenia[0]).toContain('KSEF_ENV=production');
+    await przebieg();
+    expect(koszty().every((e) => e.is_deductible === true)).toBe(true);
+    expect((state.tables as MemoryTables).expense_ksef_copies ?? []).toEqual([]);
+    const { kpirOdmowa } = await odczyty();
+    expect(kpirOdmowa).toContain(NUMER);
   });
 
   it('zdjęcie z innym brutto niż faktura z KSeF (źle odczytana kwota albo numer innej faktury): zadanie, bez łączenia', async () => {

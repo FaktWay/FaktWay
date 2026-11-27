@@ -18,6 +18,12 @@
  * Bez włączania u klientów, dopóki Bartosz nie potwierdzi (D29: pewność średnia
  * dla przypadków brzegowych, do potwierdzenia przez księgową): przełącznik
  * `KOSZTY_LACZ_KOPIE_KSEF=true` w workerze; bez niego nic się nie łączy.
+ * Decyzja D68: łączy tylko przy KSeF produkcyjnym (`KSEF_ENV=production`).
+ * Dokumenty z KSeF TEST nie są fakturami i nie wywołują skutków prawnych
+ * (Podręcznik KSeF 2.0 cz. II, pkt 3.2.1), więc połączenie z nimi wyjęłoby
+ * prawdziwy koszt z KPiR i JPK_V7M. Przy innym środowisku przełącznik nie
+ * działa: ostrzeżenie w logu, bez łączenia i bez błędu (worker startuje
+ * normalnie, ponowienie niczego nie zmienia).
  * Ścieżka operatora: `docs/runbooks/koszt-dwa-razy.md`.
  */
 
@@ -33,6 +39,7 @@ export function laczenieKopiiWlaczone(): boolean {
 /** Wynik `link_ksef_expense_copy` (00215) albo `wylaczone` bez przełącznika. */
 export type WynikLaczeniaKopii =
   | 'wylaczone'
+  | 'inne_srodowisko'
   | 'linked'
   | 'candidates'
   | 'already_linked'
@@ -61,10 +68,24 @@ interface LaczenieKopiiRpc {
  */
 export async function polaczKopieFakturyKsef(
   supabase: unknown,
-  w: { tenantId: string; expenseId: string; environment: KsefEnvironment | null },
+  w: {
+    tenantId: string;
+    expenseId: string;
+    environment: KsefEnvironment | null;
+    logger?: { warn(message: string, meta?: Record<string, unknown>): void };
+  },
 ): Promise<WynikLaczeniaKopii> {
   if (!laczenieKopiiWlaczone()) return 'wylaczone';
   if (!w.environment) return 'not_applicable';
+  // D68: tylko KSeF produkcyjny. Fail-closed: kopia i koszt zostają jak są, a odmowa odczytu (#839) chroni KPiR i JPK.
+  if (w.environment !== 'production') {
+    w.logger?.warn('Łączenie kopii faktury z kosztem z KSeF pominięte: działa tylko przy KSEF_ENV=production (D68)', {
+      tenantId: w.tenantId,
+      expenseId: w.expenseId,
+      environment: w.environment,
+    });
+    return 'inne_srodowisko';
+  }
   const { data, error } = await (supabase as LaczenieKopiiRpc).rpc('link_ksef_expense_copy', {
     p_tenant_id: w.tenantId,
     p_expense_id: w.expenseId,
