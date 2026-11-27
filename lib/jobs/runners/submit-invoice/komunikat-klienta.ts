@@ -22,7 +22,8 @@ import { FA3_ISSUE_LEAD } from '@/lib/xml/fa3-limits';
 export interface CustomerFailure {
   readonly message: string;
   readonly field: string | null;
-  readonly suggestion: string;
+  /** `null`, gdy sama odmowa podaje wyjście i nie ma pól do poprawy (`ownExit`). */
+  readonly suggestion: string | null;
 }
 
 /** Najwyżej tyle uwag walidacji w jednym zdaniu dla klienta; reszta to liczba. */
@@ -83,10 +84,13 @@ function businessFailure(error: Error): CustomerFailure {
   if (errors.length === 0) return genericSchemaFailure();
   const shown = errors.slice(0, MAX_SHOWN).map(withDot).join(' ');
   const more = errors.length > MAX_SHOWN ? ` Razem uwag: ${errors.length}.` : '';
+  // Odmowa z własnym wyjściem (hamulec ROZ, wyłącznik cen brutto, „usuń szkic”):
+  // „Popraw wskazane dane.” przeczyłoby jej treści, więc podpowiedzi nie ma.
+  const ownExit = (error as { ownExit?: unknown }).ownExit === true;
   return {
     message: `${FA3_ISSUE_LEAD} ${shown}${more}`,
     field: null,
-    suggestion: 'Popraw wskazane dane.',
+    suggestion: ownExit ? null : 'Popraw wskazane dane.',
   };
 }
 

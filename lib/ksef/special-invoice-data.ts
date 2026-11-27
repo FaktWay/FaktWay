@@ -71,5 +71,5 @@ export function assertSpecialInvoiceData(
         ? data.finalPayload != null && data.finalPayload.advanceSettlementRows.length > 0
         : data.correctionData != null;
 
-  if (!hasData) throw new InvoiceValidationError([specialInvoiceResendMessage(type)!]);
+  if (!hasData) throw new InvoiceValidationError([specialInvoiceResendMessage(type)!], { ownExit: true });
 }
