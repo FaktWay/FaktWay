@@ -5,6 +5,7 @@ import { orderFromJson } from '@/lib/invoices/order-reference';
 import { isReceiptInvoiceColumns, receiptFromJson } from '@/lib/invoices/receipt-invoice';
 import { correctionEnvelopeVatRates } from '@/lib/invoices/vat-ue';
 import type { CorrectedInvoiceRef } from '@/lib/pdf/invoice-renderer';
+import { jestFakturaSpozaKsef } from '@/lib/import/outside-ksef-teksty';
 import { isTenantStoragePath } from '@/lib/storage/tenant-path';
 import { createAdminClient } from '@/lib/supabase/server';
 import type {
@@ -61,6 +62,8 @@ export interface InvoicePdfData {
    * kwoty tylko w złotych, więc inna waluta to odmowa (FZ-021, `generateInvoicePdf`).
    */
   currency?: string;
+  /** Wpis dopisany poza KSeF (krok 1.6): wydruk dostaje dopisek „Poza KSeF” (D24). Brak pola = nie. */
+  outsideKsef?: boolean;
   /** Cache: PDF jest ważny gdy pdf_generated_at >= updated_at. */
   updatedAt: string | null;
   pdfStoragePath: string | null;
@@ -80,6 +83,7 @@ interface LineItemRow {
 }
 
 interface InvoiceRow {
+  origin?: string | null;
   id: string;
   special_data?: unknown;
   tenant_id: string;
@@ -127,7 +131,7 @@ const SELECT = `
   ksef_number, ksef_status, offline_idempotency_key, seller_nip, xml_storage_path,
   net_total, vat_total, gross_total, currency, notes, updated_at,
   parent_invoice_id, correction_reason, special_data,
-  pdf_storage_path, pdf_generated_at, seller_data, buyer_data, payment_data,
+  pdf_storage_path, pdf_generated_at, seller_data, buyer_data, payment_data, origin,
   annotations:fa3_data->annotations,
   receipt:fa3_data->receipt,
   order_ref:fa3_data->order,
@@ -289,6 +293,7 @@ export async function loadInvoiceForPdf(
     correctedInvoice: await readCorrectedInvoice(admin, row),
     correctionVatRates: correctionEnvelopeVatRates(row.special_data),
     receiptInvoiceMarker: receiptInvoice && !receipt,
+    outsideKsef: jestFakturaSpozaKsef(row.origin),
     updatedAt: row.updated_at,
     currency: (row.currency ?? 'PLN').trim().toUpperCase() || 'PLN',
     pdfStoragePath: row.pdf_storage_path,

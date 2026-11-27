@@ -44,7 +44,16 @@ const PANEL_ID = 'filtry-faktur';
  * listy bez numeru strony i bez „Pokaż N” — zmiana filtrów odtwarza pola
  * z adresu, który jest właścicielem stanu (PLAN-FINORA P3).
  */
-export function InvoicesToolbar({ params, filtered }: { params: InvoiceListParams; filtered: boolean }) {
+export function InvoicesToolbar({
+  params,
+  filtered,
+  outsideKsefAvailable = false,
+}: {
+  params: InvoiceListParams;
+  filtered: boolean;
+  /** Krok 1.6: wyłącznik włączony i rola pozwala dopisać fakturę spoza KSeF. */
+  outsideKsefAvailable?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   // Ile filtrów z panelu jest ustawionych — widać to na przycisku, gdy panel jest zwinięty.
   const active = [params.payment !== 'wszystkie', params.kind !== 'wszystkie', params.from !== null, params.to !== null].filter(
@@ -64,6 +73,11 @@ export function InvoicesToolbar({ params, filtered }: { params: InvoiceListParam
           <Link href="/invoices/new" className={buttonVariants({ variant: 'default' })}>
             Wystaw fakturę
           </Link>
+          {outsideKsefAvailable ? (
+            <Link href="/invoices/spoza-ksef" className={buttonVariants({ variant: 'outline' })}>
+              Dodaj fakturę spoza KSeF
+            </Link>
+          ) : null}
         </div>
         <div className="flex flex-1 flex-wrap items-center gap-4 lg:justify-end">
           <div className="w-full max-w-2xs">
