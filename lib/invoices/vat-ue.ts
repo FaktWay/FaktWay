@@ -73,3 +73,42 @@ export function sellerNeedsVatUePrefix(vatRates: Iterable<string | null | undefi
   for (const rate of vatRates) if (rate === 'np_ii') return true;
   return false;
 }
+
+/**
+ * Identyfikator sprzedawcy do pokazania na ekranie i wydruku (ustalenie 28 planu
+ * kompletnej aplikacji): przy stawce „np II” numer VAT UE z prefiksem PL, jak
+ * `PrefiksPodatnika` w pliku FA(3) (RP-FA-VATUE-01), w innym razie NIP. `rates` to
+ * stawki pozycji dokumentu, a przy korekcie także stanu przed i po
+ * (`correctionEnvelopeVatRates`).
+ */
+export function sellerIdentifier(
+  nip: string,
+  rates: Iterable<string | null | undefined>,
+): { label: 'VAT UE' | 'NIP'; value: string } {
+  return sellerNeedsVatUePrefix(rates)
+    ? { label: 'VAT UE', value: `${SELLER_VAT_UE_PREFIX}${nip}` }
+    : { label: 'NIP', value: nip };
+}
+
+/**
+ * Stawki pozycji stanów „przed” i „po” z koperty korekty (`special_data.correctionData`),
+ * czyli te, które plik FA(3) korekty i JPK_FA biorą pod uwagę przy prefiksie PL. Pozycje
+ * samego wiersza korekty mają tylko stan po, więc sam wiersz nie wystarcza.
+ */
+export function correctionEnvelopeVatRates(specialData: unknown): string[] {
+  const envelope =
+    specialData && typeof specialData === 'object'
+      ? (specialData as { correctionData?: unknown }).correctionData
+      : undefined;
+  if (!envelope || typeof envelope !== 'object') return [];
+  const rates: string[] = [];
+  for (const key of ['linesBefore', 'linesAfter'] as const) {
+    const lines = (envelope as Record<string, unknown>)[key];
+    if (!Array.isArray(lines)) continue;
+    for (const line of lines) {
+      const rate = line && typeof line === 'object' ? (line as { vatRate?: unknown }).vatRate : undefined;
+      if (typeof rate === 'string') rates.push(rate);
+    }
+  }
+  return rates;
+}

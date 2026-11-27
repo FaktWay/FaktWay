@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { getDashboardSessionUser } from '@/lib/dashboard-shell-data';
 import { amountDueOf, outstandingOf } from '@/lib/invoices/amount-due';
 import { parentsWithOpenCorrection } from '@/lib/invoices/correction-parents';
+import { correctionEnvelopeVatRates } from '@/lib/invoices/vat-ue';
 import {
   parseInvoicePaymentsRpc,
   paymentsMatchInvoice,
@@ -308,6 +309,8 @@ export default async function InvoiceDetailPage({
     receipt_invoice: receiptInvoiceView(invoice.fa3_data),
     // Krok 2.8: numer zamówienia jako gotowy wiersz, reszta `fa3_data` zostaje na serwerze.
     order_reference: orderReferenceView(invoice.fa3_data),
+    // Ustalenie 28: stawki stanów przed i po korekty do prefiksu PL sprzedawcy; sama koperta zostaje na serwerze.
+    correction_vat_rates: correctionEnvelopeVatRates(invoice.special_data),
   };
 
   return <InvoiceDetailView key={initial.id} initial={initial} />;
