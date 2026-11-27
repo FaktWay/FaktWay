@@ -7,6 +7,8 @@ type AmountChange = {
   grossDelta: number;
   /** Jawna stawka bez VAT z faktury pierwotnej (np I, np II, oo, zw). */
   vatRate?: ZeroVatAmountChangeRate;
+  /** Stawka faktury w cenach brutto ustalona przez serwer (D6); kwoty już ją potwierdziły. */
+  grossRate?: '23' | '8' | '5' | '0';
 };
 type Rate = '23' | '8' | '5' | '0' | ZeroVatAmountChangeRate;
 
@@ -19,6 +21,9 @@ export function resolveAmountChangeVatRate(change: AmountChange): Rate {
       roundToCents(netDelta + vatDelta) !== roundToCents(grossDelta)) {
     throw new Error('Korekta kwotowa: niespójna kwota netto, VAT lub brutto.');
   }
+
+  // Faktura w cenach brutto: stawkę ustalił serwer (`grossAmountChange`), kwoty ze wzoru od sumy brutto.
+  if (change.grossRate !== undefined) return change.grossRate;
 
   // Stawka bez VAT nie wynika z kwot (VAT 0 = także „0 KR”) — przychodzi jawnie
   // z faktury pierwotnej i wymaga zerowego VAT w korekcie.
