@@ -147,10 +147,21 @@ const czyStronami = (z: Zapytanie) =>
 const kluczOdczytu = (z: Zapytanie) => `${z.tabela}|${z.kolumny}|${JSON.stringify(z.filtry)}`;
 
 /** Odczyty stronami: zapytania z tym samym `select` i filtrami, w kolejności. */
+/** Pierwszy odczyt każdego zapytania; powtórki z podwójnego odczytu (FZ-031) sprawdza `odczytyPoKluczu`. */
 function odczytyStronami(log: readonly Zapytanie[]): Zapytanie[][] {
-  const grupy = new Map<string, Zapytanie[]>();
-  for (const z of log.filter(czyStronami)) grupy.set(kluczOdczytu(z), [...(grupy.get(kluczOdczytu(z)) ?? []), z]);
-  return [...grupy.values()];
+  return [...odczytyPoKluczu(log).values()].map((odczyty) => odczyty[0]!);
+}
+
+/** Odczyty (pierwsza strona z COUNT zaczyna nowy) tego samego zapytania, po kluczu zapytania. */
+function odczytyPoKluczu(log: readonly Zapytanie[]): Map<string, Zapytanie[][]> {
+  const grupy = new Map<string, Zapytanie[][]>();
+  for (const z of log.filter(czyStronami)) {
+    const odczyty = grupy.get(kluczOdczytu(z)) ?? [];
+    if (odczyty.length === 0 || (z.count && !z.head && z.poKluczu === null)) odczyty.push([]);
+    odczyty[odczyty.length - 1]!.push(z);
+    grupy.set(kluczOdczytu(z), odczyty);
+  }
+  return grupy;
 }
 
 interface Ksztalt {
@@ -573,6 +584,13 @@ describe('QRY-07: KPiR i eksporty czytają po kluczu (COUNT na pierwszej stronie
         // Tyle stron, ile wynika z licznika pierwszej strony.
         expect(grupa.filter((z) => !z.head), opis).toHaveLength(Math.max(1, Math.ceil(grupa[0]!.licznik! / STRONA)));
       }
+      // FZ-031 (D70): odczyt na kilku stronach jest czytany drugi raz tym samym zapytaniem
+      // (przy równych danych dwa odczyty), na jednej stronie raz.
+      for (const odczyty of odczytyPoKluczu(log).values()) {
+        const wiele = odczyty[0]!.filter((z) => !z.head).length > 1;
+        expect(odczyty, wejscie).toHaveLength(wiele ? 2 : 1);
+        if (wiele) expect(odczyty[1]!.map(ksztalt), wejscie).toEqual(odczyty[0]!.map(ksztalt));
+      }
       const wieleStron: Record<string, number> = {};
       for (const grupa of odczyty.filter((g) => g.filter((z) => !z.head).length > 1)) {
         wieleStron[grupa[0]!.tabela] = (wieleStron[grupa[0]!.tabela] ?? 0) + 1;
@@ -611,9 +629,10 @@ describe('eksport bez korekt (`includeCorrections: false`)', () => {
     );
     const faktur = log.filter((z) =>
       z.tabela === 'invoices' && czyStronami(z) && z.filtry.some(([metoda, args]) => metoda === 'eq' && args[0] === 'direction'));
-    // Wystawione (3 strony) i otrzymane (2 strony): każdy odczyt kończy licznik kontrolny.
-    expect(faktur.filter((z) => !z.head)).toHaveLength(5);
-    expect(faktur.filter((z) => z.head)).toHaveLength(2);
+    // Wystawione (3 strony) i otrzymane (2 strony): każdy odczyt kończy licznik kontrolny,
+    // a każdy odczyt na kilku stronach jest czytany dwa razy (FZ-031, D70).
+    expect(faktur.filter((z) => !z.head)).toHaveLength(10);
+    expect(faktur.filter((z) => z.head)).toHaveLength(4);
     for (const z of faktur) expect(z.filtry).toContainEqual(['eq', ['invoice_kind', 'regular']]);
 
     const zPazdziernika = (kierunek: string) => dane.invoices!.filter((f) =>
@@ -697,6 +716,13 @@ describe('pomiar zapytań (do opisu PR)', () => {
     const { logi } = await uruchom(DUZA);
     const tabela = Object.fromEntries(Object.entries(logi).map(([wejscie, log]) => {
       const stronami = log.filter(czyStronami);
+      // FZ-031 (D70): odczyt na kilku stronach jest czytany drugi raz tym samym zapytaniem
+      // (przy równych danych dwa odczyty), na jednej stronie raz.
+      for (const odczyty of odczytyPoKluczu(log).values()) {
+        const wiele = odczyty[0]!.filter((z) => !z.head).length > 1;
+        expect(odczyty, wejscie).toHaveLength(wiele ? 2 : 1);
+        if (wiele) expect(odczyty[1]!.map(ksztalt), wejscie).toEqual(odczyty[0]!.map(ksztalt));
+      }
       const wieleStron: Record<string, number> = {};
       for (const grupa of odczytyStronami(log).filter((g) => g.filter((z) => !z.head).length > 1)) {
         wieleStron[grupa[0]!.tabela] = (wieleStron[grupa[0]!.tabela] ?? 0) + 1;

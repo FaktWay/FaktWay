@@ -226,8 +226,8 @@ describe('tenant boundaries for accounting exports', () => {
     expect(result.expenses.at(-1)?.id).toBe('expense-0000');
     // Sesja 33 (QRY-07): 3 strony po kluczu i 1 licznik kontrolny przy kilku stronach.
     const kosztow = operations.filter(op => op.table === 'expenses');
-    expect(kosztow.filter(op => !op.head)).toHaveLength(3);
-    expect(kosztow.filter(op => op.head)).toHaveLength(1);
+    expect(kosztow.filter(op => !op.head)).toHaveLength(6); // FZ-031 (D70): dwa odczyty
+    expect(kosztow.filter(op => op.head)).toHaveLength(2);
   });
 
   it.each(['missing', 'foreign', 'unknown', 'unlinked'])('blocks ambiguous KSeF expense: %s', async kind => {
@@ -359,8 +359,8 @@ describe('tenant boundaries for accounting exports', () => {
     expect(data.issuedInvoices.at(-1)?.invoiceNumber).toBe('invoice-1199');
     // Sesja 33 (QRY-07): 3 strony po kluczu i 1 licznik kontrolny przy kilku stronach.
     const faktur = operations.filter(op => op.table === 'invoices' && op.selection === '*');
-    expect(faktur.filter(op => !op.head)).toHaveLength(3);
-    expect(faktur.filter(op => op.head)).toHaveLength(1);
+    expect(faktur.filter(op => !op.head)).toHaveLength(6); // FZ-031 (D70): dwa odczyty
+    expect(faktur.filter(op => op.head)).toHaveLength(2);
   });
 
   it('fetches all 1200 correction parents outside the export period', async () => {
@@ -395,8 +395,8 @@ describe('tenant boundaries for accounting exports', () => {
     expect(data.issuedInvoices[0]?.lines.at(-1)?.name).toBe('LINE-1200');
     // Sesja 33 (QRY-07): 3 strony po kluczu i 1 licznik kontrolny przy kilku stronach.
     const pozycji = operations.filter(op => op.table === 'invoice_line_items');
-    expect(pozycji.filter(op => !op.head)).toHaveLength(3);
-    expect(pozycji.filter(op => op.head)).toHaveLength(1);
+    expect(pozycji.filter(op => !op.head)).toHaveLength(6); // FZ-031 (D70): dwa odczyty
+    expect(pozycji.filter(op => op.head)).toHaveLength(2);
   });
 
   it('fails the export if a later invoice page cannot be read', async () => {

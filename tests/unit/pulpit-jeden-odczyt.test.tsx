@@ -661,17 +661,18 @@ describe('zapytania na wejście (QRY-02, QAL-05, QRY-05, QRY-07)', () => {
   it('mikrofirma 40 FV/mies.: 36 → 23 zapytań; licznik COUNT tylko na pierwszej stronie i raz na końcu', async () => {
     const { zapytania } = await renderuj(scenariusz('mikrofirma: 40 faktur miesięcznie przez 24 miesiące'));
     const { rodzaje } = licznik(zapytania);
-    expect(rodzaje['sprzedaż: strony']).toBe(3);
-    expect(rodzaje['sprzedaż: licznik kontrolny']).toBe(1);
+    // FZ-031 (D70): odczyt na kilku stronach jest czytany dwa razy (3 strony i licznik kontrolny, razy dwa).
+    expect(rodzaje['sprzedaż: strony']).toBe(6);
+    expect(rodzaje['sprzedaż: licznik kontrolny']).toBe(2);
     expect(rodzaje['strażnik środowiska (wiersze)']).toBe(1);
     expect(rodzaje['strażnik środowiska (COUNT)']).toBeUndefined();
     // Pozycje: paczki po 100 faktur (długość adresu), do czterech naraz — liczba bez zmian, czas krótszy.
     expect(rodzaje.pozycje).toBe(6);
-    expect(zapytania).toHaveLength(23);
+    expect(zapytania).toHaveLength(27);
     // Strony 2 i 3 wspólnego odczytu idą po kluczu, bez COUNT.
     const strony = zapytania.filter(czyOdczytSprzedazy);
     expect(strony.map((z) => [z.count, z.calls.some(([m]) => m === 'gt'), z.calls.some(([m]) => m === 'range')]))
-      .toEqual([[true, false, false], [false, true, false], [false, true, false]]);
+      .toEqual([[true, false, false], [false, true, false], [false, true, false], [true, false, false], [false, true, false], [false, true, false]]);
   });
 
   it('paczki pozycji idą naraz (najwyżej 4), w kolejności faktur', async () => {

@@ -28,8 +28,9 @@ import { opcje, PRZYPADKI } from '../generatory/ustawienia';
  *    liczbę wierszy (jeden wiersz usunięty i jeden dopisany, w każdym miejscu
  *    względem kursora), daje wyjątek albo jeden stan (FZ-017: zakładka przy
  *    zakresach, jeden wiersz ponad licznik na pełnej ostatniej stronie po
- *    kluczu). Zmiany po obu stronach kursora naraz przechodzą dziś bez
- *    wyjątku: FZ-031 (potrzebna migawka).
+ *    kluczu). Zmiany po obu stronach kursora naraz łapie podwójny odczyt
+ *    (FZ-031, D70): drugi odczyt po zmianie różni się od mieszanego, trzeci
+ *    daje dwa równe z rzędu; bez dwóch równych z rzędu wyjątek.
  * 3. Test strukturalny: każde zapytanie `.from('tabela')` i `.rpc('funkcja')`
  *    w `lib/ksiegowosc`, `lib/reports` i `lib/exports` (nazwa spoza napisu daje
  *    czerwony test) idzie przez helper stronicowania, a funkcja podana helperowi
@@ -266,12 +267,52 @@ describe('NZ-WSP-08: bezpieczniki zamiast cichej niepełnej sumy', () => {
 
   const POBU_STRONACH: readonly Zmiana[] = ['usunięty już przeczytany', 'dopisany w części przeczytanej', 'usunięty jeszcze nieprzeczytany', 'dopisany w części nieprzeczytanej'];
 
-  it.fails('FZ-031: zakresy, wiersz usunięty i dopisany po obu stronach kursora naraz (liczba bez zmian) dają dziś wiersze z dwóch stanów, potrzebna migawka', async () => {
+  it('FZ-031: zakresy, wiersz usunięty i dopisany po obu stronach kursora naraz (liczba bez zmian): wyjątek albo jeden stan (podwójny odczyt)', async () => {
     await jedenStan('zakresy', POBU_STRONACH);
   });
 
-  it.fails('FZ-031: po kluczu, wiersz usunięty i dopisany po obu stronach kursora naraz (liczba bez zmian) dają dziś wiersze z dwóch stanów, potrzebna migawka', async () => {
+  it('FZ-031: po kluczu, wiersz usunięty i dopisany po obu stronach kursora naraz (liczba bez zmian): wyjątek albo jeden stan (podwójny odczyt)', async () => {
     await jedenStan('po kluczu', POBU_STRONACH);
+  });
+
+  it.each(['zakresy', 'po kluczu'] as const)('FZ-031: %s, zmiana treści jednego wiersza przeczytanego i jednego nieprzeczytanego: wynik z jednego stanu', async (czytnik) => {
+    const dane = wiersze(2500);
+    const przed = suma(dane);
+    const poStronie = (strona: number) => {
+      if (strona === 1) {
+        for (const [id, plus] of [['id-000010', 1000], ['id-000700', 5000]] as const) {
+          const i = dane.findIndex((r) => r.id === id);
+          dane[i] = { ...dane[i]!, kwotaGr: dane[i]!.kwotaGr + plus };
+        }
+      }
+    };
+    const wynik = await (czytnik === 'zakresy'
+      ? readCompletePages('test', zakresy(dane, POSTGREST_MAX_ROWS, poStronie))
+      : readCompletePagesByKey('test', poKluczu(dane, POSTGREST_MAX_ROWS, poStronie)));
+    expect(suma(wynik)).toBe(przed + 6000);
+  });
+
+  it.each(['zakresy', 'po kluczu'] as const)('FZ-031: %s, zapisy przy każdym odczycie (żadne dwa nie są równe): wyjątek po trzech odczytach', async (czytnik) => {
+    const dane = wiersze(2500);
+    let n = 0;
+    // Zapis po każdej stronie: kwota wiersza 700 jest inna w każdym odczycie.
+    // Zamiana obiektu, nie zmiana w miejscu: odczyty nie dzielą wierszy.
+    const poStronie = () => {
+      const i = dane.findIndex((r) => r.id === 'id-000700');
+      dane[i] = { ...dane[i]!, kwotaGr: dane[i]!.kwotaGr + 1 + n++ };
+    };
+    const odczyt = czytnik === 'zakresy'
+      ? readCompletePages('test', zakresy(dane, POSTGREST_MAX_ROWS, poStronie))
+      : readCompletePagesByKey('test', poKluczu(dane, POSTGREST_MAX_ROWS, poStronie));
+    await expect(odczyt).rejects.toThrow(KOLEJNOSC);
+  });
+
+  it.each(['zakresy', 'po kluczu'] as const)('FZ-031: %s, odczyt z jednej strony nie jest czytany drugi raz', async (czytnik) => {
+    const dane = wiersze(400);
+    let zapytania = 0;
+    const licz = (strona: number) => { zapytania = strona; };
+    await (czytnik === 'zakresy' ? readCompletePages('test', zakresy(dane, POSTGREST_MAX_ROWS, licz)) : readCompletePagesByKey('test', poKluczu(dane, POSTGREST_MAX_ROWS, licz)));
+    expect(zapytania).toBe(1);
   });
 });
 
