@@ -47,6 +47,11 @@ export const KOPIA_KSEF_TEXTS = {
     'W kosztach jest też kopia tej faktury spoza KSeF z innego miesiąca: ten sam NIP sprzedawcy, numer i rok. Odmowa okresu dotyczy ' +
     'tylko miesiąca, w którym są oba koszty, więc teraz oba liczą się w KPiR i VAT, każdy w swoim miesiącu: ten sam koszt i VAT są ' +
     'w kosztach dwa razy. Po połączeniu koszt, VAT i numer KSeF idą z tej faktury, a kopia zostaje na liście poza KPiR.',
+  ksefCandidatesMixedMonths:
+    'W kosztach jest też kilka kopii tej faktury spoza KSeF: ten sam NIP sprzedawcy, numer i rok, z różnych miesięcy. Odmowa okresu ' +
+    'dotyczy tylko miesiąca, w którym są oba koszty, więc kopia z tego samego miesiąca zatrzymuje okres, a kopia z innego miesiąca ' +
+    'liczy się obok tej faktury, każda w swoim miesiącu (ten sam koszt i VAT dwa razy). Po połączeniu z wybraną kopią koszt, VAT i ' +
+    'numer KSeF idą z tej faktury, a ta kopia zostaje na liście poza KPiR.',
   ksefOutsideKpir:
     'Ten koszt z KSeF jest wyłączony z KPiR, więc liczy się kopia. Połączenie wyjęłoby z KPiR oba koszty, dlatego go tu nie ma. Żeby ' +
     'koszt, VAT i numer KSeF szły z tej faktury, najpierw włącza się przy niej „Uwzględnij w KPiR”.',
@@ -54,8 +59,12 @@ export const KOPIA_KSEF_TEXTS = {
     'Gdy to inny dokument, poprawienie numeru w kopii kończy odmowę, a „To osobne dokumenty” zamyka zadanie. Przy tym samym numerze ' +
     'okres dalej się nie liczy, dopóki przy kopii nie wyłączy się „Uwzględnij w KPiR”.',
   reasonFiled: (miesiace: readonly string[]) =>
-    `Koszty nie połączyły się same, bo ${miesiace.length > 1 ? `jeden z miesięcy (${lista(miesiace)})` : (miesiace[0] ?? 'miesiąc')} ` +
-    'jest już złożony (rozliczenie w module, wysyłka JPK_V7M albo eksport KPiR lub JPK). Połączenie zmieni koszty i VAT złożonego okresu.',
+    `${miesiace.length > 1 ? `Miesiące ${lista(miesiace)} są już złożone` : `Miesiąc ${miesiace[0] ?? ''} jest już złożony`} ` +
+    '(rozliczenie w module, wysyłka JPK_V7M albo eksport KPiR lub JPK). Połączenie zmieni koszty i VAT złożonego okresu, ' +
+    'więc połącz koszty tylko wtedy, gdy ta zmiana ma trafić do korekty.',
+  reasonFiledUnknown:
+    'Nie udało się sprawdzić, czy miesiące tych kosztów są już złożone (rozliczenie w module, JPK_V7M, eksport KPiR lub JPK). ' +
+    'Połączenie zmieni koszty i VAT złożonego okresu, więc przed połączeniem sprawdź to w rozliczeniach.',
   reasonAmount: 'Koszty nie połączyły się same, bo kwota brutto kopii jest inna niż na fakturze z KSeF.',
   ksefLinkedTitle: 'Kopia tej faktury jest połączona',
   ksefLinkedBody:
@@ -105,7 +114,10 @@ export function KopiaKsefAlert({ copy }: { copy: KsefCopyView }) {
   const isKsef = copy.role === 'ksef';
   const linked = copy.state === 'linked';
   const selfMonth = copy.self ? miesiac(copy.self.issueDate) : null;
-  const otherMonth = selfMonth !== null && copy.docs.some((d) => miesiac(d.issueDate) !== selfMonth);
+  const innych = selfMonth === null ? 0 : copy.docs.filter((d) => miesiac(d.issueDate) !== selfMonth).length;
+  // Kilka kopii z różnych miesięcy: tekst „z innego miesiąca” byłby nieprawdziwy dla części z nich, więc neutralny.
+  const mixedMonths = innych > 0 && innych < copy.docs.length;
+  const otherMonth = innych > 0 && !mixedMonths;
   // Koszt z KSeF poza KPiR: połączenie wyjęłoby z KPiR oba koszty (00217 odmawia tego też w bazie).
   const ksefOutside = isKsef && copy.self !== null && !copy.self.deductible;
 
@@ -113,18 +125,20 @@ export function KopiaKsefAlert({ copy }: { copy: KsefCopyView }) {
   const body = isKsef
     ? linked
       ? ksefOutside ? t.ksefLinkedOutsideKpir : t.ksefLinkedBody
-      : ksefOutside ? t.ksefOutsideKpir : otherMonth ? t.ksefCandidatesOtherMonth : t.ksefCandidatesSameMonth
+      : ksefOutside ? t.ksefOutsideKpir : mixedMonths ? t.ksefCandidatesMixedMonths : otherMonth ? t.ksefCandidatesOtherMonth : t.ksefCandidatesSameMonth
     : linked
       ? t.copyLinkedBody
       : otherMonth ? t.copyCandidatesOtherMonth : t.copyCandidatesSameMonth;
-  const reason =
-    isKsef && !linked && copy.reason
-      ? copy.reason.code === 'filed_period'
-        ? t.reasonFiled(copy.reason.months.map((m) => monthLabel(m)))
-        : copy.reason.code === 'amount_differs'
-          ? t.reasonAmount
+  // Ostrzeżenie o złożonym okresie z aktualnego stanu, a nie z przyczyny zadania (ta jest migawką z chwili jego utworzenia).
+  const filed =
+    isKsef && !linked && !ksefOutside
+      ? copy.filedMonths === null
+        ? t.reasonFiledUnknown
+        : copy.filedMonths.length > 0
+          ? t.reasonFiled(copy.filedMonths.map((m) => monthLabel(m)))
           : null
       : null;
+  const reason = isKsef && !linked && copy.reason?.code === 'amount_differs' ? t.reasonAmount : null;
   const canLink = isKsef && !linked && !ksefOutside;
 
   return (
@@ -133,6 +147,7 @@ export function KopiaKsefAlert({ copy }: { copy: KsefCopyView }) {
       <AlertDescription className="space-y-3">
         <p>{body}</p>
         {reason ? <p>{reason}</p> : null}
+        {filed ? <p className="font-medium text-foreground">{filed}</p> : null}
         <ul className="space-y-2">
           {copy.docs.map((doc) => (
             <li key={doc.expenseId} className="flex flex-wrap items-center gap-2">

@@ -164,6 +164,12 @@ describe('Skrzynka KSeF i lista kosztów', () => {
       <ExpensesTable expenses={[KSEF, { ...KOPIA_A, is_deductible: false, ksef_copy: true }, KOPIA_B]} listVariant="month" />,
     );
     expect(markup.split(KSEF_COPY_LABEL).length - 1).toBeGreaterThanOrEqual(1);
+    // Suma dnia (R3): połączona kopia nie liczy się drugi raz (123 zł z KSeF, nie 246 zł).
+    const sumaDnia = renderToStaticMarkup(
+      <ExpensesTable expenses={[KSEF, { ...KOPIA_A, is_deductible: false, ksef_copy: true }]} listVariant="month" />,
+    );
+    expect(sumaDnia).not.toContain('246,00');
+    expect(renderToStaticMarkup(<ExpensesTable expenses={[KSEF, KOPIA_A]} listVariant="month" />)).toContain('246,00');
     expect(renderToStaticMarkup(<ExpensesTable expenses={[KSEF, KOPIA_A]} listVariant="month" />)).not.toContain(KSEF_COPY_LABEL);
   });
 });
@@ -244,20 +250,56 @@ describe('kopia faktury z KSeF: przypadki z przeglądu (A do E)', () => {
     expect(kopia).toContain('dwa razy');
   });
 
-  it('C: przyczyna zadania z audytu: złożony miesiąc z nazwą i kwota brutto; bez audytu brak przyczyny', async () => {
-    const zlozony = await ekranZ(luty, [k(COPY_A, 'candidate')], [luty, KOPIA_A], audyt('filed_period', ['2027-02']));
-    expect(zlozony).toContain('jest już złożony');
-    expect(zlozony).toContain('Połączenie zmieni koszty i VAT złożonego okresu');
+  /** Złożone miesiące (`RRRR-MM-01`) według `expense_period_filed`; reszta niezłożona. */
+  const zlozone = (...okresy: string[]) =>
+    mocks.rpc.mockImplementation(async (name: string, args: { p_okres: string }) => ({
+      data: name === 'expense_period_filed' ? okresy.includes(args.p_okres) : null,
+      error: null,
+    }));
+
+  it('C: kwota brutto z audytu; bez audytu brak przyczyny, a miesiące niezłożone nie dają ostrzeżenia o okresie', async () => {
+    zlozone();
     const kwota = await ekranZ(luty, [k(COPY_A, 'candidate')], [luty, KOPIA_A], audyt('amount_differs', []));
     expect(kwota).toContain('kwota brutto kopii jest inna niż na fakturze z KSeF');
-    expect(await ekranZ(luty, [k(COPY_A, 'candidate')], [luty, KOPIA_A])).not.toContain('nie połączyły się same');
+    const bez = await ekranZ(luty, [k(COPY_A, 'candidate')], [luty, KOPIA_A]);
+    expect(bez).not.toContain('nie połączyły się same');
+    expect(bez).not.toContain('jest już złożony');
+    expect(bez).not.toContain('są już złożone');
   });
 
-  it('D: przy kilku złożonych miesiącach nazwy wszystkich, a po połączeniu przyczyny już nie ma', async () => {
-    const dwa = await ekranZ(luty, [k(COPY_A, 'candidate')], [luty, styczen], audyt('filed_period', ['2027-01', '2027-02']));
-    expect(dwa).toContain('jeden z miesięcy (');
-    const polaczone = await ekranZ(luty, [k(COPY_A, 'linked')], [luty, styczen], audyt('filed_period', ['2027-02']));
-    expect(polaczone).not.toContain('nie połączyły się same');
+  it('D: złożony miesiąc z aktualnego stanu, także gdy przyczyna zadania jest inna (kilka kopii, inna kwota, czeka na decyzję)', async () => {
+    for (const powod of ['several_copies', 'amount_differs', 'pending_decision', 'auto_link_off']) {
+      zlozone('2027-02-01');
+      const markup = await ekranZ(luty, [k(COPY_A, 'candidate'), k(COPY_B, 'candidate')], [luty, KOPIA_A, KOPIA_B], audyt(powod, []));
+      expect(markup).toContain('jest już złożony');
+      expect(markup).toContain('Połączenie zmieni koszty i VAT złożonego okresu');
+      expect(markup).toContain('Połącz koszty');
+    }
+    // Złożony tylko miesiąc kopii z innego miesiąca; oba złożone: nazwy obu.
+    zlozone('2027-01-01');
+    expect(await ekranZ(luty, [k(COPY_A, 'candidate')], [luty, styczen])).toContain('Miesiąc styczeń 2027 jest już złożony');
+    zlozone('2027-01-01', '2027-02-01');
+    expect(await ekranZ(luty, [k(COPY_A, 'candidate')], [luty, styczen])).toContain('Miesiące styczeń 2027 i luty 2027 są już złożone');
+    // Okres złożony już po utworzeniu zadania (audyt mówi tylko, że kopii jest kilka): odczyt na żywo.
+    zlozone('2027-02-01');
+    expect(await ekranZ(luty, [k(COPY_A, 'candidate')], [luty, KOPIA_A], audyt('several_copies', []))).toContain('jest już złożony');
+  });
+
+  it('D2: odczyt złożonych miesięcy zawiódł: ostrzeżenie, że nie sprawdzono; po połączeniu bez ostrzeżenia', async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { message: 'brak funkcji' } });
+    const brak = await ekranZ(luty, [k(COPY_A, 'candidate')], [luty, KOPIA_A]);
+    expect(brak).toContain('Nie udało się sprawdzić, czy miesiące tych kosztów są już złożone');
+    zlozone('2027-02-01');
+    const polaczone = await ekranZ(luty, [k(COPY_A, 'linked')], [luty, styczen]);
+    expect(polaczone).not.toContain('jest już złożony');
+    expect(polaczone).not.toContain('Nie udało się sprawdzić');
+  });
+
+  it('D3: kilka kopii z różnych miesięcy: tekst neutralny, nie „z innego miesiąca” dla wszystkich', async () => {
+    zlozone();
+    const markup = await ekranZ(luty, [k(COPY_A, 'candidate'), k(COPY_B, 'candidate')], [luty, KOPIA_A, wydatek(COPY_B, { issue_date: '2027-01-31' })]);
+    expect(markup).toContain('z różnych miesięcy');
+    expect(markup).not.toContain('tej faktury spoza KSeF z innego miesiąca');
   });
 
   it('E: koszt z KSeF poza KPiR: akcja zwraca odmowę z treścią i niczego nie odświeża', async () => {

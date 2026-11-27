@@ -8,6 +8,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { createAdminClient } from '@/lib/supabase/admin';
+
 export interface KsefCopyDoc {
   expenseId: string;
   number: string | null;
@@ -37,6 +39,12 @@ export interface KsefCopyView {
   remaining: KsefCopyDoc[];
   /** Przyczyna zadania z audytu (`filed_period`, `amount_differs`, `several_copies`, `pending_decision`) i jego miesiące. */
   reason: { code: string; months: string[] } | null;
+  /**
+   * Przy zadaniu „Połącz koszty”: miesiące (`RRRR-MM`) kosztu z KSeF i jego kopii, które są dziś złożone
+   * (`expense_period_filed`, odczyt na żywo, nie migawka z audytu). `null`: nie udało się sprawdzić.
+   * Decyzja `decide_ksef_expense_copy` złożonego okresu nie sprawdza (D29), więc to ekran ma ostrzec.
+   */
+  filedMonths: string[] | null;
 }
 
 type CopyRow = { ksef_expense_id: string; copy_expense_id: string; status: string };
@@ -95,7 +103,31 @@ export async function loadKsefCopyView(supabase: unknown, tenantId: string, expe
   const ten = wiersze.find((d) => d.expenseId === expenseId);
   const self = ten ? { issueDate: ten.issueDate, deductible: ten.deductible } : null;
   const reason = role === 'ksef' && !linked ? await loadTaskReason(client, tenantId, expenseId) : null;
-  return { role, state: linked ? 'linked' : 'candidates', ksefExpenseId: role === 'ksef' ? expenseId : null, docs, self, remaining, reason };
+  const filedMonths =
+    role === 'ksef' && !linked ? await loadFiledMonths(tenantId, [...(self ? [self.issueDate] : []), ...docs.map((d) => d.issueDate)]) : [];
+  return { role, state: linked ? 'linked' : 'candidates', ksefExpenseId: role === 'ksef' ? expenseId : null, docs, self, remaining, reason, filedMonths };
+}
+
+/**
+ * Złożone dziś miesiące spośród miesięcy podanych dat (`expense_period_filed`, funkcja tylko dla service_role:
+ * firma pochodzi z kosztu odczytanego przez RLS). Błąd odczytu: `null`, ekran ostrzega, że nie sprawdzono.
+ */
+async function loadFiledMonths(tenantId: string, issueDates: readonly string[]): Promise<string[] | null> {
+  const months = [...new Set(issueDates.map((d) => d.slice(0, 7)))].sort();
+  const admin = createAdminClient() as unknown as {
+    rpc(name: 'expense_period_filed', args: { p_tenant_id: string; p_okres: string }): PromiseLike<{ data: unknown; error: unknown }>;
+  };
+  try {
+    const wyniki = await Promise.all(months.map((m) => admin.rpc('expense_period_filed', { p_tenant_id: tenantId, p_okres: `${m}-01` })));
+    if (wyniki.some((w) => !w || w.error || typeof w.data !== 'boolean')) {
+      console.error('[expenses] odczyt złożonych miesięcy kopii faktury z KSeF', wyniki.map((w) => w?.error));
+      return null;
+    }
+    return months.filter((_, i) => wyniki[i]?.data === true);
+  } catch (e) {
+    console.error('[expenses] odczyt złożonych miesięcy kopii faktury z KSeF', e);
+    return null;
+  }
 }
 
 /** Przyczyna i miesiące ostatniego zadania „Połącz koszty” z audytu (00215); błąd odczytu: `null` (ekran bez przyczyny). */

@@ -42,7 +42,7 @@ przy `KSEF_ENV=production`.** Interfejs (PR z interfejsem D29) jest gotowy: na
 stronie kosztu z KSeF zadanie „Połącz koszty” z wyborem kopii i „To osobne
 dokumenty”, przy połączeniu „Rozłącz”; przy kopii informacja z odesłaniem do
 faktury z KSeF i zablokowane „Uwzględnij w KPiR”; w Skrzynce KSeF dopisek
-„Kopia w kosztach: do połączenia”, na liście kosztów dopisek „Kopia faktury
+„Kopia w kosztach: do decyzji”, na liście kosztów dopisek „Kopia faktury
 z KSeF”. Bez przełącznika nic się nie łączy i zostaje odmowa opisana wyżej;
 wyłączenie przełącznika nie cofa połączeń, które już są.
 
@@ -93,8 +93,8 @@ kosztu z KSeF), „to osobne koszty” albo „Rozłącz” przywraca kopię do 
 okresu nie zna `expense_ksef_copies`, więc odmawia dalej, gdy oba koszty liczą
 się w KPiR: po „to osobne koszty” i „Rozłącz” oraz po wyborze jednej kopii
 (pozostałe kandydatki zostają w KPiR razem z kosztem z KSeF); wyjście
-„Uwzględnij w KPiR” przy kopii albo poprawienie numeru lub daty w kopii (tak
-mówi też ekran), a czy odczyt ma pomijać takie pary, rozstrzyga sesja decyzji
+„Uwzględnij w KPiR” przy kopii albo poprawienie numeru lub daty w kopii (ekran
+mówi tylko o numerze), a czy odczyt ma pomijać takie pary, rozstrzyga sesja decyzji
 (do tego czasu bez zmiany odczytu). Po „Rozłącz” koszt z KSeF zostaje z kategorią przejętą od
 kopii; poprzednia jest w audycie (`ksefCategoryBefore`). Strażnik
 `b_guard_linked_ksef_copy_expense` nie pozwala klientowi wliczyć połączonej
