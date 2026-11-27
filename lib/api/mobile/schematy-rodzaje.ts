@@ -218,5 +218,8 @@ export function korektaDoFormularza(k: KorektaTelefonu, kontekst: KontekstKorekt
     ...(k.correctionType === 'amount_change' && k.amountChange
       ? { amountChange: { ...k.amountChange, ...(kontekst.amountChangeVatRate ? { vatRate: kontekst.amountChangeVatRate } : {}) } }
       : {}),
+    // Faktura w cenach brutto (D6): znacznik z kontekstu serwera (z bazy), jak w formularzu strony.
+    // Telefon go nie zna; bez niego korekta takiej faktury odmawiała ogólnym komunikatem o kwotach.
+    ...(kontekst.pricesGross ? { pricesGross: true as const } : {}),
   };
 }
