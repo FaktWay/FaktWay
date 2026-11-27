@@ -109,6 +109,8 @@ export interface CorrectionBaselineOf<TLine> {
   latest: { id: string; internalNumber: string | null; correctionType: string | null } | null;
   /** Po korekcie kwotowej tylko kwotowa; po anulowaniu nic. */
   allowed: 'all' | 'amount_change_only' | 'none';
+  /** Faktura (albo jej stan po ostatniej korekcie) w cenach brutto, wyłącznik włączony (D6). */
+  pricesGross?: true;
 }
 
 /** Komunikat odmowy wg stanu po korektach (K4); `null` = typ korekty dozwolony. */
