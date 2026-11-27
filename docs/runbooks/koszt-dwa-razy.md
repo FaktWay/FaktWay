@@ -37,8 +37,23 @@ dokumencie.
 ## Łączenie kopii z kosztem z KSeF (decyzja D29, 00215)
 
 Za przełącznikiem `KOSZTY_LACZ_KOPIE_KSEF=true` w workerze (domyślnie
-wyłączony). **Włączać dopiero po potwierdzeniu Bartosza i księgowej i tylko
-przy `KSEF_ENV=production`.** Interfejs (PR z interfejsem D29) jest gotowy: na
+wyłączony). **Włącza go tylko Bartosz, w tej kolejności (decyzja D68):**
+
+1. wdrożony PR z interfejsem i strażnikiem (D67);
+2. wgrana migracja z D65 (00220);
+3. księgowa potwierdziła przypadki brzegowe D29 (miesiąc złożony, miesiące
+   późniejsze, waluta obca, druga kopia);
+4. `KSEF_ENV=production` w aplikacji i workerze (dziś produkcja FaktWay działa
+   na KSeF TEST, więc przełącznik do przejścia na PROD nie ma skutku).
+
+Kod łączy tylko przy `KSEF_ENV=production`: dokumenty z KSeF TEST nie są
+fakturami i nie wywołują skutków prawnych (Podręcznik KSeF 2.0 cz. II,
+pkt 3.2.1), więc połączenie z nimi wyjęłoby prawdziwy koszt z KPiR i JPK_V7M.
+Przy innym środowisku przełącznik nie działa: worker startuje normalnie,
+w logu jest ostrzeżenie „Łączenie kopii faktury z kosztem z KSeF pominięte”,
+nic się nie łączy, a odmowa odczytu zostaje z jej wyjściem klienta. Przed
+zmianą `KSEF_ENV` operator rozłącza pary z innego środowiska zapytaniem niżej.
+Interfejs (PR z interfejsem D29) jest gotowy: na
 stronie kosztu z KSeF zadanie „Połącz koszty” z wyborem kopii i „To osobne
 dokumenty”, przy połączeniu „Rozłącz”; przy kopii informacja z odesłaniem do
 faktury z KSeF i zablokowane „Uwzględnij w KPiR”; w Skrzynce KSeF dopisek

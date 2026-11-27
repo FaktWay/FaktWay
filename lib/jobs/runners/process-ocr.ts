@@ -320,7 +320,7 @@ export async function runProcessOcr(data: Parameters<typeof ocrProcessPhotoReque
       // `KOSZTY_LACZ_KOPIE_KSEF` nic się nie dzieje.
       await step.run('link-ksef-copy', async () => {
         try {
-          const wynik = await polaczKopieFakturyKsef(supabase, { tenantId, expenseId, environment: configuredKsefEnvironment() });
+          const wynik = await polaczKopieFakturyKsef(supabase, { tenantId, expenseId, environment: configuredKsefEnvironment(), logger });
           if (wynik !== 'wylaczone') logger.info('OCR: kopia faktury z KSeF', { ocrJobId, expenseId, wynik });
         } catch (e) {
           logger.warn('OCR: nie udało się połączyć kopii faktury z kosztem z KSeF', {

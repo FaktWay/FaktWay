@@ -119,7 +119,7 @@ const SPECS: VarSpec[] = [
   { name: 'DATABASE_URL', feature: 'Joby w tle (pg-boss)', level: 'required', note: 'Postgres db-1 przez sieć prywatną (worker + enqueue z aplikacji)' },
   { name: 'WORKER_HEALTH_PORT', feature: 'Joby w tle (pg-boss)', level: 'optional', note: 'tylko worker; port healthchecku Coolify (domyślnie 8080)' },
   { name: 'WORKER_DISABLE_SCHEDULES', feature: 'Joby w tle (pg-boss)', level: 'optional', note: 'tylko worker; "true" wyłącza crony i czyści zapisany harmonogram' },
-  { name: 'KOSZTY_LACZ_KOPIE_KSEF', feature: 'Joby w tle (pg-boss)', level: 'optional', note: 'tylko worker; "true" łączy kopię faktury z kosztem z KSeF (FZ-022, D29, docs/runbooks/koszt-dwa-razy.md); domyślnie wyłączone' },
+  { name: 'KOSZTY_LACZ_KOPIE_KSEF', feature: 'Joby w tle (pg-boss)', level: 'optional', note: 'tylko worker; "true" łączy kopię faktury z kosztem z KSeF, tylko przy KSEF_ENV=production (FZ-022, D29, D68, docs/runbooks/koszt-dwa-razy.md); domyślnie wyłączone' },
   { name: 'APP_ENV', feature: 'Rdzeń aplikacji', level: 'optional', note: 'serwerowy odpowiednik NEXT_PUBLIC_APP_ENV dla bramek bezpieczeństwa (lib/security/environment.ts)' },
 
   // ── ODŁOŻONE świadomie (nie blokują startu) ──

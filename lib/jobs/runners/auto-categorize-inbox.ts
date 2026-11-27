@@ -735,7 +735,7 @@ async function linkKsefCopy(input: {
   logger: JobContext['logger'];
 }): Promise<void> {
   const { supabase, tenantId, invoiceId, expenseId, environment, step, logger } = input;
-  const wynik = await step.run('link-ksef-copy', () => polaczKopieFakturyKsef(supabase, { tenantId, expenseId, environment }));
+  const wynik = await step.run('link-ksef-copy', () => polaczKopieFakturyKsef(supabase, { tenantId, expenseId, environment, logger }));
   if (wynik !== 'wylaczone') logger.info('Skrzynka: kopia faktury z KSeF', { invoiceId, expenseId, wynik });
 }
 
