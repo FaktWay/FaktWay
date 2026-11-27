@@ -90,6 +90,10 @@ const dateSchema = z
 // Pozycja faktury
 // ============================================================================
 
+/** D35: przyczyny korekty (kolumna `invoices.correction_cause`). */
+export const CORRECTION_CAUSES = ['blad_rachunkowy', 'blad_w_dniu_sprzedazy', 'nowa_okolicznosc'] as const;
+export type CorrectionCause = (typeof CORRECTION_CAUSES)[number];
+
 export const invoiceLineSchema = z.object({
   name: z
     .string()
@@ -327,6 +331,13 @@ export const correctionInvoiceSchema = z
       .max(FA3_TEXT_LIMITS.przyczynaKorekty.max, maxMessage(FA3_TEXT_LIMITS.przyczynaKorekty.max))
       .refine(notBlank, 'Wymagane uzasadnienie min. 5 znaków')
       .refine(isXmlSafe, NO_CONTROL_CHARS_MESSAGE),
+
+    /**
+     * D35 (00222): przyczyna korekty ustala okres w VAT, PIT i ryczałcie.
+     * Formularz wymaga wyboru; brak (starsi klienci, aplikacja mobilna) zapisuje null
+     * i okres liczy się od dnia wystawienia korekty.
+     */
+    correctionCause: z.enum(CORRECTION_CAUSES).nullish(),
 
     /** MF `TTypKorekty`: 1 skutek okres pierwotny / 2 skutek data korekty / 3 inna. */
     typKorekty: z.enum(['1', '2', '3']).default('2'),

@@ -102,7 +102,7 @@ describe('czytajEwidencje: zapytania jak w KPiR', () => {
       ['eq', 'ksef_environment', process.env.KSEF_ENV],
       ['gte', 'issue_date', '2026-01-01'],
       // F11-C3 (11.11): bez okna 60 dni po roku; faktura z marca za grudzień to przychód roku sprzedaży.
-      ['or', 'issue_date.lte.2026-12-31,sale_date.lte.2026-12-31'],
+      ['or', 'issue_date.lte.2026-12-31,sale_date.lte.2026-12-31,correction_cause.eq.blad_rachunkowy'],
       ['order', 'id', { ascending: true }],
       ['limit', 500],
     ]);

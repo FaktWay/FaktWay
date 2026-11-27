@@ -370,7 +370,9 @@ export function zbudujKpir(wejscie: WejscieKpir): Kpir {
     if (kwotaGr === 0) continue;
 
     const uwagi: string[] = [];
-    if (f.rodzaj === 'korekta') uwagi.push('Korekta (różnica)');
+    if (f.rodzaj === 'korekta') {
+      uwagi.push(f.przyczynaKorekty === 'blad_rachunkowy' && f.dzienPierwotny ? 'Korekta (różnica), błąd rachunkowy lub omyłka: okres faktury pierwotnej' : 'Korekta (różnica)');
+    }
     if (f.rodzaj === 'zaliczka') uwagi.push('Zaliczka');
     if (f.rodzaj === 'rozliczenie' && f.rozliczoneZaliczkiGr !== 0) uwagi.push(`Rozliczenie, pomniejszone o zaliczki ${kwotaTekst(f.rozliczoneZaliczkiGr)} ${f.waluta}`);
     if (f.waluta.toUpperCase() !== 'PLN') {

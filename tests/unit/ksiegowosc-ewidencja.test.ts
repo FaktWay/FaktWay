@@ -84,6 +84,19 @@ describe('pkt 1: przychód z faktur i wpisów ręcznych', () => {
     expect([w.dataPrzychodu, w.kwotaGr, w.uwagi]).toEqual(['2026-05-04', -1_000_00, 'Korekta (różnica)']);
   });
 
+  it('D35 (RP-KOR-01): korekta z błędu rachunkowego wchodzi w dniu przychodu faktury pierwotnej, inne przyczyny w dniu wystawienia', () => {
+    const baza = { rodzaj: 'korekta' as const, dataWystawienia: '2026-05-04', dataSprzedazy: null, nettoGr: -1_000_00, dzienPierwotny: '2026-03-10' };
+    const blad = faktura({ id: 'k1', numer: 'KOR/1', ...baza, przyczynaKorekty: 'blad_rachunkowy' });
+    const [w] = ewidencja({ faktury: [blad] }).wiersze;
+    expect([w.dataPrzychodu, w.kwotaGr]).toEqual(['2026-03-10', -1_000_00]);
+    expect(w.uwagi).toContain('okres faktury pierwotnej');
+    for (const przyczyna of ['blad_w_dniu_sprzedazy', 'nowa_okolicznosc', null] as const) {
+      expect(dzienPrzychodu(faktura({ ...baza, przyczynaKorekty: przyczyna }))).toBe('2026-05-04');
+    }
+    // Brak dnia faktury pierwotnej nie przestawia okresu po cichu na zgadnięty.
+    expect(dzienPrzychodu(faktura({ ...baza, przyczynaKorekty: 'blad_rachunkowy', dzienPierwotny: null }))).toBe('2026-05-04');
+  });
+
   it('zaliczka się nie dubluje: rozliczenie pomniejszone o rozliczone zaliczki, jak w KPiR', () => {
     const zal = faktura({ id: 'z1', numer: 'ZAL/1', rodzaj: 'zaliczka', nettoGr: 3_000_00 });
     const roz = faktura({ id: 'r1', numer: 'ROZ/1', rodzaj: 'rozliczenie', nettoGr: 10_000_00, rozliczoneZaliczkiGr: 3_000_00, dataWystawienia: '2026-04-10', dataSprzedazy: '2026-04-10' });
