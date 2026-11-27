@@ -528,6 +528,9 @@
       "sciezki": [
         "lib/nbp/client.ts",
         "lib/invoices/exchange-rate.ts",
+        "lib/invoices/waluta-faktury.ts",
+        "lib/invoices/waluty-wylacznik.ts",
+        "lib/invoices/waluty-wylacznik-wspolne.ts",
         "lib/flo/nbp.ts",
         "lib/ocr/currency.ts",
         "lib/expenses/ksef-currency-review.ts",
