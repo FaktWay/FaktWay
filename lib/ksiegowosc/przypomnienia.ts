@@ -143,12 +143,17 @@ export function niezaplacone(w: {
     const kwotaGr = bezKwoty ? null : zmienione && szkic?.ok ? szkic.kwotaGr : ostatnia ? ostatnia.kwotaGr : szkic?.ok ? szkic.kwotaGr : null;
     const zaplaconoGr = zaplacono(w.rozliczenia, rodzaj);
     if (kwotaGr === null) {
+      // D64 (FZ-030): VAT 0 zł z przyjętym JPK_V7M w miesiącu bez kwot (`pozycje: null`): obowiązkiem był plik, więc cisza
+      // (jak w liczącym się miesiącu, F11-B5); zmiana danych po złożeniu to korekta pliku, o której przypomnienie nie mówi.
+      if (rodzaj === 'vat' && w.pozycje === null && w.jpkPrzyjete && ostatnia?.kwotaGr === 0) continue;
+      // D64: o oznaczonej zapłacie decyduje status wersji, nie kwota (zapłata 0 zł to oznaczona zapłata).
+      const brakZaplaconej = !w.rozliczenia.some((r) => r.rodzaj === rodzaj && r.status === 'zaplacone');
       // Bez kwoty: przypomnienie, gdy nic nie jest oznaczone jako zapłacone albo najnowsza wersja czeka na zapłatę
       // (FZ-030: dopłata po zapłaconej wcześniejszej wersji nie może zniknąć razem z kwotą). D32: także gdy najnowsza
       // zapłacona wersja jest wyliczona przez moduł, a szkic ma brak z danych (po zmianie danych może zostać dopłata);
       // przy zapłacie spoza wyliczenia (`reczna`, kwota z PUE ZUS) cisza.
       const zaplaconaWyliczona = ostatnia !== null && ostatnia.status === 'zaplacone' && !ostatnia.reczna;
-      if (zaplaconoGr === 0 || (ostatnia !== null && ostatnia.status !== 'zaplacone')) wynik.push({ rodzaj, kwotaGr: null });
+      if (brakZaplaconej || (ostatnia !== null && ostatnia.status !== 'zaplacone')) wynik.push({ rodzaj, kwotaGr: null });
       else if (brakWSzkicu && zaplaconaWyliczona) wynik.push({ rodzaj, kwotaGr: null, poZaplacie: true });
       continue;
     }
