@@ -234,6 +234,13 @@ describe('krok submitToKsef runnera: klient widzi powód i wyjście', () => {
     expect(m.wyslane).toEqual([]);
   });
 
+  it('odmowa z własnym wyjściem nie dostaje „Popraw wskazane dane.” (nic w danych faktury do poprawy)', async () => {
+    const blad = await submitToKsef(kontekst(brutto())).then(() => null, (e: unknown) => e as Error);
+    const dlaKlienta = validationFailureIn(blad);
+    expect(dlaKlienta?.message).toMatch(BRUTTO_ZABLOKOWANE);
+    expect(dlaKlienta?.suggestion).toBeNull();
+  });
+
   it('włączony: faktura w cenach brutto przechodzi przez krok do KSeF', async () => {
     m.flaga = true;
     await expect(submitToKsef(kontekst(brutto()))).resolves.toMatchObject({ ksefNumber: 'K-1', via: 'submit' });

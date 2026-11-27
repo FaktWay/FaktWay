@@ -10,6 +10,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { listaDoZaplaty } from '@/lib/expenses/do-zaplaty';
 import { wczytajKosztyDoZaplaty } from '@/lib/expenses/do-zaplaty-dane';
 import { grupyDoIdentyfikatora, mozeTworzycIdentyfikator } from '@/lib/expenses/identyfikator-zbiorczy';
+import { loadLinkedKsefCopyIds } from '@/lib/expenses/kopia-faktury-ksef-view';
 import { wczytajZapisaneIdentyfikatory } from '@/lib/expenses/identyfikator-zbiorczy-dane';
 import { readTenantBankAccount } from '@/lib/expenses/rachunek-firmy';
 import { monthRange, parseExpenseMonth } from '@/lib/expenses/month';
@@ -123,6 +124,9 @@ export default async function ExpensesPage({
   }
 
   const { data: expenses, error } = await expensesQuery;
+  // FZ-022, D29 (00215): kopie połączone z fakturą z KSeF dostają dopisek na liście (są poza KPiR).
+  const kopie = new Set(expenses?.length ? await loadLinkedKsefCopyIds(supabase, tenantId, expenses.map((e) => e.id)) : []);
+  const wiersze = (expenses ?? []).map((e) => (kopie.has(e.id) ? { ...e, ksef_copy: true } : e));
 
   // Bez dolnego odstępu pod pływającym „+ Dodaj wydatek”: karta ma sięgać stopki
   // jak w Skrzynce KSeF, a na końcu przewijania stopka z `py-6` powłoki i tak
@@ -160,7 +164,7 @@ export default async function ExpensesPage({
       ) : (
         <div className="flex w-full flex-1 flex-col">
           <ExpensesTable
-            expenses={expenses ?? []}
+            expenses={wiersze}
             listVariant={unreviewedOnly ? 'unreviewed' : 'month'}
           />
         </div>

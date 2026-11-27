@@ -59,6 +59,11 @@ export type InboxRow = {
    * `candidates`: możliwy podwójny koszt, decyzja na stronie wydatku.
    */
   receiptMatch: ReceiptMatchState | null;
+  /**
+   * FZ-022, D29 (00215): w kosztach jest też kopia tej faktury spoza KSeF
+   * i czeka zadanie „Połącz koszty” (decyzja na stronie wydatku).
+   */
+  ksefCopyTask: boolean;
 };
 
 export type ReceiptMatchState = 'candidates' | 'linked';
@@ -77,6 +82,7 @@ export function buildInboxRows(
   invoices: readonly InboxInvoiceRow[],
   expenses: readonly ExpenseLink[] | null,
   receiptMatches: ReadonlyMap<string, ReceiptMatchState> | null = null,
+  ksefCopyTasks: ReadonlySet<string> | null = null,
 ): InboxRow[] {
   const byInvoice = new Map<string, ExpenseLink>();
   for (const expense of expenses ?? []) {
@@ -99,6 +105,7 @@ export function buildInboxRows(
       status: expenses === null || !expense ? null : expense.is_reviewed ? 'reviewed' : 'new',
       fromKsefHistory: invoice.origin === 'ksef_import',
       receiptMatch: expense ? receiptMatches?.get(expense.id) ?? null : null,
+      ksefCopyTask: expense ? ksefCopyTasks?.has(expense.id) ?? false : false,
     };
   });
 }

@@ -8,6 +8,8 @@ import { contractorSearchFilter } from '@/lib/contractors/edit';
 import { normalizeNip, receivablesByNip, type ContractorReceivables } from '@/lib/contractors/overview';
 import { RECEIVABLES_NOTE } from '@/lib/dashboard/receivables';
 import { sanitizeSearch } from '@/lib/invoices/list-query';
+import { canIssueBalanceConfirmations } from '@/lib/saldo/model';
+import { potwierdzenieSaldaDostepne } from '@/lib/saldo/wylacznik';
 import { getPageContext } from '@/lib/supabase/page-context';
 
 import { ContractorStatTiles, foreignCurrencyNote, loadReceivables } from './_components/contractor-stat-tiles';
@@ -26,7 +28,9 @@ export default async function ContractorsPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { supabase, tenantId } = await getPageContext();
+  const { supabase, tenantId, role } = await getPageContext();
+  // Przycisk „Potwierdzenie salda” (krok 2.9, część 2, PR C): wyłącznik i rola z uprawnieniem.
+  const balanceAvailable = canIssueBalanceConfirmations(role) && (await potwierdzenieSaldaDostepne());
   const sp = (await searchParams) ?? {};
   const q = sanitizeSearch(Array.isArray(sp.q) ? sp.q[0] ?? '' : sp.q ?? '');
 
@@ -71,6 +75,7 @@ export default async function ContractorsPage({
       vat_status: contractor.vat_status,
       validation_warning: contractor.validation_warning,
       reminder_excluded: contractor.reminder_excluded,
+      balanceAvailable: balanceAvailable && Boolean(nip),
       receivables: byNip === null ? null : (nip ? byNip.get(nip) : undefined) ?? { outstanding: 0, overdueCount: 0 },
     };
   });

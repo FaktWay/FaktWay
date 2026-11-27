@@ -304,6 +304,46 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
       }
     });
 
+    it('D65 (00220): zgłoszenie za późniejszy miesiąc składa też miesiące wcześniejsze, każde z trzech źródeł; miesiąc wcześniejszy nie składa późniejszego', async () => {
+      const rozliczenie = () =>
+        admin.from('tax_settlements').insert({
+          tenant_id: ORG, okres: '2027-04-01', rodzaj: 'pit', wersja: 1, kwota_gr: 10000, termin: '2027-05-20',
+          migawka: { wejscia: { lancuch: [] }, spoleczneBezFpGr: 0 }, parametry_wersja: 'abcd1234abcd1234', wejscia_hash: 'a'.repeat(64),
+        });
+      const wysylka = () =>
+        admin.from('jpk_submissions').insert({
+          tenant_id: ORG, okres: '2027-04-01', rodzaj: 'JPK_V7M', cel: 1, srodowisko: 'produkcja',
+          skrot_pliku: 'AM/SlQpito+9Ctp5oFY8PT+eS1PXNokUptIKKh3xMCw=', deklaracja: {},
+        });
+      const eksport = (format: string) =>
+        admin.from('export_jobs').insert({
+          tenant_id: ORG, format, period_start: '2027-04-01', period_end: '2027-04-30', status: 'completed',
+          completed_at: '2027-05-02T10:00:00Z', include_issued: true, include_received: true,
+        });
+      const zrodla: Array<[string, () => PromiseLike<{ error: { message: string } | null }>]> = [
+        ['rozliczenie PIT', rozliczenie], ['wysyłka JPK_V7M', wysylka], ['eksport KPiR', () => eksport('kpir_excel')], ['eksport JPK_V7M', () => eksport('jpk_v7m')],
+      ];
+      for (const [nazwa, wstaw] of zrodla) {
+        await cleanup();
+        const r = await wstaw();
+        if (r.error) throw new Error(`${nazwa}: ${r.error.message}`);
+        // Koszty z lutego i marca, zgłoszenie za kwiecień: złożone.
+        const ksef = await zKsef(ORG, NUMER, '2027-02-05');
+        const kopia = await koszt(ORG, NUMER, '2027-03-05');
+        await zadanie(ksef, kopia);
+      }
+      // Zgłoszenie za wcześniejszy miesiąc (luty) nie składa marca.
+      await cleanup();
+      const wczesniejszy = await admin.from('jpk_submissions').insert({
+        tenant_id: ORG, okres: '2027-02-01', rodzaj: 'JPK_V7M', cel: 1, srodowisko: 'produkcja',
+        skrot_pliku: 'AM/SlQpito+9Ctp5oFY8PT+eS1PXNokUptIKKh3xMCw=', deklaracja: {},
+      });
+      if (wczesniejszy.error) throw new Error(`jpk_submissions: ${wczesniejszy.error.message}`);
+      const ksefMarzec = await zKsef(ORG, NUMER, '2027-03-05');
+      await koszt(ORG, NUMER, '2027-03-06');
+      expect(await polacz(ORG, ksefMarzec)).toBe('linked');
+    });
+
     it('złożony miesiąc kosztu z KSeF (kopia z niezłożonego miesiąca)', async () => {
       const { error } = await admin.from('export_jobs').insert({
         tenant_id: ORG, format: 'kpir_excel', period_start: '2027-02-01', period_end: '2027-02-28', status: 'completed',
@@ -370,13 +410,13 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
     expect(await polaczenia()).toEqual([]);
   });
 
-  it('eksport nieudany albo za inny miesiąc i wysyłka JPK odrzucona nie blokują łączenia', async () => {
+  it('eksport nieudany albo za wcześniejszy miesiąc i wysyłka JPK odrzucona nie blokują łączenia', async () => {
     const eksport = (status: string, od: string, doDnia: string) =>
       admin.from('export_jobs').insert({
         tenant_id: ORG, format: 'jpk_v7m', period_start: od, period_end: doDnia, status,
         completed_at: status === 'completed' ? '2027-04-02T10:00:00Z' : null, include_issued: true, include_received: true,
       });
-    for (const r of [await eksport('failed', '2027-02-01', '2027-02-28'), await eksport('completed', '2027-03-01', '2027-03-31')]) {
+    for (const r of [await eksport('failed', '2027-02-01', '2027-02-28'), await eksport('completed', '2027-01-01', '2027-01-31')]) {
       if (r.error) throw new Error(`export_jobs: ${r.error.message}`);
     }
     const jpk = await admin.from('jpk_submissions').insert({
@@ -457,6 +497,27 @@ describe.skipIf(!hasDatabase)('FZ-022, D29 (00215): kopia faktury z KSeF łączy
     // Rozłączenie po zmianie środowiska: kopia wraca do KPiR (bez tego zostałaby poza KPiR, a odczyt pomija koszt z TEST).
     expect(await decyzja(ksef, null, ownerId, 'production')).toBe('separated');
     expect(await stan(a)).toMatchObject({ is_deductible: true });
+  });
+
+  it('00217: decyzja nie łączy przy koszcie z KSeF poza KPiR (not_deductible, bez zmian), a „to osobne dokumenty” działa', async () => {
+    const ksef = await zKsef(ORG);
+    const a = await koszt(ORG, NUMER, '2027-02-05');
+    await koszt(ORG, NUMER, '2027-02-05', { source: 'manual' });
+    expect(await polacz(ORG, ksef)).toBe('candidates');
+    // Klient zgodnie z wyjściem z odmowy wyłącza koszt z KSeF, a potem wybiera kopię.
+    const wylacz = await admin.from('expenses').update({ is_deductible: false }).eq('id', ksef);
+    if (wylacz.error) throw wylacz.error;
+    expect(await decyzja(ksef, a)).toBe('not_deductible');
+    expect(await stan(a)).toMatchObject({ is_deductible: true });
+    expect((await polaczenia()).map((m) => m.status)).toEqual(['candidate', 'candidate']);
+    expect(await decyzja(ksef, null)).toBe('separated');
+    // Po włączeniu kosztu z KSeF łączenie wraca.
+    await cleanup();
+    const ksef2 = await zKsef(ORG);
+    const a2 = await koszt(ORG, NUMER, '2027-02-05');
+    await koszt(ORG, NUMER, '2027-02-05', { source: 'manual' });
+    expect(await polacz(ORG, ksef2)).toBe('candidates');
+    expect(await decyzja(ksef2, a2)).toBe('linked');
   });
 
   it('decyzja osoby spoza firmy: odmowa 42501, bez zmian', async () => {

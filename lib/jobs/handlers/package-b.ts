@@ -19,7 +19,7 @@ import { runCriticalAlertsMonitor } from '../runners/critical-alerts-monitor';
 import { runDailyAnalyticsDigest } from '../runners/daily-analytics-digest';
 import { runDailySummaryEmail } from '../runners/daily-summary-email';
 import { runDunningPaymentFailed } from '../runners/dunning-payment-failed';
-import { runKsiegowoscMiesiac } from '../runners/ksiegowosc-miesiac';
+import { PONOWIENIA_MIESIACA, runKsiegowoscMiesiac } from '../runners/ksiegowosc-miesiac';
 import { PONOWIENIA_TERMINOW, runKsiegowoscTerminy } from '../runners/ksiegowosc-terminy';
 import {
   runEmailDay1,
@@ -82,7 +82,7 @@ cronJob('cron.critical-alerts-monitor', runCriticalAlertsMonitor);
 cronJob('cron.daily-analytics-digest', runDailyAnalyticsDigest);
 cronJob('cron.daily-summary-email', runDailySummaryEmail);
 // Moduł księgowości (K5): firmy w pilotażu, idempotencja w tax_notifications (00169).
-cronJob('cron.ksiegowosc-miesiac', runKsiegowoscMiesiac);
+cronJob('cron.ksiegowosc-miesiac', runKsiegowoscMiesiac, PONOWIENIA_MIESIACA);
 cronJob('cron.ksiegowosc-terminy', runKsiegowoscTerminy, PONOWIENIA_TERMINOW);
 cronJob('cron.reminder-scheduler', runReminderScheduler);
 cronJob('cron.trial-countdown-emails', runTrialCountdownEmails);

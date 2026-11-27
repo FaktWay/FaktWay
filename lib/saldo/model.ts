@@ -23,7 +23,15 @@ export function canIssueBalanceConfirmations(role: string | null | undefined): b
 }
 
 /** Powody pominięcia faktury (CHECK `balance_confirmation_omitted_valid`, 00216). */
-export const OMITTED_REASONS = ['corrected', 'correction_due', 'advance_settlement', 'imported', 'foreign_currency'] as const;
+export const OMITTED_REASONS = [
+  'corrected',
+  'correction_due',
+  'advance_settlement',
+  'advance_settled',
+  'awaiting_ksef_number',
+  'imported',
+  'foreign_currency',
+] as const;
 export type OmittedReason = (typeof OMITTED_REASONS)[number];
 
 /** Kody odmów funkcji 00216 (nagłówek migracji). */

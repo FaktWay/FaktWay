@@ -1,6 +1,7 @@
 import { after } from 'next/server';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { loadKsefCopyTasks } from '@/lib/expenses/kopia-faktury-ksef-view';
 import { requestInboxPollOnVisit } from '@/lib/ksef/inbox-activity';
 import { getPageContext } from '@/lib/supabase/page-context';
 
@@ -58,9 +59,11 @@ export default async function InboxPage() {
       ? await loadInboxExpenseLinks(supabase, tenantId, invoiceRows.map((row) => row.id))
       : [];
   const expenseIds = (links ?? []).map((link) => link.id);
-  const receiptMatches =
-    expenseIds.length > 0 ? await loadInboxReceiptMatches(supabase, tenantId, expenseIds) : null;
-  const rows = buildInboxRows(invoiceRows, links, receiptMatches);
+  const [receiptMatches, ksefCopyTasks] =
+    expenseIds.length > 0
+      ? await Promise.all([loadInboxReceiptMatches(supabase, tenantId, expenseIds), loadKsefCopyTasks(supabase, tenantId, expenseIds)])
+      : [null, null];
+  const rows = buildInboxRows(invoiceRows, links, receiptMatches, ksefCopyTasks);
 
   // Zawartość karty sekcji Kosztów: kafle, kartę i rząd zakładek daje
   // `(koszty)/layout.tsx` (poprawka Bartosza 25.10.2026 — przełączenie

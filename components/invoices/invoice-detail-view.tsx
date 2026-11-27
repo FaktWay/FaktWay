@@ -27,6 +27,7 @@ import { tytulPrzelewuNaDokumencie } from '@/lib/invoices/tytul-przelewu';
 import type { KsefResendFacts } from '@/lib/invoices/ksef-requeue-event';
 import { automaticResendExpected } from '@/lib/invoices/ksef-send-policy';
 import type { ReceiptInvoiceView } from '@/lib/invoices/receipt-invoice';
+import { sellerIdentifier } from '@/lib/invoices/vat-ue';
 import { vatSummaryAgreesWithGross, vatSummaryByRate } from '@/lib/invoices/vat-summary';
 import type { DuplicateOriginalView } from '@/lib/ksef/duplicate-check';
 import type { DuplicateDecisionView, ImportedOriginalProvenance, RetiredDraftView } from '@/lib/ksef/duplicate-decision';
@@ -160,6 +161,11 @@ export interface InvoiceDetailInitial {
   receipt_invoice?: ReceiptInvoiceView | null;
   /** Krok 2.8: gotowy wiersz „Zamówienie: …” z `fa3_data.order` (liczy serwer). Brak pola = `null`. */
   order_reference?: string | null;
+  /**
+   * Ustalenie 28: stawki pozycji stanów przed i po korekty (`correctionEnvelopeVatRates`, liczy
+   * serwer z `special_data`), bo prefiks PL sprzedawcy zależy też od stanu przed. Brak = `[]`.
+   */
+  correction_vat_rates?: string[];
 }
 
 interface PaymentSnapshot {
@@ -539,7 +545,10 @@ export function InvoiceDetailView({ initial }: { initial: InvoiceDetailInitial }
               <div className="text-muted-foreground space-y-1 text-sm">
                 {seller.address?.addressLine1 && <p>{seller.address.addressLine1}</p>}
                 {seller.address?.addressLine2 && <p>{seller.address.addressLine2}</p>}
-                {seller.nip && <p>NIP: {seller.nip}</p>}
+                {seller.nip && (() => {
+                  const id = sellerIdentifier(seller.nip, [...lines.map((line) => line.vat_rate), ...(inv.correction_vat_rates ?? [])]);
+                  return <p>{id.label}: {id.value}</p>;
+                })()}
               </div>
             </div>
             <div className="space-y-4 sm:text-right">

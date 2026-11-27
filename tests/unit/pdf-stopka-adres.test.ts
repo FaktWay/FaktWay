@@ -71,7 +71,7 @@ describe('PDF: stopka z adresem strony', () => {
     const key = buildInvoicePdfKey('tenant', 'invoice', '2026-11-02', 'none');
     // Stopka weszła w v6; v7 (krok 1.4, tytuł przelewu z numerem KSeF) ją zawiera.
     // v9 (krok 2.8): wiersz „Zamówienie” przy fakturze z numerem zamówienia; zmiana wydruku podbija wersję (pdf-storage.ts).
-    expect(key).toContain('.v10.');
+    expect(key).toContain('.v11.');
   });
 });
 

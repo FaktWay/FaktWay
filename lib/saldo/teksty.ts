@@ -24,11 +24,11 @@ export const BALANCE_SCOPE_NOTICE =
 
 /** Przypis przy fakturze rozliczającej zaliczki (ROZ): kwota do zapłaty to reszta po zaliczkach. */
 export const BALANCE_SETTLEMENT_NOTE =
-  'Faktura rozliczająca zaliczki: do zapłaty jest kwota po odliczeniu zaliczek (art. 106f ust. 3 ustawy o VAT).';
+  'Faktura rozliczająca zaliczki: kwota brutto to kwota pozostała do zapłaty po zaliczkach (art. 106f ust. 3 ustawy o VAT).';
 
 /** Zdanie o saldzie (PDF, mail, podgląd). */
 export function balanceSummarySentence(total: number): string {
-  return `Saldo należności wystawcy od adresata według ewidencji wystawcy: ${formatPlMoney(total)} PLN.`;
+  return `Saldo wymienionych faktur według ewidencji wystawcy: ${formatPlMoney(total)} PLN.`;
 }
 
 /** Powód pominięcia faktury na liście „Pominięte dokumenty” (ekran wystawienia, D27 K4). */
@@ -36,6 +36,9 @@ export const OMITTED_REASON_LABELS: Record<OmittedReason, string> = {
   corrected: 'Faktura ma korektę, a FaktWay nie liczy jeszcze salda po korektach.',
   correction_due: 'Faktura korygująca do zapłaty, a FaktWay nie liczy jeszcze salda po korektach.',
   advance_settlement: 'Zaliczka ma fakturę rozliczającą, której nie ma jeszcze w KSeF.',
+  advance_settled:
+    'Zaliczka ma przyjętą fakturę rozliczającą, a pełnej wpłaty nie oznaczono. Oznacz wpłatę zaliczki na liście faktur, jeśli klient ją zapłacił.',
+  awaiting_ksef_number: 'Faktura czeka jeszcze na numer KSeF. Zestawienie obejmie ją po przyjęciu w KSeF.',
   imported: 'Faktura z importu: FaktWay nie zna jej wpłat. Zapłaconą można oznaczyć na liście faktur.',
   foreign_currency: 'Faktura w walucie obcej: zestawienie obejmuje tylko faktury w złotych.',
 };
@@ -76,6 +79,8 @@ export const BALANCE_TEXTS = {
   /** Saldo z bazy różni się od należności na Pulpicie: dokument nie wychodzi, operator szuka przyczyny. */
   pulpitMismatch:
     'Saldo w zestawieniu różni się od należności tego kontrahenta na Pulpicie, więc nie wystawiliśmy dokumentu. Napisz do nas przez Pomoc, sprawdzimy różnicę.',
+  /** D59: wysyłka przy wyłączonym wyłączniku; PDF wystawionego dokumentu zostaje do pobrania. */
+  emailDisabled: 'Wysyłka potwierdzeń salda z FaktWay jest teraz wstrzymana. Wystawiony dokument można pobrać w PDF.',
   emailInvalid: 'Podaj poprawny adres e-mail odbiorcy.',
   emailNotConfigured: 'Wysyłka e-mail nie jest skonfigurowana.',
   emailBlocked:

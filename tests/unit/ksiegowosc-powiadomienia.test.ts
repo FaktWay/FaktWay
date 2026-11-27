@@ -523,3 +523,97 @@ describe('dzwonek w aplikacji: termin podatku (krok 8.1 planu kompletnej aplikac
     expect(mocks.dzwonek).toEqual([]);
   });
 });
+
+describe('D63 (FZ-030): błąd odczytu poza VAT to ponowienie, ostatnia próba idzie dalej', () => {
+  const bladRozliczen = { ok: false, braki: ['Nie udało się odczytać rozliczeń, więc nie pokazujemy kwot.'], rozliczenia: [], zaplatyReczne: [], bladOdczytu: true, bladOdczytuRozliczen: true };
+  const bladZdrowotnej = { ok: false, rodzaj: 'zdrowotna', termin: null, brak: 'Brak KPiR za grudzień 2025, więc tej składki nie liczymy.' };
+  const ostatnia = { ...ctx, attempt: PONOWIENIA_TERMINOW } as unknown as JobContext;
+  const sentry = async () => {
+    const Sentry = await import('@sentry/nextjs');
+    vi.mocked(Sentry.captureException).mockClear();
+    return vi.mocked(Sentry.captureException);
+  };
+
+  it('terminy: błąd odczytu miesiąca daje ponowienie bez wpisu i wysyłki; ostatnia próba: bez przypomnienia („bez zapłaty” byłoby nieprawdą) i wpis w Sentry', async () => {
+    const captureException = await sentry();
+    mocks.dzis = '2026-11-15';
+    mocks.dane = bladRozliczen;
+    await expect(runKsiegowoscTerminy(ctx)).rejects.toThrow('do ponowienia');
+    expect([mocks.pushe, mocks.maile, mocks.dzwonek, mocks.wpisy.size]).toEqual([[], [], [], 0]);
+
+    captureException.mockClear();
+    expect(await runKsiegowoscTerminy(ostatnia)).toMatchObject({ wyslane: 0, pominiete: 1 });
+    expect([mocks.pushe, mocks.maile, mocks.wpisy.size]).toEqual([[], [], 0]);
+    expect(captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('po ponowieniach') }),
+      expect.objectContaining({ extra: expect.objectContaining({ krok: 'odczyt-ostatnia-proba' }) }),
+    );
+  });
+
+  it('terminy: błąd profilu (rozliczenia odczytane) na ostatniej próbie wysyła przypomnienie bez kwoty, bo zapłaty są znane', async () => {
+    mocks.dzis = '2026-11-15';
+    mocks.dane = { ...bladRozliczen, bladOdczytuRozliczen: undefined };
+    expect(await runKsiegowoscTerminy(ostatnia)).toMatchObject({ wyslane: 1 });
+    expect(String(mocks.pushe[0].payload.body)).not.toMatch(/\d,\d\d zł/);
+  });
+
+  it('odmowa z przyczyną w danych (bez flagi błędu odczytu) zostaje miesiącem bez kwot, bez ponowienia', async () => {
+    mocks.dzis = '2026-11-15';
+    mocks.dane = { ok: false, braki: ['Brak ustawień firmy w module.'], rozliczenia: [], zaplatyReczne: [] };
+    expect(await runKsiegowoscTerminy(ctx)).toMatchObject({ wyslane: 1 });
+  });
+
+  it('terminy, styczeń: błąd odczytu KPiR poprzedniego roku (składka zdrowotna) to ponowienie; ostatnia próba bez kwoty zdrowotnej i bez zdania po zapłacie', async () => {
+    const captureException = await sentry();
+    mocks.dzis = '2026-02-15';
+    mocks.dane = { ...POLICZONE, pozycje: [pozycja('ryczalt', 153_600), pozycja('zus_spoleczne', 192_676), bladZdrowotnej], bladOdczytuPoprzedniego: true };
+    await expect(runKsiegowoscTerminy(ctx)).rejects.toThrow('do ponowienia');
+    expect([mocks.pushe, mocks.wpisy.size]).toEqual([[], 0]);
+
+    captureException.mockClear();
+    const zaplacona = {
+      id: 'z1', miesiac: '2026-01', rodzaj: 'zdrowotna', wersja: 1, kwotaGr: 83_058, termin: '2026-02-20', status: 'zaplacone',
+      wejsciaHash: H, zatwierdzoneO: '2026-02-02T10:00:00Z', zaplaconeO: '2026-02-03', spoleczneBezFpGr: 0, reczna: false,
+    };
+    mocks.dane = { ...(mocks.dane as object), rozliczenia: [zaplacona] };
+    expect(await runKsiegowoscTerminy(ostatnia)).toMatchObject({ wyslane: 1 });
+    const tresc = String(mocks.pushe[0].payload.body);
+    expect(tresc).not.toContain('Z oznaczoną zapłatą');
+    expect(tresc).not.toMatch(/zdrowotn/);
+    expect(captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('KPiR poprzedniego roku') }),
+      expect.objectContaining({ extra: expect.objectContaining({ krok: 'kpir-poprzedni-ostatnia-proba' }) }),
+    );
+  });
+
+  it('miesiąc: błąd odczytu to ponowienie bez wpisu; ostatnia próba bez wysyłki „wyliczone” i z wpisem w Sentry', async () => {
+    const captureException = await sentry();
+    mocks.dane = bladRozliczen;
+    await expect(runKsiegowoscMiesiac(ctx)).rejects.toThrow('do ponowienia');
+    expect([mocks.pushe, mocks.wpisy.size]).toEqual([[], 0]);
+    captureException.mockClear();
+    expect(await runKsiegowoscMiesiac({ ...ctx, attempt: 4 } as unknown as JobContext)).toMatchObject({ pominiete: 1 });
+    expect(mocks.pushe).toEqual([]);
+    expect(captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('po ponowieniach') }),
+      expect.objectContaining({ extra: expect.objectContaining({ krok: 'odczyt-ostatnia-proba' }) }),
+    );
+  });
+
+  it('miesiąc: błąd odczytu VAT to ponowienie, a nie „wyliczone” bez VAT; ostatnia próba wysyła bez VAT z wpisem w Sentry', async () => {
+    const captureException = await sentry();
+    const bladVat = { ok: false, rodzaj: 'vat', termin: null, brak: BLAD_ODCZYTU_VAT };
+    mocks.dane = { ...POLICZONE, pozycje: [...POLICZONE.pozycje, bladVat] };
+    await expect(runKsiegowoscMiesiac(ctx)).rejects.toThrow('do ponowienia');
+    expect([mocks.pushe, mocks.wpisy.size]).toEqual([[], 0]);
+    captureException.mockClear();
+    expect(await runKsiegowoscMiesiac({ ...ctx, attempt: 4 } as unknown as JobContext)).toMatchObject({ wyslane: 1 });
+    expect(String(mocks.pushe[0].payload.body)).not.toContain('VAT');
+    expect(captureException).toHaveBeenCalledTimes(1);
+  });
+
+  it('miesiąc: odmowa z przyczyną w danych zostaje „bez kwot”, bez ponowienia', async () => {
+    mocks.dane = { ok: false, braki: ['Stawki czekają na sprawdzenie.'], rozliczenia: [], zaplatyReczne: [] };
+    expect(await runKsiegowoscMiesiac(ctx)).toMatchObject({ pominiete: 1 });
+  });
+});

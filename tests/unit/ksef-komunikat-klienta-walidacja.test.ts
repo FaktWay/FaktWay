@@ -60,6 +60,21 @@ describe('validationFailureIn', () => {
     expect(failure?.suggestion).toBe('Popraw wskazane dane.');
   });
 
+  it('odmowa z własnym wyjściem (np. hamulec ROZ, wyłącznik cen brutto, „usuń szkic”): bez „Popraw wskazane dane.”', () => {
+    const failure = validationFailureIn(
+      owiniety(new InvoiceValidationError(['Tej faktury nie wyślemy. Usuń szkic i wystaw dokument od nowa.'], { ownExit: true })),
+    );
+
+    expect(failure?.message).toBe('Faktura nie trafiła do KSeF. Tej faktury nie wyślemy. Usuń szkic i wystaw dokument od nowa.');
+    expect(failure?.suggestion).toBeNull();
+  });
+
+  it('znacznik własnego wyjścia czytany z błędu także z innej kopii modułu', () => {
+    const obcy = Object.assign(new Error('x'), { name: 'InvoiceValidationError', errors: ['Wyjście jest w treści.'], ownExit: true });
+
+    expect(validationFailureIn(owiniety(obcy))?.suggestion).toBeNull();
+  });
+
   it('walidacja faktury: najwyżej trzy uwagi, reszta jako liczba', () => {
     const failure = validationFailureIn(owiniety(new InvoiceValidationError(['A.', 'B.', 'C.', 'D.', 'E.'])));
 

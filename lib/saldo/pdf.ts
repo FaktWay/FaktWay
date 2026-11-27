@@ -139,7 +139,8 @@ function itemValues(item: BalanceItem, index: number): string[] {
     `${item.number}${mark}`,
     formatIsoDatePl(item.issueDate),
     item.dueDate ? formatIsoDatePl(item.dueDate) : 'bez terminu',
-    formatPlMoney(item.gross),
+    // D58: przy ROZ kwota po zaliczkach (P_15), więc brutto minus wpłacono daje do zapłaty.
+    formatPlMoney(item.kind === 'final' ? item.amountDue : item.gross),
     formatPlMoney(item.paid),
     formatPlMoney(item.outstanding),
   ];

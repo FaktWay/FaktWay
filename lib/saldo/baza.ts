@@ -1,6 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { balanceConfirmationFromRow, type BalanceConfirmation, type BalanceEmailRecord } from '@/lib/saldo/model';
+import {
+  balanceConfirmationFromRow,
+  type BalanceConfirmation,
+  type BalanceEmailRecord,
+} from '@/lib/saldo/model';
 
 /**
  * Odczyty potwierdzeń salda (00216) klientem z sesji: RLS zawęża do aktywnej
@@ -59,4 +63,36 @@ export async function countBalanceEmailsTo(client: unknown, tenantId: string, co
     .eq('recipient', recipient);
   if (error) throw new Error(`balance_confirmation_emails: ${error.message}`);
   return count ?? 0;
+}
+
+/** Wiersz listy wystawionych potwierdzeń salda (zakładka w „Noty”). */
+export interface BalanceListItem {
+  id: string;
+  number: string;
+  asOf: string;
+  counterpartyName: string;
+  total: number;
+  issuedAt: string;
+}
+
+export const BALANCE_LIST_LIMIT = 200;
+
+/**
+ * Lista wystawionych dokumentów firmy, od najnowszego (do 200). Pełny wiersz
+ * jest sprawdzany jak przy podglądzie (`balanceConfirmationFromRow`): dokumentu
+ * w nieznanym kształcie nie pokazujemy z części, błąd rzuca.
+ */
+export async function listBalanceConfirmations(client: unknown, tenantId: string): Promise<BalanceListItem[]> {
+  const { data, error } = await untyped(client)
+    .from('balance_confirmations')
+    .select(BALANCE_COLUMNS)
+    .eq('tenant_id', tenantId)
+    .order('issued_at', { ascending: false })
+    .limit(BALANCE_LIST_LIMIT);
+  if (error) throw new Error(`balance_confirmations: ${error.message}`);
+  return ((data ?? []) as unknown[]).map((row) => {
+    const doc = balanceConfirmationFromRow(row);
+    if (!doc) throw new Error('balance_confirmations: wiersz w nieznanym kształcie');
+    return { id: doc.id, number: doc.number, asOf: doc.asOf, counterpartyName: doc.counterparty.name, total: doc.total, issuedAt: doc.issuedAt };
+  });
 }

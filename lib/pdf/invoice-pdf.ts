@@ -286,6 +286,7 @@ export async function generateInvoicePdf(
       qrPayload,
       qrLabel: qrLabel(data.ksefNumber),
       correctedInvoice: data.correctedInvoice,
+      correctionVatRates: data.correctionVatRates,
       receiptInvoiceMarker: data.receiptInvoiceMarker,
       testWatermark: (process.env.KSEF_ENV ?? 'test') === 'test',
       previewNotice: missingKodI ? PREVIEW_WITHOUT_KOD_I : null,
