@@ -18,8 +18,9 @@ export const OCR_MODEL = process.env.ANTHROPIC_OCR_MODEL ?? 'claude-sonnet-4-6';
  */
 
 /**
- * Domyślne dla klienta, bo bez własnych opcji wołają go tylko joby: OCR
- * (`lib/ocr/engine.ts`) i kategoryzacja (`lib/categorization/ai-classifier.ts`).
+ * Domyślne dla klienta, bo bez własnych opcji woła go już tylko odczyt zdjęcia
+ * w jobie OCR (`lib/ocr/engine.ts`). Kategoryzacja kosztów podaje własne
+ * (`ANTHROPIC_REQUEST_LIMITS` niżej i sufit w `lib/categorization/ai-classifier.ts`).
  * Najdłuższe uczciwe wywołanie to OCR (`OCR_MODEL`, `max_tokens` 2048), które
  * SDK szacuje ostrożnie na 57,6 s (128 000 tokenów na godzinę). Limit to
  * ok. dwa takie szacunki. Najgorszy przypadek przy połączeniu, które stanęło:
@@ -30,10 +31,13 @@ export const ANTHROPIC_WORKER_LIMITS = { timeout: 120_000, maxRetries: 1 } as co
 
 /**
  * Wywołania, na które czeka człowiek albo które mają gotowy zapas (czat
- * pomocy, Flo z szablonem). Odpowiedzi do 1024 tokenów; SDK szacuje 400
- * tokenów na 11,25 s. Najgorszy przypadek przy połączeniu, które stanęło:
- * 2 próby po 20 s, ok. 40 s do komunikatu o błędzie albo szablonu. Przerwę
- * z `retry-after` (wyżej) w czacie ucina jego limit 60 s, we Flo nie.
+ * pomocy, Flo z szablonem, kategoryzacja kosztów z kolumną 13 po porażce).
+ * Odpowiedzi do 1024 tokenów; SDK szacuje 400 tokenów na 11,25 s. Najgorszy
+ * przypadek przy połączeniu, które stanęło: 2 próby po 20 s, ok. 40 s do
+ * komunikatu o błędzie albo zapasu. Przerwę z `retry-after` (wyżej) ucina
+ * w czacie jego limit 60 s, w kategoryzacji jej sufit 45 s, a we Flo nic.
+ * Zmiana tych liczb przesuwa też rachunek sufitu kategoryzacji (komentarz
+ * nad `CLASSIFIER_DEADLINE_MS`).
  */
 export const ANTHROPIC_REQUEST_LIMITS = { timeout: 20_000, maxRetries: 1 } as const;
 

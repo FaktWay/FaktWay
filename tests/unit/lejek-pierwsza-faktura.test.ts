@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { JobContext } from '@/lib/jobs/registry';
 import type { Invoice } from '@/types/invoice';
+import { todayInWarsaw } from '@/lib/format/warsaw-date';
 
 import { memoryDb, type MemoryDb, type Row } from '../helpers/fake-supabase-memory';
 import { fakePosthog, lejekClient } from '../helpers/lejek-atrapy';
@@ -93,9 +94,13 @@ const ctx: JobContext = {
   step: { run: async (_n, fn) => fn(), sleep: vi.fn(), sendEvent: vi.fn(), scheduleAfter: vi.fn() },
 };
 
+// B2a: zwykła faktura wychodzi do KSeF do końca następnego dnia roboczego po dacie
+// wystawienia, a bezpiecznik runnera i haka sesji liczy od prawdziwego zegara —
+// faktura przechodząca przez wysyłkę ma więc datę „dziś” w Polsce (stała data by się zestarzała).
+const TODAY_PL = todayInWarsaw();
 const event = (invoiceId = FIRST) => ({
   invoiceId, tenantId: TENANT, nip: '1234567890', environment: 'test' as const, sendAttemptId: ATTEMPT,
-  invoice: { type: 'VAT', internalNumber: 'FV/1', issueDate: '2026-10-01' } as Invoice,
+  invoice: { type: 'VAT', internalNumber: 'FV/1', issueDate: TODAY_PL } as Invoice,
 });
 
 const accepted = (ksefNumber: string, acquisitionTimestamp: string) => ({

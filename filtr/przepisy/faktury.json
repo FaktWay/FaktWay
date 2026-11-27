@@ -581,6 +581,66 @@
       "zrodlo_planu": "D9 (docs/koordynacja/DECYZJE-2026-11-25.md), NZ-FA-07",
       "stan": "poza-v1",
       "uwagi": "Ostrzeżenie przy wysyłce (zwykła, FP, zaliczka), bez trybu rozkazującego, robi plan kompletnej aplikacji; wtedy stan „dziala”, kod i testy. Część o wysyłce do KSeF dotyczy faktur od obowiązku KSeF (od 1.02.2026, jak RP-TERM-05)."
+    },
+    {
+      "id": "RP-FA-VATUE-01",
+      "regula": "Dokument z usługą, dla której miejsce świadczenia ustala się według art. 28b, na rzecz podatnika z innego państwa UE (stawka „np II”), ma NIP sprzedawcy z prefiksem PL: FA(3) Podmiot1/PrefiksPodatnika = PL, JPK_FA P_4A = PL, a PDF pokazuje numer VAT UE sprzedawcy (PL i NIP). Dokument bez pozycji „np II” prefiksu nie ma, także przy nabywcy z UE i stawce krajowej.",
+      "podstawa": [
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 97 ust. 10 pkt 3"
+        },
+        {
+          "akt": "schemat FA(3) Ministerstwa Finansów (lib/xml/schemas/fa3/schemat.xsd)",
+          "przepis": "opis pola Podmiot1/PrefiksPodatnika"
+        },
+        {
+          "akt": "schemat JPK_FA(4) Ministerstwa Finansów (lib/exports/schemas/jpk-fa4/schemat.xsd)",
+          "przepis": "opis pola P_4A"
+        }
+      ],
+      "obowiazuje": {
+        "od": "2026-01-01",
+        "do": null
+      },
+      "obszary": [
+        "faktury.fa3",
+        "faktury.korekty",
+        "jpk.vat-fa",
+        "faktury.pdf"
+      ],
+      "kod": [
+        "lib/invoices/vat-ue.ts#sellerNeedsVatUePrefix",
+        "lib/xml/fa3-generator.ts#generateFA3Xml",
+        "lib/ksef/fa3-correction-generator.ts#generateCorrectionInvoiceXml",
+        "lib/exports/jpk-fa-generator.ts#generateJpkFa",
+        "lib/pdf/invoice-renderer.ts#renderInvoicePdf"
+      ],
+      "testy": [
+        "tests/unit/fa3-np-ii.test.ts > W8: np II, NIP sprzedawcy z prefiksem PL",
+        "tests/unit/fa3-np-ii.test.ts > W8: faktura bez np II (23 % dla firmy z UE, np I) bez PrefiksPodatnika",
+        "tests/unit/fa3-np-ii.test.ts > W8: KOR z pozycją np II (nabywca z UE)",
+        "tests/unit/jpk-np-ii.test.ts > W8: faktura z np II ma P_4A = PL przed P_4B",
+        "tests/unit/pdf-precyzja-vatue.test.ts > usługa np II: sprzedawca z numerem „VAT UE: PL…”"
+      ],
+      "parametry": [],
+      "niezmienniki": [],
+      "pewnosc": "wysoka",
+      "wzorzec": {
+        "poziom": 4,
+        "opis": "opis pól Podmiot1/PrefiksPodatnika w schemacie FA(3) i P_4A w schemacie JPK_FA(4): „Kod (prefiks) podatnika VAT UE dla przypadków określonych w art. 97 ust. 10 pkt 2 i 3 ustawy oraz w przypadku, o którym mowa w art. 136 ust. 1 pkt 3 ustawy”",
+        "sprawdzono": "2026-11-24"
+      },
+      "interpretacja": "Stawka „np II” w FaktWay to usługa z art. 100 ust. 1 pkt 4 (art. 28b) dla podatnika z innego państwa UE, a art. 97 ust. 10 pkt 3 każe przy takiej usłudze posługiwać się numerem VAT UE z prefiksem PL. Jedna pozycja „np II” wystarcza; w korekcie liczą się stawki stanu przed, stanu po i wierszy korekty, a w JPK_FA także stany korekty. W FA(3) prefiks to pierwszy element Podmiot1 (przed DaneIdentyfikacyjne), w JPK_FA P_4A przed P_4B, w PDF etykieta „VAT UE” z numerem PL i NIP zamiast „NIP”. WDT (pkt 2) i transakcji trójstronnej (art. 136 ust. 1 pkt 3) FaktWay nie wystawia, więc reguła ich nie obejmuje; import FA(3) z innego programu zostaje bez zmian.",
+      "do_rozstrzygniecia": null,
+      "sprawdzil": {
+        "ksiegowa": null,
+        "prawnik": null
+      },
+      "odczyt": "2026-11-24",
+      "zrodlo_planu": "plan zero zgubionych faktur, karta C2, W8",
+      "stan": "dziala",
+      "uwagi": "Szczegóły faktury w aplikacji i strona faktury dla nabywcy pokazują NIP sprzedawcy bez prefiksu (poza zakresem W8, który obejmuje PDF, plik FA(3) i JPK_FA)."
     }
   ]
 }

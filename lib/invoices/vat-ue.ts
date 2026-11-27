@@ -56,3 +56,20 @@ export function isNpIiBuyerVat(raw: string | null | undefined): boolean {
 export function addressCountryForKodUE(kodUE: KodUE): string {
   return kodUE === 'EL' ? 'GR' : kodUE;
 }
+
+/**
+ * Numer VAT UE sprzedawcy, czyli NIP z prefiksem PL (plan zero, karta C2, W8):
+ * FA(3) `Podmiot1/PrefiksPodatnika`, JPK_FA `P_4A` i PDF. Wymaga go usługa, dla
+ * której miejsce świadczenia ustala się według art. 28b, na rzecz podatnika
+ * z innego państwa UE (stawka „np II”, art. 100 ust. 1 pkt 4), bo art. 97
+ * ust. 10 pkt 3 ustawy o VAT każe przy niej posługiwać się numerem z prefiksem
+ * PL (RP-FA-VATUE-01). WDT (pkt 2) i transakcji trójstronnej (art. 136 ust. 1
+ * pkt 3) FaktWay nie wystawia.
+ */
+export const SELLER_VAT_UE_PREFIX = 'PL';
+
+/** Czy dokument ze stawkami pozycji `vatRates` wymaga prefiksu PL przy NIP sprzedawcy. */
+export function sellerNeedsVatUePrefix(vatRates: Iterable<string | null | undefined>): boolean {
+  for (const rate of vatRates) if (rate === 'np_ii') return true;
+  return false;
+}

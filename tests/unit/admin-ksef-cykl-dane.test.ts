@@ -226,7 +226,7 @@ describe('A4b PR2a: przyciski „Wyślij ponownie” i „Tylko uzgodnij” osob
       .toEqual({ enabled: true, reason: null });
   });
 
-  it('„Wyślij ponownie”: klasa kodu przed faktami; środowisko → dane → rodzaj → data (tylko dokument specjalny)', () => {
+  it('„Wyślij ponownie”: klasa kodu przed faktami; środowisko → dane → rodzaj → data (dokument specjalny i od B2a zwykła faktura)', () => {
     expect(operatorRequeueButton({ ...input, errorCode: 'XSD_INVALID', environmentKnown: false }))
       .toEqual({ enabled: false, reason: OPERATOR_MESSAGES.terminal });
     expect(operatorRequeueButton({ ...input, environmentKnown: false, facts: { sendData: 'missing', kindHeld: true, issueDatePassed: true } }))
@@ -237,8 +237,10 @@ describe('A4b PR2a: przyciski „Wyślij ponownie” i „Tylko uzgodnij” osob
       .toEqual({ enabled: false, reason: operatorKindHeldMessage('correction') });
     expect(operatorRequeueButton({ ...input, facts: { ...STORED, issueDatePassed: true } }))
       .toEqual({ enabled: false, reason: operatorIssueDateMessage('advance') });
+    // B2a: zwykła faktura po terminie przesłania (koniec następnego dnia roboczego) — też bez pełnej wysyłki.
+    // Do B2a przycisk był włączony, a worker wysłałby fakturę po terminie.
     expect(operatorRequeueButton({ ...input, invoiceKind: 'regular', facts: { ...STORED, issueDatePassed: true } }))
-      .toEqual({ enabled: true, reason: null });
+      .toEqual({ enabled: false, reason: operatorIssueDateMessage('regular') });
     expect(operatorRequeueButton(input)).toEqual({ enabled: true, reason: null });
   });
 

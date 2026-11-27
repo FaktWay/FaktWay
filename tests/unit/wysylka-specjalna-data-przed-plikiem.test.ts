@@ -104,11 +104,37 @@ describe('ISSUE_DATE_PASSED: drugie sprawdzenie daty tuż przed plikiem (hak otw
     expect(mocks.intent).toHaveBeenCalledTimes(1);
   });
 
-  it('zwykła faktura po północy → wysyłka jak dotąd (B1/B2 bez zmian)', async () => {
+  it('zwykła faktura po północy dnia wystawienia, przed terminem → wysyłka jak dotąd (B2a)', async () => {
     mocks.sessionOpenedAt = new Date('2026-10-06T22:00:10Z');
     const invoice = { type: 'VAT', internalNumber: 'FV/1', issueDate: '2026-10-06' } as Invoice;
     await expect(submitInvoiceFullFlow(T, ID, invoice, AUTH, 'test', null, null, null, 'a-1'))
       .resolves.toMatchObject({ ksefNumber: 'K' });
     expect(mocks.posted).toBe(true);
+  });
+});
+
+describe('B2a: drugie sprawdzenie terminu zwykłej faktury tuż przed plikiem (hak otwarcia sesji)', () => {
+  const faktura = (issueDate: string) => ({ type: 'VAT', internalNumber: 'FV/1', issueDate }) as Invoice;
+
+  it.each([
+    // Runner przepuszcza o 23:59:50 ostatniego dnia terminu, sesja KSeF otwiera się po północy (czas zimowy, UTC+1).
+    ['P_1 w piątek 13.11, sesja otwarta we wtorek 17.11 po północy', '2026-11-13', '2026-11-16T22:59:50Z', '2026-11-16T23:00:10Z', '2026-11-16'],
+    ['P_1 we wtorek 10.11 (w środę święto), sesja otwarta w piątek 13.11 po północy', '2026-11-10', '2026-11-12T22:59:50Z', '2026-11-12T23:00:10Z', '2026-11-12'],
+  ])('%s → bez POST pliku i bez zamiaru wysyłki', async (_label, issueDate, runnerAt, sessionAt, deadline) => {
+    vi.setSystemTime(new Date(runnerAt));
+    mocks.sessionOpenedAt = new Date(sessionAt);
+    const run = submitInvoiceFullFlow(T, ID, faktura(issueDate), AUTH, 'test', null, null, null, 'a-1');
+    await expect(run).rejects.toThrow(new RegExp(`\\[ISSUE_DATE_PASSED\\].*${issueDate}.*${deadline}`));
+    expect(mocks.posted).toBe(false);
+    expect(mocks.intent).not.toHaveBeenCalled();
+  });
+
+  it('P_1 w piątek 13.11, sesja otwarta w poniedziałek 16.11 przed północą → wysyłka jak dotąd', async () => {
+    vi.setSystemTime(new Date('2026-11-16T22:59:50Z'));
+    mocks.sessionOpenedAt = new Date('2026-11-16T22:59:58Z');
+    await expect(submitInvoiceFullFlow(T, ID, faktura('2026-11-13'), AUTH, 'test', null, null, null, 'a-1'))
+      .resolves.toMatchObject({ ksefNumber: 'K' });
+    expect(mocks.posted).toBe(true);
+    expect(mocks.intent).toHaveBeenCalledTimes(1);
   });
 });

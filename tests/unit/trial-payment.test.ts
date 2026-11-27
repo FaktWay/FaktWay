@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -14,6 +14,8 @@ import {
   trialPaymentRetryHint,
 } from '@/lib/billing/trial-payment';
 import { BLIK_RECURRING_STATEMENT } from '@/lib/legal/versions';
+
+import { trybWGicie } from '../helpers/tryb-w-gicie';
 
 /**
  * BLIK przy próbie (FAKTWAY-1-0, sekcja 3 pkt 5). Moduł mówi, czy BLIK jest
@@ -190,7 +192,7 @@ describe('konfiguracja: .env.example i scripts/check-env.ts', () => {
     const script = read('scripts/ops/stripe-blik-sprawdz.sh');
     expect(script).toContain('source "$ENV_FILE"');
     expect(script).toContain('blik_recurring_payments');
-    expect(statSync(join(process.cwd(), 'scripts/ops/stripe-blik-sprawdz.sh')).mode & 0o100).toBeTruthy();
+    expect(trybWGicie('scripts/ops/stripe-blik-sprawdz.sh'), 'wykonywalny w gicie').toBe('100755');
     // Klucz wolno użyć w nagłówku, ale żaden console.log go nie dotyka.
     const prints = script.split('\n').filter((line) => line.includes('console.log'));
     expect(prints.length).toBeGreaterThan(0);

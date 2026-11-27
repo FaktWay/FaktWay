@@ -124,7 +124,9 @@ describe('przyciski po błędzie wysyłki', () => {
   it('owner, błąd przejściowy: „Wróć do szkicu” i „Wyślij ponownie” z informacją o automacie', () => {
     const el = render();
     expect(buttons(el)).toEqual(['Wróć do szkicu', 'Wyślij ponownie']);
-    expect(el.textContent).toContain('ponowimy automatycznie');
+    expect(el.textContent).toContain('ponawiamy automatycznie');
+    // B2a: obietnica automatu ma granicę — termin przesłania zwykłej faktury.
+    expect(el.textContent).toContain('do końca następnego dnia roboczego po dacie wystawienia');
   });
 
   it('member nie widzi żadnego przycisku, dostaje prośbę o właściciela', () => {
