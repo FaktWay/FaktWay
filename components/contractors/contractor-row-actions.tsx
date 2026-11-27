@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { RiDeleteBinLine, RiLoader4Line, RiPencilLine } from '@remixicon/react';
+import { RiDeleteBinLine, RiFileList3Line, RiLoader4Line, RiPencilLine } from '@remixicon/react';
 import { toast } from 'sonner';
 
 import { deleteContractorAction, updateContractorAction } from '@/app/actions/contractors';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Dialog,
@@ -26,6 +27,7 @@ interface Props {
     name: string | null;
     address: { addressLine1?: string; addressLine2?: string } | null;
     email: string | null;
+    balanceAvailable?: boolean;
   };
 }
 
@@ -68,6 +70,24 @@ export function ContractorRowActions({ contractor }: Props) {
 
   return (
     <div className="flex items-center justify-center gap-1">
+      {contractor.balanceAvailable ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Link
+                href={`/saldo/nowe?kontrahent=${contractor.id}`}
+                className={buttonVariants({ variant: 'ghost', size: 'icon' })}
+                aria-label="Potwierdzenie salda"
+              />
+            }
+          >
+            <RiFileList3Line className="size-4.5" />
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Potwierdzenie salda</p>
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
       <Tooltip>
         <TooltipTrigger
           render={<Button variant="ghost" size="icon" onClick={() => setOpen(true)} aria-label="Edytuj kontrahenta" />}
