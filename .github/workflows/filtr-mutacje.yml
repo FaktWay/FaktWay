@@ -1,0 +1,50 @@
+name: Filtr mutacje
+
+# Żelazny filtr, krok F16 (plan B4.11, decyzja D50): testy mutacyjne Stryker
+# tylko w nocnym CI, najpierw na silnikach R1 księgowości (lista w
+# stryker.config.json). Program celowo psuje kod (zamiana + na -, < na <=,
+# stałe), a testy muszą to złapać. Cel: co najmniej 90 % zabitych mutantów;
+# każdy ocalały to albo mutant równoważny, albo brakujący test (nowy niezmiennik).
+# Pierwsze przebiegi tylko raportują (próg `break` w stryker.config.json jest
+# wyłączony); blokadę włączamy, gdy wynik ustabilizuje się powyżej 90 %.
+# Bez pull_request: to miara siły filtra, nie bramka scalania.
+on:
+  schedule:
+    # Niedziela 01:23 UTC (nocą w Warszawie), poza godziną pełną.
+    - cron: '23 1 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutacje:
+    name: Testy mutacyjne silników R1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.34.5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install XML schema validator
+        run: bash scripts/ci/zainstaluj-xmllint.sh
+      - name: Stryker
+        run: pnpm filtr:mutacje 2>&1 | tee mutacje.txt
+      - name: Podsumowanie (ocalałe mutanty do opisania)
+        if: always()
+        run: |
+          {
+            echo '### Testy mutacyjne silników R1'
+            echo '```'
+            grep -A 40 'File  *|' mutacje.txt | head -60 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
