@@ -267,6 +267,8 @@ async function cleanup() {
   for (const org of [ORG_A, ORG_B]) {
     await admin.from('balance_confirmation_emails').delete().eq('tenant_id', org);
     await admin.from('payments').delete().eq('tenant_id', org);
+    // Wyzwalacz 00119 blokuje DELETE faktury w kolejce, w wysyłce i offline (test D57 takie zakłada), więc najpierw 'failed'.
+    await admin.from('invoices').update({ ksef_status: 'failed' }).eq('tenant_id', org).in('ksef_status', ['queued', 'sending', 'offline_queued']);
     await admin.from('invoices').delete().eq('tenant_id', org).eq('invoice_kind', 'correction');
     await admin.from('invoices').delete().eq('tenant_id', org).eq('invoice_kind', 'final');
     await admin.from('invoices').delete().eq('tenant_id', org);
@@ -317,6 +319,7 @@ describe.skipIf(!hasDatabase)('00216: potwierdzenie salda na prawdziwym PostgRES
     for (const org of [ORG_A, ORG_B]) {
       await admin.from('balance_confirmation_emails').delete().eq('tenant_id', org);
       await admin.from('payments').delete().eq('tenant_id', org);
+      await admin.from('invoices').update({ ksef_status: 'failed' }).eq('tenant_id', org).in('ksef_status', ['queued', 'sending', 'offline_queued']);
       await admin.from('invoices').delete().eq('tenant_id', org).eq('invoice_kind', 'correction');
       await admin.from('invoices').delete().eq('tenant_id', org).eq('invoice_kind', 'final');
       await admin.from('invoices').delete().eq('tenant_id', org);
@@ -462,7 +465,7 @@ describe.skipIf(!hasDatabase)('00216: potwierdzenie salda na prawdziwym PostgRES
       ]);
       expect(p.omitted[0]).toMatchObject({ ksefNumber: null, kind: 'regular', gross: 1230 });
       // Wystawienie z nimi tylko świadomie (D57), a dokument zachowuje powód.
-      expect((await wystaw(owner, p.fingerprint)).data).toEqual({ status: 'refused', code: 'omitted_not_confirmed' });
+      expect((await wystaw(owner, p.fingerprint)).data).toEqual({ status: 'refused', code: 'omitted_not_confirmed', omitted_count: 4 });
       const { data, error } = await wystaw(owner, p.fingerprint, { bezPominietych: true });
       expect(error).toBeNull();
       expect((data as { status: string }).status).toBe('issued');
