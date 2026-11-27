@@ -114,6 +114,9 @@ export async function przypomnijOTerminie(
       extra: { tenantId, miesiac: t.miesiac, etap: t.etap, krok: 'vat-ostatnia-proba' },
     });
   }
+  // RP-PRZYP-01: nieczytelne rozliczenia to nie „nic nie zapłacono”. Po ostatniej próbie nie wysyłamy zdania „Bez oznaczonej
+  // zapłaty”, tylko pomijamy przypomnienie (wpis w Sentry wyżej); klient ma stronę „Ten miesiąc”.
+  if (bladOdczytu && !dane.ok && dane.bladOdczytuRozliczen === true) return 'pominiete';
   const wejscie = { grupy, rozliczenia: dane.rozliczenia, pozycje: dane.ok ? dane.pozycje : null, profil };
   let pozycje = niezaplacone(wejscie);
   // F11-B5: VAT 0 zł przypomina o JPK_V7M, o ile MF nie przyjął już pliku z FaktWay za ten miesiąc.

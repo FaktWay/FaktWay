@@ -80,6 +80,11 @@ export type DaneMiesiaca =
       zaplatyReczne: Rozliczenie[];
       /** D63 (FZ-030): przyczyną jest błąd odczytu (rozliczenia, profil, ewidencja albo KPiR), nie brak w danych klienta. */
       bladOdczytu?: true;
+      /**
+       * D63, RP-PRZYP-01: sam odczyt rozliczeń nie odpowiedział (`rozliczenia` puste z błędu, nie z danych), więc nie wiadomo,
+       * co firma zapłaciła. Crony po ostatniej próbie nie wysyłają wtedy zdania „bez oznaczonej zapłaty”.
+       */
+      bladOdczytuRozliczen?: true;
     };
 
 export const KOLUMNY_ROZLICZENIA =
@@ -210,7 +215,7 @@ export async function czytajTenMiesiac(client: SupabaseClient, tenantId: string,
   const vat = vatMiesiaca(daneVat);
   if (!odczyt.ok) {
     console.error('[ten-miesiac] rozliczenia', odczyt.e instanceof Error ? odczyt.e.message : odczyt.e);
-    return { ok: false, braki: [BLAD_ODCZYTU_ROZLICZEN], rozliczenia: [], zaplatyReczne: [], bladOdczytu: true };
+    return { ok: false, braki: [BLAD_ODCZYTU_ROZLICZEN], rozliczenia: [], zaplatyReczne: [], bladOdczytu: true, bladOdczytuRozliczen: true };
   }
   const tegoMiesiaca = odczyt.r.filter((r) => r.miesiac === miesiac);
   // FZ-036: strony sprzed pierwszego miesiąca (styczeń 2026, `miesiacZParametrow` od 2026 r.) nie ma, więc zapłata
