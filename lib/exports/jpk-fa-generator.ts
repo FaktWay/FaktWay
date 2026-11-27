@@ -18,7 +18,7 @@ import { MissingTaxOfficeError } from '@/lib/exports/tax-office';
 import { isKnownTaxOffice } from '@/lib/exports/tax-offices';
 import { REVERSE_CHARGE_RATES } from '@/lib/invoices/annotations';
 import { isGtuCode } from '@/lib/invoices/line-codes';
-import { parseVatUe } from '@/lib/invoices/vat-ue';
+import { parseVatUe, SELLER_VAT_UE_PREFIX, sellerNeedsVatUePrefix } from '@/lib/invoices/vat-ue';
 import {
   settlementVatSummaries,
   type AdvanceInvoiceSettlementRow,
@@ -656,6 +656,14 @@ function buildFaktura(
   if (inv.buyerAddress?.trim()) f.ele('P_3B').txt(znaki(inv.buyerAddress));
   f.ele('P_3C').txt(znaki(inv.sellerName || issuer.name));
   f.ele('P_3D').txt(znaki(sellerAddress ?? ''));
+  // W8 (plan zero C2): faktura z usługą „np II” ma NIP sprzedawcy z prefiksem PL, jak plik
+  // FA(3) (art. 97 ust. 10 pkt 3, RP-FA-VATUE-01); korekta liczy też stawki stanów przed i po.
+  const pozycjeStawek = [
+    ...inv.lines,
+    ...(inv.correctionStates?.before ?? []),
+    ...(inv.correctionStates?.after ?? []),
+  ].map((line) => line.vatRate);
+  if (sellerNeedsVatUePrefix(pozycjeStawek)) f.ele('P_4A').txt(SELLER_VAT_UE_PREFIX);
   f.ele('P_4B').txt(inv.sellerNip || issuer.nip);
   // Nabywca z UE bez NIP-u (AUD-70): P_5A = prefiks (TKodyKrajowUE, Grecja
   // „EL”), P_5B = numer bez prefiksu. Numer spoza listy krajów UE — bez obu

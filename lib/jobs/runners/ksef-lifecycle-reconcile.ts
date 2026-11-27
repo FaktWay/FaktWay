@@ -15,6 +15,7 @@ import type { JobContext } from '@/lib/jobs/registry';
 import { requireConfiguredKsefEnvironment } from '@/lib/ksef/claim-environment';
 import { sendableSpecialKinds } from '@/lib/ksef/kind-holds';
 import { AUTO_REQUEUE_CODES, SEND_ERROR_CODES } from '@/lib/ksef/send-error-classes';
+import { regularSendableIssueDateFrom } from '@/lib/ksef/special-issue-date';
 import { isKsefSubmissionPaused } from '@/lib/ksef/submission-holds';
 import { applyCursorFilter, type CursorPayload } from '@/lib/pagination/cursor';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -49,6 +50,11 @@ import { createAdminClient } from '@/lib/supabase/admin';
  * Ponowienie, które dojdzie do KSeF po północy, worker kończy kodem
  * `ISSUE_DATE_PASSED` (00147). I5 uzgadnia KOR/ZAL z danymi bez względu na
  * datę (uzgodnienie nie wysyła); KOR na PROD i ROZ — tylko alarm.
+ *
+ * Zwykła faktura (B2a): I6/I7 ponawiają ją tylko do końca następnego dnia
+ * roboczego po dacie wystawienia (`regularSendableIssueDateFrom` w zapytaniu,
+ * `ksefResendFacts` przy zleceniu); po terminie worker sam kończy ponowienie
+ * kodem `ISSUE_DATE_PASSED`, a I5 uzgadnia jak dotąd bez względu na datę.
  *
  * Każde ponowienie to RPC w jednej transakcji ze zleceniem pg-boss (jak
  * kolejkowanie z akcji klienta), z aktorem NULL — po tym cron rozpoznaje
@@ -126,7 +132,7 @@ export interface LifecycleReconcileReport {
   skippedNoData: number;
   /** Rodzaj wstrzymany w tym środowisku (w praktyce I5: KOR na PROD, ROZ). */
   skippedHeld: number;
-  /** Data wystawienia dokumentu specjalnego minęła między odczytem a zleceniem (północ). */
+  /** Termin daty wystawienia minął między odczytem a zleceniem (północ; specjalny: dzień wystawienia, zwykła: B2a). */
   skippedIssueDate: number;
   /** Brak NIP-u sprzedawcy (ani w firmie, ani w `fa3_data`) — błąd danych. */
   skippedNoNip: number;
@@ -204,7 +210,8 @@ export async function runKsefLifecycleReconcile({ step, logger }: JobContext): P
   /**
    * Faktury do ponowienia: zwykłe i dokumenty specjalne osobnymi zapytaniami,
    * żeby specjalne pominięte w tym przebiegu nie zajmowały paczki zwykłych.
-   * Specjalne tylko z dzisiejszą datą wystawienia i rodzaju niewstrzymanego.
+   * Specjalne tylko z dzisiejszą datą wystawienia i rodzaju niewstrzymanego,
+   * zwykłe tylko w terminie przesłania (B2a).
    * Odmówione przez builder liczymy tu i nie zwracamy (A5, zagłodzenie).
    */
   const candidates = async (
@@ -212,7 +219,12 @@ export async function runKsefLifecycleReconcile({ step, logger }: JobContext): P
     errorText: string,
     invariant: 'I6' | 'I7',
   ): Promise<CandidateRow[]> => {
-    const regular = await collect(() => narrow(baseCandidates()).eq('invoice_kind', 'regular'), { invariant, kind: 'regular' }, errorText);
+    // B2a: zwykłe tylko w terminie przesłania (data wystawienia od ostatniego dnia
+    // roboczego przed dziś) — przeterminowane nie zajmują paczki (jak specjalne, A5).
+    const sendableFrom = regularSendableIssueDateFrom();
+    const regular = await collect(
+      () => narrow(baseCandidates()).eq('invoice_kind', 'regular').gte('issue_date', sendableFrom),
+      { invariant, kind: 'regular' }, errorText);
     const kinds = sendableSpecialKinds(env);
     if (kinds.length === 0) return regular;
     const today = todayInWarsaw();

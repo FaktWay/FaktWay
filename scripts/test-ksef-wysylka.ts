@@ -710,7 +710,7 @@ async function main(): Promise<number> {
     facts: describeSent(yesterday),
   });
 
-  // 13b. KSeF nie pilnuje terminu dosłania, więc musi go pilnować aplikacja (sesja B2).
+  // 13b. KSeF nie pilnuje terminu dosłania, więc musi go pilnować aplikacja (B2a: `regularIssueDateSendable`).
   const overdue = await send(auth, xmlFor('13b', warsawDay(-5)));
   rows.push({
     id: '13b',

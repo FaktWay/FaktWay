@@ -2,7 +2,7 @@
 
 import { z } from 'zod';
 
-import { getAnthropic, OCR_MODEL } from '@/lib/anthropic/client';
+import { ANTHROPIC_REQUEST_LIMITS, getAnthropic, OCR_MODEL } from '@/lib/anthropic/client';
 import { wrapAsData } from '@/lib/flo/tools';
 import type { ExtractedInvoice } from '@/lib/ocr/schema';
 
@@ -28,32 +28,28 @@ const aiClassificationResponseSchema = z.object({
 /**
  * Limity czasu wywołania klasyfikatora (LIM-05, plan skalowania 3000).
  *
- * Bez własnych opcji wywołanie brało limity klienta: domyślne SDK (600 s na
- * próbę i 2 ponowienia, przy połączeniu, które stanęło, ok. 30 min) albo
- * limit klienta dobrany pod najdłuższe wywołanie w jobach, odczyt zdjęcia
- * (minuty). Kategoryzacja woła model w jobie OCR (po odczycie zdjęcia) i w
- * jobie skrzynki, a worker przerabia paczkę zadań po kolei
- * (`lib/jobs/run-job.ts`), więc zawieszona klasyfikacja wstrzymywała resztę
- * paczki i kolejkę. Po porażce koszt i tak dostaje kolumnę 13 do ręcznej
- * poprawki (`categorizeExpense`), więc długie czekanie nic nie daje.
+ * Kategoryzacja woła model w jobie OCR (po odczycie zdjęcia) i w jobie
+ * skrzynki, a worker przerabia paczkę zadań po kolei (`lib/jobs/run-job.ts`),
+ * więc zawieszona klasyfikacja wstrzymywałaby resztę paczki i kolejkę. Po
+ * porażce koszt i tak dostaje kolumnę 13 do ręcznej poprawki
+ * (`categorizeExpense`), więc długie czekanie nic nie daje.
  *
- * Próba: odpowiedź to krótki JSON (`max_tokens` 256), który SDK szacuje
- * ostrożnie na 7,2 s (128 000 tokenów na godzinę); 20 s to prawie trzy takie
- * szacunki. Jedno ponowienie łapie chwilowy błąd połączenia; więcej tylko
- * wydłuża czekanie, a próba przerwana po limicie mogła zostać u dostawcy
- * policzona. Opcje wywołania mają pierwszeństwo przed opcjami klienta, więc
- * limity działają bez względu na ustawienia w `lib/anthropic/client.ts`.
- */
-const CLASSIFIER_REQUEST_LIMITS = { timeout: 20_000, maxRetries: 1 } as const;
-
-/**
- * Sufit na całe wywołanie (LIM-05). Limit próby w SDK liczy czas tylko do
- * nagłówków odpowiedzi. Nie obejmuje odczytu treści po nagłówkach ani przerwy
- * przed ponowieniem, którą przy odpowiedzi 429 albo 529 wyznacza dostawca
- * nagłówkiem `retry-after` (SDK czeka tyle, ile każe dostawca). Sufit
- * przerywa wywołanie razem z tą przerwą i odczytem. Same próby to w
- * najgorszym razie 2 × 20 s i ok. 0,5 s przerwy, czyli ok. 40,5 s, więc 45 s
- * nie skraca zwykłego ponowienia.
+ * Próba: wspólne limity wywołań z gotowym zapasem (`ANTHROPIC_REQUEST_LIMITS`
+ * w `lib/anthropic/client.ts`: 20 s na próbę i 1 ponowienie), a nie domyślne
+ * limity klienta, dobrane pod odczyt zdjęcia (minuty). Odpowiedź to krótki
+ * JSON (`max_tokens` 256), który SDK szacuje ostrożnie na 7,2 s (128 000
+ * tokenów na godzinę), więc 20 s to prawie trzy takie szacunki. Opcje
+ * wywołania mają pierwszeństwo przed opcjami klienta.
+ *
+ * Sufit na całe wywołanie, własny klasyfikatora. Limit próby w SDK liczy czas
+ * tylko do nagłówków odpowiedzi. Nie obejmuje odczytu treści po nagłówkach
+ * ani przerwy przed ponowieniem, którą przy odpowiedzi 429 albo 529 wyznacza
+ * dostawca nagłówkiem `retry-after` (SDK czeka tyle, ile każe dostawca).
+ * Sufit przerywa wywołanie razem z tą przerwą i odczytem. Same próby to przy
+ * obecnych wspólnych limitach w najgorszym razie 2 × 20 s i ok. 0,5 s
+ * przerwy, czyli ok. 40,5 s, więc 45 s nie skraca zwykłego ponowienia. Po
+ * zmianie wspólnych limitów ten rachunek trzeba sprawdzić od nowa: test
+ * `tests/unit/klasyfikator-limit-czasu.test.ts` pilnuje obu liczb.
  */
 const CLASSIFIER_DEADLINE_MS = 45_000;
 
@@ -99,7 +95,7 @@ ZWRACAJ TYLKO JSON.`,
           },
         ],
       },
-      { ...CLASSIFIER_REQUEST_LIMITS, signal: deadline.signal },
+      { ...ANTHROPIC_REQUEST_LIMITS, signal: deadline.signal },
     );
 
     onUsage?.({ inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens });

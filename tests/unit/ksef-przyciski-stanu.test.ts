@@ -112,9 +112,9 @@ describe('failedInvoiceButtons — tabela stanów (sekcja 7 projektu)', () => {
       .toEqual({ resend: true, reset: true, settings: false, info: M.transient });
   });
 
-  it('failed setup → oba przyciski i link do ustawień KSeF', () => {
+  it('failed setup → oba przyciski i link do ustawień KSeF; zdanie z terminem przesłania (B2a)', () => {
     expect(failedInvoiceButtons({ ...manage, status: 'failed', errorCode: 'NO_CERTIFICATE' }))
-      .toEqual({ resend: true, reset: true, settings: true, info: M.setup });
+      .toEqual({ resend: true, reset: true, settings: true, info: `${M.setup} ${M.sendByDeadline}` });
   });
 
   it('failed hold / reconcile → bez przycisków, z wyjaśnieniem (KOR_HOLD bez obietnicy automatu)', () => {
@@ -132,9 +132,9 @@ describe('failedInvoiceButtons — tabela stanów (sekcja 7 projektu)', () => {
       .toEqual({ resend: false, reset: true, settings: false, info: M.terminal });
   });
 
-  it('failed bez kodu (historyczny) → oba przyciski', () => {
+  it('failed bez kodu (historyczny) → oba przyciski; zdanie z terminem przesłania (B2a)', () => {
     expect(failedInvoiceButtons({ ...manage, status: 'failed', errorCode: null }))
-      .toEqual({ resend: true, reset: true, settings: false, info: M.historical });
+      .toEqual({ resend: true, reset: true, settings: false, info: `${M.historical} ${M.sendByDeadline}` });
   });
 
   it('korekta z kopią w dniu wystawienia (TEST): oba przyciski, automat tylko do północy; bez kopii — tylko szkic', () => {
@@ -324,7 +324,8 @@ describe('A2b / A4b PR2b: zdanie o automacie wg kodu (AUTO_REQUEUE_CODES), nie w
     (code) => {
       const b = buttons('regular', code, STORED);
       expect(promisesAutomat(b?.info)).toBe(false);
-      expect(b).toEqual({ resend: true, reset: true, settings: false, info: M.transientManual });
+      // B2a: ręczna wysyłka tylko do końca następnego dnia roboczego po dacie wystawienia — zdanie to mówi.
+      expect(b).toEqual({ resend: true, reset: true, settings: false, info: `${M.transientManual} ${M.sendByDeadline}` });
       expect(b?.info).toContain(SUPPORT_EMAIL);
     },
   );

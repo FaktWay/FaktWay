@@ -83,3 +83,24 @@ describe('PDF — identyfikator nabywcy (F-069)', () => {
     expect(t).toContain('NIP: 5252241585');
   });
 });
+
+describe('PDF — numer VAT UE sprzedawcy przy usłudze np II (plan zero C2, W8)', () => {
+  const firmaDe: InvoiceInput['buyer'] = {
+    vatUeNumber: 'DE123456789',
+    name: 'Kunde GmbH',
+    address: { countryCode: 'DE', addressLine1: 'Hauptstr. 1', addressLine2: '10115 Berlin' },
+  };
+
+  it('usługa np II: sprzedawca z numerem „VAT UE: PL…”, jak PrefiksPodatnika w pliku FA(3)', async () => {
+    const zwykla = faktura(firmaDe, 1, 100);
+    const t = await napisy(finalizeInvoice({ ...zwykla, lines: [{ ...zwykla.lines[0]!, vatRate: 'np_ii' }] }));
+    expect(t).toContain('VAT UE: PL5260001246');
+    expect(t).not.toContain('NIP: 5260001246');
+  });
+
+  it('faktura bez np II: sprzedawca z NIP-em jak dotąd', async () => {
+    const t = await napisy(faktura(firmaDe, 1, 100));
+    expect(t).toContain('NIP: 5260001246');
+    expect(t).not.toContain('PL5260001246');
+  });
+});

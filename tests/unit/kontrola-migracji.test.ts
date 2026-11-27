@@ -267,7 +267,11 @@ describe('wiersz poleceń', () => {
     // Regresja: porównanie import.meta.url z argv[1] bez realpath kończyło skrypt po cichu, bez wyniku.
     katalog = mkdtempSync(join(tmpdir(), 'kontrola-migracji-'));
     const link = join(katalog, 'link');
-    symlinkSync(resolve(SKRYPT, '..'), link);
+    // Typ 'junction': na Windowsie zwykłe dowiązanie wymaga trybu dewelopera
+    // albo uprawnień administratora (bez nich EPERM), a junction do katalogu nie.
+    // Linux i macOS ignorują typ. Przez junction argv[1] też różni się od
+    // import.meta.url, więc test łapie regresję także na Windowsie.
+    symlinkSync(resolve(SKRYPT, '..'), link, 'junction');
     const plik = zapisz('00301_a.sql', `${NAGL_PRZED}CREATE TABLE a (id int);`);
     const wynik = spawnSync(process.execPath, [join(link, 'kontrola-migracji.mjs'), '--json', '--plik', plik], { encoding: 'utf8' });
     expect(wynik.status).toBe(0);

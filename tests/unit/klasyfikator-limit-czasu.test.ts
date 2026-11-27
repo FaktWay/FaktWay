@@ -15,9 +15,12 @@ import type { ExtractedInvoice } from '@/lib/ocr/schema';
  * paczki i kolejkę. Po porażce koszt i tak dostaje kolumnę 13 do ręcznej
  * poprawki (`categorizeExpense`), więc długie czekanie nic nie daje.
  *
- * Teraz próba ma 20 s i 1 ponowienie, a całe wywołanie sufit 45 s. Sufit łapie
- * to, czego limit próby w SDK nie obejmuje: przerwę przed ponowieniem
- * z nagłówka `retry-after` i odczyt treści po nagłówkach.
+ * Teraz próba ma wspólne limity wywołań z gotowym zapasem
+ * (`ANTHROPIC_REQUEST_LIMITS`: 20 s i 1 ponowienie), a całe wywołanie własny
+ * sufit 45 s. Sufit łapie to, czego limit próby w SDK nie obejmuje: przerwę
+ * przed ponowieniem z nagłówka `retry-after` i odczyt treści po nagłówkach.
+ * Liczby 20 s i 45 s są tu wpisane na sztywno celowo: zmiana wspólnych
+ * limitów ma zaczerwienić ten test, bo przesuwa rachunek sufitu.
  *
  * Ścieżka prawdziwa: `categorizeExpense` → `classifyByAI` → SDK. Atrapy tylko
  * dla bazy (reguły kategorii bez wierszy, budżet AI firmy) i dla transportu.
@@ -80,6 +83,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.doUnmock('@/lib/anthropic/client');
   logBledow.mockRestore();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -276,5 +280,23 @@ describe('LIM-05: kategoryzacja kosztu w jobie OCR i skrzynki', () => {
     expect(proby).toHaveLength(1);
     expect(budzet.zapisz).toHaveBeenCalledWith('ten-1', { inputTokens: 620, outputTokens: 48 });
     expect(vi.getTimerCount(), 'sufit sprzątnięty po odpowiedzi').toBe(0);
+  });
+
+  it('limit próby i ponowienia bierze ze wspólnych limitów klienta (`ANTHROPIC_REQUEST_LIMITS`)', async () => {
+    // Inne liczby niż w kliencie, żeby było widać, skąd klasyfikator je bierze.
+    // Własna kopia stałych w klasyfikatorze dałaby 2 próby po 20 s.
+    vi.doMock('@/lib/anthropic/client', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('@/lib/anthropic/client')>()),
+      ANTHROPIC_REQUEST_LIMITS: { timeout: 7_000, maxRetries: 0 },
+    }));
+    podstawTransport(zawieszone);
+    const { categorizeExpense } = await import('@/lib/categorization');
+
+    const { wynik, ms } = await przesuwajZegar(categorizeExpense('ten-1', KOSZT));
+
+    expect.soft(proby, 'jedna próba z limitem ze wspólnej stałej').toEqual([{ limitS: '7', ponowienie: '0' }]);
+    expect.soft(ms).toBe(7_000);
+    expect(wynik).toEqual({ ok: true, wartosc: KOLUMNA_13 });
+    expect(logBledow, 'limit próby, a nie sufit').toHaveBeenCalledWith('AI categorization failed:', expect.anything());
   });
 });
