@@ -244,10 +244,44 @@ describe('ISSUE_DATE_PASSED: dokument specjalny tylko w dniu wystawienia (decyzj
     expect(mocks.fullFlow).toHaveBeenCalledTimes(1);
   });
 
-  it('zwykła faktura z wczorajszą datą → wysyłka jak dotąd (B1/B2 bez zmian)', async () => {
+  it('zwykła faktura z wczorajszą datą, przed terminem → wysyłka jak dotąd (B2a: do końca następnego dnia roboczego)', async () => {
     useDocument('regular', '2026-10-01');
     await runSubmitInvoice(event('regular', '2026-10-01'), ctx);
     expect(mocks.fullFlow).toHaveBeenCalledTimes(1);
+  });
+
+  describe('B2a: zwykła faktura do końca następnego dnia roboczego po dacie wystawienia (czas polski)', () => {
+    // Listopad 2026: czas zimowy (UTC+1), 11.11 to święto, 14–15.11 weekend.
+    it.each([
+      ['P_1 w piątek 13.11, sobota 14.11', '2026-11-13', '2026-11-14T11:00:00.000Z'],
+      ['P_1 w piątek 13.11, poniedziałek 16.11 tuż przed północą', '2026-11-13', '2026-11-16T22:59:59.000Z'],
+      ['P_1 we wtorek 10.11, środa 11.11 (święto)', '2026-11-10', '2026-11-11T11:00:00.000Z'],
+      ['P_1 we wtorek 10.11, czwartek 12.11 tuż przed północą', '2026-11-10', '2026-11-12T22:59:59.000Z'],
+    ])('%s → wysyłka jak dotąd', async (_label, issueDate, at) => {
+      vi.setSystemTime(new Date(at));
+      useDocument('regular', issueDate);
+      await runSubmitInvoice(event('regular', issueDate), ctx);
+      expect(mocks.fullFlow).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['P_1 w piątek 13.11, wtorek 17.11 tuż po północy', '2026-11-13', '2026-11-16T23:00:01.000Z', '2026-11-16'],
+      ['P_1 we wtorek 10.11 (w środę święto), piątek 13.11 tuż po północy', '2026-11-10', '2026-11-12T23:00:01.000Z', '2026-11-12'],
+    ])('%s → bez POST, failed ISSUE_DATE_PASSED z datą i terminem w komunikacie', async (_label, issueDate, at, deadline) => {
+      vi.setSystemTime(new Date(at));
+      useDocument('regular', issueDate);
+      const error = await failing(runSubmitInvoice(event('regular', issueDate), ctx));
+      expect(error.name).toBe('NonRetriableError');
+      expect(mocks.fullFlow).not.toHaveBeenCalled();
+
+      await onSubmitInvoiceExhausted(error, event('regular', issueDate), ctx);
+      expect(lastInvoiceUpdate()).toMatchObject({ ksef_status: 'failed', last_error_code: 'ISSUE_DATE_PASSED' });
+      const message = String(lastInvoiceUpdate()?.last_error ?? '');
+      expect(message).toContain(issueDate);
+      expect(message).toContain(deadline);
+      expect(message).toMatch(/usuń go i wystaw fakturę od nowa z dzisiejszą datą/);
+      expect(message).not.toMatch(/^NonRetriableError/);
+    });
   });
 
   it('klasyfikacja: znacznik [ISSUE_DATE_PASSED] → kod z katalogu, klasa terminal (szkic, bez automatu)', () => {

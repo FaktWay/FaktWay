@@ -524,9 +524,13 @@ describe('A4b PR2a: odmowy przy odtwarzaniu zdarzenia', () => {
     expect(plain(ok.payload.advanceData)).toEqual(plain(fa3(row).advanceEnvelope));
   });
 
-  it('strażnik: zwykła faktura z pozycjami — ponowienie bez względu na datę wystawienia', () => {
+  it('B2a: zwykła faktura z pozycjami — ponowienie do końca następnego dnia roboczego po dacie wystawienia, potem odmowa (uzgodnienie bez względu na datę)', () => {
+    // P_1 w środę 30.09.2026: w czwartek 01.10 jeszcze w terminie, w piątek 02.10 (NOW) już po nim.
+    // Do B2a zwykła faktura szła bez względu na datę wystawienia.
     const row = regularRow();
-    const built = buildKsefRequeueEvent(row, 'test', ATTEMPT_B, { reconcileOnly: false });
+    expect(buildKsefRequeueEvent(row, 'test', ATTEMPT_B, { reconcileOnly: false })).toEqual({ ok: false, reason: 'issue-date' });
+    expect(buildKsefRequeueEvent(row, 'test', ATTEMPT_B, { reconcileOnly: true })).toMatchObject({ ok: true, sendAttemptId: ATTEMPT_B });
+    const built = buildKsefRequeueEvent(row, 'test', ATTEMPT_B, { reconcileOnly: false, now: new Date('2026-10-01T21:59:59.999Z') });
     expect(built).toMatchObject({ ok: true, sendAttemptId: ATTEMPT_B });
     if (!built.ok) return;
     expect(plain(built.event)).toEqual(plain({
@@ -559,8 +563,13 @@ describe('A4b PR2a: fakty dla panelu operatora (ksefResendFacts)', () => {
     expect(ksefResendFacts(row, 'production')).toMatchObject({ sendData: 'stored', kindHeld: true });
   });
 
-  it('zwykła faktura z dawną datą → data nie ma znaczenia (issueDatePassed: false)', () => {
-    expect(ksefResendFacts(regularRow(), 'test')).toEqual({ sendData: 'stored', kindHeld: false, issueDatePassed: false });
+  it('B2a: zwykła faktura — termin przesłania to koniec następnego dnia roboczego po dacie wystawienia (do B2a data nie miała znaczenia)', () => {
+    // P_1 w środę 30.09.2026; czwartek 01.10, 23:59:59.999 w Polsce (CEST) = 21:59:59.999Z.
+    expect(ksefResendFacts(regularRow(), 'test', new Date('2026-10-01T21:59:59.999Z')))
+      .toEqual({ sendData: 'stored', kindHeld: false, issueDatePassed: false });
+    expect(ksefResendFacts(regularRow(), 'test', new Date('2026-10-01T22:00:00.000Z')))
+      .toEqual({ sendData: 'stored', kindHeld: false, issueDatePassed: true });
+    expect(ksefResendFacts(regularRow(), 'test')).toEqual({ sendData: 'stored', kindHeld: false, issueDatePassed: true });
   });
 });
 

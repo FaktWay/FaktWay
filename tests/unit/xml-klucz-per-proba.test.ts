@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JobContext } from '@/lib/jobs/registry';
 import type { KsefAuth } from '@/lib/ksef/auth';
 import type { Invoice } from '@/types/invoice';
+import { addDaysToIsoDate, todayInWarsaw } from '@/lib/format/warsaw-date';
 
 /**
  * Decyzja D5 cyklu życia faktury (00134): plik XML kluczowany per PRÓBA
@@ -17,6 +18,14 @@ const ID = '11111111-1111-4111-8111-111111111111';
 const ATTEMPT = '22222222-2222-4222-8222-222222222222';
 const LEGACY_KEY = `${T}/2026/10/${ID}.xml`;
 const ATTEMPT_KEY = `${T}/2026/10/${ID}/${ATTEMPT}.xml`;
+// B2a: zwykła faktura wychodzi do KSeF do końca następnego dnia roboczego po dacie
+// wystawienia, a bezpiecznik runnera i haka sesji liczy od prawdziwego zegara —
+// faktura przechodząca przez wysyłkę ma więc datę „dziś” w Polsce (stała data by się zestarzała).
+// Klucze plików tej faktury liczone od tej daty; testy samych kluczy (niżej) zostają na stałej dacie.
+const TODAY_PL = todayInWarsaw();
+const RUN_DIR = `${T}/${TODAY_PL.slice(0, 4)}/${TODAY_PL.slice(5, 7)}`;
+const RUN_LEGACY_KEY = `${RUN_DIR}/${ID}.xml`;
+const RUN_ATTEMPT_KEY = `${RUN_DIR}/${ID}/${ATTEMPT}.xml`;
 
 const m = vi.hoisted(() => ({
   upload: vi.fn(),
@@ -107,12 +116,12 @@ import { finalizeInvoice } from '@/lib/xml/invoice-calculator';
 const faktura = () => finalizeInvoice({
   internalNumber: 'FV 2026/10/001',
   type: 'VAT',
-  issueDate: '2026-10-01',
-  saleDate: '2026-10-01',
+  issueDate: TODAY_PL,
+  saleDate: TODAY_PL,
   seller: { nip: '5260001246', name: 'ACME', address: { countryCode: 'PL', addressLine1: 'ul. A 1', addressLine2: '00-001 Warszawa' } },
   buyer: { nip: '5252241585', name: 'Klient', address: { countryCode: 'PL', addressLine1: 'ul. B 2', addressLine2: '02-001 Warszawa' } },
   lines: [{ ordinal: 1, name: 'Usługa', unit: 'usł.', quantity: 1, unitPriceNet: 100, vatRate: '23' }],
-  payment: { currency: 'PLN', dueDate: '2026-10-15', method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
+  payment: { currency: 'PLN', dueDate: addDaysToIsoDate(TODAY_PL, 14)!, method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
 });
 
 const ctx: JobContext = {
@@ -131,8 +140,8 @@ const event = (sendAttemptId?: string) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('KSEF_ENV', 'test');
-  m.upload.mockImplementation(async (_t: string, _i: string, _d: string, _xml: string, o?: { attemptId?: string | null }) => ({
-    storagePath: invoiceXmlKeyFor({ tenantId: T, invoiceId: ID, issueDate: '2026-10-01', attemptId: o?.attemptId }),
+  m.upload.mockImplementation(async (_t: string, _i: string, issueDate: string, _xml: string, o?: { attemptId?: string | null }) => ({
+    storagePath: invoiceXmlKeyFor({ tenantId: T, invoiceId: ID, issueDate, attemptId: o?.attemptId }),
     sha256Hash: 'h'.repeat(64), sizeBytes: 10, etag: '"e"',
   }));
   m.submit.mockImplementation(async (_x: string, _a: unknown, _e: unknown, _c: unknown, hooks?: { onInvoiceSent?: (r: unknown) => Promise<void> }) => {
@@ -163,15 +172,15 @@ describe('submitInvoiceFullFlow (D5)', () => {
     const result = await submitInvoiceFullFlow(T, ID, faktura(), {} as KsefAuth, 'test', null, null, null, ATTEMPT);
 
     expect(m.upload.mock.calls[0]![4]).toEqual({ attemptId: ATTEMPT });
-    expect(result.xmlStoragePath).toBe(ATTEMPT_KEY);
-    expect(m.recordSent).toHaveBeenCalledWith(expect.objectContaining({ xmlStoragePath: ATTEMPT_KEY }));
+    expect(result.xmlStoragePath).toBe(RUN_ATTEMPT_KEY);
+    expect(m.recordSent).toHaveBeenCalledWith(expect.objectContaining({ xmlStoragePath: RUN_ATTEMPT_KEY }));
   });
 
   it('bez sendAttemptId (stare zdarzenie): klucz historyczny per faktura', async () => {
     const result = await submitInvoiceFullFlow(T, ID, faktura(), {} as KsefAuth, 'test');
     expect(m.upload.mock.calls[0]![4]).toEqual({ attemptId: null });
-    expect(result.xmlStoragePath).toBe(LEGACY_KEY);
-    expect(m.recordSent).toHaveBeenCalledWith(expect.objectContaining({ xmlStoragePath: LEGACY_KEY }));
+    expect(result.xmlStoragePath).toBe(RUN_LEGACY_KEY);
+    expect(m.recordSent).toHaveBeenCalledWith(expect.objectContaining({ xmlStoragePath: RUN_LEGACY_KEY }));
   });
 
   // C-12: dawniej HEAD wyłączał ochronę i ponowienie nadpisywało plik. Bajty po
@@ -201,7 +210,7 @@ describe('runner: uzgodnienie wskazuje plik próby (D5)', () => {
     m.findOpen.mockResolvedValue({ sessionReferenceNumber: 'S-9', invoiceReferenceNumber: 'R-9' });
     m.status.mockResolvedValue({ state: 'accepted', ksefNumber: 'K-9' });
     await runSubmitInvoice(event(ATTEMPT), ctx);
-    expect(m.updateStatus).toHaveBeenCalledWith(ID, expect.objectContaining({ xml_storage_path: LEGACY_KEY }), T);
+    expect(m.updateStatus).toHaveBeenCalledWith(ID, expect.objectContaining({ xml_storage_path: RUN_LEGACY_KEY }), T);
   });
 
   it('własny duplikat 440 (ten sam plik — D-A4-1): plik próby z tej sesji; wpis bez ścieżki → klucz historyczny', async () => {
@@ -222,13 +231,13 @@ describe('runner: uzgodnienie wskazuje plik próby (D5)', () => {
     m.submit.mockRejectedValue(dup());
     m.sessionRow.mockResolvedValue({ status: 'sent', requestPayloadHash: HASH_HEX, xmlStoragePath: null });
     await runSubmitInvoice(event(ATTEMPT), ctx);
-    expect(m.updateStatus).toHaveBeenCalledWith(ID, expect.objectContaining({ ksef_number: 'K-ORIG', xml_storage_path: LEGACY_KEY }), T);
+    expect(m.updateStatus).toHaveBeenCalledWith(ID, expect.objectContaining({ ksef_number: 'K-ORIG', xml_storage_path: RUN_LEGACY_KEY }), T);
   });
 
   it('nowa wysyłka przekazuje sendAttemptId do pełnego przepływu', async () => {
     await runSubmitInvoice(event(ATTEMPT), ctx);
     expect(m.upload.mock.calls[0]![4]).toMatchObject({ attemptId: ATTEMPT });
-    expect(m.updateStatus).toHaveBeenCalledWith(ID, expect.objectContaining({ xml_storage_path: ATTEMPT_KEY }), T);
+    expect(m.updateStatus).toHaveBeenCalledWith(ID, expect.objectContaining({ xml_storage_path: RUN_ATTEMPT_KEY }), T);
   });
 });
 

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Sentry from '@sentry/nextjs';
 
 import type { Invoice } from '@/types/invoice';
+import { todayInWarsaw } from '@/lib/format/warsaw-date';
 import { KsefApiError, KsefRateLimitPausedError } from '@/lib/ksef/client';
 
 /**
@@ -173,6 +174,11 @@ const submitJob = getRegisteredJobs().find((j) => j.queue === 'invoice.submit.re
 if (!submitJob) throw new Error('fixture: brak joba invoice.submit.requested w rejestrze');
 const run = wrapHandler(submitJob);
 
+// B2a: zwykła faktura wychodzi do KSeF do końca następnego dnia roboczego po dacie
+// wystawienia, a bezpiecznik runnera i haka sesji liczy od prawdziwego zegara —
+// faktura przechodząca przez wysyłkę ma więc datę „dziś” w Polsce (stała data by się zestarzała).
+const TODAY_PL = todayInWarsaw();
+
 function event(attempt = 0) {
   return {
     invoiceId: ID,
@@ -180,7 +186,7 @@ function event(attempt = 0) {
     nip: '1234567890',
     environment: 'test' as const,
     sendAttemptId: ATTEMPT,
-    invoice: { type: 'VAT', internalNumber: 'FV/1', issueDate: '2026-10-13' } as Invoice,
+    invoice: { type: 'VAT', internalNumber: 'FV/1', issueDate: TODAY_PL } as Invoice,
     ...(attempt > 0 ? { __attempt: attempt } : {}),
   };
 }

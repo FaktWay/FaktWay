@@ -54,10 +54,14 @@ export type LiczbyLiniowego = { readonly [P in 'stawka' | 'limitOdliczeniaZdrowo
 
 export type WynikZaliczek = { ok: true; miesiace: ZaliczkaMiesiaca[] } | { ok: false; brak: string };
 
-/** Grosze do pełnych złotych (art. 63 § 1 Ordynacji podatkowej): od 50 gr w górę. */
+/**
+ * Grosze do pełnych złotych (art. 63 § 1 Ordynacji podatkowej, RP-ZAOKR-01): końcówki poniżej 50 gr
+ * pomija się, od 50 gr podwyższa, dla kwot ujemnych tak samo co do wartości (połówka od zera). Jedyna
+ * funkcja tego zaokrąglenia w module (FZ-001); `+ 0` zamienia -0 (np. -30 gr) na 0.
+ */
 export function doZlotych(gr: number): number {
   const znak = gr < 0 ? -1 : 1;
-  return znak * Math.floor((Math.abs(gr) + 50) / 100) * 100;
+  return znak * Math.floor((Math.abs(gr) + 50) / 100) * 100 + 0;
 }
 
 /** Iloczyn kwoty w groszach i stawki w punktach bazowych, do grosza (połówka od zera). */

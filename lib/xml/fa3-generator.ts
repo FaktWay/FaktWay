@@ -12,7 +12,7 @@ import {
   ZW_WITHOUT_BASIS_MESSAGE,
 } from './invoice-calculator';
 import { RECEIPT_ONLY_REGULAR_MESSAGE, RECEIPT_XML_KEYS } from '@/lib/invoices/receipt-invoice';
-import { parseVatUe } from '@/lib/invoices/vat-ue';
+import { parseVatUe, SELLER_VAT_UE_PREFIX, sellerNeedsVatUePrefix } from '@/lib/invoices/vat-ue';
 import {
   assertFa3TextLimits,
   FA3_TEXT_LIMITS,
@@ -290,6 +290,12 @@ function buildPodmiot1(
   invoice: Invoice,
 ): void {
   const podmiot1 = root.ele('Podmiot1');
+  // W8 (plan zero C2): usługa z art. 28b dla podatnika z innego państwa UE („np II”)
+  // wymaga NIP-u sprzedawcy z prefiksem PL (art. 97 ust. 10 pkt 3, RP-FA-VATUE-01);
+  // w XSD pierwszy element `Podmiot1`.
+  if (sellerNeedsVatUePrefix(invoice.lines.map((line) => line.vatRate))) {
+    podmiot1.ele('PrefiksPodatnika').txt(SELLER_VAT_UE_PREFIX);
+  }
 
   const daneId = podmiot1.ele('DaneIdentyfikacyjne');
   daneId.ele('NIP').txt(requireText(invoice.seller.nip, 'seller.nip'));
