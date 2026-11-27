@@ -16,7 +16,8 @@ import { getRlsTestDatabaseUrl, getRlsTestEnvironment } from './helpers/rls-envi
  *   (`getReceivables` rozłożone po NIP przez `receivablesByNip`): ta sama lista
  *   faktur i ta sama kwota co do grosza, ROZ resztą po zaliczkach;
  * - zestawienie nie milczy o fakturach, których nie umie policzyć (korekta,
- *   korekta do zapłaty, zaliczka z rozliczeniem poza KSeF, import, waluta obca);
+ *   korekta do zapłaty, zaliczka z rozliczeniem poza KSeF albo już rozliczona w KSeF (D57), faktura bez numeru KSeF (D57),
+ *   import, waluta obca);
  *   wystawienie z nimi tylko świadomie;
  * - numer PS/n/rok nadaje baza, seria na firmę i rok, bez dubli przy kilku
  *   wystawieniach naraz; ta sama treść drugi raz to ten sam dokument;
@@ -55,6 +56,7 @@ const NIP = '1234567890';
 const NIP_INNY = '1234567891';
 const FLAGA = 'balanceConfirmationsEnabled';
 const ADRES_A = { countryCode: 'PL', addressLine1: 'ul. Przykładowa 1', addressLine2: '00-001 Warszawa' };
+const DELETE_GUARD_TEXT = 'cannot be deleted; issue a new balance confirmation instead';
 const GUARD_TEXT = 'is final; issue a new balance confirmation instead of editing it';
 
 const users: Record<Kto, string> = { owner: '', member: '', accountant: '', zawieszony: '', obcy: '' };
@@ -238,10 +240,32 @@ const KONTRAHENCI_SERII = [1, 2, 3, 4, 5].map((n) => ({
   nip: `98765432${10 + n}`,
 }));
 
+/**
+ * 00218 (N1): wystawionego dokumentu nie usuwa nikt, także klucz serwisowy. Sprzątanie testu robi sesja
+ * operatora (postgres z flagą app.allow_balance_confirmation_delete w jednej transakcji), jak opisuje runbook.
+ * Bez RLS_TEST_DATABASE_URL (sam PostgREST) dokumenty zostają, a numeracja zaczyna się od kolejnego numeru.
+ */
+async function usunDokumenty() {
+  if (!process.env.RLS_TEST_DATABASE_URL?.trim()) return;
+  const boss = new PgBoss({ connectionString: getRlsTestDatabaseUrl(), schema: 'pgboss', schedule: false, supervise: false });
+  await boss.start();
+  try {
+    await (boss.getDb() as unknown as { executeSql: (q: string) => Promise<unknown> }).executeSql(
+      `BEGIN;
+       SET LOCAL app.allow_balance_confirmation_delete = 'on';
+       DELETE FROM public.balance_confirmation_emails WHERE tenant_id IN ('${ORG_A}', '${ORG_B}');
+       DELETE FROM public.balance_confirmations WHERE tenant_id IN ('${ORG_A}', '${ORG_B}');
+       COMMIT;`,
+    );
+  } finally {
+    await boss.stop({ graceful: false, close: true });
+  }
+}
+
 async function cleanup() {
+  await usunDokumenty();
   for (const org of [ORG_A, ORG_B]) {
     await admin.from('balance_confirmation_emails').delete().eq('tenant_id', org);
-    await admin.from('balance_confirmations').delete().eq('tenant_id', org);
     await admin.from('payments').delete().eq('tenant_id', org);
     await admin.from('invoices').delete().eq('tenant_id', org).eq('invoice_kind', 'correction');
     await admin.from('invoices').delete().eq('tenant_id', org).eq('invoice_kind', 'final');
@@ -289,9 +313,9 @@ describe.skipIf(!hasDatabase)('00216: potwierdzenie salda na prawdziwym PostgRES
   afterAll(async () => {
     if (!hasDatabase) return;
     await ustawFlage(false);
+    await usunDokumenty();
     for (const org of [ORG_A, ORG_B]) {
       await admin.from('balance_confirmation_emails').delete().eq('tenant_id', org);
-      await admin.from('balance_confirmations').delete().eq('tenant_id', org);
       await admin.from('payments').delete().eq('tenant_id', org);
       await admin.from('invoices').delete().eq('tenant_id', org).eq('invoice_kind', 'correction');
       await admin.from('invoices').delete().eq('tenant_id', org).eq('invoice_kind', 'final');
@@ -359,6 +383,7 @@ describe.skipIf(!hasDatabase)('00216: potwierdzenie salda na prawdziwym PostgRES
 
       expect(p.status).toBe('ok');
       expect(p.items.map((i) => i.invoiceId)).toEqual([f1, f2, f3, z1, r2]);
+      // D57: z2 ma przyjętą fakturę rozliczającą (r2), więc nie jest należnością, ale zestawienie o niej nie milczy.
       expect(p.items.map((i) => i.outstanding)).toEqual([1230, 300, 0.2, 1000, 7000]);
       expect(p.items.find((i) => i.invoiceId === r2)).toMatchObject({ kind: 'final', type: 'ROZ', gross: 10000, amountDue: 7000, paid: 0, outstanding: 7000 });
       expect(p.items.find((i) => i.invoiceId === f2)).toMatchObject({ gross: 500, amountDue: 500, paid: 200, outstanding: 300 });
@@ -368,6 +393,7 @@ describe.skipIf(!hasDatabase)('00216: potwierdzenie salda na prawdziwym PostgRES
       });
       expect(p.total).toBe(9530.2);
       expect(p.omitted.map((o) => [o.invoiceId, o.reason])).toEqual([
+        [z2, 'advance_settled'],
         [z3, 'advance_settlement'],
         [k1, 'corrected'],
         [kor2, 'correction_due'],
@@ -408,6 +434,41 @@ describe.skipIf(!hasDatabase)('00216: potwierdzenie salda na prawdziwym PostgRES
       expect(b.items.map((i) => i.invoiceId)).toEqual([obcaFaktura]);
       expect(b.total).toBe(999);
     });
+
+    it('D57: faktura w kolejce, w wysyłce albo offline (bez numeru KSeF) to pominięta awaiting_ksef_number, nie saldo; szkic i inne środowisko nie', async () => {
+      const BEZ_NUMERU: Pola = { ksef_environment: null, ksef_number: null };
+      const kolejka = await faktura({ ...BEZ_NUMERU, ksef_status: 'queued', issue_date: '2026-09-01' });
+      const wysylka = await faktura({ ...BEZ_NUMERU, ksef_status: 'sending', issue_date: '2026-09-02' });
+      const offline = await faktura({ ...BEZ_NUMERU, ksef_status: 'offline_queued', issue_date: '2026-09-03' });
+      const zaliczkaWKolejce = await faktura({ ...BEZ_NUMERU, ksef_status: 'queued', invoice_type: 'ZAL', invoice_kind: 'advance', advance_amount: 100, issue_date: '2026-09-04' });
+      const przyjeta = await faktura({ issue_date: '2026-09-05' });
+      // Nie wchodzą wcale: szkic, nieudana wysyłka, zapłacona w kolejce, cudza firma.
+      await faktura(SZKIC);
+      await faktura({ ...BEZ_NUMERU, ksef_status: 'failed' });
+      const zaplaconaWKolejce = await faktura({ ...BEZ_NUMERU, ksef_status: 'queued', gross_total: 50, net_total: 40.65, vat_total: 9.35 });
+      await wplata(zaplaconaWKolejce, 50);
+      await faktura({ ...BEZ_NUMERU, ksef_status: 'queued' }, ORG_B);
+      const owner = await signedIn('owner');
+
+      const p = await podglad(owner);
+
+      expect(p.items.map((i) => i.invoiceId)).toEqual([przyjeta]);
+      expect(p.total).toBe(1230);
+      expect(p.omitted.map((o) => [o.invoiceId, o.reason])).toEqual([
+        [kolejka, 'awaiting_ksef_number'],
+        [wysylka, 'awaiting_ksef_number'],
+        [offline, 'awaiting_ksef_number'],
+        [zaliczkaWKolejce, 'awaiting_ksef_number'],
+      ]);
+      expect(p.omitted[0]).toMatchObject({ ksefNumber: null, kind: 'regular', gross: 1230 });
+      // Wystawienie z nimi tylko świadomie (D57), a dokument zachowuje powód.
+      expect((await wystaw(owner, p.fingerprint)).data).toEqual({ status: 'refused', code: 'omitted_not_confirmed' });
+      const { data, error } = await wystaw(owner, p.fingerprint, { bezPominietych: true });
+      expect(error).toBeNull();
+      expect((data as { status: string }).status).toBe('issued');
+      const [doc] = await dokumenty();
+      expect((doc!.omitted as Pominieta[]).map((o) => o.reason)).toEqual(Array(4).fill('awaiting_ksef_number'));
+    }, 30_000);
 
     it('kontrahent bez należności: podgląd z pustą listą, wystawienie to odmowa nothing_due bez dokumentu', async () => {
       const zaplacona = await faktura();
@@ -631,6 +692,20 @@ describe.skipIf(!hasDatabase)('00216: potwierdzenie salda na prawdziwym PostgRES
         expect(await dokumenty()).toEqual([]);
       });
 
+      it('postgres: DELETE odrzucony także właścicielowi bazy; flaga operatora w transakcji pozwala, bez niej znów nie', async () => {
+        await faktura();
+        const owner = await signedIn('owner');
+        const p = await podglad(owner);
+        const { data } = await wystaw(owner, p.fingerprint);
+        const id = (data as { id: string }).id;
+
+        await expect(db().executeSql('DELETE FROM public.balance_confirmations WHERE id = $1', [id])).rejects.toThrow(DELETE_GUARD_TEXT);
+        await db().executeSql(
+          `BEGIN; SET LOCAL app.allow_balance_confirmation_delete = 'on'; DELETE FROM public.balance_confirmation_emails WHERE confirmation_id = '${id}'; DELETE FROM public.balance_confirmations WHERE id = '${id}'; COMMIT;`,
+        );
+        expect(await dokumenty()).toEqual([]);
+      });
+
       it('postgres: wyzwalacz odrzuca zmianę treści wystawionego dokumentu także właścicielowi bazy', async () => {
         await faktura();
         const owner = await signedIn('owner');
@@ -718,6 +793,15 @@ describe.skipIf(!hasDatabase)('00216: potwierdzenie salda na prawdziwym PostgRES
       }
     });
 
+    it('N1: klucz serwisowy nie usunie dokumentu, numer zostaje w serii', async () => {
+      const { id } = await wystawiony();
+
+      const { error } = await admin.from('balance_confirmations').delete().eq('id', id).select('id');
+
+      expect(error?.message).toContain(DELETE_GUARD_TEXT);
+      expect((await dokumenty()).map((d) => d.number)).toEqual([numer(1)]);
+    });
+
     it('usunięcie kontrahenta z bazy: dokument zostaje z migawką, bez wskazania kontrahenta', async () => {
       const { id } = await wystawiony();
       const [przed] = await dokumenty();
@@ -747,6 +831,12 @@ describe.skipIf(!hasDatabase)('00216: potwierdzenie salda na prawdziwym PostgRES
 
     it('poprawny wiersz przechodzi (punkt odniesienia dla odmów niżej)', async () => {
       const { error } = await admin.from('balance_confirmations').insert(wiersz()).select('id');
+      expect(error).toBeNull();
+    });
+
+    it.each(['advance_settled', 'awaiting_ksef_number'])('powód pominięcia %s przechodzi CHECK (D57)', async (reason) => {
+      const omitted = [{ invoiceId: POZYCJA.invoiceId, number: 'FV/2', ksefNumber: null, issueDate: '2026-10-01', kind: 'advance', type: 'ZAL', currency: 'PLN', gross: 10, reason }];
+      const { error } = await admin.from('balance_confirmations').insert(wiersz({ omitted })).select('id');
       expect(error).toBeNull();
     });
 
