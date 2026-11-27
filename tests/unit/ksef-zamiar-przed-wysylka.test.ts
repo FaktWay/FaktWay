@@ -251,16 +251,22 @@ import { operatorInvoiceButtons } from '@/lib/admin/ksef-operator-policy';
 import { runSubmitInvoice } from '@/lib/jobs/runners/submit-invoice';
 import { invoiceXmlKeyFor } from '@/lib/storage/r2';
 import { finalizeInvoice } from '@/lib/xml/invoice-calculator';
+import { addDaysToIsoDate, todayInWarsaw } from '@/lib/format/warsaw-date';
+
+// B2a: zwykła faktura wychodzi do KSeF do końca następnego dnia roboczego po dacie
+// wystawienia, a bezpiecznik runnera i haka sesji liczy od prawdziwego zegara —
+// faktura przechodząca przez wysyłkę ma więc datę „dziś” w Polsce (stała data by się zestarzała).
+const TODAY_PL = todayInWarsaw();
 
 const faktura = () => finalizeInvoice({
   internalNumber: NUMBER,
   type: 'VAT',
-  issueDate: '2026-10-01',
-  saleDate: '2026-10-01',
+  issueDate: TODAY_PL,
+  saleDate: TODAY_PL,
   seller: { nip: '5260001246', name: 'ACME', address: { countryCode: 'PL', addressLine1: 'ul. A 1', addressLine2: '00-001 Warszawa' } },
   buyer: { nip: '5252241585', name: 'Klient', address: { countryCode: 'PL', addressLine1: 'ul. B 2', addressLine2: '02-001 Warszawa' } },
   lines: [{ ordinal: 1, name: 'Usługa', unit: 'usł.', quantity: 1, unitPriceNet: 100, vatRate: '23' }],
-  payment: { currency: 'PLN', dueDate: '2026-10-15', method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
+  payment: { currency: 'PLN', dueDate: addDaysToIsoDate(TODAY_PL, 14)!, method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
 });
 
 const event = (extra: Record<string, unknown> = {}) => ({
@@ -287,8 +293,8 @@ beforeEach(() => {
     sessions: new Map(), invoicePosts: 0, seq: 0, loseInvoicePostResponse: false,
     dropInvoicePost: false, rejectInvoicePost: null, statusFails: false, listFails: false,
   });
-  m.upload.mockImplementation(async (_t: string, _i: string, _d: string, _xml: string, o?: { attemptId?: string | null }) => ({
-    storagePath: invoiceXmlKeyFor({ tenantId: T, invoiceId: ID, issueDate: '2026-10-01', attemptId: o?.attemptId }),
+  m.upload.mockImplementation(async (_t: string, _i: string, issueDate: string, _xml: string, o?: { attemptId?: string | null }) => ({
+    storagePath: invoiceXmlKeyFor({ tenantId: T, invoiceId: ID, issueDate, attemptId: o?.attemptId }),
     sha256Hash: 'a'.repeat(64), sizeBytes: 10, etag: '"e"',
   }));
 });
@@ -417,7 +423,7 @@ describe('A2b: „Tylko uzgodnij” stwierdza, że KSeF nie ma faktury — wynik
     expect(buttons.reset.enabled).toBe(true);
     // Klient: oba przyciski i zdanie bez obietnicy automatycznego ponowienia.
     expect(failedInvoiceButtons({ ...failed, canManage: true }))
-      .toEqual({ resend: true, reset: true, settings: false, info: KSEF_SEND_MESSAGES.notInKsef });
+      .toEqual({ resend: true, reset: true, settings: false, info: `${KSEF_SEND_MESSAGES.notInKsef} ${KSEF_SEND_MESSAGES.sendByDeadline}` });
     expect(error.message).toContain(KSEF_SEND_MESSAGES.notInKsef);
   });
 

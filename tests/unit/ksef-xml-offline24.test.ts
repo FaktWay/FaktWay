@@ -3,6 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { JobContext } from '@/lib/jobs/registry';
 import type { Invoice } from '@/types/invoice';
+import { todayInWarsaw } from '@/lib/format/warsaw-date';
+
+// B2a: zwykła faktura wychodzi do KSeF do końca następnego dnia roboczego po dacie
+// wystawienia, a bezpiecznik runnera i haka sesji liczy od prawdziwego zegara —
+// faktura przechodząca przez wysyłkę ma więc datę „dziś” w Polsce (stała data by się zestarzała).
+const TODAY_PL = todayInWarsaw();
 
 /**
  * AUD-12: `xml_documents` nigdy nie było zapisywane — PDF bez kodu QR KOD I,
@@ -101,7 +107,7 @@ vi.mock('@/lib/supabase/server', () => ({
           : {
               id: '11111111-1111-4111-8111-111111111111', ksef_status: 'sending', ksef_number: null,
               ksef_environment: 'test', invoice_kind: 'regular', invoice_type: 'VAT', internal_number: 'FV/1/2026',
-              fa3_data: { internalNumber: 'FV/1/2026', type: 'VAT', issueDate: '2026-10-01' },
+              fa3_data: { internalNumber: 'FV/1/2026', type: 'VAT', issueDate: TODAY_PL },
             },
         error: null,
       }),
@@ -130,7 +136,7 @@ const zdarzenie = {
   tenantId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   nip: '1234567890',
   environment: 'test' as const,
-  invoice: { internalNumber: 'FV/1/2026', type: 'VAT', issueDate: '2026-10-01' } as Invoice,
+  invoice: { internalNumber: 'FV/1/2026', type: 'VAT', issueDate: TODAY_PL } as Invoice,
 };
 const ACCEPTED = {
   ksefNumber: '1234567890-20261001-0100A0B0C0D0-1A',

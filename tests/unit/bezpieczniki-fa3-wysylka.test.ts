@@ -61,20 +61,26 @@ vi.mock('@/lib/ksef/submit', () => ({
 import { KODY_FA3 } from '@/lib/bezpieczniki/fa3';
 import { submitInvoiceFullFlow } from '@/lib/ksef/submit-invoice-full';
 import { finalizeInvoice } from '@/lib/xml/invoice-calculator';
+import { addDaysToIsoDate, todayInWarsaw } from '@/lib/format/warsaw-date';
+
+// B2a: zwykła faktura wychodzi do KSeF do końca następnego dnia roboczego po dacie
+// wystawienia, a bezpiecznik runnera i haka sesji liczy od prawdziwego zegara —
+// faktura przechodząca przez wysyłkę ma więc datę „dziś” w Polsce (stała data by się zestarzała).
+const TODAY_PL = todayInWarsaw();
 
 function faktura(): Invoice {
   return finalizeInvoice({
     internalNumber: 'FV 2026/11/001',
     type: 'VAT',
-    issueDate: '2026-11-09',
-    saleDate: '2026-11-09',
+    issueDate: TODAY_PL,
+    saleDate: TODAY_PL,
     seller: { nip: '1234563218', name: 'Firma', address: { countryCode: 'PL', addressLine1: 'ul. Testowa 1', addressLine2: '00-001 Warszawa' } },
     buyer: { nip: '1111111111', name: 'Klient', address: { countryCode: 'PL', addressLine1: 'ul. Klienta 2', addressLine2: '02-001 Warszawa' } },
     lines: [
       { ordinal: 1, name: 'Usługa', unit: 'usł.', quantity: 1, unitPriceNet: 1000, vatRate: '23' },
       { ordinal: 2, name: 'Książka', unit: 'szt.', quantity: 3, unitPriceNet: 39.9, vatRate: '5' },
     ],
-    payment: { currency: 'PLN', dueDate: '2026-11-23', method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
+    payment: { currency: 'PLN', dueDate: addDaysToIsoDate(TODAY_PL, 14)!, method: 'transfer', bankAccount: 'PL61109010140000071219812874' },
   });
 }
 
@@ -94,7 +100,7 @@ describe('strażnik FA(3) w wysyłce do KSeF: tylko alarm (D-F7)', () => {
     expect(m.posted).toBe(true);
     expect(alarmyFa3()).toHaveLength(1);
     expect(alarmyFa3()[0]![1]).toMatchObject({
-      tags: { kod: KODY_FA3.suma, straznik: 'fa3', tenantId: T, rodzaj: 'vat', miesiac: '2026-11' },
+      tags: { kod: KODY_FA3.suma, straznik: 'fa3', tenantId: T, rodzaj: 'vat', miesiac: TODAY_PL.slice(0, 7) },
       extra: { dokumentId: ID },
     });
   });
