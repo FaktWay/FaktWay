@@ -1,0 +1,43 @@
+---
+title: "Faktura do paragonu"
+category: "faktury"
+order: 4
+summary: "Kiedy i jak wystawić fakturę do paragonu z kasy oraz dlaczego FaktWay odmawia JPK_V7M i sum przychodu w okresie z taką fakturą."
+updated: "2026-11-27"
+---
+
+Faktura do paragonu (FP) to faktura wystawiona na żądanie nabywcy do sprzedaży, która została już zarejestrowana na kasie fiskalnej. To informacja ogólna, nie porada podatkowa. Szczegóły sytuacji firmy najlepiej omówić z księgowym.
+
+## Kiedy wystawia się fakturę do paragonu
+
+Według ustawy o VAT sprzedawca wystawia fakturę na żądanie nabywcy zgłoszone w ciągu 3 miesięcy od końca miesiąca, w którym była dostawa, usługa albo zapłata (art. 106b ust. 3). Fakturę dla firmy do sprzedaży z kasy wystawia się tylko wtedy, gdy paragon ma jej NIP (art. 106b ust. 5). Osobie prywatnej fakturę wystawia się na jej żądanie.
+
+## Jak wystawić ją w FaktWay
+
+W formularzu faktury zaznacz „Faktura do paragonu” i uzupełnij pola z paragonu:
+
+- numer paragonu,
+- datę paragonu (nie może być późniejsza niż data wystawienia faktury),
+- numer unikatowy kasy (3 litery i 10 cyfr albo, na starszych kasach, 2 lub 3 litery i 8 cyfr),
+- dla firmy: zaznaczenie, że paragon ma NIP nabywcy.
+
+W KSeF faktura dostaje oznaczenie FP. FaktWay wystawia ją jako zwykłą fakturę VAT, dla firmy z Polski albo dla osoby prywatnej.
+
+## Czego FaktWay nie robi
+
+- Nie wystawia faktury do paragonu jako zaliczki ani rozliczenia, i nie wystawia do niej korekty. Napisz do nas przez Pomoc.
+- Nie wystawia jej dla firmy z UE.
+- Nie wystawia drugiej faktury do paragonu z NIP na kwotę do 450 zł brutto z 2026 r., bo taki paragon był fakturą uproszczoną (art. 106e ust. 5 pkt 3 i art. 145n ust. 1 pkt 2 ustawy o VAT).
+
+## Dlaczego FaktWay odmawia JPK_V7M i sum przychodu
+
+Sprzedaż z paragonu weszła już do ewidencji raportem z kasy. Faktura do paragonu nie zwiększa sprzedaży ani podatku należnego (art. 109 ust. 3d ustawy o VAT), a w JPK_V7M ma osobne oznaczenie FP.
+
+FaktWay nie wykazuje raportów z kasy. Dlatego:
+
+- **JPK_V7M**: gdy paragon pochodzi z miesiąca, którego dotyczy plik, albo nie znamy jego daty, plik nie powstaje, żeby nie zaniżyć podatku należnego. W komunikacie jest numer faktury. JPK_V7M za ten miesiąc przygotowujesz wtedy poza FaktWay, np. z księgową. Gdy paragon jest z wcześniejszego miesiąca, faktura trafia do pliku z oznaczeniem FP i bez podatku należnego.
+- **Raporty przychodu** (KPiR w Raportach, plik Excel KPiR, szacunek podatku, przepływy): w okresie z fakturą do paragonu FaktWay nie podaje sumy, żeby nie policzyć sprzedaży dwa razy. Przychód z tego okresu ustal z raportów z kasy.
+
+W obu przypadkach, jeśli potrzebujesz pomocy, napisz do nas przez Pomoc.
+
+Źródło: [objaśnienia MF „Paragony fiskalne” z 16.10.2020](https://www.gov.pl/attachment/d0dad28f-849a-4336-acc3-7d71fccb32e5).
