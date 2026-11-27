@@ -103,3 +103,17 @@ export const outsideKsefInvoiceSchema = z.object({
 });
 
 export type OutsideKsefInvoiceInput = z.infer<typeof outsideKsefInvoiceSchema>;
+
+/**
+ * Odmowa korekty do faktury dopisanej spoza KSeF (D22, D48). Korekty takiej
+ * faktury FaktWay nie przygotuje: oryginału nie ma w KSeF, więc nie ma do czego
+ * jej przypiąć. Wyjścia: korekta poza FaktWay (np. w bezpłatnej Aplikacji
+ * Podatnika KSeF) albo, gdy wpis ma błąd, usunięcie go i dodanie od nowa (D23).
+ */
+export function outsideKsefCorrectionRefusal(invoiceNumber: string | null): string {
+  const label = invoiceNumber?.trim() ? `Faktura ${invoiceNumber.trim()}` : 'Ta faktura';
+  return (
+    `${label} jest dopisana do historii jako wystawiona poza KSeF, więc FaktWay nie przygotuje do niej korekty. ` +
+    'Korektę wystaw poza FaktWay, na przykład w bezpłatnej Aplikacji Podatnika KSeF, a gdy w samym wpisie jest błąd, usuń wpis i dodaj go od nowa.'
+  );
+}

@@ -37,4 +37,11 @@ export type GlobalFlag =
    * pewnością). Wiersz wyłączony z 00216; brak wiersza, `false` albo błąd odczytu =
    * wyłączone, a funkcje bazy odmawiają `disabled`. Odczyt: `lib/saldo/wylacznik.ts`.
    */
-  | 'balanceConfirmationsEnabled';
+  | 'balanceConfirmationsEnabled'
+  /**
+   * WŁĄCZNIK faktur wystawionych w 2026 r. poza KSeF, dopisywanych do historii
+   * (krok 1.6 część 2b; D22 i D23 potwierdza księgowa, D24 i D25 prawnik). Bez
+   * migracji: brak wiersza, `false` albo błąd odczytu = wyłączone. Odczyt:
+   * `lib/import/outside-ksef-wylacznik.ts`.
+   */
+  | 'outsideKsefImportEnabled';

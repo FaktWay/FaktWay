@@ -63,6 +63,7 @@ import type {
 } from '@/types/invoice-types';
 import { loadParentAnnotations } from '@/lib/invoices/correction-annotations';
 import { documentGrossPrices } from '@/lib/invoices/document-lines';
+import { outsideKsefCorrectionRefusal } from '@/lib/import/outside-ksef-schema';
 import { lineCodesOf } from '@/lib/invoices/line-codes';
 import { CORRECTION_ZW_WITHOUT_BASIS_MESSAGE, withCodesFromBefore } from '@/lib/ksef/fa3-correction-generator';
 import { matchesTenantSeller, sellerFromTenantProfile } from '@/lib/invoices/tenant-seller';
@@ -780,7 +781,7 @@ async function readAcceptedCorrectionParent(
   const { data: row, error } = await supabase
     .from('invoices')
     // Krok 1.2: FP z FaktWay (`receipt`) i FP z importu KSeF (`ksefMarkers.fp`), tylko te dwie gałęzie fa3_data.
-    .select('id, tenant_id, issue_date, internal_number, ksef_number, net_total, vat_total, gross_total, seller_data, buyer_data, fp_paragon:fa3_data->receipt, fp_ksef:fa3_data->ksefMarkers->>fp')
+    .select('id, tenant_id, issue_date, internal_number, ksef_number, net_total, vat_total, gross_total, seller_data, buyer_data, origin, fp_paragon:fa3_data->receipt, fp_ksef:fa3_data->ksefMarkers->>fp')
     .eq('id', parentId)
     .eq('tenant_id', tenantId)
     .eq('direction', 'outgoing')
@@ -789,6 +790,10 @@ async function readAcceptedCorrectionParent(
     .eq('ksef_environment', environment)
     .maybeSingle();
 
+  // Krok 1.6 (D22, D48): wpis spoza KSeF nie ma numeru KSeF, ale odmowa ma wyjście, nie ogólny komunikat o numerze.
+  if (!error && row?.id && row.origin === 'outside_ksef') {
+    throw new Error(outsideKsefCorrectionRefusal(row.internal_number as string | null));
+  }
   if (error || !row?.id || !row.ksef_number?.trim()) {
     throw new Error('Faktura pierwotna nie ma potwierdzonego numeru KSeF w bieżącym środowisku tej firmy.');
   }

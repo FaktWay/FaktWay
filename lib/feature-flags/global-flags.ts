@@ -35,6 +35,7 @@ export const GLOBAL_FLAGS: readonly GlobalFlag[] = [
   'ksefPermissionsEnabled',
   'grossPricesEnabled',
   'balanceConfirmationsEnabled',
+  'outsideKsefImportEnabled',
 ] as const;
 
 /** Kill-switch musi reagować szybko, ale nie kosztem zapytania na każdy request. */
