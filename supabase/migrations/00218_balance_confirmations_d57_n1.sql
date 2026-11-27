@@ -244,3 +244,6 @@ $$;
 
 COMMENT ON FUNCTION public.balance_confirmation_lines(uuid, text, text) IS
   '00218: pozycje (należności jak getReceivables, tylko faktury przyjęte w KSeF) i pominięte faktury jednej firmy dla jednego NIP nabywcy, z powodami z D57; tylko wewnątrz funkcji SECURITY DEFINER.';
+
+COMMENT ON COLUMN public.balance_confirmations.omitted IS
+  '00218: faktury kontrahenta, których saldo nie obejmuje, z powodem (corrected, correction_due, advance_settlement, advance_settled, awaiting_ksef_number, imported, foreign_currency); wystawione świadomie (p_without_omitted).';

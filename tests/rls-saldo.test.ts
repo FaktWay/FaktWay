@@ -706,6 +706,48 @@ describe.skipIf(!hasDatabase)('00216: potwierdzenie salda na prawdziwym PostgRES
         expect(await dokumenty()).toEqual([]);
       });
 
+      it('postgres: usunięcie firmy (RODO) kaskadą kasuje wystawione potwierdzenie i wysyłki bez flagi operatora; bezpośredni DELETE nadal pada', async () => {
+        const ORG_C = '00216216-0000-4000-8000-00000000000c';
+        const KONTRAHENT_C = '00216216-1111-4000-8000-00000000000c';
+        const tenantRows = async () => (await db().executeSql(
+          `SELECT (SELECT count(*) FROM public.balance_confirmations WHERE tenant_id = '${ORG_C}')::int AS dokumenty,
+                  (SELECT count(*) FROM public.balance_confirmation_emails WHERE tenant_id = '${ORG_C}')::int AS maile,
+                  (SELECT count(*) FROM public.tenants WHERE id = '${ORG_C}')::int AS firmy`,
+        )).rows[0];
+        // Wpisy audytu firmy kasuje kaskada tylko z flagą czyszczenia audytu (00052); flagi strażnika potwierdzeń NIE ustawiamy.
+        const usunFirme = () => db().executeSql(
+          `BEGIN; SET LOCAL app.allow_audit_purge = 'true'; DELETE FROM public.tenants WHERE id = '${ORG_C}'; COMMIT;`,
+        );
+        await usunFirme();
+        try {
+          const t = await admin.from('tenants').insert({ id: ORG_C, nip: NIP, name: 'Firma C Saldo', address_json: ADRES_A });
+          if (t.error) throw t.error;
+          const m = await admin.from('memberships').insert({ organization_id: ORG_C, user_id: users.owner, role: 'owner', status: 'active' });
+          if (m.error) throw m.error;
+          await kontrahent(KONTRAHENT_C, NIP, {}, ORG_C);
+          await faktura({}, ORG_C);
+          const owner = await signedIn('owner', ORG_C);
+          const p = await podglad(owner, KONTRAHENT_C);
+          const { data } = await wystaw(owner, p.fingerprint, { contractorId: KONTRAHENT_C });
+          const id = (data as { id: string }).id;
+          const mail = await owner.rpc('record_balance_confirmation_email', {
+            p_confirmation_id: id, p_recipient: 'ksiegowosc@kontrahent.test', p_idempotency_key: `saldo/${id}/c/0`, p_provider_message_id: 'msg-c',
+          });
+          expect(mail.data).toMatchObject({ status: 'recorded' });
+          expect(await tenantRows()).toEqual({ dokumenty: 1, maile: 1, firmy: 1 });
+
+          // Bez flagi operatora bezpośredni DELETE dokumentu pada (strażnik działa na poziomie 1)...
+          await expect(db().executeSql('DELETE FROM public.balance_confirmations WHERE id = $1', [id])).rejects.toThrow(DELETE_GUARD_TEXT);
+          expect(await tenantRows()).toEqual({ dokumenty: 1, maile: 1, firmy: 1 });
+
+          // ...a usunięcie firmy (kaskada z tenants przez wysyłki i potwierdzenia) przechodzi i nie zostawia wierszy.
+          await usunFirme();
+          expect(await tenantRows()).toEqual({ dokumenty: 0, maile: 0, firmy: 0 });
+        } finally {
+          await usunFirme();
+        }
+      });
+
       it('postgres: wyzwalacz odrzuca zmianę treści wystawionego dokumentu także właścicielowi bazy', async () => {
         await faktura();
         const owner = await signedIn('owner');

@@ -1,1 +1,0 @@
-Przygotowanie worktree: pnpm install (7 s), .env.local skopiowany z głównego katalogu, .agents/infra.env dowiązany.
