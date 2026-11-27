@@ -85,13 +85,27 @@ export async function przypomnijOTerminie(
   if (grupy.length === 0) return 'pominiete';
 
   const dane = await czytajTenMiesiac(admin, tenantId, t.miesiac);
-  // Bez odczytu zapłat nie wiadomo, co jest zapłacone: ponowienie zamiast przypomnienia „bez zapłaty”.
-  if (!dane.ok && dane.braki.includes(BLAD_ODCZYTU_ROZLICZEN)) throw new Error(`Nie udało się odczytać rozliczeń firmy ${tenantId} za ${t.miesiac}`);
-  // D32 (FZ-030): błąd odczytu danych VAT w dniu przypomnienia o VAT to ponowienie, nie przypomnienie bez kwoty
-  // (inne terminy VAT nie dotyczy). Wyjście: ostatnia próba idzie dalej jak przy braku, z wpisem w Sentry, bo błąd
-  // bywa stały (np. korekta bez przyjętej faktury pierwotnej, worker bez KSEF_ENV), a etap przypomnienia nie wraca
-  // następnego dnia: VAT bez oznaczonej zapłaty wychodzi bez kwoty, a VAT oznaczony jako zapłacony bez zdania po
-  // zapłacie (błąd odczytu to nie brak z danych). Operator: docs/runbooks/ksiegowosc-przypomnienia.md.
+  // D63 (FZ-030): błąd odczytu (rozliczenia, profil, ewidencja, KPiR) to ponowienie zadania, nie przypomnienie bez
+  // kwoty ani „bez oznaczonej zapłaty”: baza nie odpowiedziała, więc nie wiadomo, co jest zapłacone ani ile wynosi
+  // kwota. Odmowa z przyczyną w danych (brak ustawień, dubel kosztu, D7, wyłącznik) zostaje miesiącem bez kwot, bez
+  // ponowienia. Wyjście: ostatnia próba idzie dalej (miesiąc bez kwot, bez zdania po zapłacie), z wpisem w Sentry.
+  const bladOdczytu = (!dane.ok && (dane.bladOdczytu === true || dane.braki.includes(BLAD_ODCZYTU_ROZLICZEN)));
+  if (bladOdczytu && !opcje.ostatniaProba) throw new Error(`Nie udało się odczytać rozliczeń firmy ${tenantId} za ${t.miesiac}`);
+  if (bladOdczytu) {
+    Sentry.captureException(new Error(`Błąd odczytu rozliczeń firmy ${tenantId} za ${t.miesiac} po ponowieniach (ostatnia próba)`), {
+      tags: { area: 'ksiegowosc.terminy' },
+      extra: { tenantId, miesiac: t.miesiac, etap: t.etap, krok: 'odczyt-ostatnia-proba' },
+    });
+  }
+  // Styczeń: KPiR roku poprzedniego się nie odczytała, więc składka zdrowotna ma brak (miesiąc liczy się dalej).
+  const bladZdrowotnej = grupy.includes('zus') && dane.ok && dane.bladOdczytuPoprzedniego === true;
+  if (bladZdrowotnej && !opcje.ostatniaProba) throw new Error(`Nie udało się odczytać KPiR poprzedniego roku firmy ${tenantId} za ${t.miesiac}`);
+  if (bladZdrowotnej) {
+    Sentry.captureException(new Error(`Błąd odczytu KPiR poprzedniego roku firmy ${tenantId} za ${t.miesiac} po ponowieniach (ostatnia próba)`), {
+      tags: { area: 'ksiegowosc.terminy' },
+      extra: { tenantId, miesiac: t.miesiac, etap: t.etap, krok: 'kpir-poprzedni-ostatnia-proba' },
+    });
+  }
   const bladVat = grupy.includes('vat') && dane.ok && dane.pozycje.some((p) => p.rodzaj === 'vat' && !p.ok && p.brak === BLAD_ODCZYTU_VAT);
   if (bladVat && !opcje.ostatniaProba) throw new Error(`Nie udało się odczytać danych VAT firmy ${tenantId} za ${t.miesiac}`);
   if (bladVat) {
@@ -108,6 +122,7 @@ export async function przypomnijOTerminie(
     pozycje = niezaplacone({ ...wejscie, jpkPrzyjete: true });
   }
   if (bladVat) pozycje = pozycje.filter((p) => !(p.rodzaj === 'vat' && p.poZaplacie));
+  if (bladZdrowotnej) pozycje = pozycje.filter((p) => !(p.rodzaj === 'zdrowotna' && p.poZaplacie));
   if (pozycje.length === 0) return 'pominiete';
 
   // Strażnik przypomnień (żelazny filtr F13 część 5): kwota z zatwierdzonej wersji

@@ -21,16 +21,38 @@ import { todayInWarsaw } from '@/lib/format/warsaw-date';
 import type { JobContext } from '@/lib/jobs/registry';
 import { firmyWPilotazu, zajmij, zamknij } from '@/lib/ksiegowosc/powiadomienia';
 import { trescWyliczenia } from '@/lib/ksiegowosc/przypomnienia';
-import { czytajTenMiesiac } from '@/lib/ksiegowosc/ten-miesiac-dane';
+import { BLAD_ODCZYTU_ROZLICZEN, czytajTenMiesiac } from '@/lib/ksiegowosc/ten-miesiac-dane';
+import { BLAD_ODCZYTU_VAT } from '@/lib/ksiegowosc/vat-dane';
 import { czyKsiegowoscWlaczona } from '@/lib/ksiegowosc/wylacznik';
 import { sendPushToTenant } from '@/lib/push/sender';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export type WynikFirmy = 'wyslane' | 'pominiete' | 'duplikaty';
 
-export async function powiadomOWyliczeniu(admin: SupabaseClient, tenantId: string, miesiac: string): Promise<WynikFirmy> {
+/** Ponowienia zadania (rejestracja w `lib/jobs/handlers/package-b.ts`); ostatnia próba ma `attempt` równe tej liczbie. */
+export const PONOWIENIA_MIESIACA = 4;
+
+export async function powiadomOWyliczeniu(
+  admin: SupabaseClient,
+  tenantId: string,
+  miesiac: string,
+  opcje: { ostatniaProba?: boolean } = {},
+): Promise<WynikFirmy> {
   if (!(await czyKsiegowoscWlaczona(admin, tenantId, 'terminy')).wlaczony) return 'pominiete';
   const dane = await czytajTenMiesiac(admin, tenantId, miesiac);
+  // D63 (FZ-030): błąd odczytu (baza nie odpowiedziała) to ponowienie zadania, nie „bez kwot”; to samo błąd odczytu VAT
+  // albo KPiR poprzedniego roku (składka zdrowotna w styczniu), bo „wyliczone” bez tej pozycji byłoby nieprawdą o miesiącu.
+  // Odmowa z przyczyną w danych zostaje miesiącem bez kwot. Wyjście: ostatnia próba idzie dalej (bez pozycji z błędem
+  // odczytu), z wpisem w Sentry.
+  const bladVat = dane.ok && dane.pozycje.some((p) => p.rodzaj === 'vat' && !p.ok && p.brak === BLAD_ODCZYTU_VAT);
+  const bladOdczytu = (!dane.ok && (dane.bladOdczytu === true || dane.braki.includes(BLAD_ODCZYTU_ROZLICZEN))) || bladVat || (dane.ok && dane.bladOdczytuPoprzedniego === true);
+  if (bladOdczytu && !opcje.ostatniaProba) throw new Error(`Nie udało się odczytać rozliczeń firmy ${tenantId} za ${miesiac}`);
+  if (bladOdczytu) {
+    Sentry.captureException(new Error(`Błąd odczytu rozliczeń firmy ${tenantId} za ${miesiac} po ponowieniach (ostatnia próba)`), {
+      tags: { area: 'ksiegowosc.miesiac' },
+      extra: { tenantId, miesiac, krok: 'odczyt-ostatnia-proba' },
+    });
+  }
   if (!dane.ok) return 'pominiete';
   // Kwota zero (np. składki w uldze na start) nie trafia do treści.
   const pozycje = dane.pozycje.flatMap((p) => (p.ok && p.kwotaGr > 0 ? [{ rodzaj: p.rodzaj, kwotaGr: p.kwotaGr }] : []));
@@ -54,7 +76,8 @@ export async function powiadomOWyliczeniu(admin: SupabaseClient, tenantId: strin
   return 'wyslane';
 }
 
-export async function runKsiegowoscMiesiac({ step, logger }: JobContext) {
+export async function runKsiegowoscMiesiac({ step, logger, attempt }: JobContext) {
+  const ostatniaProba = attempt >= PONOWIENIA_MIESIACA;
   const admin = createAdminClient() as unknown as SupabaseClient;
   const miesiac = shiftMonth(todayInWarsaw().slice(0, 7), -1);
   const firmy = await step.run('firmy-w-pilotazu', () => firmyWPilotazu(admin));
@@ -63,7 +86,7 @@ export async function runKsiegowoscMiesiac({ step, logger }: JobContext) {
   let doPonowienia = 0;
   for (const tenantId of firmy) {
     try {
-      licznik[await step.run(`wyliczone-${tenantId}`, () => powiadomOWyliczeniu(admin, tenantId, miesiac))]++;
+      licznik[await step.run(`wyliczone-${tenantId}`, () => powiadomOWyliczeniu(admin, tenantId, miesiac, { ostatniaProba }))]++;
     } catch (e) {
       doPonowienia++;
       Sentry.captureException(e, { tags: { area: 'ksiegowosc.miesiac' }, extra: { tenantId, miesiac } });
