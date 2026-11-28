@@ -54,13 +54,18 @@ describe('readCompletePagesByKey', () => {
       { afterId: id(499), limit: 500, count: false, head: false },
       { afterId: id(999), limit: 500, count: false, head: false },
       { afterId: null, limit: 500, count: true, head: true },
+      // FZ-031 (D70): odczyt na kilku stronach jest czytany drugi raz tym samym zapytaniem.
+      { afterId: null, limit: 500, count: true, head: false },
+      { afterId: id(499), limit: 500, count: false, head: false },
+      { afterId: id(999), limit: 500, count: false, head: false },
+      { afterId: null, limit: 500, count: true, head: true },
     ]);
   });
 
   it('1000 wierszy: bez pustej strony na końcu', async () => {
     const { fetchPage, queries } = source(rowsOf(1000));
     expect(await readCompletePagesByKey('faktury', fetchPage)).toHaveLength(1000);
-    expect(queries.map((q) => q.head)).toEqual([false, false, true]);
+    expect(queries.map((q) => q.head)).toEqual([false, false, true, false, false, true]); // dwa odczyty (FZ-031, D70)
   });
 
   it('serwer ucina odpowiedź poniżej rozmiaru strony — błąd, nie cichy brak', async () => {

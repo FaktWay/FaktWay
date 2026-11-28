@@ -243,8 +243,9 @@ describe('eksport danych konta ponad limit wierszy PostgREST (sesja 29)', () => 
     expect(data.audit_logs[0]?.id).toBe(uuid(9999));
     expect(data.coverage.audit_logs).toEqual({ returned: 1501, total: 1501, truncated: false });
     // Pierwszy odczyt: 3 strony, a trzecia (pełna) prosi o wiersz ponad licznik i widzi nowy wpis (FZ-017);
-    // drugi: 4 strony i licznik kontrolny.
-    expect(pg.state.requests.filter((request) => request.table === 'audit_logs')).toHaveLength(8);
+    // drugi: 4 strony i licznik kontrolny. FZ-031 (D70): każdy odczyt na kilku stronach jest czytany dwa razy,
+    // stąd 13 zapytań zamiast 8.
+    expect(pg.state.requests.filter((request) => request.table === 'audit_logs')).toHaveLength(13);
   });
 
   it('wpisy dopisywane w trakcie obu odczytów: odmowa, bez trzeciej próby', async () => {

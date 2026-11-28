@@ -1,6 +1,43 @@
 /** PostgREST may cap a successful response. A partial accounting read is an error. */
 export const ACCOUNTING_PAGE_SIZE = 500;
 
+/** Najwięcej odczytów jednego kompletu stron (FZ-031, D70). */
+const MAX_ODCZYTOW = 3;
+
+/**
+ * Migawka przy odczycie stronami (FZ-031, D70). Odczyt z jednej strony to
+ * jedna migawka i zostaje jak jest. Odczyt z więcej niż jednej strony jest
+ * czytany drugi raz tym samym zapytaniem i porównywany wiersz po wierszu
+ * (wszystkie wybrane kolumny, w kolejności `id`): równe to wynik, różne to
+ * kolejny odczyt, najwyżej trzy w sumie. Bez dwóch równych z rzędu wyjątek
+ * „niestabilna kolejność stron danych”. Odczyt po zmianie różni się od
+ * mieszanego (część przed zmianą, część po niej), więc zmiany po obu stronach
+ * kursora naraz nie przechodzą. Wymaga, by wybrane kolumny nie zależały od
+ * czasu odczytu (nie liczone z `now()`).
+ */
+async function zPodwojnymOdczytem<T extends { id: string }>(
+  label: string,
+  odczyt: () => Promise<{ rows: T[]; pages: number }>,
+): Promise<T[]> {
+  const pierwszy = await odczyt();
+  if (pierwszy.pages <= 1) return pierwszy.rows;
+  let poprzedni = pierwszy.rows;
+  for (let n = 1; n < MAX_ODCZYTOW; n += 1) {
+    const kolejny = (await odczyt()).rows;
+    if (takieSameWiersze(poprzedni, kolejny)) return kolejny;
+    poprzedni = kolejny;
+  }
+  throw new Error(`${label}: niestabilna kolejność stron danych`);
+}
+
+function takieSameWiersze<T>(a: readonly T[], b: readonly T[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (JSON.stringify(a[i]) !== JSON.stringify(b[i])) return false;
+  }
+  return true;
+}
+
 type Page<T> = {
   data: T[] | null;
   count: number | null;
@@ -18,13 +55,21 @@ type Page<T> = {
  * mieści się w limicie serwera; każda dalsza strona daje o jeden nowy wiersz
  * mniej, więc czasem potrzeba jednej strony więcej. Zmiany po obu stronach
  * kursora naraz (wiersz usunięty i dopisany przed zakładką oraz za nią) łapie
- * dopiero migawka (FZ-031).
+ * podwójny odczyt (FZ-031, D70, `zPodwojnymOdczytem`).
  */
 export async function readCompletePages<T extends { id: string }>(
   label: string,
   fetchPage: (from: number, to: number) => PromiseLike<Page<T>>,
 ): Promise<T[]> {
+  return zPodwojnymOdczytem(label, () => readPagesOnce(label, fetchPage));
+}
+
+async function readPagesOnce<T extends { id: string }>(
+  label: string,
+  fetchPage: (from: number, to: number) => PromiseLike<Page<T>>,
+): Promise<{ rows: T[]; pages: number }> {
   const rows: T[] = [];
+  let pages = 0;
   let total: number | null = null;
   let lastId: string | null = null;
 
@@ -32,6 +77,7 @@ export async function readCompletePages<T extends { id: string }>(
     // Zakładka: od drugiej strony zakres zaczyna się od ostatniego przeczytanego wiersza.
     const from = rows.length === 0 ? 0 : rows.length - 1;
     const page = await fetchPage(from, from + ACCOUNTING_PAGE_SIZE - 1);
+    pages += 1;
     if (page.error) throw new Error(`${label}: ${page.error.message}`);
     if (!page.data || typeof page.count !== 'number' ||
         !Number.isSafeInteger(page.count) || page.count < 0 ||
@@ -60,7 +106,7 @@ export async function readCompletePages<T extends { id: string }>(
     }
   }
 
-  return rows;
+  return { rows, pages };
 }
 
 /** Strona odczytu po kluczu: `count` tylko tam, gdzie zapytanie go prosiło. */
@@ -117,12 +163,20 @@ const validCount = (count: number | null | undefined): count is number =>
  * danych” (FZ-017); wymaga to limitu serwera ponad `ACCOUNTING_PAGE_SIZE`
  * (produkcja: 1000), bo przy limicie równym stronie serwer utnie prośbę o 501.
  * Zmiany po obu stronach kursora naraz (usunięty i dopisany wiersz w części
- * przeczytanej oraz w nieprzeczytanej) łapie dopiero migawka (FZ-031).
+ * przeczytanej oraz w nieprzeczytanej) łapie podwójny odczyt (FZ-031, D70,
+ * `zPodwojnymOdczytem`).
  */
 export async function readCompletePagesByKey<T extends { id: string }>(
   label: string,
   fetchPage: (page: KeysetPageQuery) => PromiseLike<KeysetPage<T>>,
 ): Promise<T[]> {
+  return zPodwojnymOdczytem(label, () => readKeysetOnce(label, fetchPage));
+}
+
+async function readKeysetOnce<T extends { id: string }>(
+  label: string,
+  fetchPage: (page: KeysetPageQuery) => PromiseLike<KeysetPage<T>>,
+): Promise<{ rows: T[]; pages: number }> {
   const rows: T[] = [];
   let total: number | null = null;
   let lastId: string | null = null;
@@ -160,5 +214,5 @@ export async function readCompletePagesByKey<T extends { id: string }>(
     }
   }
 
-  return rows;
+  return { rows, pages };
 }
