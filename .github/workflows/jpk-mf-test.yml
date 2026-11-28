@@ -1,0 +1,61 @@
+name: JPK MF test
+
+# Żelazny filtr, krok F14 (plan B4.7, decyzja D49): próba techniczna wysyłki
+# JPK_V7M(3) na środowisko TESTOWE MF raz w tygodniu. Bez sekretów: fikcyjny NIP
+# 1234567890, publiczny certyfikat testowy MF (ważny do 7.07.2027) i fikcyjne
+# dane autoryzujące. Środowisko testowe MF nie sprawdza danych autoryzujących
+# ani sumy kontrolnej NIP, więc potwierdza technikę (paczka, szyfrowanie,
+# status, UPO), nie dane.
+# Bez pull_request: przerwa po stronie MF nie może blokować scalania. Przed
+# zmianą generatora JPK albo wysyłki, i przed pilotażem modułu, wymagany jest
+# zielony przebieg ręczny (workflow_dispatch) z linkiem w karcie PR.
+on:
+  schedule:
+    # Poniedziałek 06:47 UTC, poza godziną pełną i oknem serwisowym.
+    - cron: '47 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wysylka:
+    name: Wysyłka JPK na środowisko testowe MF
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20 # skrypt odpytuje status do 10 minut
+    permissions:
+      contents: read
+      issues: write # issue z etykietą `filtr` przy błędzie
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.34.5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.23.4
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Przypomnienie o certyfikacie testowym MF
+        # Certyfikat wygasa 7.07.2027 (plan B4.7 pkt 4): ostrzeżenie od 60 dni wcześniej.
+        run: |
+          dni=$(( ( $(date -u -d 2027-07-07 +%s) - $(date -u +%s) ) / 86400 ))
+          echo "Do wygaśnięcia certyfikatu testowego MF: $dni dni"
+          if [ "$dni" -le 60 ]; then
+            echo "::warning::Certyfikat testowy MF wygasa 7.07.2027 (za $dni dni). Podmienić w lib/ksiegowosc/wysylka-jpk/certyfikaty.ts."
+          fi
+      - name: Wysyłka JPK_V7M(3) i status
+        run: pnpm exec tsx scripts/test-jpk-mf.ts
+      - name: Issue przy błędzie
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRZEBIEG: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" --label filtr \
+            --title "JPK MF test: wysyłka na środowisko testowe nie przeszła" \
+            --body "Cotygodniowa próba wysyłki JPK_V7M(3) na testowe MF zakończyła się błędem. Przebieg: $PRZEBIEG. To może być przerwa po stronie MF (powtórz ręcznie: workflow_dispatch) albo zmiana w generatorze lub wysyłce. Nie blokuje scalania. Plan filtra B4.7." \
+            || echo "Nie udało się założyć issue (etykieta filtr istnieje? ./scripts/ops/filtr-etykiety.sh)"

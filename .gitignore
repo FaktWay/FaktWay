@@ -94,3 +94,4 @@ LINK-LOGOWANIA-DEV.txt
 
 # pliki robocze skryptów deweloperskich (scripts/_scratch.ts)
 .tmp/
+reports/

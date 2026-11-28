@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_opis": "Testy mutacyjne żelaznego filtra (F16, D50): tylko nocne CI (filtr-mutacje.yml), najpierw silniki R1 księgowości. Lokalnie nie uruchamiać całości (Mac 16 GB); jeden plik: pnpm filtr:mutacje --mutate lib/ksiegowosc/ryczalt.ts",
+  "testRunner": "vitest",
+  "vitest": { "configFile": "vitest.config.ts", "related": true },
+  "plugins": ["@stryker-mutator/vitest-runner"],
+  "mutate": [
+    "lib/ksiegowosc/vat.ts",
+    "lib/ksiegowosc/kpir.ts",
+    "lib/ksiegowosc/ryczalt.ts",
+    "lib/ksiegowosc/pit.ts",
+    "lib/ksiegowosc/przelew.ts",
+    "lib/ksiegowosc/mikrorachunek.ts"
+  ],
+  "coverageAnalysis": "perTest",
+  "concurrency": 2,
+  "timeoutMS": 60000,
+  "reporters": ["clear-text", "json", "html"],
+  "jsonReporter": { "fileName": "reports/mutation/mutation.json" },
+  "htmlReporter": { "fileName": "reports/mutation/index.html" },
+  "thresholds": { "high": 95, "low": 90, "break": null },
+  "tempDirName": ".tmp/stryker",
+  "cleanTempDir": true,
+  "ignoreStatic": true
+}

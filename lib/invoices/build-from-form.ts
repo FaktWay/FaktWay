@@ -12,6 +12,7 @@
 import { buildInvoiceAnnotations } from '@/lib/invoices/annotations';
 import { isGtuCode } from '@/lib/invoices/line-codes';
 import { orderFromFormValues } from '@/lib/invoices/order-reference';
+import { walutaDokumentu } from '@/lib/invoices/waluty-wylacznik-wspolne';
 import { addressCountryForKodUE, parseVatUe } from '@/lib/invoices/vat-ue';
 import {
   grossPricedFormLines,
@@ -24,6 +25,7 @@ import type {
   Address,
   BuyerParty,
   Invoice,
+  InvoiceExchangeRate,
   InvoiceLineItem,
   PaymentInfo,
   PaymentMethod,
@@ -50,6 +52,8 @@ export function buildInvoiceFromForm(
   vatExemptionBasis: string | null,
   /** Metoda kasowa VAT firmy (P_16, #76). */
   cashMethod: boolean,
+  /** Kurs NBP faktury w walucie obcej (`kursDoFaktury`); przy złotych brak. */
+  exchangeRate?: InvoiceExchangeRate | null,
 ): Invoice {
   // Plan cen brutto, PR (b): jedna metoda cen na fakturę. Przy cenach brutto
   // pozycje liczy `grossPricedFormLines` (VAT od sumy brutto stawki,
@@ -181,7 +185,7 @@ export function buildInvoiceFromForm(
 
   const payment: PaymentInfo = {
     amountDue: totals.grossTotal,
-    currency: 'PLN',
+    currency: walutaDokumentu(values),
     dueDate: values.paymentDueDate,
     method: values.paymentMethod as PaymentMethod,
     bankAccount: values.bankAccount || undefined,
@@ -226,6 +230,8 @@ export function buildInvoiceFromForm(
     ...(order ? { order } : {}),
     // Klucz tylko przy cenach brutto: faktura w cenach netto ma kształt jak dotąd.
     ...(pricesGross ? { pricesGross: true as const } : {}),
+    // Klucz tylko przy walucie obcej (D56): faktura w złotych ma kształt jak dotąd.
+    ...(exchangeRate && payment.currency !== 'PLN' ? { exchangeRate } : {}),
   };
 }
 

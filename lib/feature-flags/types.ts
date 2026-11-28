@@ -44,4 +44,9 @@ export type GlobalFlag =
    * migracji: brak wiersza, `false` albo błąd odczytu = wyłączone. Odczyt:
    * `lib/import/outside-ksef-wylacznik.ts`.
    */
-  | 'outsideKsefImportEnabled';
+  | 'outsideKsefImportEnabled'
+  /**
+   * WŁĄCZNIK faktury w walucie obcej (krok 2.1, część 3, D56). Bez migracji: brak wiersza,
+   * `false` albo błąd odczytu = wyłączone. Odczyt: `lib/invoices/waluty-wylacznik.ts`.
+   */
+  | 'foreignCurrencyEnabled';

@@ -264,3 +264,29 @@ doszła”, „plik nie wychodzi”) faktur FA(3) nie dotyczą.
    strażnika osobnym PR z testem i wzorcem z `docs/koordynacja/ZRODLA-PRAWDY.md`,
    za zgodą Bartosza. Do tego czasu klient widzi brak zamiast dobrej kwoty
    albo odmowę zamiast dobrego pliku: błąd bezpieczny, ale błąd.
+
+## Środowiska testowe i testy mutacyjne (F14, F16; D49, D50)
+
+- **KSeF TEST** co tydzień: `ksef-test-wysylka.yml` (poniedziałek, bez sekretów).
+- **MF test JPK** co tydzień: `jpk-mf-test.yml` (poniedziałek, bez sekretów,
+  fikcyjny NIP, publiczny certyfikat testowy do 7.07.2027; 60 dni przed
+  wygaśnięciem przebieg wypisuje ostrzeżenie). Środowisko testowe MF nie
+  sprawdza danych autoryzujących ani sumy kontrolnej NIP, więc potwierdza
+  technikę, nie dane. Błąd zakłada issue z etykietą `filtr`. Przed
+  pilotażem modułu i przed zmianą generatora JPK albo wysyłki: zielony
+  przebieg ręczny (`workflow_dispatch`) z linkiem w karcie PR. Żaden z tych
+  przebiegów nie blokuje scalania.
+- **Systemy państwowe liczone ręcznie** (e-mikrofirma, e-Płatnik) raz w roku
+  i przy zmianie obliczeń VAT albo ZUS; lista kontrolna poniżej, wynik
+  w `docs/filtr/PROTOKOLY-RECZNE.md`.
+  1. Kilkanaście ewidencji VAT wpisanych do e-mikrofirmy i porównanych pole
+     po polu z naszym plikiem JPK_V7M.
+  2. Składki dla każdego etapu ZUS (ulga na start, preferencyjny, pełny,
+     z chorobowym i bez) porównane z e-Płatnikiem w eZUS.
+  3. Wpis do protokołu: data, wersja kodu (SHA), kto porównywał, różnice.
+- **Testy mutacyjne** (`filtr-mutacje.yml`, niedziela w nocy i ręcznie):
+  Stryker (wersje przypięte) na silnikach R1 z `stryker.config.json`. Cel:
+  co najmniej 90 % zabitych mutantów. Ocalały mutant opisujesz: równoważny
+  (nie zmienia zachowania) albo brakujący test, wtedy nowy niezmiennik. Lokalnie
+  tylko jeden plik: `pnpm filtr:mutacje --mutate lib/ksiegowosc/przelew.ts`
+  (całość zajmuje godziny, na Macu 16 GB nie).
