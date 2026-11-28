@@ -452,6 +452,69 @@
       "uwagi": "Krok 2.6, części 2b-2 i 2b-3. JPK_FA(4) i EDI++ nie mają pola GTU: zaimportowana faktura z GTU dalej je wstrzymuje (decyzja C5b z 06.10.2026), a ostrzeżenie importu mówi o JPK_FA i JPK_V7M (do poprawy osobno); własna faktura FaktWay z GTU ich nie wstrzymuje. Raportów z kasy (RO) i korekt z art. 89a ust. 1 i 4 FaktWay nie wykazuje, więc GTU przy nich nie dotyczy."
     },
     {
+      "id": "RP-JPK-TP-01",
+      "regula": "Oznaczenie TP w JPK_V7M: wiersz ewidencji sprzedaży faktury, o której wiadomo, że nabywcę i dostawcę łączą powiązania, ma element TP równy 1 (w sekwencji oznaczeń procedur, po GTU, przed polami K_); kwoty wiersza i deklaracji się nie zmieniają. FaktWay nie ocenia, czy powiązanie istnieje: flagę podaje klient przy wpisie faktury wystawionej poza KSeF albo niesie ją plik KSeF faktury z importu (Fa/TP). JPK_FA(4) i EDI++ nie mają pola TP, więc faktura z TP dalej wstrzymuje te pliki. TP razem z FP albo z procedurą, której FaktWay nie wykazuje: odmowa.",
+      "podstawa": [
+        {
+          "akt": "rozporządzenie Ministra Finansów, Inwestycji i Rozwoju z dnia 15 października 2019 r. w sprawie szczegółowego zakresu danych zawartych w deklaracjach podatkowych i w ewidencji w zakresie podatku od towarów i usług (Dz.U. 2019 poz. 1988 ze zm.)",
+          "przepis": "§ 10 ust. 4 (oznaczenia procedur, w tym TP: istniejące powiązania między nabywcą a dostawcą, art. 32 ust. 2 pkt 1 ustawy o VAT)",
+          "url": "https://eli.gov.pl/eli/DU/2019/1988/ogl"
+        },
+        {
+          "akt": "schemat JPK_V7M(3), CRWDE 2025/12/19/14090 (lib/exports/schemas/jpk-v7m3/schemat.xsd)",
+          "przepis": "SprzedazWiersz: element TP (etd:TWybor1) w sekwencji oznaczeń procedur, po GTU_01-GTU_13, przed polami K_; w ZakupWiersz TP nie ma"
+        },
+        {
+          "akt": "schemat FA(3) (lib/xml/schemas/fa3/schemat.xsd)",
+          "przepis": "Fa/TP: powiązania między nabywcą a dostawcą (pole opcjonalne nagłówka faktury)"
+        }
+      ],
+      "obowiazuje": {
+        "od": "2026-02-01",
+        "do": null
+      },
+      "obszary": [
+        "jpk.vat-fa",
+        "ksiegowosc.vat",
+        "faktury.fa3"
+      ],
+      "kod": [
+        "lib/exports/jpk-v7m-generator.ts#generateJpkV7m",
+        "lib/exports/jpk-fa-generator.ts#amountsOf",
+        "lib/import/fa3-content.ts#contentHeldReasonItems"
+      ],
+      "testy": [
+        "tests/unit/jpk-v7m-tp.test.ts > TP: element TP=1 w wierszu tej faktury",
+        "tests/unit/jpk-v7m-tp.test.ts > TP nie zmienia kwot",
+        "tests/unit/jpk-v7m-tp.test.ts > TP obok procedury albo FP",
+        "tests/unit/jpk-v7m-tp.test.ts > JPK_FA(4) nie ma pola TP",
+        "tests/unit/jpk-v7m-tp.test.ts > powód wstrzymania przy imporcie",
+        "tests/unit/import-data-sprzedazy-adnotacje.test.ts > powiązania stron (TP, D22)"
+      ],
+      "parametry": [],
+      "niezmienniki": [],
+      "pewnosc": "srednia",
+      "wzorzec": {
+        "poziom": 3,
+        "opis": "XSD JPK_V7M(3) (położenie TP w wierszu sprzedaży) i rozporządzenie MFiR z 15.10.2019 (§ 10 ust. 4); brak odpowiedzi MF dotyczącej TP w pytaniach i odpowiedziach JPK_VAT, sprawdzonych w tej sesji",
+        "sprawdzono": "2026-11-28"
+      },
+      "interpretacja": "Wiersz faktury z flagą TP (fa3_data.ksefMarkers.tp) dostaje <TP>1</TP> po oznaczeniach GTU, bez zmiany pól K_ i deklaracji. Program nie rozstrzyga, kto jest podmiotem powiązanym (D8): flaga pochodzi od klienta albo z pliku KSeF. TP razem z FP zostaje odmową (FaktWay nie ma wzorca wiersza FP z oznaczeniem procedury), TP z inną procedurą z pliku także.",
+      "do_rozstrzygniecia": {
+        "kto": "księgowa",
+        "pytanie": "Czy wiersz sprzedaży z TP ma w JPK_V7M dodatkowe wymagania poza elementem TP=1 (np. przy fakturze do paragonu albo korekcie), i czy faktura z TP powinna dostać ostrzeżenie dla klienta przy zapisie wpisu poza KSeF?",
+        "przypadki": []
+      },
+      "sprawdzil": {
+        "ksiegowa": null,
+        "prawnik": null
+      },
+      "odczyt": "2026-11-28",
+      "zrodlo_planu": "PLAN-KOMPLETNA-APLIKACJA 1.6 część 2b, D22",
+      "stan": "dziala",
+      "uwagi": "Uwaga czytelnika #991. Treść § 10 ust. 4 przytoczona z pamięci rozporządzenia, do potwierdzenia przez księgową (stąd pewność średnia)."
+    },
+    {
       "id": "RP-WAL-01",
       "regula": "Przychód i koszt w walucie obcej przelicza się po kursie średnim NBP z ostatniego dnia roboczego przed dniem przychodu albo kosztu; bez kursu jest brak, a kwot w różnych walutach się nie sumuje.",
       "podstawa": [

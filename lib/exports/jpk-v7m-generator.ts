@@ -376,7 +376,7 @@ function rowAmounts(inv: JpkInvoice): RateBucket {
  * raz. VAT pozycji jest ten z faktury, a nie przeliczany od nowa z netto.
  */
 function addRowAmounts(b: RateBucket, inv: JpkInvoice): void {
-  for (const { rate, net, vat } of amountsOf(inv, { receiptInvoiceAsFp: true, gtuInRow: true }).rates) {
+  for (const { rate, net, vat } of amountsOf(inv, { receiptInvoiceAsFp: true, gtuInRow: true, tpInRow: true }).rates) {
     switch (rate) {
       case '23':
         b.net23 += net;
@@ -677,6 +677,9 @@ export function generateJpkV7m(data: JpkV7mInputData): string {
     // Krok 2.6, część 2b-2: GTU_01..GTU_13 (TWybor1, wartość 1) po TypDokumentu,
     // przed procedurami i polami K_ (kolejność z XSD).
     for (const code of gtuOfRow(inv)) s.ele(code).txt('1').up();
+    // D22: TP (powiązania) z pliku KSeF albo wpisu „poza KSeF”, w sekwencji
+    // oznaczeń procedur po GTU, przed polami K_ (XSD JPK_V7M(3)). Flaga od człowieka.
+    if (inv.ksefMarkers?.tp === true) s.ele('TP').txt('1').up();
 
     const b = rowAmounts(inv);
     if (b.netZw) s.ele('K_10').txt(money(b.netZw)).up();
