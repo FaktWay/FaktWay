@@ -57,6 +57,7 @@ import { invoiceEmailAmount } from '@/lib/email/invoice-email-amount';
 import { readInvoiceEmailTemplate } from '@/lib/email/invoice-email-template-store';
 import { sendInvoiceEmail } from '@/lib/email/send';
 import { sendInvoiceCopyToAccountant } from '@/lib/invoices/invoice-copy-email';
+import { jestFakturaSpozaKsef, MAIL_SPOZA_KSEF_ODMOWA } from '@/lib/import/outside-ksef-teksty';
 import { checkRateLimit } from '@/lib/rate-limit';
 import {
   resendInvoice,
@@ -716,6 +717,28 @@ export async function emailInvoiceAction(
     throw err;
   }
   const { user, tenantId } = context;
+
+  // Krok 1.6 (2b), zabezpieczenia: wpis spoza KSeF (origin = 'outside_ksef') to kopia
+  // faktury klienta w historii FaktWay. Nie wysyłamy jej nabywcy mailem: nie jest
+  // fakturą FaktWay, nie ma numeru KSeF, a PDF z naszej domeny wyglądałby jak
+  // dokument wystawiony tutaj. Odczyt przed limitem i PDF; błąd odczytu też odmawia
+  // (fail-closed). Wyjście: klient wysyła oryginał z programu, w którym wystawił
+  // fakturę; operator niczego nie odblokowuje (blokada jest celowa, D24).
+  {
+    const { data: wpis, error: wpisBlad } = await context.supabase
+      .from('invoices')
+      .select('origin, internal_number')
+      .eq('id', invoiceId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (wpisBlad) {
+      return { success: false, error: 'Nie udało się sprawdzić faktury. Spróbuj ponownie za chwilę.' };
+    }
+    const row = wpis as { origin?: string | null; internal_number?: string | null } | null;
+    if (jestFakturaSpozaKsef(row?.origin)) {
+      return { success: false, error: MAIL_SPOZA_KSEF_ODMOWA(row?.internal_number ?? null) };
+    }
+  }
 
   // Limit na firmę PRZED generowaniem PDF (AUD-102): wysyłka idzie z domeny
   // FaktWay na dowolny adres. Limit w pamięci procesu przy braku Redisa
