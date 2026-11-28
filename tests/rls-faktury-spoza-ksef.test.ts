@@ -97,14 +97,27 @@ describe.skipIf(!hasDatabase)('00221: faktury spoza KSeF w bazie (D21, D22)', ()
     ['status szkic', { ksef_status: 'draft' }],
     ['status w kolejce', { ksef_status: 'queued' }],
     ['faktura zakupu', { direction: 'incoming' }],
-    ['korekta', { invoice_kind: 'correction' }],
     ['waluta EUR', { currency: 'EUR' }],
-    ['brak środowiska', { ksef_environment: null }],
     ['ślad wysyłki', { submitted_to_ksef_at: '2026-03-10T10:00:00Z' }],
     ['brak numeru dokumentu', { internal_number: null }],
   ])('kształt: %s jest odrzucone', async (_nazwa, pola) => {
     const { error } = await wstaw(ORG, pola as Pola);
     expect(error?.message).toContain('invoices_outside_ksef_shape');
+  });
+
+  // Wyzwalacze BEFORE INSERT odpalają przed ograniczeniami CHECK, więc te dwa
+  // przypadki odrzuca najpierw inny strażnik. Odmowa zostaje, zmienia się tylko,
+  // które sprawdzenie ją daje.
+  it('korekta jest odrzucona (wcześniej strażnik rodzica korekty z 00118)', async () => {
+    const { error } = await wstaw(ORG, { invoice_kind: 'correction' });
+    expect(error?.message).toContain('Correction parent requires');
+  });
+
+  it('brak środowiska: firma ze środowiskiem odrzuca wpis strażnikiem, firma bez środowiska ograniczeniem kształtu', async () => {
+    const zeSrodowiskiem = await wstaw(ORG, { ksef_environment: null });
+    expect(zeSrodowiskiem.error?.message).toContain('OUTSIDE_KSEF_ENVIRONMENT');
+    const bez = await wstaw(ORG_B, { ksef_environment: null });
+    expect(bez.error?.message).toContain('invoices_outside_ksef_shape');
   });
 
   it('środowisko wpisu różne od środowiska firmy jest odrzucone; firma bez środowiska przyjmuje wpis', async () => {
