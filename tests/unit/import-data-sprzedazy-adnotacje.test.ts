@@ -335,7 +335,6 @@ describe('C5b: procedury i oznaczenia, których FaktWay nie wykazuje w JPK → z
     ['marża — towary używane', (x: string) => replaceOnce(x, '<PMarzy><P_PMarzyN>1</P_PMarzyN></PMarzy>', '<PMarzy><P_PMarzy>1</P_PMarzy><P_PMarzy_3_1>1</P_PMarzy_3_1></PMarzy>'), /towary używane/],
     ['nowe środki transportu (P_22)', (x: string) => replaceOnce(x, '<NoweSrodkiTransportu><P_22N>1</P_22N></NoweSrodkiTransportu>', NST), /nowych środków transportu \(P_22\)/],
     ['faktura do paragonu (FP)', (x: string) => afterRodzaj(x, '<FP>1</FP>'), /do paragonu \(FP\)/],
-    ['powiązania stron (TP)', (x: string) => afterRodzaj(x, '<TP>1</TP>'), /powiązania .*\(TP\)/],
     ['procedura w pozycji (WSTO_EE)', (x: string) => afterP12(x, '<Procedura>WSTO_EE</Procedura>'), /WSTO_EE/],
     ['podmiot upoważniony (komornik, RolaPU 1)', (x: string) => replaceOnce(x, '</Podmiot2>', `</Podmiot2>${PODMIOT_UPOWAZNIONY}`), /podmiot upoważniony/],
   ])('%s → ostrzeżenie na początku raportu i odmowa JPK_FA i JPK_V7M', async (_name, change, reason) => {
@@ -360,6 +359,19 @@ describe('C5b: procedury i oznaczenia, których FaktWay nie wykazuje w JPK → z
     const v7m = await jpkV7m();
     expect((await validateJpkV7m(v7m)).errors).toEqual([]);
     expect(fragment(v7m, '<DowodSprzedazy>FV/GTU/1', '</SprzedazWiersz>')).toMatch(/<\/NrKSeF>\s*<GTU_12>1<\/GTU_12>\s*<K_19>1000.00<\/K_19>/);
+  });
+
+  it('powiązania stron (TP, D22) → JPK_V7M wykazuje TP w wierszu tej faktury (XSD), JPK_FA odmawia jak dotąd, ostrzeżenie importu o JPK_FA', async () => {
+    const xml = afterRodzaj(xml23('FV/TP/1'), '<TP>1</TP>');
+    await expectSchemaValid(xml);
+    const result = await importXml(xml);
+    expect(result.invoicesImported).toBe(1);
+    expect(fa3('FV/TP/1').ksefMarkers).toEqual({ tp: true });
+    expect(result.warnings[0]).toMatch(/powiązania .*\(TP\)/);
+    await expect(jpkFa()).rejects.toThrow(/JPK wstrzymany: faktura FV\/TP\/1 .*\(TP\)/);
+    const v7m = await jpkV7m();
+    expect((await validateJpkV7m(v7m)).errors).toEqual([]);
+    expect(fragment(v7m, '<DowodSprzedazy>FV/TP/1', '</SprzedazWiersz>')).toMatch(/<\/NrKSeF>\s*<TP>1<\/TP>\s*<K_19>1000.00<\/K_19>/);
   });
 
   it('faktura zakupu z procedurą trójstronną → adnotacje zapisane, bez komunikatu o JPK (dotyczy sprzedaży)', async () => {

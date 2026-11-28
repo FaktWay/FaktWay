@@ -519,6 +519,14 @@ export interface AmountsOptions {
    * je wstrzymuje (osobna decyzja; własna faktura FaktWay z GTU nie).
    */
   gtuInRow?: boolean;
+  /**
+   * Plik ma element TP w wierszu sprzedaży (JPK_V7M(3), XSD: `TP` po GTU,
+   * `TWybor1`), więc oznaczenie TP z pliku KSeF faktury z importu albo wpisu
+   * „poza KSeF” nie jest przeszkodą (D22). TP razem z FP zostaje odmową (FaktWay
+   * nie ma wzorca wiersza FP z procedurą). JPK_FA(4) i EDI++ pola TP nie mają
+   * (domyślnie odmowa).
+   */
+  tpInRow?: boolean;
 }
 
 /** Faktura do paragonu, którą JPK_V7M wykazuje typem FP: zwykła faktura (korekty FP FaktWay nie wystawia). */
@@ -547,8 +555,14 @@ function importedContentRefusal(inv: JpkInvoice, options: AmountsOptions): strin
   // Krok 2.6, część 2b-2: JPK_V7M wpisuje poprawne GTU z pliku do wiersza (`gtuInRow`).
   const fileGtu = inv.ksefMarkers?.gtu ?? [];
   const gtuInFile = options.gtuInRow === true && fileGtu.length > 0 && fileGtu.every(isGtuCode);
-  const markers = fpInFile || gtuInFile
-    ? { ...inv.ksefMarkers, ...(fpInFile ? { fp: undefined } : {}), ...(gtuInFile ? { gtu: undefined } : {}) }
+  const tpInFile = options.tpInRow === true && inv.ksefMarkers?.tp === true && inv.ksefMarkers.fp !== true;
+  const markers = fpInFile || gtuInFile || tpInFile
+    ? {
+        ...inv.ksefMarkers,
+        ...(fpInFile ? { fp: undefined } : {}),
+        ...(gtuInFile ? { gtu: undefined } : {}),
+        ...(tpInFile ? { tp: undefined } : {}),
+      }
     : inv.ksefMarkers;
   const cannot = [...annotationsJpkCannotExpress(inv.annotations), ...markersJpkCannotExpress(markers)];
   if (cannot.length === 1 && markers?.fp && options.receiptInvoiceAsFp !== true) return RECEIPT_INVOICE_ONLY;

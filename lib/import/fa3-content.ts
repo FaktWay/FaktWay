@@ -102,12 +102,13 @@ const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
  * `gtuInRow`, plan kompletnej aplikacji 1.2 i 2.6 część 2b-2), wstrzymują
  * tylko JPK_FA:
  * - poprawne GTU (każdy kod z listy) na zwykłej fakturze;
+ * - TP (powiązania; element TP w wierszu sprzedaży JPK_V7M, D22), o ile nie ma FP;
  * - zwykła FP (typ dokumentu FP w JPK_V7M), o ile paragon jest z miesiąca
  *   wcześniejszego niż wystawienie faktury (`receiptInvoiceRow`: paragon
  *   z miesiąca wystawienia albo nieznana data sprzedaży to odmowa JPK_V7M).
  * Stawka „oo” (odwrotne obciążenie) wstrzymuje tylko JPK_V7M: JPK_FA ją wykazuje
  * (`JpkV7mReverseChargeNotSupportedError` w generatorze JPK_V7M).
- * Reszta (TP, procedury, podmiot upoważniony, P_22, P_23, marża, kod GTU spoza
+ * Reszta (TP razem z FP, procedury, podmiot upoważniony, P_22, P_23, marża, kod GTU spoza
  * listy, nieczytelne adnotacje i daty, korekta, zaliczka, ROZ) wstrzymuje oba pliki.
  */
 export function contentHeldReasonItems(inv: ParsedInvoice, content: ImportContent): HeldReason[] {
@@ -120,8 +121,15 @@ export function contentHeldReasonItems(inv: ParsedInvoice, content: ImportConten
   const saleDay = content.saleDate && ISO_DAY.test(content.saleDate.trim()) ? content.saleDate.trim() : inv.issueDate;
   const fpInIssueMonth = plainFp && saleDay.slice(0, 7) >= inv.issueDate.slice(0, 7);
 
+  // TP (D22): JPK_V7M wykazuje je w wierszu sprzedaży, JPK_FA nie ma pola; z FP razem zostaje odmową obu.
+  const faOnlyTp = markers?.tp === true && markers.fp !== true;
   const rest: Fa3Markers | undefined = markers
-    ? { ...markers, ...(plainFp ? { fp: undefined } : {}), ...(faOnlyGtu ? { gtu: undefined } : {}) }
+    ? {
+        ...markers,
+        ...(plainFp ? { fp: undefined } : {}),
+        ...(faOnlyGtu ? { gtu: undefined } : {}),
+        ...(faOnlyTp ? { tp: undefined } : {}),
+      }
     : undefined;
   const cannot = [...annotationsJpkCannotExpress(content.annotations), ...markersJpkCannotExpress(rest)];
   if (cannot.length) items.push({ text: `oznaczenie, którego FaktWay nie wykazuje w JPK: ${cannot.join(', ')}`, files: BOTH });
@@ -134,6 +142,9 @@ export function contentHeldReasonItems(inv: ParsedInvoice, content: ImportConten
           files: BOTH,
         }
       : { text: 'faktura do paragonu (FP): JPK_FA nie ma dla niej oznaczenia', files: FA_ONLY });
+  }
+  if (faOnlyTp) {
+    items.push({ text: 'powiązania między nabywcą a sprzedawcą (TP): FaktWay nie wykazuje oznaczenia TP w JPK_FA', files: FA_ONLY });
   }
   if (faOnlyGtu) {
     items.push({ text: `oznaczenie GTU w pozycjach (${gtu.join(', ')}): FaktWay nie wykazuje oznaczeń GTU w JPK_FA`, files: FA_ONLY });

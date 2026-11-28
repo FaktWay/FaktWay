@@ -232,11 +232,11 @@ describe('PR C: przegląd pliku (widok review, I5R) — „Zapisz fakturę z KSe
     expect(hint).toContain('bez ceny netto');
     expect(hint).toContain('przez pomoc FaktWay');
     expect(hint).not.toMatch(/@/);
-    // Zdanie o JPK mówi to, co robią generatory (test `import-ostrzezenie-gtu-fp.test.ts`): TP, procedury i kod GTU
-    // spoza listy wstrzymują oba pliki, a FP i poprawne GTU tylko JPK_FA (JPK_V7M wykazuje je w wierszu sprzedaży).
+    // Zdanie o JPK mówi to, co robią generatory (test `import-ostrzezenie-gtu-fp.test.ts`): procedury i kod GTU
+    // spoza listy wstrzymują oba pliki, a TP, FP i poprawne GTU tylko JPK_FA (JPK_V7M wykazuje je w wierszu sprzedaży).
     expect(hint).not.toContain('oznaczenia FP/TP/GTU/procedury wstrzymają JPK');
-    expect(hint).toMatch(/TP, procedury i kod GTU spoza listy wstrzymają JPK_FA i JPK_V7M/);
-    expect(hint).toMatch(/FP i poprawne GTU wstrzymują tylko JPK_FA/);
+    expect(hint).toMatch(/procedury i kod GTU spoza listy wstrzymają JPK_FA i JPK_V7M/);
+    expect(hint).toMatch(/TP, FP i poprawne GTU wstrzymują tylko JPK_FA/);
     expect(hint).toContain('z komunikatem nazywającym fakturę i plik');
   });
 
