@@ -57,9 +57,6 @@ import { InvoiceDetailView, type InvoiceDetailInitial } from '@/components/invoi
 import type { KsefResendFacts } from '@/lib/invoices/ksef-requeue-event';
 
 const STORED: KsefResendFacts = { sendData: 'stored', kindHeld: false, issueDatePassed: false };
-const KSEF_NR = '1234567890-20261002-0100A0B0C0D0-1A';
-const XML_PATH = 'firma/xml/FV-7.xml';
-const QR_URL = 'https://qr-test.ksef.mf.gov.pl/invoice/1234567890/02-10-2026/q80';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -117,17 +114,6 @@ const queued: InvoiceDetailInitial = {
   ksef_environment_known: true,
   ksef_duplicate_decision: null,
   ksef_retired_draft: null,
-};
-
-/** Ten sam wiersz po przyjęciu w KSeF — tak, jak liczy go serwer przy `router.refresh()`. */
-const acceptedFromServer: InvoiceDetailInitial = {
-  ...queued,
-  ksef_status: 'accepted',
-  ksef_number: KSEF_NR,
-  ksef_accepted_at: '2026-10-02T05:12:33.123+00:00',
-  xml_storage_path: XML_PATH,
-  can_correct: true,
-  qr: { url: QR_URL, label: KSEF_NR },
 };
 
 function mount(initial: InvoiceDetailInitial, strict = false) {
