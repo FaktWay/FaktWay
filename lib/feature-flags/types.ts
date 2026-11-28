@@ -37,4 +37,9 @@ export type GlobalFlag =
    * pewnością). Wiersz wyłączony z 00216; brak wiersza, `false` albo błąd odczytu =
    * wyłączone, a funkcje bazy odmawiają `disabled`. Odczyt: `lib/saldo/wylacznik.ts`.
    */
-  | 'balanceConfirmationsEnabled';
+  | 'balanceConfirmationsEnabled'
+  /**
+   * WŁĄCZNIK faktury w walucie obcej (krok 2.1, część 3, D56). Bez migracji: brak wiersza,
+   * `false` albo błąd odczytu = wyłączone. Odczyt: `lib/invoices/waluty-wylacznik.ts`.
+   */
+  | 'foreignCurrencyEnabled';
