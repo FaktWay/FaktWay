@@ -1,4 +1,4 @@
--- 00223_outside_ksef_usuwanie_przez_wlasciciela.sql
+-- 00224_outside_ksef_usuwanie_przez_wlasciciela.sql
 -- KIEDY WGRAĆ: PRZED wdrożeniem (addytywna: poluzowanie tylko dla origin = 'outside_ksef', którego stary kod nie zapisuje).
 --
 -- Plan kompletnej aplikacji, krok 1.6 część 2b, zabezpieczenia po przeglądach
@@ -66,7 +66,7 @@ BEGIN
     v_locked := OLD.ksef_status IN ('queued', 'offline_queued', 'sending')
       OR OLD.offline_idempotency_key IS NOT NULL
       OR OLD.submitted_to_ksef_at IS NOT NULL
-      -- 00223: wpis spoza KSeF (00221) nie ma historii dostawy; klient usuwa go sam (D23).
+      -- 00224: wpis spoza KSeF (00221) nie ma historii dostawy; klient usuwa go sam (D23).
       OR (current_user IN ('authenticated', 'anon') AND OLD.ksef_status = 'accepted'
           AND OLD.origin IS DISTINCT FROM 'outside_ksef');
     IF v_locked THEN
@@ -176,7 +176,7 @@ BEGIN
     OR OLD.offline_qr_certyfikat IS NOT NULL;
 
   IF TG_OP = 'DELETE' THEN
-    -- 00223: wpis spoza KSeF (00221) nie ma historii dostawy; klient usuwa go sam (D23).
+    -- 00224: wpis spoza KSeF (00221) nie ma historii dostawy; klient usuwa go sam (D23).
     -- Pochodzenia nie da się zmienić po zapisie (trg_guard_outside_ksef_origin, 00221).
     IF OLD.origin IS DISTINCT FROM 'outside_ksef'
        AND (OLD.ksef_status IS DISTINCT FROM 'draft' OR v_historical) THEN

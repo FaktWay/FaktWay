@@ -6,11 +6,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { getRlsTestEnvironment } from './helpers/rls-environment';
 
 /**
- * Plan kompletnej aplikacji, krok 1.6 część 2b, zabezpieczenia (00223, D23):
+ * Plan kompletnej aplikacji, krok 1.6 część 2b, zabezpieczenia (00224, D23):
  * właściciel firmy usuwa SESJĄ KLIENTA własny wpis `origin = 'outside_ksef'`
  * (polityka DELETE plus wyjątek w wyzwalaczach 00132), a tylko taki. Zwykła
  * faktura przyjęta w KSeF zostaje nieusuwalna, cudzy wpis też, a szkic usuwa się
- * jak dotąd. Czerwony przed 00223: baza odmawia usunięcia wpisu spoza KSeF.
+ * jak dotąd. Czerwony przed 00224: baza odmawia usunięcia wpisu spoza KSeF.
  */
 
 const hasDatabase = Boolean(
@@ -90,15 +90,15 @@ async function sprzataj() {
   }
 }
 
-describe.skipIf(!hasDatabase)('00223: właściciel usuwa wpis spoza KSeF sesją klienta (D23)', () => {
+describe.skipIf(!hasDatabase)('00224: właściciel usuwa wpis spoza KSeF sesją klienta (D23)', () => {
   beforeAll(async () => {
     for (const who of Object.keys(EMAILS) as Who[]) ids[who] = await userId(EMAILS[who]);
     await sprzataj();
     await admin.from('memberships').delete().in('organization_id', [ORG, OTHER_ORG]);
     const tenants = await admin.from('tenants').upsert(
       [
-        { id: ORG, nip: '5260223001', name: 'Firma 00223 A', ksef_verified_at: '2026-01-01T00:00:00Z', ksef_verified_environment: 'test' },
-        { id: OTHER_ORG, nip: '5260223002', name: 'Firma 00223 B', ksef_verified_at: null, ksef_verified_environment: null },
+        { id: ORG, nip: '5260223001', name: 'Firma 00224 A', ksef_verified_at: '2026-01-01T00:00:00Z', ksef_verified_environment: 'test' },
+        { id: OTHER_ORG, nip: '5260223002', name: 'Firma 00224 B', ksef_verified_at: null, ksef_verified_environment: null },
       ],
       { onConflict: 'id' },
     );
