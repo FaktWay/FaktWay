@@ -98,7 +98,7 @@
     },
     {
       "id": "RP-KOR-01",
-      "regula": "Korekta przychodu wchodzi różnicą (także ujemną) w okresie wystawienia faktury korygującej, chyba że wynika z błędu rachunkowego albo oczywistej omyłki (wtedy okres pierwotny).",
+      "regula": "Korekta przychodu wchodzi różnicą (także ujemną) w okresie wystawienia faktury korygującej, chyba że klient wskazał przyczynę „błąd rachunkowy albo oczywista omyłka” (wtedy okres pierwotny). Przyczynę klient wybiera przy korekcie (D35, kolumna correction_cause); brak przyczyny (korekta sprzed pola) oznacza okres wystawienia.",
       "podstawa": [
         {
           "akt": "ustawa o podatku dochodowym od osób fizycznych",
@@ -119,21 +119,23 @@
         "faktury.korekty"
       ],
       "kod": [
+        "lib/ksiegowosc/ewidencja.ts#dzienPrzychodu",
         "lib/ksiegowosc/ewidencja.ts#zbudujEwidencje",
         "lib/ksiegowosc/kpir.ts#zbudujKpir"
       ],
       "testy": [
         "tests/unit/ksiegowosc-ewidencja.test.ts > korekta wchodzi różnicą (także ujemną) w dniu swojego wystawienia",
+        "tests/unit/ksiegowosc-ewidencja.test.ts > D35 (RP-KOR-01): korekta z błędu rachunkowego wchodzi w dniu przychodu faktury pierwotnej, inne przyczyny w dniu wystawienia",
         "tests/unit/ksiegowosc-kpir.test.ts > korekta w dniu wystawienia"
       ],
       "parametry": [],
       "niezmienniki": [],
       "pewnosc": "srednia",
       "wzorzec": null,
-      "interpretacja": "Program nie rozpozna korekty z powodu błędu rachunkowego: każdą korektę ujmuje w dniu jej wystawienia.",
+      "interpretacja": "Program ujmuje korektę w okresie pierwotnym tylko wtedy, gdy klient wybrał przyczynę „błąd rachunkowy albo oczywista omyłka”; każdą inną korektę, także bez wskazanej przyczyny, w dniu jej wystawienia. Wybór przyczyny należy do klienta.",
       "do_rozstrzygniecia": {
         "kto": "księgowa",
-        "pytanie": "Korekta z powodu błędu rachunkowego albo oczywistej omyłki zmienia okres pierwotny; program tego nie rozpozna. Czy wystarczy komunikat dla klienta, czy potrzebny jest znacznik przy korekcie?",
+        "pytanie": "Program ujmuje korektę w okresie pierwotnym tylko po wyborze przez klienta przyczyny „błąd rachunkowy albo oczywista omyłka”, a resztę w dniu wystawienia korekty. Czy ta klasyfikacja przyczyn (błąd rachunkowy, inny błąd z dnia sprzedaży, nowa okoliczność) jest zgodna z praktyką, w tym dla korekty zwiększającej z błędu z dnia sprzedaży w PIT i ryczałcie?",
         "przypadki": []
       },
       "sprawdzil": {
@@ -2176,6 +2178,60 @@
       "zrodlo_planu": "§5 „Zapłata spoza wyliczenia (po K4)”",
       "stan": "dziala",
       "uwagi": null
+    },
+    {
+      "id": "RP-VAT-KOR-01",
+      "regula": "Korekta zwiększająca podstawę albo podatek z przyczyną istniejącą w dniu sprzedaży (błąd rachunkowy albo inny błąd z dnia sprzedaży, wybór klienta przy korekcie) należy do rozliczenia za okres sprzedaży, a nie za miesiąc wystawienia korekty, więc JPK_V7M za miesiąc wystawienia odmawia z wyjściem. Korekta zmniejszająca idzie do okresu wystawienia korekty; nowa okoliczność po sprzedaży i brak przyczyny (korekta sprzed pola) zostają w okresie wystawienia.",
+      "podstawa": [
+        {
+          "akt": "ustawa o podatku od towarów i usług",
+          "przepis": "art. 29a ust. 13, 14 i 17",
+          "url": "https://api.sejm.gov.pl/eli/acts/DU/2026/1263/text.pdf"
+        },
+        {
+          "akt": "MF, objaśnienia podatkowe do pakietu Slim VAT z 23.04.2021 (kopia archiwalna; pierwotny adres zwraca błąd 404)",
+          "przepis": "rozdział 1.3.1, korekta zwiększająca a przyczyna korekty",
+          "url": "http://web.archive.org/web/20240330231824/https://www.podatki.gov.pl/media/6939/objasnienia-slim-vat-23-04-2021.pdf"
+        }
+      ],
+      "obowiazuje": {
+        "od": "2026-01-01",
+        "do": null
+      },
+      "obszary": [
+        "jpk.vat-fa",
+        "ksiegowosc.vat",
+        "faktury.korekty"
+      ],
+      "kod": [
+        "lib/exports/jpk-v7m-generator.ts#JpkV7mCorrectionPeriodError",
+        "lib/exports/jpk-v7m-generator.ts#summarizeJpkV7m",
+        "lib/exports/data-fetcher.ts#fetchInvoicesForExport"
+      ],
+      "testy": [
+        "tests/unit/jpk-v7m-okres-korekty.test.ts > korekta zwiększająca, przyczyna",
+        "tests/unit/jpk-v7m-okres-korekty.test.ts > odmowa obowiązuje też podsumowanie (rozliczenie w module VAT)",
+        "tests/unit/jpk-v7m-okres-korekty.test.ts > korekta zmniejszająca z tą samą przyczyną: okres wystawienia, plik powstaje",
+        "tests/unit/jpk-v7m-okres-korekty.test.ts > korekta zwiększająca z nową okolicznością albo bez przyczyny: jak dotąd"
+      ],
+      "parametry": [],
+      "niezmienniki": [],
+      "pewnosc": "srednia",
+      "wzorzec": null,
+      "interpretacja": "Eksport bierze korekty według daty wystawienia, więc plik za miesiąc wystawienia nie może wykazać korekty zwiększającej z przyczyną z dnia sprzedaży (art. 29a ust. 17). Program odmawia z nazwą dokumentu i wyjściem (JPK_V7M za okres sprzedaży poza FaktWay, KPiR i CSV działają). Korektę zwiększającą rozpoznaje po dodatniej różnicy netto albo VAT. Przyczynę wybiera klient (kolumna correction_cause, D35). Odmowa obowiązuje w pliku i w rozliczeniu modułu VAT (wspólne addRowAmounts).",
+      "do_rozstrzygniecia": {
+        "kto": "księgowa",
+        "pytanie": "Czy odmowa dla korekty zwiększającej z przyczyną „błąd rachunkowy” albo „błąd z dnia sprzedaży” jest właściwym zachowaniem do czasu obsługi korekt za okres sprzedaży w FaktWay, czy plik ma powstawać z ostrzeżeniem? Czy klasyfikacja przyczyn (D35) jest zgodna z praktyką?",
+        "przypadki": []
+      },
+      "sprawdzil": {
+        "ksiegowa": null,
+        "prawnik": null
+      },
+      "odczyt": "2026-11-28",
+      "zrodlo_planu": "NZ-VAT-05, D35 (docs/koordynacja/DECYZJE-2026-11-25.md)",
+      "stan": "dziala",
+      "uwagi": "Odwieszenie eksportu JPK_V7M poza zakresem (decyzja Bartosza)."
     },
     {
       "id": "RP-VAT-01",
