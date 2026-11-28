@@ -42,6 +42,7 @@ import { DocumentHeaderFields } from './invoice-form-parts/document-header-field
 import { RecurringActionsCard, StickyFormActions } from './invoice-form-parts/form-actions';
 import { MobileFormHeader, PrefillBanner } from './invoice-form-parts/form-header';
 import { LineItemsSection } from './invoice-form-parts/line-items-section';
+import { CurrencyField } from './invoice-form-parts/currency-field';
 import { OrderNumberField } from './invoice-form-parts/order-number-field';
 import { PaymentSection } from './invoice-form-parts/payment-section';
 import { ReceiptInvoiceFields } from './invoice-form-parts/receipt-invoice-fields';
@@ -77,6 +78,7 @@ export function InvoiceForm({
   salesQuoteSeq = null,
   restoredDraft = null,
   grossPricesAvailable = false,
+  foreignCurrencyAvailable = false,
 }: {
   /**
    * Firma, dla której strona wyrenderowała formularz (UX-01). Zapis odsyła ją
@@ -150,6 +152,12 @@ export function InvoiceForm({
    * sprawdza wyłącznik sam.
    */
   grossPricesAvailable?: boolean;
+  /**
+   * Krok 2.1, część 3: wyłącznik faktury w walucie obcej (`walutyDostepne()` na serwerze
+   * strony; domyślnie wyłączony). Przy `false` formularz nie ma wyboru waluty, schemat
+   * odmawia waluty innej niż złote, a zapis na serwerze sprawdza wyłącznik sam.
+   */
+  foreignCurrencyAvailable?: boolean;
 }) {
   const newLine: InvoiceFormValues['lines'][number] = vatExempt
     ? { ...defaultLine, vatRate: 'zw' }
@@ -192,7 +200,7 @@ export function InvoiceForm({
   const [numberRequestKey] = useState(() => crypto.randomUUID());
 
   // Ten sam schemat co serwer, z wyłącznikiem cen brutto (stan z serwera strony, stały przez życie formularza).
-  const schema = useMemo(() => invoiceFormSchemaFor({ cenyBrutto: grossPricesAvailable }), [grossPricesAvailable]);
+  const schema = useMemo(() => invoiceFormSchemaFor({ cenyBrutto: grossPricesAvailable, waluty: foreignCurrencyAvailable }), [grossPricesAvailable, foreignCurrencyAvailable]);
   // Osobne ustalenie 13: firma zwolniona podmiotowo (art. 113, pozycje „zw”) nie wystawi faktury
   // w cenach brutto (stawki bez podatku, #880), więc bez wyboru metody i bez podkładu w cenach brutto.
   const cenyBruttoWFormularzu = grossPricesAvailable && !vatExemptSubjective;
@@ -632,6 +640,8 @@ export function InvoiceForm({
           <InvoiceTotals totals={totals} lines={lineItems} />
 
           <Separator />
+
+          {foreignCurrencyAvailable ? <CurrencyField form={form} /> : null}
 
           <OrderNumberField form={form} />
 

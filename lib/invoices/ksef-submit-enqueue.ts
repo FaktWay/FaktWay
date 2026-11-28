@@ -40,6 +40,7 @@ import {
   KSEF_PAUSED_MESSAGE,
 } from '@/lib/ksef/submission-holds';
 import { odmowaCenBrutto } from '@/lib/invoices/ceny-brutto-wylacznik';
+import { odmowaWaluty } from '@/lib/invoices/waluty-wylacznik';
 import { describeKsefSendError, ksefSendTransactionStep, type KsefSendMode } from '@/lib/invoices/ksef-send-step';
 import { recordSendRefusal, type SendRefusalCode } from '@/lib/ksef/send-attempt-ledger';
 import {
@@ -248,6 +249,14 @@ async function decideKsefSubmitEnqueue(
     const gross = await odmowaCenBrutto(resend ? 'ponowienie' : 'wysylka', invoice);
     if (gross) {
       return { ok: false, refusal: gross.powod === 'wylaczone' ? 'INVALID_DOCUMENT' : 'INFRA', error: gross.tekst };
+    }
+  }
+  // Wyłącznik waluty obcej (krok 2.1, część 3): szkic w walucie z wyłączonym wyłącznikiem
+  // nie idzie do KSeF. „Sprawdź ponownie” nic nie wysyła, więc przechodzi.
+  if (!reconcileOnly) {
+    const waluta = await odmowaWaluty('wysylka', invoice);
+    if (waluta) {
+      return { ok: false, refusal: waluta.powod === 'wylaczone' ? 'INVALID_DOCUMENT' : 'INFRA', error: waluta.tekst };
     }
   }
   // F12-G6b: firma zwolniona podmiotowo (art. 113) nie wysyła faktury ze
