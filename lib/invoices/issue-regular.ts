@@ -23,6 +23,8 @@ import {
   withRecurringColumns,
   type RecurringIssueLink,
 } from '@/lib/invoices/recurring/issue';
+import { kursDoFaktury } from '@/lib/invoices/waluta-faktury';
+import { odmowaWaluty } from '@/lib/invoices/waluty-wylacznik';
 import { readTenantVatExemption } from '@/lib/invoices/vat-exemption';
 import {
   numberConflictOf,
@@ -43,7 +45,7 @@ import { recordProductUsage } from '@/lib/produkty/uzycie';
 import { invoiceFormSchema, type InvoiceFormValues } from '@/lib/schemas/invoice-form';
 import type { createClient } from '@/lib/supabase/server';
 import { ZW_WITHOUT_BASIS_MESSAGE } from '@/lib/xml/invoice-calculator';
-import type { Invoice } from '@/types/invoice';
+import type { Invoice, InvoiceExchangeRate } from '@/types/invoice';
 
 /**
  * Wystawienie zwykłej faktury VAT z wartości formularza: szkic albo szkic
@@ -150,6 +152,10 @@ async function insertInvoiceAndLines(
   // formularz), więc odmowa nie zależy od tego, jak budowanie czyta metodę.
   const grossRefusal = await odmowaCenBrutto('zapis', invoice, formValues);
   if (grossRefusal) return { success: false, error: grossRefusal.tekst };
+
+  // Wyłącznik waluty obcej (krok 2.1, część 3): ten sam jedyny zapis; odmowa przed INSERT.
+  const currencyRefusal = await odmowaWaluty('zapis', invoice, formValues);
+  if (currencyRefusal) return { success: false, error: currencyRefusal.tekst };
 
   const { data: inserted, error: invErr } = await supabase
     .from('invoices')
@@ -310,6 +316,19 @@ async function recurringLinkForForm(
 }
 
 /**
+ * Kurs do zapisu: złote bez odczytu flagi i NBP; waluta obca najpierw pyta wyłącznik
+ * (odmowa z wyjściem), potem NBP (`kursDoFaktury`).
+ */
+async function rateForSave(
+  values: InvoiceFormValues,
+): Promise<{ ok: true; rate: InvoiceExchangeRate | null } | { ok: false; error: string }> {
+  const refusal = await odmowaWaluty('zapis', values);
+  if (refusal) return { ok: false, error: refusal.tekst };
+  const found = await kursDoFaktury(values);
+  return found.ok ? { ok: true, rate: found.rate } : { ok: false, error: found.error };
+}
+
+/**
  * Szkic zwykłej faktury (`saveDraftAction`). Wołający odmawia wcześniej
  * szkicu z pozycji cyklicznej (C2) i sprawdza schemat.
  */
@@ -321,6 +340,9 @@ export async function saveRegularDraft(ctx: RegularIssueContext, values: Invoice
   // Bez 00094 nie znamy prawnej adnotacji P_16; nie zapisujemy dokumentu.
   const cashMethod = await readTenantCashMethodForIssuance(supabase, tenant.id);
 
+  // Krok 2.1: waluta obca: wyłącznik i kurs NBP przed zapisem (jeden kurs na fakturę).
+  const rate = await rateForSave(values);
+  if (!rate.ok) return { success: false, error: rate.error };
   // Krok 2.4: dokument (proforma, oferta) z formularza sprawdzony przed zapisem.
   const salesQuote = await salesQuoteLinkForSave(supabase, tenant.id, values.salesQuoteId, values.salesQuoteSeq);
   if (!salesQuote.ok) return { success: false, error: salesQuote.error };
@@ -328,7 +350,7 @@ export async function saveRegularDraft(ctx: RegularIssueContext, values: Invoice
   // z licznika serii, gdy w polu została podpowiedź serii, inaczej z pola.
   const saved = await saveWithInvoiceNumber(supabase, numberRequestOf(values), values.issueDate, async (assigned) => {
     const numbered = { ...values, internalNumber: assigned.number };
-    const built = buildInvoiceFromForm(numbered, tenant, vatExemptionBasis, cashMethod);
+    const built = buildInvoiceFromForm(numbered, tenant, vatExemptionBasis, cashMethod, rate.rate);
     const result = await insertInvoiceAndLines(
       supabase,
       tenant.id,
@@ -379,7 +401,10 @@ export async function saveAndSendRegularInvoice(
   const vatExemptionBasis = await readTenantVatExemption(supabase, tenant.id);
   // Bez 00094 nie znamy prawnej adnotacji P_16; nie zapisujemy dokumentu.
   const cashMethod = await readTenantCashMethodForIssuance(supabase, tenant.id);
-  const draft = buildInvoiceFromForm(values, tenant, vatExemptionBasis, cashMethod);
+  // Krok 2.1: waluta obca: wyłącznik i kurs NBP przed zapisem (jeden kurs na fakturę).
+  const rate = await rateForSave(values);
+  if (!rate.ok) return { success: false, error: rate.error };
+  const draft = buildInvoiceFromForm(values, tenant, vatExemptionBasis, cashMethod, rate.rate);
   // 0) „zw” bez podstawy zwolnienia: mówimy od razu, zanim faktura pójdzie do
   //    kolejki KSeF i wróci jako odrzucona. Szkic da się zapisać bez tego.
   if (draft.lines.some((l) => l.vatRate === 'zw') && !draft.annotations?.vatExemptionBasis) {
@@ -396,7 +421,7 @@ export async function saveAndSendRegularInvoice(
   //    do kolejki KSeF (XML, P_2) ma numer, który się zapisał.
   const numbered = await saveWithInvoiceNumber(supabase, numberRequestOf(values), values.issueDate, async (assigned) => {
     const formValues = { ...values, internalNumber: assigned.number };
-    const built = buildInvoiceFromForm(formValues, tenant, vatExemptionBasis, cashMethod);
+    const built = buildInvoiceFromForm(formValues, tenant, vatExemptionBasis, cashMethod, rate.rate);
     const result = await insertInvoiceAndLines(
       supabase,
       tenant.id,

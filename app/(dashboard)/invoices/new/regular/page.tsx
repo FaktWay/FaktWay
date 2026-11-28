@@ -10,6 +10,7 @@ import { InvoiceForm } from '@/components/invoices/invoice-form';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { todayInWarsaw } from '@/lib/format/warsaw-date';
 import { cenyBruttoDostepne } from '@/lib/invoices/ceny-brutto-wylacznik';
+import { walutyDostepne } from '@/lib/invoices/waluty-wylacznik';
 import { readInvoiceDefaults } from '@/lib/invoices/invoice-defaults';
 import { loadInvoiceAutosave } from '@/lib/invoices/form-autosave';
 import { loadTenantSellerForForms } from '@/lib/invoices/load-tenant-seller';
@@ -216,7 +217,7 @@ export default async function NewRegularInvoicePage({
   const ctx = await getPageContext();
   const { supabase, tenantId } = ctx;
   const params = (await searchParams) ?? {};
-  const [podpowiedz, vatExemptionBasis, numbering, loadedSeller, { source, notice }, invoiceDefaults, restoredDraft, grossPricesAvailable] = await Promise.all([
+  const [podpowiedz, vatExemptionBasis, numbering, loadedSeller, { source, notice }, invoiceDefaults, restoredDraft, grossPricesAvailable, foreignCurrencyAvailable] = await Promise.all([
     prefillFromLastInvoiceAction(),
     readTenantVatExemption(supabase, tenantId),
     loadInvoiceNumbering(supabase, tenantId, 'regular', todayInWarsaw()),
@@ -231,6 +232,8 @@ export default async function NewRegularInvoicePage({
       : Promise.resolve(null),
     // Plan cen brutto, PR (b): wyłącznik faktury w cenach brutto (domyślnie wyłączony).
     cenyBruttoDostepne(),
+    // Krok 2.1, część 3: wyłącznik faktury w walucie obcej (domyślnie wyłączony).
+    walutyDostepne(),
   ]);
   const seller = loadedSeller?.seller ?? null;
   const suggestedNumber = selectedNumberingOption(numbering)?.preview ?? null;
@@ -252,6 +255,7 @@ export default async function NewRegularInvoicePage({
       defaults={invoiceDefaults}
       restoredDraft={source ? null : restoredDraft}
       grossPricesAvailable={grossPricesAvailable}
+      foreignCurrencyAvailable={foreignCurrencyAvailable}
       {...(source
         ? {
             initialValues: source.initialValues,
