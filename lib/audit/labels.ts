@@ -26,6 +26,7 @@ export const ACTION_LABELS: Record<string, string> = {
   'invoice.draft_deleted': 'Usunięto szkic faktury',
   'invoice.outside_ksef_created': 'Dopisano fakturę wystawioną poza KSeF',
   'invoice.outside_ksef_deleted': 'Usunięto fakturę wystawioną poza KSeF',
+  'invoice.outside_ksef_csv_imported': 'Wliczono do ksiąg faktury z pliku CSV (wystawione poza KSeF)',
   'invoice.outside_ksef_original_saved': 'Zapisano oryginał PDF faktury wystawionej poza KSeF',
   'invoice.submit_requested': 'Wysłano fakturę do KSeF',
   'invoice.submit_succeeded': 'Faktura zaakceptowana przez KSeF',
