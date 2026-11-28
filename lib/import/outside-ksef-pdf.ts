@@ -113,11 +113,13 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const STAWKI = new Set<string>(OUTSIDE_KSEF_VAT_RATES);
 const GTU = new Set<string>(GTU_CODES);
 
-/** Kwota z dokładnością do grosza jako tekst formularza; reszta (np. 3 miejsca po przecinku) to „nie wiem”. */
+/** Kwota z dokładnością do grosza jako tekst formularza (z groszy, bez zaokrągleń); reszta (np. 3 miejsca po przecinku) to „nie wiem”. */
 function kwota(v: number | null): string | null {
   if (v === null) return null;
-  if (Math.abs(v * 100 - toGrosze(v)) >= 1e-6) return null;
-  return v.toFixed(2);
+  const grosze = toGrosze(v);
+  if (Math.abs(v * 100 - grosze) >= 1e-6) return null;
+  const abs = Math.abs(grosze);
+  return `${grosze < 0 ? '-' : ''}${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, '0')}`;
 }
 
 function dataIso(v: string | null): string {

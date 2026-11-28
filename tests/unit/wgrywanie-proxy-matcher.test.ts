@@ -42,8 +42,8 @@ describe('matcher proxy a trasy wgrywania', () => {
     '/api/uploads/logo',
     '/api/uploads/logo/',
     // PDF faktury spoza KSeF (krok 1.6, część 2b, PR D).
-    '/api/uploads/spoza-ksef',
-    '/api/uploads/spoza-ksef/',
+    '/api/uploads/faktura-pdf',
+    '/api/uploads/faktura-pdf/',
     '/share-target',
     '/share-target/',
     '/api/mobile/v1/wydatki/zdjecie',
@@ -63,8 +63,8 @@ describe('matcher proxy a trasy wgrywania', () => {
     '/api/uploads/expenses',
     '/api/uploads/logo/x',
     '/api/uploads/logos',
-    '/api/uploads/spoza-ksef/x',
-    '/api/uploads/spoza-ksefx',
+    '/api/uploads/faktura-pdf/x',
+    '/api/uploads/faktura-pdfx',
     '/share-target/x',
     '/share-target/x/strona',
     '/api/uploadsx/expense',
@@ -113,7 +113,7 @@ describe('każda trasa poza proxy pilnuje się sama', () => {
 
   it('pod /api/uploads/ są trasy kosztu, importu, logo firmy i PDF faktury spoza KSeF', () => {
     const names = uploads.map((file) => path.relative(process.cwd(), file).split(path.sep).join('/')).sort();
-    expect(names).toEqual(['app/api/uploads/expense/route.ts', 'app/api/uploads/import/route.ts', 'app/api/uploads/logo/route.ts', 'app/api/uploads/spoza-ksef/route.ts']);
+    expect(names).toEqual(['app/api/uploads/expense/route.ts', 'app/api/uploads/faktura-pdf/route.ts', 'app/api/uploads/import/route.ts', 'app/api/uploads/logo/route.ts']);
   });
 
   it.each([

@@ -20,7 +20,7 @@ import { UPLOAD_FAILED_MESSAGE } from '@/lib/upload-limit';
 export const EXPENSE_UPLOAD_URL = '/api/uploads/expense';
 export const IMPORT_UPLOAD_URL = '/api/uploads/import';
 export const LOGO_UPLOAD_URL = '/api/uploads/logo';
-export const SPOZA_KSEF_UPLOAD_URL = '/api/uploads/spoza-ksef';
+export const SPOZA_KSEF_UPLOAD_URL = '/api/uploads/faktura-pdf';
 
 export type ExpenseUploadResult = { success: true; ocrJobId: string } | { success: false; error: string };
 export type ImportUploadResult = { success: true; importJobId: string } | { success: false; error: string };

@@ -20,12 +20,12 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-const ROUTE = '/api/uploads/spoza-ksef';
+const ROUTE = '/api/uploads/faktura-pdf';
 
 const ROLE_MESSAGE = 'Faktury wystawione poza KSeF dopisuje właściciel albo administrator firmy.';
 
 /**
- * POST /api/uploads/spoza-ksef: PDF faktury wystawionej poza KSeF (krok 1.6,
+ * POST /api/uploads/faktura-pdf: PDF faktury wystawionej poza KSeF (krok 1.6,
  * część 2b, PR D; D25 a i b, D40). Dwa tryby w polu `tryb`, plik w polu `plik`:
  *  - `odczyt`: odczyt PDF modelem, odpowiedź `{ success: true, wypelnienie }`
  *    (tylko wypełnia formularz, nic nie zapisuje, ten sam limit AI co koszty);
