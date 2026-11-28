@@ -117,6 +117,31 @@ export class JpkV7mReceiptSaleInPeriodError extends JpkDocumentNotSupportedError
 }
 
 /**
+ * D35, NZ-VAT-05: korekta zwiększająca podstawę albo podatek z przyczyną, która
+ * istniała w dniu sprzedaży (błąd rachunkowy, inny błąd z dnia sprzedaży),
+ * wchodzi do rozliczenia za okres sprzedaży (art. 29a ust. 17 ustawy o VAT;
+ * objaśnienia MF do Slim VAT z 23.04.2021, rozdz. 1.3.1), a eksport bierze
+ * korekty według daty wystawienia. Plik za miesiąc wystawienia wykazałby ją za
+ * późno, więc odmowa z wyjściem. Korekta zmniejszająca idzie do okresu
+ * wystawienia (ust. 13 i 14), nowa okoliczność i brak przyczyny zostają jak dotąd.
+ */
+export class JpkV7mCorrectionPeriodError extends JpkDocumentNotSupportedError {
+  constructor(inv: JpkInvoice) {
+    super(inv.invoiceNumber, inv.ksefNumber, 'to korekta zwiększająca z przyczyną istniejącą w dniu sprzedaży.');
+    const przyczyna = inv.correctionCause === 'blad_rachunkowy' ? 'błąd rachunkowy albo oczywistą omyłkę' : 'błąd istniejący w dniu sprzedaży';
+    const sprzedaz = inv.saleDate ? ` (${formatIsoDatePl(inv.saleDate)})` : '';
+    this.message =
+      `${JPK_DOCUMENT_REFUSAL_PREFIX} faktura ${inv.invoiceNumber}${inv.ksefNumber ? ` (KSeF ${inv.ksefNumber})` : ''} jest korektą zwiększającą` +
+      `${inv.correctedInvoiceNumber ? ` faktury ${inv.correctedInvoiceNumber}` : ''}, a jako przyczynę wskazano ${przyczyna}. ` +
+      `Taką korektę ujmuje się w rozliczeniu za okres sprzedaży${sprzedaz}, a nie za miesiąc wystawienia korekty ` +
+      '(art. 29a ust. 17 ustawy o VAT), więc FaktWay nie wykaże jej w tym pliku. Plik nie powstał, żeby korekta nie trafiła do złego okresu. ' +
+      'Korektę za okres sprzedaży i JPK_V7M za ten okres trzeba przygotować poza FaktWay, np. z księgową ' +
+      '(KPiR i CSV z FaktWay działają). Jeśli przyczyna to nowa okoliczność po sprzedaży, popraw ją w korekcie.';
+    this.name = 'JpkV7mCorrectionPeriodError';
+  }
+}
+
+/**
  * Dlaczego FaktWay nie oznaczy korekty kodami GTU (krok 2.6, część 2b-3):
  * nie zna oznaczeń pozycji, których korekta dotyczy; korekta dopisuje pozycję
  * (bez pola GTU) do faktury z GTU; korekta kwotowa w stawce z różnymi
@@ -376,7 +401,15 @@ function rowAmounts(inv: JpkInvoice): RateBucket {
  * raz. VAT pozycji jest ten z faktury, a nie przeliczany od nowa z netto.
  */
 function addRowAmounts(b: RateBucket, inv: JpkInvoice): void {
-  for (const { rate, net, vat } of amountsOf(inv, { receiptInvoiceAsFp: true, gtuInRow: true }).rates) {
+  const { rates } = amountsOf(inv, { receiptInvoiceAsFp: true, gtuInRow: true });
+  if (
+    inv.invoiceType === 'correction' &&
+    (inv.correctionCause === 'blad_rachunkowy' || inv.correctionCause === 'blad_w_dniu_sprzedazy') &&
+    (rates.reduce((s, r) => s + r.net, 0) > 0 || rates.reduce((s, r) => s + r.vat, 0) > 0)
+  ) {
+    throw new JpkV7mCorrectionPeriodError(inv);
+  }
+  for (const { rate, net, vat } of rates) {
     switch (rate) {
       case '23':
         b.net23 += net;

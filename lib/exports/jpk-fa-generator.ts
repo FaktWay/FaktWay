@@ -172,6 +172,12 @@ export interface JpkInvoice {
   correctionStates?: { before: JpkInvoiceLine[]; after: JpkInvoiceLine[] };
   /** KOR „przed/po” bez zapisanych stanów: JPK odmawia z nazwą dokumentu, zamiast wykazać stan po (S-01). */
   correctionStatesMissing?: boolean;
+  /**
+   * D35 (00222): przyczyna korekty wybrana przez klienta (`invoices.correction_cause`);
+   * null albo brak: nieznana (korekta sprzed pola). JPK_V7M odmawia korekty zwiększającej
+   * z przyczyną istniejącą w dniu sprzedaży (`JpkV7mCorrectionPeriodError`).
+   */
+  correctionCause?: 'blad_rachunkowy' | 'blad_w_dniu_sprzedazy' | 'nowa_okolicznosc' | null;
 
   // Numer KSeF (informacyjnie)
   ksefNumber?: string;

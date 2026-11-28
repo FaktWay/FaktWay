@@ -588,6 +588,7 @@ function mapInvoiceRow(
     ...(correctedLines.length ? { correctedInvoiceLines: correctedLines } : {}),
     ...correctionStatesFields(row),
     ...correctionGtuSourceFields(row),
+    ...(row.invoice_kind === 'correction' ? { correctionCause: correctionCauseOf(row.correction_cause) } : {}),
     ksefNumber: row.ksef_number ?? undefined,
     annotations: annotationsFromFa3(row.fa3_data),
     ...contentFlags,
@@ -606,6 +607,11 @@ function correctionStatesFields(row: InvoiceRow): Pick<JpkInvoice, 'correctionSt
   const envelope = correctionEnvelope(row);
   const states = correctionStatesOf(envelope?.linesBefore, envelope?.linesAfter);
   return states ? { correctionStates: states } : { correctionStatesMissing: true };
+}
+
+/** D35: przyczyna korekty z kolumny (00222); wartość spoza listy to „nieznana”. */
+function correctionCauseOf(value: string | null | undefined): JpkInvoice['correctionCause'] {
+  return value === 'blad_rachunkowy' || value === 'blad_w_dniu_sprzedazy' || value === 'nowa_okolicznosc' ? value : null;
 }
 
 /** Koperta korekty FaktWay (`special_data.correctionData`, A4b) albo `undefined`. */
