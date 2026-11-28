@@ -21,6 +21,7 @@ import { formatWarsawDateTime } from '@/lib/format/warsaw-date';
 import { requireConfiguredKsefEnvironment } from '@/lib/ksef/claim-environment';
 import { readAllByIdInList } from '@/lib/pagination/in-list';
 import { generateInvoicePdf } from '@/lib/pdf/invoice-pdf';
+import { pobierzOryginalSpozaKsef } from '@/lib/import/outside-ksef-oryginal';
 import { downloadExpensePhoto } from '@/lib/storage/expenses';
 import { downloadFromR2, downloadInvoiceXml } from '@/lib/storage/r2';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -87,6 +88,8 @@ const UPO_NOT_YET =
 const UPO_FOREIGN =
   'faktura trafiła do KSeF spoza FaktWay (pobrana z historii KSeF), więc UPO ma program, z którego ją wysłano.';
 const UPO_MISSING = 'pliku UPO nie ma w magazynie FaktWay. Napisz do nas; UPO pobierzesz też na stronie faktury.';
+const ORIGINAL_MISSING =
+  'oryginału PDF nie ma w magazynie FaktWay. Napisz do nas, sprawdzimy kopię; oryginał masz też w programie, w którym wystawiono fakturę.';
 const PHOTO_MISSING = 'zdjęcia nie ma w magazynie FaktWay. Napisz do nas, sprawdzimy kopię.';
 /** FZ-032: faktura bez danych stron (np. zakup ze Skrzynki KSeF z samymi metadanymi). */
 const PDF_NO_PARTIES =
@@ -152,10 +155,11 @@ interface InvoiceRow {
   seller_nip: string | null;
   buyer_nip: string | null;
   xml_storage_path: string | null;
+  outside_ksef_original_path: string | null;
 }
 const INVOICE_COLUMNS =
   'id, direction, internal_number, ksef_number, ksef_status, ksef_environment, origin, issue_date, sale_date, payment_due_date, ' +
-  'net_total, vat_total, gross_total, currency, seller_data, buyer_data, seller_nip, buyer_nip, xml_storage_path';
+  'net_total, vat_total, gross_total, currency, seller_data, buyer_data, seller_nip, buyer_nip, xml_storage_path, outside_ksef_original_path';
 
 interface ExpenseRow {
   id: string;
@@ -445,6 +449,8 @@ export async function buildArchivePackage(
     const partyNip = (sale ? inv.buyer_nip : inv.seller_nip)?.trim() || partyField(party, 'nip');
     const label = sale ? `Faktura sprzedaży ${number}` : `Faktura zakupu ${number}${partyNip ? ` (NIP ${partyNip})` : ''}`;
     const inKsef = inv.ksef_status === 'accepted' || (!sale && inv.ksef_status === 'received');
+    // D25 b: faktura wystawiona poza KSeF nie ma XML ani UPO z KSeF (i nie będzie ich mieć); jej plikiem jest wydruk FaktWay i oryginał PDF klienta, jeśli go wgrał.
+    const outsideKsef = inv.origin === 'outside_ksef';
     const included: string[] = [];
     let incomplete = false;
 
@@ -454,10 +460,12 @@ export async function buildArchivePackage(
     } else {
       if (sale) salesCount++;
       else purchaseCount++;
-      const base = reserve(folder, `${inv.issue_date}_${sale ? '' : `${safePart(partyNip, 'bez-NIP')}_`}${safePart(number, inv.id.slice(0, 8))}`, ['.xml', '.pdf', '.upo.xml']);
+      const base = reserve(folder, `${inv.issue_date}_${sale ? '' : `${safePart(partyNip, 'bez-NIP')}_`}${safePart(number, inv.id.slice(0, 8))}`, ['.xml', '.pdf', '.upo.xml', '.oryginal.pdf']);
 
       const hash = inv.xml_storage_path ? hashes.get(`${inv.id}|${inv.xml_storage_path}`) : null;
-      if (!inv.xml_storage_path) missing.push({ dokument: label, plik: 'XML z KSeF', powod: XML_NO_FILE });
+      if (outsideKsef) {
+        // bez XML z KSeF
+      } else if (!inv.xml_storage_path) missing.push({ dokument: label, plik: 'XML z KSeF', powod: XML_NO_FILE });
       else if (!hash) missing.push({ dokument: label, plik: 'XML z KSeF', powod: XML_NO_HASH });
       else {
         try {
@@ -494,7 +502,17 @@ export async function buildArchivePackage(
         }
       }
 
-      if (sale) {
+      if (outsideKsef && inv.outside_ksef_original_path) {
+        try {
+          add(`${folder}/${base}.oryginal.pdf`, await pobierzOryginalSpozaKsef(tenantId, inv.outside_ksef_original_path));
+          included.push('oryginał PDF');
+        } catch (error) {
+          if (!isMissingObject(error)) throw error;
+          missing.push({ dokument: label, plik: 'oryginał PDF', powod: ORIGINAL_MISSING });
+        }
+      }
+
+      if (sale && !outsideKsef) {
         const upo = (uposByInvoice.get(inv.id) ?? []).find((u) => (u.status === 'downloaded' || u.status === 'archived') && u.upo_xml_path);
         if (!upo?.upo_xml_path) {
           missing.push({ dokument: label, plik: 'UPO', powod: inv.origin === 'ksef_import' ? UPO_FOREIGN : UPO_NOT_YET });
@@ -508,7 +526,7 @@ export async function buildArchivePackage(
           }
         }
       }
-      incomplete = included.length < (sale ? 3 : 2);
+      incomplete = included.length < (outsideKsef ? 1 : sale ? 3 : 2);
     }
 
     invoiceRows.push([
@@ -524,7 +542,7 @@ export async function buildArchivePackage(
       amount(inv.vat_total),
       amount(inv.gross_total),
       cell(inv.currency ?? ''),
-      cell(STATUS_LABELS[inv.ksef_status ?? ''] ?? 'nieznany'),
+      cell(outsideKsef ? 'wystawiona poza KSeF' : (STATUS_LABELS[inv.ksef_status ?? ''] ?? 'nieznany')),
       cell(`${included.join(', ') || 'brak'}${incomplete ? ' (braki w CO-JEST-W-PACZCE.txt)' : ''}`),
     ]);
   }
