@@ -113,11 +113,14 @@ describe.skipIf(!hasDatabase)('00221: faktury spoza KSeF w bazie (D21, D22)', ()
     expect(error?.message).toContain('Correction parent requires');
   });
 
-  it('brak środowiska: firma ze środowiskiem odrzuca wpis strażnikiem, firma bez środowiska ograniczeniem kształtu', async () => {
+  it('brak środowiska: firma ze środowiskiem odrzuca wpis strażnikiem, firma bez środowiska strażnikiem pochodzenia środowiska', async () => {
     const zeSrodowiskiem = await wstaw(ORG, { ksef_environment: null });
     expect(zeSrodowiskiem.error?.message).toContain('OUTSIDE_KSEF_ENVIRONMENT');
     const bez = await wstaw(ORG_B, { ksef_environment: null });
-    expect(bez.error?.message).toContain('invoices_outside_ksef_shape');
+    // Wyzwalacz BEFORE INSERT z migracji 00117 (strażnik pochodzenia środowiska
+    // przyjętej faktury KSeF) odmawia wcześniej niż ograniczenie kształtu.
+    // Odmowa jest ta sama, zmienia się tylko, które sprawdzenie ją daje.
+    expect(bez.error?.message).toContain('Accepted KSeF invoice requires environment');
   });
 
   it('środowisko wpisu różne od środowiska firmy jest odrzucone; firma bez środowiska przyjmuje wpis', async () => {
