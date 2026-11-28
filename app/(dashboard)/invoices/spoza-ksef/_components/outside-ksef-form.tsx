@@ -17,8 +17,10 @@ import {
   type FormularzSpozaKsef,
   type PozycjaFormularza,
 } from '@/lib/import/outside-ksef-formularz';
+import { PDF_SPOZA_KSEF_LIMIT_LABEL, PDF_SPOZA_KSEF_ZAPIS_PLIKU } from '@/lib/import/outside-ksef-pdf';
 import { OUTSIDE_KSEF_ISSUE_DATE_MAX, OUTSIDE_KSEF_ISSUE_DATE_MIN, OUTSIDE_KSEF_VAT_RATES } from '@/lib/import/outside-ksef-schema';
 import { GTU_CODES } from '@/lib/invoices/line-codes';
+import { postSpozaKsefOdczyt, postSpozaKsefOryginal } from '@/lib/uploads/client';
 
 /** Rodzaje, których FaktWay nie ujmie w księgach (D22): wybór kończy się odmową z wyjściem, bez zapisu. */
 const RODZAJE: Array<{ value: string; label: string }> = [
@@ -51,6 +53,10 @@ export function OutsideKsefForm({ opis }: { opis: string }) {
   const [pending, startTransition] = useTransition();
   const [rodzaj, setRodzaj] = useState('faktura_vat');
   const [blad, setBlad] = useState<string | null>(null);
+  /** PDF wskazany przez klienta: czytany do formularza (D25 a) i zapisywany przy fakturze po jej dodaniu (D25 b, D40). */
+  const [plik, setPlik] = useState<File | null>(null);
+  const [odczytuje, setOdczytuje] = useState(false);
+  const [ostrzezenia, setOstrzezenia] = useState<string[]>([]);
   const [f, setF] = useState<FormularzSpozaKsef>({
     number: '',
     issueDate: '',
@@ -63,6 +69,26 @@ export function OutsideKsefForm({ opis }: { opis: string }) {
   const ustaw = <K extends keyof FormularzSpozaKsef>(k: K, v: FormularzSpozaKsef[K]) => setF((p) => ({ ...p, [k]: v }));
   const ustawPozycje = (i: number, zmiana: Partial<PozycjaFormularza>) =>
     setF((p) => ({ ...p, lines: p.lines.map((l, j) => (j === i ? { ...l, ...zmiana } : l)) }));
+
+  async function wybierzPlik(nowy: File | null) {
+    setPlik(nowy);
+    setOstrzezenia([]);
+    setBlad(null);
+    if (!nowy) return;
+    setOdczytuje(true);
+    const wynik = await postSpozaKsefOdczyt(nowy);
+    setOdczytuje(false);
+    if (!wynik.success) {
+      // Odczyt nie wyszedł: plik nadal zostanie zapisany przy fakturze, a dane klient wpisuje ręcznie.
+      setBlad(wynik.error);
+      return;
+    }
+    const w = wynik.wypelnienie;
+    setRodzaj(w.rodzaj);
+    setF({ ...w.pola, lines: w.pola.lines.length > 0 ? w.pola.lines : [{ ...PUSTA_POZYCJA }] });
+    setOstrzezenia(w.ostrzezenia);
+    if (w.odmowa) setBlad(w.odmowa);
+  }
 
   function zapisz(e: React.FormEvent) {
     e.preventDefault();
@@ -78,6 +104,10 @@ export function OutsideKsefForm({ opis }: { opis: string }) {
       const wynik = await dodajFakturaSpozaKsefAction(sprawdzenie.ok ? sprawdzenie.wpis : {}, rodzaj);
       if (wynik.success) {
         toast.success('Faktura dodana do historii FaktWay.');
+        if (plik) {
+          const zapisPliku = await postSpozaKsefOryginal(wynik.id, plik);
+          if (!zapisPliku.success) toast.error(zapisPliku.error);
+        }
         router.push(`/invoices/${wynik.id}`);
         router.refresh();
         return;
@@ -91,6 +121,33 @@ export function OutsideKsefForm({ opis }: { opis: string }) {
       <div className="space-y-2">
         <h1 className="text-xl font-semibold">Dodaj fakturę wystawioną poza KSeF</h1>
         <p className="text-muted-foreground text-sm">{opis}</p>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="sk-pdf">Wczytaj dane z PDF faktury (opcjonalnie)</Label>
+        <input
+          id="sk-pdf"
+          type="file"
+          accept="application/pdf,.pdf"
+          disabled={odczytuje || pending}
+          className="text-sm"
+          onChange={(e) => void wybierzPlik(e.target.files?.[0] ?? null)}
+        />
+        <p className="text-muted-foreground text-xs">
+          {PDF_SPOZA_KSEF_ZAPIS_PLIKU} Plik do {PDF_SPOZA_KSEF_LIMIT_LABEL}.
+        </p>
+        {odczytuje ? <p className="text-sm">Odczytuję PDF…</p> : null}
+        {ostrzezenia.length > 0 ? (
+          <Alert role="status">
+            <AlertDescription>
+              <ul className="list-disc space-y-1 pl-4">
+                {ostrzezenia.map((o) => (
+                  <li key={o}>{o}</li>
+                ))}
+              </ul>
+            </AlertDescription>
+          </Alert>
+        ) : null}
       </div>
 
       <div className="space-y-2">
@@ -218,7 +275,7 @@ export function OutsideKsefForm({ opis }: { opis: string }) {
       ) : null}
 
       <div className="flex flex-wrap gap-3">
-        <Button type="submit" disabled={pending}>
+        <Button type="submit" disabled={pending || odczytuje}>
           Dodaj do historii
         </Button>
         <Button type="button" variant="ghost" disabled={pending} onClick={() => router.push('/invoices')}>

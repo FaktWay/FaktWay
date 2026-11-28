@@ -159,3 +159,58 @@ describe.skipIf(!hasDatabase)('00221: faktury spoza KSeF w bazie (D21, D22)', ()
     expect(wynik.filter((r) => r.invariant === 'I3' && r.invoice_id === zwykla.id)).toHaveLength(1);
   });
 });
+
+const SHA = 'a'.repeat(64);
+
+describe.skipIf(!hasDatabase)('00223: oryginał PDF faktury spoza KSeF (D25 b, D40)', () => {
+  beforeAll(async () => {
+    const { error } = await admin.from('tenants').upsert(
+      [{ id: ORG, nip: '5260221001', name: 'Firma 00221 A', ksef_verified_at: '2026-01-01T00:00:00Z', ksef_verified_environment: 'test' }],
+      { onConflict: 'id' },
+    );
+    if (error) throw error;
+  }, 60_000);
+
+  beforeEach(cleanup);
+  afterAll(async () => {
+    if (hasDatabase) await cleanup();
+  });
+
+  const oryginal = (id: string, pola: Pola = {}): Pola => ({
+    outside_ksef_original_path: `tenants/${ORG}/outside-ksef/${id}.pdf`,
+    outside_ksef_original_sha256: SHA,
+    outside_ksef_original_size: 1234,
+    ...pola,
+  });
+
+  it('wpis spoza KSeF przyjmuje komplet kolumn oryginału, z kluczem w katalogu swojej firmy', async () => {
+    const id = randomUUID();
+    const { error } = await wstaw(ORG, { id, ...oryginal(id) });
+    expect(error).toBeNull();
+  });
+
+  it('wpis bez oryginału zostaje poprawny (wszystkie kolumny puste)', async () => {
+    expect((await wstaw(ORG)).error).toBeNull();
+  });
+
+  it('zwykła faktura nie ma oryginału PDF: odmowa', async () => {
+    const id = randomUUID();
+    const { error } = await admin.from('invoices').insert(
+      wpis(ORG, { id, origin: 'app', ksef_status: 'draft', ksef_environment: null, ...oryginal(id) }),
+    );
+    expect(error?.message).toContain('invoices_outside_ksef_original_shape');
+  });
+
+  it('niepełny komplet, zły skrót, zerowy rozmiar i klucz cudzej firmy są odrzucane', async () => {
+    const id = randomUUID();
+    for (const pola of [
+      { outside_ksef_original_path: `tenants/${ORG}/outside-ksef/${id}.pdf` },
+      oryginal(id, { outside_ksef_original_sha256: 'xyz' }),
+      oryginal(id, { outside_ksef_original_size: 0 }),
+      oryginal(id, { outside_ksef_original_path: `tenants/${ORG_B}/outside-ksef/${id}.pdf` }),
+    ]) {
+      const { error } = await wstaw(ORG, { id: randomUUID(), ...pola });
+      expect(error?.message, JSON.stringify(pola)).toContain('invoices_outside_ksef_original_shape');
+    }
+  });
+});

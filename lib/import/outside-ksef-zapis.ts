@@ -12,6 +12,7 @@ import {
   outsideKsefRefusal,
   type OutsideKsefInvoiceInput,
 } from '@/lib/import/outside-ksef-schema';
+import { usunOryginalSpozaKsef } from '@/lib/import/outside-ksef-oryginal';
 import { czySpozaKsefWlaczone, SPOZA_KSEF_NIEZNANE, SPOZA_KSEF_WYLACZONE } from '@/lib/import/outside-ksef-wylacznik';
 import { czyKsiegowoscWlaczona } from '@/lib/ksiegowosc/wylacznik';
 import { sellerFromTenantProfile } from '@/lib/invoices/tenant-seller';
@@ -306,14 +307,22 @@ export async function usunFakturaSpozaKsef(
   const client = ctx.client;
   const { data: wiersz, error: odczyt } = await client
     .from('invoices')
-    .select('id, internal_number, issue_date, sale_date, net_total, vat_total, gross_total')
+    .select('id, internal_number, issue_date, sale_date, net_total, vat_total, gross_total, outside_ksef_original_path')
     .eq('id', id)
     .eq('tenant_id', ctx.tenantId)
     .eq('origin', 'outside_ksef')
     .maybeSingle();
   if (odczyt) return { success: false, error: BLAD_USUNIECIA_SPOZA_KSEF };
   if (!wiersz) return { success: false, error: 'Tej faktury już nie ma w historii.' };
-  const faktura = wiersz as { internal_number: string; issue_date: string; sale_date: string | null; net_total: unknown; vat_total: unknown; gross_total: unknown };
+  const faktura = wiersz as {
+    internal_number: string;
+    issue_date: string;
+    sale_date: string | null;
+    net_total: unknown;
+    vat_total: unknown;
+    gross_total: unknown;
+    outside_ksef_original_path?: string | null;
+  };
 
   let miesiace: string[];
   try {
@@ -335,6 +344,11 @@ export async function usunFakturaSpozaKsef(
   if (error) return { success: false, error: BLAD_USUNIECIA_SPOZA_KSEF };
   if (!usuniete || usuniete.length === 0) return { success: false, error: 'Tej faktury już nie ma w historii.' };
 
+  // D40: oryginał PDF ma okres przechowywania faktury, więc znika razem z wpisem. Wiersza już nie ma,
+  // więc retencja nie znalazłaby pliku: nieudane kasowanie idzie do audytu i Sentry (operator sprząta klucz).
+  const oryginal = faktura.outside_ksef_original_path ?? null;
+  const oryginalUsuniety = oryginal ? await usunOryginalSpozaKsef(ctx.tenantId, oryginal) : null;
+
   await logAudit({
     action: 'invoice.outside_ksef_deleted',
     tenantId: ctx.tenantId,
@@ -350,6 +364,7 @@ export async function usunFakturaSpozaKsef(
       // Dzień usunięcia i miesiące, za które plik albo rozliczenie wymaga korekty (D23).
       deletedOn: todayInWarsaw(),
       monthsNeedingCorrection: miesiace,
+      ...(oryginal ? { originalDeleted: oryginalUsuniety === true, originalPath: oryginal } : {}),
     },
   });
   revalidatePath('/invoices');

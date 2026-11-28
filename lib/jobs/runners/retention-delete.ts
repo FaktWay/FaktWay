@@ -49,7 +49,7 @@ export async function runRetentionDelete({ step, logger }: JobContext) {
       const supabase = createAdminClient();
       const { data, error } = await supabase
         .from('invoices')
-        .select('id, tenant_id, internal_number, issue_date, xml_storage_path, pdf_storage_path, archive_storage_path, ksef_status, submitted_to_ksef_at, offline_idempotency_key')
+        .select('id, tenant_id, internal_number, issue_date, xml_storage_path, pdf_storage_path, archive_storage_path, outside_ksef_original_path, ksef_status, submitted_to_ksef_at, offline_idempotency_key')
         .not('scheduled_deletion_at', 'is', null)
         .lt('scheduled_deletion_at', nowIso)
         .limit(100);

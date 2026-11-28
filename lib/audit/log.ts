@@ -95,6 +95,7 @@ export type AuditAction =
   | 'flo.proposal.undone'
   | 'invoice.outside_ksef_created'
   | 'invoice.outside_ksef_deleted'
+  | 'invoice.outside_ksef_original_saved'
   | 'invoice.draft_created'
   | 'invoice.draft_updated'
   | 'invoice.draft_deleted'

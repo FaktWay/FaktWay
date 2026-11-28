@@ -32,6 +32,9 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('@/lib/audit/log', () => ({ logAudit: (...a: unknown[]) => st.audyt(...a) }));
 vi.mock('@/lib/ksiegowosc/wylacznik', () => ({ czyKsiegowoscWlaczona: async () => ({ wlaczony: st.ksiegowosc }) }));
 vi.mock('@/lib/ksef/claim-environment', () => ({ requireConfiguredKsefEnvironment: () => 'test' }));
+// PR D (D40): oryginał PDF znika razem z wpisem. Atrapa tylko magazynu; zachowanie pliku: faktury-spoza-ksef-pdf-oryginal.test.ts.
+const oryginal = vi.hoisted(() => ({ usun: vi.fn(async (_t: string, _k: string) => true) }));
+vi.mock('@/lib/import/outside-ksef-oryginal', () => ({ usunOryginalSpozaKsef: oryginal.usun }));
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => {
     throw new Error('nie w tym teście');
@@ -274,6 +277,31 @@ describe('usunięcie faktury spoza KSeF (D23)', () => {
     const w = await usunFakturaSpozaKsef(ctx(), ID);
     expect(w).toMatchObject({ success: false });
     expect(st.audyt).not.toHaveBeenCalled();
+  });
+});
+
+describe('usunięcie wpisu z oryginałem PDF (D40)', () => {
+  const KLUCZ = `tenants/${T}/outside-ksef/${ID}.pdf`;
+
+  it('po usunięciu wiersza kasuje też plik oryginału i zapisuje to w audycie', async () => {
+    oryginal.usun.mockClear();
+    st.wiersz = { ...(st.wiersz as Record<string, unknown>), outside_ksef_original_path: KLUCZ };
+    expect(await usunFakturaSpozaKsef(ctx(), ID)).toEqual({ success: true });
+    expect(oryginal.usun).toHaveBeenCalledWith(T, KLUCZ);
+    expect(st.audyt).toHaveBeenCalledWith(expect.objectContaining({ metadata: expect.objectContaining({ originalDeleted: true }) }));
+  });
+
+  it('wpis bez oryginału nie dotyka magazynu', async () => {
+    oryginal.usun.mockClear();
+    expect(await usunFakturaSpozaKsef(ctx(), ID)).toEqual({ success: true });
+    expect(oryginal.usun).not.toHaveBeenCalled();
+  });
+
+  it('nieudane kasowanie pliku nie cofa usunięcia wpisu (D23 usuwa zawsze), ale audyt to pokazuje', async () => {
+    oryginal.usun.mockResolvedValueOnce(false);
+    st.wiersz = { ...(st.wiersz as Record<string, unknown>), outside_ksef_original_path: KLUCZ };
+    expect(await usunFakturaSpozaKsef(ctx(), ID)).toEqual({ success: true });
+    expect(st.audyt).toHaveBeenCalledWith(expect.objectContaining({ metadata: expect.objectContaining({ originalDeleted: false, originalPath: KLUCZ }) }));
   });
 });
 

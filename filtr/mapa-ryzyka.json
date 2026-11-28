@@ -474,6 +474,8 @@
         "lib/jobs/runners/{inbox-polling,ksef-history-sync}.ts",
         "lib/import/*.ts",
         "lib/api/mobile/import.ts",
+        "app/api/uploads/faktura-pdf/route.ts",
+        "lib/uploads/client.ts",
         "app/api/mobile/v1/import/**",
         "lib/ksef/{hwm,history-fetcher}.ts",
         "lib/jobs/runners/{inbox-backfill,bulk-import}.ts",
@@ -1042,7 +1044,7 @@
       "sciezki": [
         "supabase/migrations/{00028,00117,00118,00119,00122,00125,00132,00133,00135,00137,00154,00164,00184,00186,00193,00198}_*.sql",
         "supabase/migrations/00203_*.sql",
-        "supabase/migrations/00221_*.sql"
+        "supabase/migrations/{00221,00223}_*.sql"
       ]
     },
     {
