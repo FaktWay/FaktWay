@@ -474,6 +474,8 @@
         "lib/jobs/runners/{inbox-polling,ksef-history-sync}.ts",
         "lib/import/*.ts",
         "lib/api/mobile/import.ts",
+        "app/api/uploads/faktura-pdf/route.ts",
+        "lib/uploads/client.ts",
         "app/api/mobile/v1/import/**",
         "lib/ksef/{hwm,history-fetcher}.ts",
         "lib/jobs/runners/{inbox-backfill,bulk-import}.ts",

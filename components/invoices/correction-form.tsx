@@ -288,7 +288,8 @@ function buildDefaultCorrectionFormValues(
     parentInvoiceIssueDate: ctx.issueDate,
     parentKsefNumber: ctx.ksefNumber ?? undefined,
 
-    // Faktura z pozycją od brutto: korekty pozycji nie ma (serwer odmawia), domyślnie anulowanie.
+    // Faktura z pozycją od brutto bez cen brutto na fakturze (np. abonament): korekty pozycji
+    // nie ma (serwer odmawia), domyślnie anulowanie. Faktura w cenach brutto ma ją (D6).
     correctionType: ctx.beforeAfterRefusal ? 'cancellation' : 'before_after',
     correctionReason: '',
     correctionCause: undefined,
@@ -300,9 +301,9 @@ function buildDefaultCorrectionFormValues(
     linesBefore: ctx.linesBefore,
     linesAfter: structuredClone(ctx.linesAfter),
 
-    // Stawka np / np. II / oo nie wynika z kwot (VAT 0 to także „0 KR”) —
-    // korekta kwotowa bierze ją z pozycji faktury pierwotnej.
-    amountChange: emptyAmountChange(zeroVatRateFromParentLines(ctx.linesBefore)),
+    // Bez `amountChange`: pusty opis zmiany kwoty nie przechodzi schematu, więc szkic „przed / po”
+    // z pustym blokiem się nie zapisywał. Blok powstaje po wyborze korekty kwotowej
+    // (`handleCorrectionTypeChange`) i znika po wyborze innego rodzaju.
     ...(ctx.pricesGross ? { pricesGross: true as const } : {}),
   };
 }
@@ -662,9 +663,11 @@ function CorrectionFillForm({ parentRow, defaults, onPickOther, tenantId, number
   });
 
   const correctionType = useWatch({ control: form.control, name: 'correctionType' });
-  // Pozycje od brutto (cena brutto nadana przez serwer): bez korekty „przed/po”, jak na serwerze.
+  // Pozycje od brutto bez cen brutto na fakturze (cena brutto nadana przez serwer): bez korekty
+  // „przed/po”, jak na serwerze. Faktura w cenach brutto (D6) ma ją z cenami brutto pozycji.
   const linesBeforeWatched = useWatch({ control: form.control, name: 'linesBefore' });
-  const odBrutto = (linesBeforeWatched ?? []).some((l) => l?.unitPriceGross !== undefined);
+  const fakturaWCenachBrutto = useWatch({ control: form.control, name: 'pricesGross' }) === true;
+  const odBrutto = !fakturaWCenachBrutto && (linesBeforeWatched ?? []).some((l) => l?.unitPriceGross !== undefined);
   const typeItems = odBrutto ? CORRECTION_TYPE_ITEMS.filter((o) => o.value !== 'before_after') : CORRECTION_TYPE_ITEMS;
   const typKorekty = useWatch({ control: form.control, name: 'typKorekty' }) ?? '2';
   const correctionCause = useWatch({ control: form.control, name: 'correctionCause' });
@@ -696,8 +699,12 @@ function CorrectionFillForm({ parentRow, defaults, onPickOther, tenantId, number
   const handleCorrectionTypeChange = (value: CorrectionFormParsed['correctionType']) => {
     form.setValue('correctionType', value);
     const current = form.getValues('amountChange');
+    // Stawka np / np. II / oo nie wynika z kwot (VAT 0 to także „0 KR”) —
+    // korekta kwotowa bierze ją z pozycji faktury pierwotnej.
     if (value === 'amount_change' && !current) {
       form.setValue('amountChange', emptyAmountChange(parentZeroVatRate));
+    } else if (value !== 'amount_change' && current) {
+      form.setValue('amountChange', undefined);
     }
   };
 
@@ -1081,6 +1088,8 @@ function formLine(
     unit: line?.unit ?? '',
     quantity: Number(line?.quantity) || 0,
     unitPriceNet: Number(line?.unitPriceNet) || 0,
+    // Faktura w cenach brutto (D6): cena brutto pozycji, od niej serwer liczy stan po.
+    ...(line?.unitPriceGross !== undefined ? { unitPriceGross: Number(line.unitPriceGross) || 0 } : {}),
     vatRate: line?.vatRate ?? '23',
     ...(recorded?.netAmount !== undefined && recorded.vatAmount !== undefined && recorded.grossAmount !== undefined
       ? { recordedAmounts: { netAmount: recorded.netAmount, vatAmount: recorded.vatAmount, grossAmount: recorded.grossAmount } }
@@ -1103,6 +1112,8 @@ function CorrectionLinesTable(props: {
     shouldUnregister: false,
   });
   const watched = useWatch({ control: form.control, name });
+  // Faktura w cenach brutto (D6): kolumna „Cena brutto” zamiast „Cena netto”.
+  const grossPrices = useWatch({ control: form.control, name: 'pricesGross' }) === true;
   const watchedBefore = useWatch({ control: form.control, name: 'linesBefore' });
   // Plan zero C3: „zw” tylko przy fakturze z pozycją „zw” (firma zwolniona z VAT), bo
   // korekta bierze podstawę zwolnienia z faktury korygowanej; czynny podatnik jej nie wybierze.
@@ -1138,7 +1149,7 @@ function CorrectionLinesTable(props: {
             <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
           : null}
         </div>
-        <Button type="button" variant="glass" size="sm" onClick={() => append(defaultLineRow)}>
+        <Button type="button" variant="glass" size="sm" onClick={() => append(grossPrices ? { ...defaultLineRow, unitPriceGross: 0 } : defaultLineRow)}>
           <Plus className="mr-2 h-4 w-4" />
           Dodaj pozycję
         </Button>
@@ -1148,7 +1159,7 @@ function CorrectionLinesTable(props: {
         <table className="w-full text-sm">
           <thead className={c.thead}>
             <tr className="">
-              {['#', 'Nazwa', 'J.m.', 'Ilość', 'Cena netto', 'VAT', 'Netto', 'Brutto', ''].map(
+              {['#', 'Nazwa', 'J.m.', 'Ilość', grossPrices ? 'Cena brutto' : 'Cena netto', 'VAT', 'Netto', 'Brutto', ''].map(
                 (h) => (
                   <th key={`${title}-${h}`} className={c.th}>
                     {h}
@@ -1183,9 +1194,11 @@ function CorrectionLinesTable(props: {
                     <Input
                       type="number"
                       step="0.01"
-                      aria-label={`Cena netto pozycji ${index + 1} (${title})`}
+                      aria-label={`${grossPrices ? 'Cena brutto' : 'Cena netto'} pozycji ${index + 1} (${title})`}
                       className="h-9 w-28 tabular-nums"
-                      {...form.register(`${name}.${index}.unitPriceNet`, { valueAsNumber: true })}
+                      {...(grossPrices
+                        ? form.register(`${name}.${index}.unitPriceGross`, { valueAsNumber: true })
+                        : form.register(`${name}.${index}.unitPriceNet`, { valueAsNumber: true }))}
                     />
                   </td>
                   <td className="py-3 pr-2">

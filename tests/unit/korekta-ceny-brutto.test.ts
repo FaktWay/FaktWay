@@ -168,9 +168,8 @@ describe('korekta faktury FaktWay w cenach brutto (D6): akcja strony, plik KOR, 
       ['Kawa 2', 1, { netAmount: 0.81, vatAmount: 0.19, grossAmount: 1 }],
       ['Kawa 3', 1, { netAmount: 0.82, vatAmount: 0.18, grossAmount: 1 }],
     ]);
-    // Formularz korekty pozycji ma dziś tylko ceny netto: powód z wyjściem zamiast pozycji z ceną 0 zł.
-    expect(ctx.beforeAfterRefusal).toMatch(/w cenach brutto/);
-    expect(ctx.beforeAfterRefusal).toMatch(/Anuluj fakturę albo wystaw korektę kwotową/);
+    // Formularz ma cenę brutto pozycji (luka 1 z D6): korekta pozycji nie jest odmowa.
+    expect(ctx).not.toHaveProperty('beforeAfterRefusal');
   });
 
   it('„przed / po”: Kawa 3 z 1,00 na 1,08 zł, VAT stawki po korekcie 0,58 od 3,08, różnica VAT 0,02 (nie 0,01 od samej różnicy 0,08)', async () => {

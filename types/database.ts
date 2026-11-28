@@ -3180,6 +3180,9 @@ export type Database = {
           offline_qr_certyfikat: string | null
           offline_qr_offline: string | null
           origin: string
+          outside_ksef_original_path: string | null
+          outside_ksef_original_sha256: string | null
+          outside_ksef_original_size: number | null
           paid_amount: number
           paid_at: string | null
           parent_invoice_id: string | null
@@ -3260,6 +3263,9 @@ export type Database = {
           offline_qr_certyfikat?: string | null
           offline_qr_offline?: string | null
           origin?: string
+          outside_ksef_original_path?: string | null
+          outside_ksef_original_sha256?: string | null
+          outside_ksef_original_size?: number | null
           paid_amount?: number
           paid_at?: string | null
           parent_invoice_id?: string | null
@@ -3340,6 +3346,9 @@ export type Database = {
           offline_qr_certyfikat?: string | null
           offline_qr_offline?: string | null
           origin?: string
+          outside_ksef_original_path?: string | null
+          outside_ksef_original_sha256?: string | null
+          outside_ksef_original_size?: number | null
           paid_amount?: number
           paid_at?: string | null
           parent_invoice_id?: string | null

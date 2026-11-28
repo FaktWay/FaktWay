@@ -23,6 +23,8 @@ export interface RetainedInvoice {
   xml_storage_path?: string | null;
   pdf_storage_path?: string | null;
   archive_storage_path?: string | null;
+  /** Oryginał PDF faktury spoza KSeF (D40): okres przechowywania faktury, kasowany razem z nią. */
+  outside_ksef_original_path?: string | null;
   /** Data wystawienia — folder prób wysyłki `tenant/yyyy/mm/invoiceId/` (D5). */
   issue_date?: string | null;
 }
@@ -52,6 +54,7 @@ export async function collectInvoiceStorageKeys(
   add(r2, invoice.xml_storage_path);
   add(r2, invoice.pdf_storage_path);
   add(glacier, invoice.archive_storage_path);
+  add(r2, invoice.outside_ksef_original_path);
 
   const read = async (table: string, columns: string) => {
     const { data, error } = await client
