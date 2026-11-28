@@ -1671,7 +1671,7 @@ stopa wypadkowa (kwiecień), nowe wzory formularzy i schematy JPK.
 | 27.11.2026 | D69: rejestr RP-KOSZT-01 | #987 | otwarte, bez `scal` | wymaga `zgoda:wiedza-prawna` od Bartosza po drugim czytelniku |
 | 27.11.2026 | D35 i D36 | brak | stop | zatrzymane przed zmianą kodu (część D35 to pole przyczyny korekty przy każdej korekcie, wymaga decyzji człowieka); nic nie wypchnięto |
 | 27.11.2026 | D70 (FZ-031): odczyt stron | #985 | scalone 27.11 | kafle koszty naprawione, test `strony.test.ts` |
-| 27.11.2026 | D35 (FZ-?): przyczyna korekty | #994 | scalone 27.11 | kolumna `correction_cause` (00222), pole w formularzu korekty, okres korekty w ewidencji i KPiR |
+| 27.11.2026 | D35: przyczyna korekty | #994 | scalone 27.11 | kolumna `correction_cause` (00222), pole w formularzu korekty, okres korekty w ewidencji i KPiR |
 | 27.11.2026 | 1.6 część 2b A, B, C: baza, zapis, ekrany | #989, #990, #991 | scalone 27.11 | faktury spoza KSeF: kolumna `origin`, zapis i formularz za wyłącznikiem |
 | 28.11.2026 | 1.6 część 2b D: odczyt PDF i przechowanie oryginału | #995 | w kolejce | migracja 00223 przed wdrożeniem; zgoda już niepotrzebna wg straży |
 | 28.11.2026 | 1.6 część 2b: import CSV z opcją wlicz do ksiąg | #996 | w kolejce | odmowa całego pliku przy dacie poza RRRR-MM-DD i DD.MM.RRRR (D25c) |
