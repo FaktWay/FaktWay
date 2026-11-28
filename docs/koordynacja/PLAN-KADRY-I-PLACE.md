@@ -16,8 +16,7 @@ Wzór formy inwariantów: sekcja 4 i brama w sekcji 11
 2. Przeczytaj tylko: sekcję 9.1 planu kompletnej aplikacji, ten plik,
    `docs/filtr/LISTA-KONTROLNA.md`.
 3. Sprawdź w dzienniku (sekcja 10), który krok jest następny. Rób tylko ten.
-4. Zasady z `AGENTS.md`: protokół naprawy błędu, czerwony test przed kodem,
-   `pnpm filtr:lokalnie` przy R1 i R2, drugi czytelnik przed PR.
+4. Zasady z `AGENTS.md`: protokół naprawy błędu, `pnpm filtr:lokalnie`.
 
 ## 1. Cel i zakres
 
@@ -157,8 +156,7 @@ chwili otwarcia PR (`docs/runbooks/wgrywanie-migracji.md`), nagłówek
 | K11 | zgłoszenia ZUS, przypomnienia o badaniach i BHP | R1 i R2 | M | tak |
 | K12 | PPK | R1 | L | tak |
 
-Kolejność wewnątrz etapu jest twarda: silnik, ekran, pliki. Duże kroki
-dzielimy dalej, jeśli przegląd byłby za duży.
+Kolejność wewnątrz etapu: silnik, ekran, pliki.
 
 ## 7. Wyłącznik i brama dla klientów (B1-B5)
 
