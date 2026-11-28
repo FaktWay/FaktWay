@@ -166,7 +166,21 @@ describe('mapowanie CSV na wpisy spoza KSeF', () => {
   it('nierozpoznana data (parser podstawia dzisiejszą): odmowa, nie cicha zmiana daty', () => {
     const p = przygotujCsvSpozaKsef(fakturownia(wierszF({ data: 'jutro' })), 'fakturownia', NIP);
     expect(p.wpisy).toEqual([]);
-    expect(p.odrzucone[0]?.powod).toContain('wątpliwość');
+    expect(p.odmowaPliku).toContain('daty');
+  });
+
+  it('data ukośnikowa 10/03/2026 (parser czyta jako 3 października): odmowa pliku, nie wpis z 2026-10-03', () => {
+    const p = przygotujCsvSpozaKsef(fakturownia(wierszF({ data: '10/03/2026' })), 'fakturownia', NIP);
+    expect(p.wpisy).toEqual([]);
+    expect(p.odmowaPliku).toContain('10/03/2026');
+    expect(p.odmowaPliku).toContain('RRRR-MM-DD');
+  });
+
+  it('data ukośnikowa w inFakt (issue_date): też odmowa; ISO i DD.MM.RRRR przechodzą', () => {
+    const wiersz = (d: string) => `FV 1/2026,${d},100.00,23.00,123.00,Klient,1234567890`;
+    expect(odmowaSurowegoPliku(infakt(wiersz('10/03/2026')))).toContain('daty');
+    expect(odmowaSurowegoPliku(infakt(wiersz('2026-03-10')))).toBeNull();
+    expect(odmowaSurowegoPliku(infakt(wiersz('10.03.2026')))).toBeNull();
   });
 
   it('kwota z symbolem obcej waluty: odmowa (D22 waluta)', () => {

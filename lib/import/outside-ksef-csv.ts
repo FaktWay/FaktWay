@@ -45,6 +45,11 @@ export interface PodgladCsvSpozaKsef {
 }
 
 const KOLUMNY_WALUTY = /^(waluta|currency)$/i;
+// Kolumny dat dokumentu czytane przez parsery (Data, Data wystawienia, Data dokumentu, issue_date, Issue date, sprzedaży).
+const KOLUMNY_DAT = /^(data|data wystawienia|data dokumentu|data sprzeda[żz]y|issue[ _]date|sale[ _]date)$/i;
+// Jedyne formaty, które parseDate czyta jednoznacznie: YYYY-MM-DD i DD.MM.YYYY. Reszta (np. „10/03/2026”)
+// idzie w parserze przez new Date() jako MM/DD bez ostrzeżenia, więc faktura trafiłaby do złego miesiąca.
+const DATA_JEDNOZNACZNA = /^(\d{4}-\d{2}-\d{2}|\d{2}\.\d{2}\.\d{4})$/;
 const KOLUMNY_RODZAJU = /^(rodzaj|typ|kind|type|invoice_kind|invoice_type|rodzaj dokumentu|typ dokumentu)$/i;
 // Rodzaje spoza zakresu D22; „vat”, „faktura”, „sprzedaż” to zwykła faktura i nie pasują.
 const RODZAJE_ODMOWY =
@@ -66,10 +71,16 @@ export function odmowaSurowegoPliku(content: string): string | null {
   const kolumny = wynik.meta.fields ?? [];
   const waluta = kolumny.filter((k) => KOLUMNY_WALUTY.test(k));
   const rodzaj = kolumny.filter((k) => KOLUMNY_RODZAJU.test(k));
+  const daty = kolumny.filter((k) => KOLUMNY_DAT.test(k));
   let obcaWaluta = 0;
   let innyRodzaj = 0;
+  let niejednoznacznaData = 0;
   for (const wiersz of wynik.data) {
     if (!wiersz || typeof wiersz !== 'object') continue;
+    for (const k of daty) {
+      const v = (wiersz[k] ?? '').trim();
+      if (v && !DATA_JEDNOZNACZNA.test(v)) niejednoznacznaData++;
+    }
     for (const k of waluta) {
       const v = (wiersz[k] ?? '').trim();
       if (v && !/^(pln|zł|zl)$/i.test(v)) obcaWaluta++;
@@ -77,6 +88,9 @@ export function odmowaSurowegoPliku(content: string): string | null {
     for (const k of rodzaj) {
       if (RODZAJE_ODMOWY.test(wiersz[k] ?? '')) innyRodzaj++;
     }
+  }
+  if (niejednoznacznaData > 0) {
+    return `W pliku są daty w formacie, którego FaktWay nie odczyta jednoznacznie, np. 10/03/2026 (${niejednoznacznaData}): to mógłby być 10 marca albo 3 października, a od miesiąca zależą KPiR i JPK_V7M. ${OUTSIDE_KSEF_REFUSAL_MESSAGE} Wyeksportuj plik z datami w formacie RRRR-MM-DD albo DD.MM.RRRR (w Excelu: format komórki „Tekst” lub „Data własna”) albo dopisz faktury ręcznie.`;
   }
   if (obcaWaluta > 0) {
     return `W pliku są faktury w innej walucie niż złoty (${obcaWaluta}). ${OUTSIDE_KSEF_REFUSAL_MESSAGE} Wyeksportuj z programu same faktury w złotych albo dopisz je ręcznie.`;
