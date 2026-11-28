@@ -46,7 +46,8 @@ import {
   ORDER_NUMBER_MAX,
 } from '@/lib/invoices/order-reference';
 import { isSaleDateWithinLimit, SALE_DATE_TOO_LATE_MESSAGE } from '@/lib/invoices/sale-date';
-import { addressCountryForKodUE, parseVatUe, type KodUE, isNpIiBuyerVat } from '@/lib/invoices/vat-ue';
+import { isKodKraju } from '@/lib/invoices/kody-krajow';
+import { addressCountryForKodUE, parseVatUe, parseVatUeInput, type KodUE, isNpIiBuyerVat } from '@/lib/invoices/vat-ue';
 import { numberingFormFields } from '@/lib/numeracja/pola';
 import type { InvoiceLineItem, ReceiptInvoiceData, VatRate } from '@/types/invoice';
 
@@ -359,7 +360,11 @@ export const invoiceFormSchema = z
     buyerIsEu: z.boolean().optional(),
     /** Numer VAT-UE z prefiksem kraju, np. `DE123456789` (Grecja: `EL`). */
     buyerVatUe: z.string().optional(),
-    /** Kraj adresu nabywcy z UE (`TKodKraju`, Grecja `GR`) — z `EU_BUYER_COUNTRIES`. */
+    /**
+     * Kraj adresu nabywcy (`TKodKraju`, Grecja `GR`). Firma z UE: z `EU_BUYER_COUNTRIES`.
+     * Osoba z dowodem albo paszportem (C2 S7): dowolny kraj z `KODY_KRAJOW`, pusty
+     * znaczy Polska. Przy PESEL i „bez numeru” pole jest pomijane (zawsze PL).
+     */
     buyerCountryCode: z.string().optional(),
     lines: z.array(invoiceLineItemSchema).min(1, 'Dodaj co najmniej jedną pozycję'),
     /**
@@ -495,11 +500,12 @@ export const invoiceFormSchema = z
       });
     }
     if (d.buyerIsEu) {
-      const vat = parseVatUe(d.buyerVatUe);
+      // C2 S8: wzorzec kraju (Austria z „U”, Holandia z „B”, bez podwójnego prefiksu).
+      const vat = parseVatUeInput(d.buyerVatUe);
       if (!vat) {
         ctx.addIssue({
           code: 'custom',
-          message: 'Numer VAT-UE — prefiks kraju UE i numer, np. DE123456789 (Grecja: EL)',
+          message: 'Numer VAT-UE — prefiks kraju UE i numer według wzorca kraju, np. DE123456789; Austria zaczyna się od ATU (AT z U), Holandia ma literę B (NL…B01); Grecja: EL',
           path: ['buyerVatUe'],
         });
       } else if (vat.kodUE === 'PL') {
@@ -570,6 +576,17 @@ export const invoiceFormSchema = z
       ctx.addIssue({ code: 'custom', message: NO_CONTROL_CHARS_MESSAGE, path: ['buyerIdDocument'] });
     } else if (xsdLength(doc, 'replace') > FA3_TEXT_LIMITS.nrId.max) {
       ctx.addIssue({ code: 'custom', message: maxMessage(FA3_TEXT_LIMITS.nrId.max), path: ['buyerIdDocument'] });
+    }
+  })
+  // C2 S7: kraj nabywcy z dokumentem tożsamości trafia do `KodKraju` w adresie i
+  // w identyfikatorze (XSD: lista `TKodKraju`). Pusty = Polska.
+  .superRefine((d, ctx) => {
+    if (!d.buyerIsConsumer || d.buyerIsEu) return;
+    const t = d.buyerConsumerIdType;
+    if (t !== consumerIdChoices.id_card && t !== consumerIdChoices.passport) return;
+    const kraj = d.buyerCountryCode ?? '';
+    if (kraj !== '' && !isKodKraju(kraj)) {
+      ctx.addIssue({ code: 'custom', message: 'Wybierz kraj nabywcy z listy', path: ['buyerCountryCode'] });
     }
   })
   .refine((d) => new Date(d.paymentDueDate) >= new Date(d.issueDate), {

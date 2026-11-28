@@ -1,3 +1,4 @@
+import { KODY_KRAJOW, nazwaKraju } from '@/lib/invoices/kody-krajow';
 import { EU_BUYER_COUNTRIES, type InvoiceFormValues } from '@/lib/schemas/invoice-form';
 import { BUYER_ID_TYPE_LABELS } from '@/types/invoice-types';
 
@@ -54,6 +55,13 @@ export const PAYMENT_METHOD_ITEMS = [
   { value: 'card', label: 'Karta' },
   { value: 'other', label: 'Inna' },
 ] as const
+
+/** Kraj nabywcy z dowodem albo paszportem (C2 S7): każdy kraj z XSD, Polska pierwsza. */
+export const ALL_COUNTRY_ITEMS = [...KODY_KRAJOW]
+  .map((kod) => ({ value: kod, label: nazwaKraju(kod) }))
+  .sort((a, b) =>
+    a.value === 'PL' ? -1 : b.value === 'PL' ? 1 : a.label.localeCompare(b.label, 'pl'),
+  )
 
 export const EU_COUNTRY_ITEMS = EU_BUYER_COUNTRIES.map((k) => ({ value: k.code, label: k.name }))
 
