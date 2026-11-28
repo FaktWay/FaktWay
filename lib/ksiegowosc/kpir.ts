@@ -40,6 +40,7 @@ import {
   kwotaTekst,
   pokrycieFakturDoParagonu,
   przeliczNaPln,
+  zaliczkaNieJestPrzychodem,
   type BrakEwidencji,
   type FakturaEwidencji,
   type KursPrzychodu,
@@ -50,6 +51,10 @@ import { wersjaNa, type WersjaProfilu } from '@/lib/ksiegowosc/profil';
 // Ten sam tekst co w `ewidencja.ts`.
 const UWAGA_KOREKTA_BLAD_RACHUNKOWY =
   'Korekta (różnica), błąd rachunkowy lub omyłka: okres faktury pierwotnej; sprawdź, czy trzeba poprawić rozliczenie za ten okres';
+
+// Ten sam tekst co w `ewidencja.ts` (D36, RP-ZAL-01).
+const POWOD_ZALICZKA_NIE_PRZYCHOD =
+  'Zaliczka na dostawę lub usługę z następnego okresu nie jest przychodem (art. 14 ust. 3 pkt 1 ustawy o PIT); przychód powstanie w dniu wykonania, z fakturą rozliczającą';
 
 export const KOLUMNY_KPIR = ['k7', 'k8', 'k10', 'k11', 'k12', 'k13'] as const;
 export type KolumnaKpir = (typeof KOLUMNY_KPIR)[number];
@@ -354,6 +359,10 @@ export function zbudujKpir(wejscie: WejscieKpir): Kpir {
   for (const f of wejscie.faktury) {
     const dzien = dzienPrzychodu(f);
     if (!wRoku(dzien, rok)) continue;
+    if (zaliczkaNieJestPrzychodem(f)) {
+      pominiete.push({ numer: f.numer, dzien, powod: POWOD_ZALICZKA_NIE_PRZYCHOD });
+      continue;
+    }
     const nalezy = dzienKsiegi(wersje, dzien, `Faktura ${f.numer}`);
     if (!nalezy.tak) {
       if (nalezy.brak) braki.push({ dzien, dokument: f.numer, komunikat: nalezy.brak });
@@ -379,6 +388,9 @@ export function zbudujKpir(wejscie: WejscieKpir): Kpir {
     }
     if (f.rodzaj === 'zaliczka') uwagi.push('Zaliczka');
     if (f.rodzaj === 'rozliczenie' && f.rozliczoneZaliczkiGr !== 0) uwagi.push(`Rozliczenie, pomniejszone o zaliczki ${kwotaTekst(f.rozliczoneZaliczkiGr)} ${f.waluta}`);
+    if (f.rodzaj === 'rozliczenie' && (f.zaliczkiZPoprzednichOkresowGr ?? 0) !== 0) {
+      uwagi.push(`Rozliczenie w pełnej kwocie, zaliczki z wcześniejszych okresów ${kwotaTekst(f.zaliczkiZPoprzednichOkresowGr ?? 0)} ${f.waluta} nie były przychodem`);
+    }
     if (f.waluta.toUpperCase() !== 'PLN') {
       const kurs = wejscie.kursy.get(kluczKursu(f.waluta, dzien));
       if (!kurs || !kurs.znaleziony) {

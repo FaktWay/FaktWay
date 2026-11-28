@@ -344,6 +344,7 @@ const OGRANICZONE: Readonly<Record<string, { ile: number; powod: string }>> = {
   'lib/exports/data-fetcher.ts#attachKsefNumbers:invoices': { ile: 1, powod: 'numery KSeF po `id`, paczki po 200 (`KSEF_LOOKUP_CHUNK`)' },
   'lib/exports/data-fetcher.ts#fetchExpensesForExport:invoices': { ile: 1, powod: 'waluty faktur KSeF po `id`, paczki po 200 z `assertKsefExpensesReadyForPln`' },
   'lib/exports/data-fetcher.ts#fetchParentInvoices:invoices': { ile: 1, powod: 'faktury korygowane po `id`, paczki po 100, licznik równy paczce' },
+  'lib/ksiegowosc/ewidencja-dane.ts#zaliczkiOkresowe:invoices': { ile: 2, powod: 'zaliczki rozliczone przez ROZ z roku po `id` oraz faktury rozliczające te zaliczki (`overlaps`), paczki po 100 (`PORCJA_ZALICZEK`), więc wynik mieści się w limicie serwera' },
   'lib/ksiegowosc/ewidencja-dane.ts#dniPierwotne:invoices': { ile: 1, powod: 'faktury pierwotne korekt z błędu rachunkowego po `id`, paczki po 100 (`KAWALEK`), do 5 poziomów łańcucha; brak faktury kończy odczyt błędem' },
   'lib/exports/eksport-reczny.ts#downloadExportFile:rpc:increment_export_file_download': { ile: 1, powod: 'atomowy zapis licznika pobrań pliku (RPC z 00030), nie odczyt listy; przeniesiony z akcji strony (M10d)' },
   'lib/ksiegowosc/kpir-dane.ts#koszty:invoices': { ile: 1, powod: 'waluty faktur KSeF po `id`, paczki po 200 z `assertKsefExpensesReadyForPln`' },

@@ -184,6 +184,8 @@ export function fakePostgrest(tables: Tables, reads: Read[] = []): PageContext['
         gte(c: string, v: string) { predicates.push((r) => r[c] != null && String(r[c]) >= v); return builder; },
         lt(c: string, v: string) { predicates.push((r) => r[c] != null && String(r[c]) < v); return builder; },
         in(c: string, v: unknown[]) { predicates.push((r) => v.includes(r[c])); return builder; },
+        /** Jak `&&` w PostgREST: tablica w kolumnie ma wspólny element z `v`. */
+        overlaps(c: string, v: unknown[]) { predicates.push((r) => Array.isArray(r[c]) && (r[c] as unknown[]).some((x) => v.includes(x))); return builder; },
         or(filters: string) { predicates.push(orPredicate(filters)); return builder; },
         is(c: string, v: null) { predicates.push((r) => (v === null ? r[c] == null : r[c] === v)); return builder; },
         /** `not(c, 'is', null)` i `not(c, 'eq', '{}')` (pusta tablica) — tylko te, których używa kod. */

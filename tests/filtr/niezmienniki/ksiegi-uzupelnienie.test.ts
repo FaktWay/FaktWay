@@ -479,6 +479,8 @@ describe('niezmienniki ksiąg (F5), uzupełnienie: stawki, kolumny, FP, rok, rod
           waluta: x.eur ? 'EUR' : 'PLN',
           pozycje: x.stawki?.map(([pb, gr]) => ({ nettoGr: gr, stawkaRyczaltu: pb / 100 })) ?? null,
         });
+        // D36 (RP-ZAL-01): zaliczka jest przychodem w miesiącu wykonania; tu wykonanie przypada w jej własnym dniu.
+        if (f.rodzaj === 'zaliczka') f.zaliczkaRozliczonaDnia = dzienZReguly(f);
         const klucz = kluczKursu('EUR', dzienZReguly(f));
         if (x.eur && !kursy.has(klucz)) kursy.set(klucz, x.bezKursu === 0 ? { znaleziony: false } : { znaleziony: true, mid: x.mid / 10_000, tabela: `${i}/A/NBP/${ROK}`, dataTabeli: dzienZReguly(f) });
         return f;

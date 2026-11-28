@@ -4,7 +4,7 @@
  * samymi filtrami co KPiR (`lib/reports/kpir-data.ts`, PLAN-FINORA §2.4):
  * faktury `outgoing` przyjęte w aktywnym środowisku KSeF, komplet wierszy
  * stronami po kluczu (`readCompletePagesByKey`, QRY-07), zaliczki przez
- * `fetchSettledAdvancesNet`.
+ * `zaliczkiOkresowe` (D36: zaliczka jest przychodem tylko w miesiącu wykonania).
  *
  * Przychód roku to faktury wystawione w roku i faktury wystawione później
  * za sprzedaż z tego roku: dzień przychodu to dzień sprzedaży, nie później
@@ -22,7 +22,6 @@ import type { RateLookup } from '@/lib/flo/nbp';
 import { kpirSaleEventDate } from '@/lib/categorization/kpir-revenue';
 import { todayInWarsaw } from '@/lib/format/warsaw-date';
 import { isReceiptInvoiceColumns } from '@/lib/invoices/receipt-invoice';
-import { fetchSettledAdvancesNet } from '@/lib/invoices/settled-advances';
 import { assertAcceptedInvoiceEnvironmentComplete } from '@/lib/ksef/accounting-provenance';
 import { requireConfiguredKsefEnvironment } from '@/lib/ksef/claim-environment';
 import {
@@ -321,9 +320,91 @@ export async function kursy(
   return mapa;
 }
 
+/** Dzień przychodu faktury z samych dat (jak `dzienPrzychodu` dla faktury innej niż korekta). */
+const dzienZDat = (saleDate: string | null, issueDate: string) => kpirSaleEventDate({ saleDate, issueDate });
+
+export interface ZaliczkiOkresowe {
+  /** ROZ: netto zaliczek z tego samego miesiąca co wykonanie (były przychodem), w zł. */
+  wPrzychodzie: Map<string, number>;
+  /** ROZ: netto zaliczek z innych miesięcy (nie były przychodem), w zł. */
+  poza: Map<string, number>;
+  /** Zaliczka: dzień przychodu rozliczającej ją ROZ (najwcześniejszy). */
+  rozliczonaDnia: Map<string, string>;
+}
+
+const PORCJA_ZALICZEK = 100;
+
+/**
+ * D36 (RP-ZAL-01): które zaliczki są przychodem. Zaliczka liczy się tylko
+ * w miesiącu wykonania (faktura rozliczająca), inaczej ROZ wchodzi w pełnej
+ * kwocie. Tylko zaliczki wystawione, tej firmy, przyjęte przez KSeF (jak
+ * `fetchSettledAdvancesNet`). Błąd odczytu rzuca: „nie wiem” to nie „zero”.
+ */
+export async function zaliczkiOkresowe(
+  client: SupabaseClient,
+  tenantId: string,
+  wiersze: ReadonlyArray<Pick<WierszFaktury, 'id' | 'invoice_kind' | 'issue_date' | 'sale_date' | 'advance_invoice_ids'>>,
+): Promise<ZaliczkiOkresowe> {
+  const wynik: ZaliczkiOkresowe = { wPrzychodzie: new Map(), poza: new Map(), rozliczonaDnia: new Map() };
+
+  const finals = wiersze.filter((w) => w.invoice_kind === 'final' && (w.advance_invoice_ids?.length ?? 0) > 0);
+  const idyZaliczek = [...new Set(finals.flatMap((w) => w.advance_invoice_ids ?? []))];
+  const zaliczki = new Map<string, { net: number; dzien: string }>();
+  for (let i = 0; i < idyZaliczek.length; i += PORCJA_ZALICZEK) {
+    const { data, error } = await client
+      .from('invoices')
+      .select('id, net_total, issue_date, sale_date')
+      .eq('tenant_id', tenantId)
+      .eq('direction', 'outgoing')
+      .eq('invoice_kind', 'advance')
+      .eq('ksef_status', 'accepted')
+      .in('id', idyZaliczek.slice(i, i + PORCJA_ZALICZEK));
+    if (error) throw new Error(`Nie można odczytać zaliczek rozliczonych fakturą końcową: ${error.message}`);
+    for (const r of (data ?? []) as Array<{ id: string; net_total: number | string | null; issue_date: string; sale_date: string | null }>) {
+      zaliczki.set(r.id, { net: Number(r.net_total ?? 0), dzien: dzienZDat(r.sale_date, r.issue_date) });
+    }
+  }
+  for (const roz of finals) {
+    const miesiacRoz = dzienZDat(roz.sale_date, roz.issue_date).slice(0, 7);
+    let wPrzychodzie = 0;
+    let poza = 0;
+    for (const id of new Set(roz.advance_invoice_ids ?? [])) {
+      const z = zaliczki.get(id);
+      if (!z) continue;
+      if (z.dzien.slice(0, 7) === miesiacRoz) wPrzychodzie += z.net;
+      else poza += z.net;
+    }
+    wynik.wPrzychodzie.set(roz.id, wPrzychodzie);
+    wynik.poza.set(roz.id, poza);
+  }
+
+  const zaliczkiWRoku = [...new Set(wiersze.filter((w) => w.invoice_kind === 'advance').map((w) => w.id))];
+  for (let i = 0; i < zaliczkiWRoku.length; i += PORCJA_ZALICZEK) {
+    const porcja = zaliczkiWRoku.slice(i, i + PORCJA_ZALICZEK);
+    const { data, error } = await client
+      .from('invoices')
+      .select('id, issue_date, sale_date, advance_invoice_ids')
+      .eq('tenant_id', tenantId)
+      .eq('direction', 'outgoing')
+      .eq('invoice_kind', 'final')
+      .eq('ksef_status', 'accepted')
+      .overlaps('advance_invoice_ids', porcja);
+    if (error) throw new Error(`Nie można odczytać faktur rozliczających zaliczki: ${error.message}`);
+    for (const r of (data ?? []) as Array<{ id: string; issue_date: string; sale_date: string | null; advance_invoice_ids: string[] | null }>) {
+      const dzien = dzienZDat(r.sale_date, r.issue_date);
+      for (const id of r.advance_invoice_ids ?? []) {
+        if (!porcja.includes(id)) continue;
+        const dotychczas = wynik.rozliczonaDnia.get(id);
+        if (!dotychczas || dzien < dotychczas) wynik.rozliczonaDnia.set(id, dzien);
+      }
+    }
+  }
+  return wynik;
+}
+
 function zWierszaFaktury(
   w: WierszFaktury,
-  rozliczone: ReadonlyMap<string, number>,
+  zaliczki: ZaliczkiOkresowe,
   zeStawkami: ReadonlyMap<string, NonNullable<FakturaEwidencji['pozycje']>>,
   pierwotne: ReadonlyMap<string, string> = new Map(),
 ): FakturaEwidencji {
@@ -342,7 +423,9 @@ function zWierszaFaktury(
     fp: isReceiptInvoiceColumns(w.fp_paragon, w.fp),
     niepewnyImport: niepewnyImport(w),
     kontrahent: { ...kontrahentJpk(w.buyer_data), ...nazwaIAdres(w.buyer_data) },
-    rozliczoneZaliczkiGr: doGroszy(rozliczone.get(w.id)),
+    rozliczoneZaliczkiGr: doGroszy(zaliczki.wPrzychodzie.get(w.id)),
+    zaliczkiZPoprzednichOkresowGr: doGroszy(zaliczki.poza.get(w.id)),
+    zaliczkaRozliczonaDnia: zaliczki.rozliczonaDnia.get(w.id) ?? null,
     pozycje: zeStawkami.get(w.id) ?? null,
   };
 }
@@ -399,12 +482,12 @@ export async function czytajFakturyRoku(
       const wynik = await q.order('id', { ascending: true }).limit(limit);
       return { data: wynik.data as WierszFaktury[] | null, count: wynik.count, error: wynik.error };
     });
-    const [rozliczone, zeStawkami, pierwotne] = await Promise.all([
-      fetchSettledAdvancesNet(client, tenantId, wiersze),
+    const [zaliczki, zeStawkami, pierwotne] = await Promise.all([
+      zaliczkiOkresowe(client, tenantId, wiersze),
       pozycjeZeStawkami(client, wiersze.map((w) => w.id)),
       dniPierwotne(client, tenantId, wiersze),
     ]);
-    const faktury = wiersze.map((w) => zWierszaFaktury(w, rozliczone, zeStawkami, pierwotne));
+    const faktury = wiersze.map((w) => zWierszaFaktury(w, zaliczki, zeStawkami, pierwotne));
     return { ok: true, faktury, kursy: await kursy(faktury, rok, opcje.kurs ?? nbpRateForCost) };
   } catch (e) {
     console.error('[ewidencja] odczyt', e instanceof Error ? e.message : e);

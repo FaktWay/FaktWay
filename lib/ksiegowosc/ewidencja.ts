@@ -37,6 +37,10 @@ export const STAWKI_JPK_EWP_PB = [1700, 1500, 1400, 1250, 1200, 1000, 850, 550, 
 /** D35: przyczyna korekty (kolumna `invoices.correction_cause`). */
 export type PrzyczynaKorekty = 'blad_rachunkowy' | 'blad_w_dniu_sprzedazy' | 'nowa_okolicznosc';
 
+/** D36 (RP-ZAL-01): powód pominięcia zaliczki, która nie jest przychodem (ten sam tekst w `kpir.ts`). */
+const POWOD_ZALICZKA_NIE_PRZYCHOD =
+  'Zaliczka na dostawę lub usługę z następnego okresu nie jest przychodem (art. 14 ust. 3 pkt 1 ustawy o PIT); przychód powstanie w dniu wykonania, z fakturą rozliczającą';
+
 /** Uwaga przy korekcie z błędu rachunkowego: wchodzi w okres, który mógł być już rozliczony (ten sam tekst w `kpir.ts`). */
 const UWAGA_KOREKTA_BLAD_RACHUNKOWY =
   'Korekta (różnica), błąd rachunkowy lub omyłka: okres faktury pierwotnej; sprawdź, czy trzeba poprawić rozliczenie za ten okres';
@@ -67,8 +71,19 @@ export interface FakturaEwidencji {
    * nazwa i adres nabywcy dla KPiR (K7: K_5A, K_5B).
    */
   kontrahent: { kraj: string | null; identyfikator: string | null; nazwa?: string | null; adres?: string | null };
-  /** Rozliczenie: netto zaliczek rozliczonych tą fakturą, w groszach waluty faktury. */
+  /**
+   * Rozliczenie: netto zaliczek rozliczonych tą fakturą, które były przychodem
+   * (zaliczka z tego samego miesiąca co wykonanie, D36), w groszach waluty faktury.
+   */
   rozliczoneZaliczkiGr: number;
+  /** Rozliczenie: netto zaliczek rozliczonych tą fakturą z wcześniejszych miesięcy (nie były przychodem, D36). */
+  zaliczkiZPoprzednichOkresowGr?: number;
+  /**
+   * Zaliczka: dzień przychodu faktury rozliczającej (wykonanie, D36); null,
+   * gdy zaliczka nie jest jeszcze rozliczona. Zaliczka jest przychodem tylko
+   * w miesiącu wykonania (art. 14 ust. 3 pkt 1 ustawy o PIT).
+   */
+  zaliczkaRozliczonaDnia?: string | null;
   /** Pozycje, gdy choć jedna ma własną stawkę ryczałtu; null, gdy żadna nie ma. */
   pozycje: Array<{ nettoGr: number; stawkaRyczaltu: number | string | null }> | null;
 }
@@ -173,6 +188,20 @@ export function dzienPrzychodu(
     return f.przyczynaKorekty === 'blad_rachunkowy' && f.dzienPierwotny ? f.dzienPierwotny : f.dataWystawienia;
   }
   return kpirSaleEventDate({ saleDate: f.dataSprzedazy, issueDate: f.dataWystawienia });
+}
+
+/**
+ * D36 (RP-ZAL-01): zaliczka jest przychodem tylko wtedy, gdy wykonanie
+ * (faktura rozliczająca) przypada w tym samym miesiącu. Zaliczka z wcześniejszego
+ * miesiąca albo jeszcze nierozliczona nie jest przychodem (art. 14 ust. 3
+ * pkt 1 ustawy o PIT), a faktura rozliczająca wchodzi wtedy w pełnej kwocie.
+ */
+export function zaliczkaNieJestPrzychodem(
+  f: Pick<FakturaEwidencji, 'rodzaj' | 'dataWystawienia' | 'dataSprzedazy' | 'zaliczkaRozliczonaDnia'>,
+): boolean {
+  if (f.rodzaj !== 'zaliczka') return false;
+  const wykonanie = f.zaliczkaRozliczonaDnia;
+  return !wykonanie || wykonanie.slice(0, 7) !== dzienPrzychodu(f).slice(0, 7);
 }
 
 /**
@@ -397,6 +426,9 @@ function uwagiFaktury(f: FakturaEwidencji): string[] {
   if (f.rodzaj === 'rozliczenie' && f.rozliczoneZaliczkiGr !== 0) {
     return [`Rozliczenie, pomniejszone o zaliczki ${kwotaTekst(f.rozliczoneZaliczkiGr)} ${f.waluta}`];
   }
+  if (f.rodzaj === 'rozliczenie' && (f.zaliczkiZPoprzednichOkresowGr ?? 0) !== 0) {
+    return [`Rozliczenie w pełnej kwocie, zaliczki z wcześniejszych okresów ${kwotaTekst(f.zaliczkiZPoprzednichOkresowGr ?? 0)} ${f.waluta} nie były przychodem`];
+  }
   return [];
 }
 
@@ -490,6 +522,10 @@ export function zbudujEwidencje(wejscie: WejscieEwidencji): Ewidencja {
   for (const f of wejscie.faktury) {
     const dzien = dzienPrzychodu(f);
     if (!wRoku(dzien, rok)) continue;
+    if (zaliczkaNieJestPrzychodem(f)) {
+      pominiete.push({ numer: f.numer, dzien, powod: POWOD_ZALICZKA_NIE_PRZYCHOD });
+      continue;
+    }
 
     const wersja = wersjaNa(wersje, dzien);
     if (!wersja) {
