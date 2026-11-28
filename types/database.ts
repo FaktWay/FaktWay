@@ -3143,6 +3143,7 @@ export type Database = {
           buyer_vat_status_at_issue:
             | Database["public"]["Enums"]["vat_status_enum"]
             | null
+          correction_cause: string | null
           correction_reason: string | null
           correction_type:
             | Database["public"]["Enums"]["correction_type_enum"]
@@ -3222,6 +3223,7 @@ export type Database = {
           buyer_vat_status_at_issue?:
             | Database["public"]["Enums"]["vat_status_enum"]
             | null
+          correction_cause?: string | null
           correction_reason?: string | null
           correction_type?:
             | Database["public"]["Enums"]["correction_type_enum"]
@@ -3301,6 +3303,7 @@ export type Database = {
           buyer_vat_status_at_issue?:
             | Database["public"]["Enums"]["vat_status_enum"]
             | null
+          correction_cause?: string | null
           correction_reason?: string | null
           correction_type?:
             | Database["public"]["Enums"]["correction_type_enum"]

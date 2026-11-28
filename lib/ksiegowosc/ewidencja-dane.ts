@@ -19,6 +19,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { readCompletePagesByKey } from '@/lib/accounting/read-complete-pages';
 import { formatBuyerAddress, type BuyerDataJson } from '@/lib/exports/data-fetcher';
 import type { RateLookup } from '@/lib/flo/nbp';
+import { kpirSaleEventDate } from '@/lib/categorization/kpir-revenue';
 import { todayInWarsaw } from '@/lib/format/warsaw-date';
 import { isReceiptInvoiceColumns } from '@/lib/invoices/receipt-invoice';
 import { fetchSettledAdvancesNet } from '@/lib/invoices/settled-advances';
@@ -31,6 +32,7 @@ import {
   type Ewidencja,
   type FakturaEwidencji,
   type NiepewnyImport,
+  type PrzyczynaKorekty,
   type KursPrzychodu,
   type ProgNajmu,
   type RodzajFaktury,
@@ -68,7 +70,7 @@ const KOLUMNY_FAKTURY =
   'id, internal_number, issue_date, sale_date, net_total, invoice_kind, invoice_type, advance_invoice_ids, ' +
   'currency, ksef_number, buyer_data, fp:fa3_data->ksefMarkers->>fp, fp_paragon:fa3_data->receipt, origin, ' +
   'import_adnotacje:fa3_data->annotations, import_daty_niejasne:fa3_data->saleDates->>unclear, ' +
-  'import_sumy_nieznane:fa3_data->>lineAmountTotalsUnknown';
+  'import_sumy_nieznane:fa3_data->>lineAmountTotalsUnknown, correction_cause, parent_invoice_id';
 const KAWALEK = 100;
 
 interface WierszFaktury {
@@ -91,6 +93,87 @@ interface WierszFaktury {
   import_adnotacje?: unknown;
   import_daty_niejasne?: string | boolean | null;
   import_sumy_nieznane?: string | boolean | null;
+  /** D35 (00222). */
+  correction_cause?: string | null;
+  parent_invoice_id?: string | null;
+}
+
+const PRZYCZYNY: readonly PrzyczynaKorekty[] = ['blad_rachunkowy', 'blad_w_dniu_sprzedazy', 'nowa_okolicznosc'];
+const przyczynaKorekty = (v: string | null | undefined): PrzyczynaKorekty | null =>
+  PRZYCZYNY.find((p) => p === v) ?? null;
+
+/** Faktura pierwotna korekty (do dnia przychodu przy błędzie rachunkowym, RP-KOR-01). */
+interface WierszPierwotnej {
+  id: string;
+  issue_date: string;
+  sale_date: string | null;
+  invoice_kind: string | null;
+  invoice_type: string | null;
+  parent_invoice_id: string | null;
+}
+
+/** Korekta z błędu rachunkowego bez odczytywalnej faktury pierwotnej: odczyt kończy się komunikatem z numerem korekty. */
+class BrakFakturyPierwotnej extends Error {
+  constructor(
+    readonly idKorekty: string,
+    readonly numerKorekty: string,
+  ) {
+    super(`korekta ${idKorekty}: nie znaleziono faktury pierwotnej`);
+  }
+}
+
+const komunikatBrakuPierwotnej = (numer: string) =>
+  `Nie możemy ustalić okresu korekty ${numer}: wybrano błąd rachunkowy, ale nie znaleźliśmy faktury, której ona dotyczy. ` +
+  'Nie pokazujemy niepełnych kwot. Zgłoś to w Pomocy z numerem korekty, a sprawdzimy powiązanie z fakturą pierwotną.';
+
+const KOLUMNY_PIERWOTNEJ = 'id, issue_date, sale_date, invoice_kind, invoice_type, parent_invoice_id';
+const MAKS_GLEBOKOSC_LANCUCHA = 5;
+
+/**
+ * Dzień przychodu faktury pierwotnej dla korekt z błędu rachunkowego albo
+ * omyłki. Idzie po `parent_invoice_id` do pierwszej faktury, która nie jest
+ * korektą. Gdy nie da się jej odczytać, rzuca (odczyt ewidencji kończy się
+ * komunikatem, zamiast włożyć korektę w zły okres).
+ */
+async function dniPierwotne(
+  client: SupabaseClient,
+  tenantId: string,
+  wiersze: WierszFaktury[],
+): Promise<Map<string, string>> {
+  const wynik = new Map<string, string>();
+  const potrzebne = wiersze.filter((w) => rodzajFaktury(w.invoice_kind, w.invoice_type) === 'korekta' && przyczynaKorekty(w.correction_cause) === 'blad_rachunkowy');
+  if (potrzebne.length === 0) return wynik;
+  const znane = new Map<string, WierszPierwotnej>();
+  let kolejka = [...new Set(potrzebne.map((w) => w.parent_invoice_id).filter((id): id is string => !!id))];
+  for (let g = 0; g < MAKS_GLEBOKOSC_LANCUCHA && kolejka.length > 0; g++) {
+    const nastepna: string[] = [];
+    for (let i = 0; i < kolejka.length; i += KAWALEK) {
+      const { data, error } = await client
+        .from('invoices')
+        .select(KOLUMNY_PIERWOTNEJ)
+        .eq('tenant_id', tenantId)
+        .in('id', kolejka.slice(i, i + KAWALEK));
+      if (error) throw new Error(`faktury pierwotne korekt: ${error.message}`);
+      for (const r of (data ?? []) as unknown as WierszPierwotnej[]) {
+        znane.set(r.id, r);
+        if (rodzajFaktury(r.invoice_kind, r.invoice_type) === 'korekta' && r.parent_invoice_id && !znane.has(r.parent_invoice_id)) {
+          nastepna.push(r.parent_invoice_id);
+        }
+      }
+    }
+    kolejka = [...new Set(nastepna)];
+  }
+  for (const w of potrzebne) {
+    let r = w.parent_invoice_id ? znane.get(w.parent_invoice_id) : undefined;
+    for (let g = 0; r && rodzajFaktury(r.invoice_kind, r.invoice_type) === 'korekta' && g < MAKS_GLEBOKOSC_LANCUCHA; g++) {
+      r = r.parent_invoice_id ? znane.get(r.parent_invoice_id) : undefined;
+    }
+    if (!r || rodzajFaktury(r.invoice_kind, r.invoice_type) === 'korekta') {
+      throw new BrakFakturyPierwotnej(w.id, (w.internal_number ?? w.ksef_number ?? w.id).trim());
+    }
+    wynik.set(w.id, kpirSaleEventDate({ saleDate: r.sale_date, issueDate: r.issue_date }));
+  }
+  return wynik;
 }
 
 const prawda = (v: unknown) => v === true || v === 'true';
@@ -242,6 +325,7 @@ function zWierszaFaktury(
   w: WierszFaktury,
   rozliczone: ReadonlyMap<string, number>,
   zeStawkami: ReadonlyMap<string, NonNullable<FakturaEwidencji['pozycje']>>,
+  pierwotne: ReadonlyMap<string, string> = new Map(),
 ): FakturaEwidencji {
   const numer = (w.internal_number ?? w.ksef_number ?? '').replace(/\s+/g, ' ').trim() || 'faktura bez numeru';
   return {
@@ -250,6 +334,8 @@ function zWierszaFaktury(
     dataWystawienia: w.issue_date,
     dataSprzedazy: w.sale_date,
     rodzaj: rodzajFaktury(w.invoice_kind, w.invoice_type),
+    przyczynaKorekty: przyczynaKorekty(w.correction_cause),
+    dzienPierwotny: pierwotne.get(w.id) ?? null,
     nettoGr: doGroszy(w.net_total),
     waluta: (w.currency ?? 'PLN').trim().toUpperCase() || 'PLN',
     numerKsef: w.ksef_number,
@@ -307,19 +393,22 @@ export async function czytajFakturyRoku(
         .eq('ksef_status', 'accepted')
         .eq('ksef_environment', srodowisko)
         .gte('issue_date', od)
-        .or(`issue_date.lte.${koniecRoku},sale_date.lte.${koniecRoku}`);
+        // D35: korekta z błędu rachunkowego wystawiona później należy do okresu pierwotnego.
+        .or(`issue_date.lte.${koniecRoku},sale_date.lte.${koniecRoku},correction_cause.eq.blad_rachunkowy`);
       if (afterId !== null) q = q.gt('id', afterId);
       const wynik = await q.order('id', { ascending: true }).limit(limit);
       return { data: wynik.data as WierszFaktury[] | null, count: wynik.count, error: wynik.error };
     });
-    const [rozliczone, zeStawkami] = await Promise.all([
+    const [rozliczone, zeStawkami, pierwotne] = await Promise.all([
       fetchSettledAdvancesNet(client, tenantId, wiersze),
       pozycjeZeStawkami(client, wiersze.map((w) => w.id)),
+      dniPierwotne(client, tenantId, wiersze),
     ]);
-    const faktury = wiersze.map((w) => zWierszaFaktury(w, rozliczone, zeStawkami));
+    const faktury = wiersze.map((w) => zWierszaFaktury(w, rozliczone, zeStawkami, pierwotne));
     return { ok: true, faktury, kursy: await kursy(faktury, rok, opcje.kurs ?? nbpRateForCost) };
   } catch (e) {
     console.error('[ewidencja] odczyt', e instanceof Error ? e.message : e);
+    if (e instanceof BrakFakturyPierwotnej) return { ok: false, komunikat: komunikatBrakuPierwotnej(e.numerKorekty) };
     return { ok: false, komunikat: KOMUNIKAT_ODCZYT };
   }
 }

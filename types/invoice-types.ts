@@ -164,6 +164,8 @@ export interface CorrectionInvoiceData extends InvoiceCommonFields {
 
   correctionType: CorrectionType;
   correctionReason: string; // wymagane! np. "Błąd w nazwie nabywcy", "Zwrot towaru"
+  /** D35 (00222): przyczyna korekty, ustala okres w VAT, PIT i ryczałcie; null: nieznana. */
+  correctionCause?: 'blad_rachunkowy' | 'blad_w_dniu_sprzedazy' | 'nowa_okolicznosc' | null;
 
   /**
    * Faktura korygowana jest w cenach brutto (plan cen brutto, krok (e) cz. 2,

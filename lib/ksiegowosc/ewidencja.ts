@@ -34,6 +34,13 @@ import { NAZWY_FORM, stawkaRyczaltuPozycji, wersjaNa, type WersjaProfilu } from 
 /** Słownik K_9 JPK_EWP(4) w punktach bazowych: 17, 15, 14, 12,5, 12, 10, 8,5, 5,5 i 3 %. */
 export const STAWKI_JPK_EWP_PB = [1700, 1500, 1400, 1250, 1200, 1000, 850, 550, 300] as const;
 
+/** D35: przyczyna korekty (kolumna `invoices.correction_cause`). */
+export type PrzyczynaKorekty = 'blad_rachunkowy' | 'blad_w_dniu_sprzedazy' | 'nowa_okolicznosc';
+
+/** Uwaga przy korekcie z błędu rachunkowego: wchodzi w okres, który mógł być już rozliczony (ten sam tekst w `kpir.ts`). */
+const UWAGA_KOREKTA_BLAD_RACHUNKOWY =
+  'Korekta (różnica), błąd rachunkowy lub omyłka: okres faktury pierwotnej; sprawdź, czy trzeba poprawić rozliczenie za ten okres';
+
 export type RodzajFaktury = 'zwykla' | 'korekta' | 'zaliczka' | 'rozliczenie';
 
 export interface FakturaEwidencji {
@@ -43,6 +50,10 @@ export interface FakturaEwidencji {
   dataWystawienia: string;
   dataSprzedazy: string | null;
   rodzaj: RodzajFaktury;
+  /** D35 (00222): przyczyna korekty wybrana przez klienta; null: nieznana (korekta sprzed pola). */
+  przyczynaKorekty?: PrzyczynaKorekty | null;
+  /** Dzień przychodu faktury pierwotnej; potrzebny korekcie z błędu rachunkowego (RP-KOR-01). */
+  dzienPierwotny?: string | null;
   /** Netto z nagłówka w groszach waluty faktury; przy korekcie to różnica (00200). */
   nettoGr: number;
   waluta: string;
@@ -149,9 +160,18 @@ export interface SumyOkresu {
 
 export const kluczKursu = (waluta: string, dzien: string) => `${waluta.toUpperCase()}|${dzien}`;
 
-/** Dzień przychodu faktury: korekta w dniu wystawienia, reszta jak KPiR. */
-export function dzienPrzychodu(f: Pick<FakturaEwidencji, 'rodzaj' | 'dataWystawienia' | 'dataSprzedazy'>): string {
-  if (f.rodzaj === 'korekta') return f.dataWystawienia;
+/**
+ * Dzień przychodu faktury: korekta w dniu wystawienia, reszta jak KPiR.
+ * Wyjątek (RP-KOR-01, D35): korekta z błędu rachunkowego albo oczywistej
+ * omyłki wchodzi w dniu przychodu faktury pierwotnej. Inne przyczyny i brak
+ * przyczyny (korekty sprzed 00222): dzień wystawienia korekty.
+ */
+export function dzienPrzychodu(
+  f: Pick<FakturaEwidencji, 'rodzaj' | 'dataWystawienia' | 'dataSprzedazy'> & Partial<Pick<FakturaEwidencji, 'przyczynaKorekty' | 'dzienPierwotny'>>,
+): string {
+  if (f.rodzaj === 'korekta') {
+    return f.przyczynaKorekty === 'blad_rachunkowy' && f.dzienPierwotny ? f.dzienPierwotny : f.dataWystawienia;
+  }
   return kpirSaleEventDate({ saleDate: f.dataSprzedazy, issueDate: f.dataWystawienia });
 }
 
@@ -368,7 +388,11 @@ function stawkiFaktury(f: FakturaEwidencji, wersja: WersjaProfilu, kwotaGr: numb
 }
 
 function uwagiFaktury(f: FakturaEwidencji): string[] {
-  if (f.rodzaj === 'korekta') return ['Korekta (różnica)'];
+  if (f.rodzaj === 'korekta') {
+    return f.przyczynaKorekty === 'blad_rachunkowy' && f.dzienPierwotny
+      ? [UWAGA_KOREKTA_BLAD_RACHUNKOWY]
+      : ['Korekta (różnica)'];
+  }
   if (f.rodzaj === 'zaliczka') return ['Zaliczka'];
   if (f.rodzaj === 'rozliczenie' && f.rozliczoneZaliczkiGr !== 0) {
     return [`Rozliczenie, pomniejszone o zaliczki ${kwotaTekst(f.rozliczoneZaliczkiGr)} ${f.waluta}`];

@@ -200,6 +200,13 @@ export interface CorrectionInvoiceFormProps {
   numbering?: InvoiceNumbering | null;
 }
 
+// D35: przyczyna korekty ustala okres w VAT, PIT i ryczałcie.
+const PRZYCZYNA_KOREKTY_ITEMS = [
+  { value: 'blad_rachunkowy', label: 'Błąd rachunkowy albo oczywista omyłka' },
+  { value: 'blad_w_dniu_sprzedazy', label: 'Inny błąd, który istniał w dniu sprzedaży' },
+  { value: 'nowa_okolicznosc', label: 'Nowa okoliczność po sprzedaży (rabat, zwrot, zmiana ceny)' },
+]
+
 // Daty w czasie polskim, nie UTC (F-013).
 const TYPOLOGY_KOREKTY_ITEMS = (
   Object.entries(TYPOLOGY_KOREKTY_LABELS) as [CorrectionFormParsed['typKorekty'], string][]
@@ -240,6 +247,7 @@ function correctionDataFromForm(v: CorrectionFormParsed): CorrectionInvoiceData 
     parentKsefNumber: v.parentKsefNumber,
     correctionType: v.correctionType,
     correctionReason: v.correctionReason,
+    correctionCause: v.correctionCause ?? null,
     typKorekty: v.typKorekty,
     linesBefore: v.linesBefore,
     linesAfter: v.linesAfter,
@@ -283,6 +291,7 @@ function buildDefaultCorrectionFormValues(
     // Faktura z pozycją od brutto: korekty pozycji nie ma (serwer odmawia), domyślnie anulowanie.
     correctionType: ctx.beforeAfterRefusal ? 'cancellation' : 'before_after',
     correctionReason: '',
+    correctionCause: undefined,
     typKorekty: '2',
 
     seller: ctx.seller,
@@ -658,6 +667,7 @@ function CorrectionFillForm({ parentRow, defaults, onPickOther, tenantId, number
   const odBrutto = (linesBeforeWatched ?? []).some((l) => l?.unitPriceGross !== undefined);
   const typeItems = odBrutto ? CORRECTION_TYPE_ITEMS.filter((o) => o.value !== 'before_after') : CORRECTION_TYPE_ITEMS;
   const typKorekty = useWatch({ control: form.control, name: 'typKorekty' }) ?? '2';
+  const correctionCause = useWatch({ control: form.control, name: 'correctionCause' });
   const paymentMethod = useWatch({ control: form.control, name: 'paymentMethod' });
   const issueDateWatch = useWatch({ control: form.control, name: 'issueDate' }) ?? defaults.issueDate;
 
@@ -715,6 +725,11 @@ function CorrectionFillForm({ parentRow, defaults, onPickOther, tenantId, number
   const handleSend = () => {
     form.handleSubmit(
       async (data) => {
+        if (!data.correctionCause) {
+          form.setError('correctionCause', { message: 'Wybierz, czego dotyczy korekta: od tego zależy, w którym okresie rozliczysz korektę.' });
+          toast.error('Wybierz, czego dotyczy korekta')
+          return
+        }
         startSending(async () => {
           const result = await saveAndSendCorrectionAction(data, tenantId);
           if (result.success) {
@@ -873,6 +888,42 @@ function CorrectionFillForm({ parentRow, defaults, onPickOther, tenantId, number
           {form.formState.errors.typKorekty ? (
             <p id="kor-typ-ksef-error" role="alert" className="mt-1 text-xs text-red-600">
               {form.formState.errors.typKorekty.message}
+            </p>
+          ) : null}
+        </div>
+
+        <div>
+          <Label htmlFor="kor-przyczyna-rodzaj" className={labelClass}>Czego dotyczy korekta (obowiązkowe przy wysyłce)</Label>
+          <Select
+            value={correctionCause ?? ''}
+            items={PRZYCZYNA_KOREKTY_ITEMS}
+            onValueChange={(v) => {
+              if (v == null) return
+              form.setValue('correctionCause', v as CorrectionFormParsed['correctionCause'], { shouldDirty: true })
+              form.clearErrors('correctionCause')
+            }}
+          >
+            <SelectTrigger
+              id="kor-przyczyna-rodzaj"
+              aria-invalid={form.formState.errors.correctionCause ? true : undefined}
+              aria-describedby="kor-przyczyna-rodzaj-opis"
+            >
+              <SelectValue placeholder="Wybierz, czego dotyczy" />
+            </SelectTrigger>
+            <SelectContent>
+              {PRZYCZYNA_KOREKTY_ITEMS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p id="kor-przyczyna-rodzaj-opis" className="mt-1 text-xs text-muted-foreground">
+            Od wyboru zależy okres, w którym korekta wchodzi do rozliczenia podatku. Gdy nie jesteś pewien, zapytaj księgowego.
+          </p>
+          {form.formState.errors.correctionCause ? (
+            <p role="alert" className="mt-1 text-xs text-red-600">
+              {form.formState.errors.correctionCause.message}
             </p>
           ) : null}
         </div>

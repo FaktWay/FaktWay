@@ -47,6 +47,10 @@ import {
 } from '@/lib/ksiegowosc/ewidencja';
 import { wersjaNa, type WersjaProfilu } from '@/lib/ksiegowosc/profil';
 
+// Ten sam tekst co w `ewidencja.ts`.
+const UWAGA_KOREKTA_BLAD_RACHUNKOWY =
+  'Korekta (różnica), błąd rachunkowy lub omyłka: okres faktury pierwotnej; sprawdź, czy trzeba poprawić rozliczenie za ten okres';
+
 export const KOLUMNY_KPIR = ['k7', 'k8', 'k10', 'k11', 'k12', 'k13'] as const;
 export type KolumnaKpir = (typeof KOLUMNY_KPIR)[number];
 
@@ -370,7 +374,9 @@ export function zbudujKpir(wejscie: WejscieKpir): Kpir {
     if (kwotaGr === 0) continue;
 
     const uwagi: string[] = [];
-    if (f.rodzaj === 'korekta') uwagi.push('Korekta (różnica)');
+    if (f.rodzaj === 'korekta') {
+      uwagi.push(f.przyczynaKorekty === 'blad_rachunkowy' && f.dzienPierwotny ? UWAGA_KOREKTA_BLAD_RACHUNKOWY : 'Korekta (różnica)');
+    }
     if (f.rodzaj === 'zaliczka') uwagi.push('Zaliczka');
     if (f.rodzaj === 'rozliczenie' && f.rozliczoneZaliczkiGr !== 0) uwagi.push(`Rozliczenie, pomniejszone o zaliczki ${kwotaTekst(f.rozliczoneZaliczkiGr)} ${f.waluta}`);
     if (f.waluta.toUpperCase() !== 'PLN') {

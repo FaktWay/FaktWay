@@ -306,7 +306,7 @@
         "components/invoices/correction-actions.ts",
         "lib/invoices/issue-correction.ts",
         "components/invoices/correction-form.tsx",
-        "supabase/migrations/{00133,00135}_*.sql"
+        "supabase/migrations/{00133,00135,00222}_*.sql"
       ]
     },
     {
