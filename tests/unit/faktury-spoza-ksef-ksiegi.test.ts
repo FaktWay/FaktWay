@@ -65,9 +65,12 @@ describe('JPK_V7M: faktura spoza KSeF (D19)', () => {
     expect(wynik.errors).toEqual([]);
   });
 
-  it('oznaczenie TP: JPK_V7M odmawia z wyjściem (generator nie wykazuje TP), zamiast je pominąć po cichu', () => {
-    expect(() => generateJpkV7m({ ...dane, issuedInvoices: [{ ...faktura, ksefMarkers: { tp: true } } as JpkInvoice] })).toThrow(
-      /JPK wstrzymany: faktura FV\/12\/2026 .*\(TP\).*poza FaktWay/,
+  it('oznaczenie TP (D22): wiersz ma BFK, GTU i TP po GTU przed K_, plik przechodzi XSD; TP razem z procedurą dalej odmowa z wyjściem', async () => {
+    const xml = generateJpkV7m({ ...dane, issuedInvoices: [{ ...faktura, ksefMarkers: { tp: true } } as JpkInvoice] });
+    expect(xml).toMatch(/<BFK>1<\/BFK>\s*<GTU_06>1<\/GTU_06>\s*<TP>1<\/TP>\s*<K_19>/);
+    expect((await validateJpkV7m(xml)).errors).toEqual([]);
+    expect(() => generateJpkV7m({ ...dane, issuedInvoices: [{ ...faktura, ksefMarkers: { tp: true, procedures: ['WSTO_EE'] } } as JpkInvoice] })).toThrow(
+      /JPK wstrzymany: faktura FV\/12\/2026 .*WSTO_EE.*poza FaktWay/,
     );
   });
 });
