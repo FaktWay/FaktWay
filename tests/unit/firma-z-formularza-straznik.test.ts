@@ -82,6 +82,7 @@ const EXEMPT_FILES: Record<string, string> = {
   'lib/invoices/ksef-submit-enqueue.ts': 'definicja zlecenia wysyłki; firmę podaje wołający (akcja albo job)',
   'lib/ksef/offline-queue.ts': 'kolejka offline wysyłki (ksef_offline_queue); firmę podaje wołający',
   'lib/ksef/submission-log.ts': 'dziennik prób wysyłki (ksef_submissions); firmę podaje wołający',
+  'lib/import/outside-ksef-zapis.ts': 'dopisanie i usunięcie faktury wystawionej poza KSeF (kopia dokumentu klienta, nie wystawianie); rolę i firmę podaje wołający (akcja po requireUserAndActiveOrg), klient sesji (RLS)',
   'lib/import/import-engine.ts': 'import dokumentów w jobach (plik, historia KSeF); firma z danych joba',
   'lib/jobs/runners/inbox-polling.ts': 'job: zapis faktur odebranych z KSeF; firma z danych joba',
   'lib/jobs/runners/auto-categorize-inbox.ts': 'job: koszt z faktury odebranej (expenses); firma z danych joba',

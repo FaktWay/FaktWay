@@ -35,6 +35,7 @@ export const GLOBAL_FLAGS: readonly GlobalFlag[] = [
   'ksefPermissionsEnabled',
   'grossPricesEnabled',
   'balanceConfirmationsEnabled',
+  'outsideKsefImportEnabled',
   'foreignCurrencyEnabled',
 ] as const;
 

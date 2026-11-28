@@ -478,6 +478,7 @@
         "lib/ksef/{hwm,history-fetcher}.ts",
         "lib/jobs/runners/{inbox-backfill,bulk-import}.ts",
         "app/actions/import-danych.ts",
+        "app/actions/faktury-spoza-ksef.ts",
         "app/api/uploads/import/route.ts"
       ]
     },
