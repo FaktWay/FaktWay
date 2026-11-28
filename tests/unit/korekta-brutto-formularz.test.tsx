@@ -132,4 +132,19 @@ describe('formularz korekty „przed / po” faktury w cenach brutto (D6)', () =
     const el = await render(context({ beforeAfterRefusal: 'Faktura FV 7/11/2026 ma pozycje, których kwoty nie wynikają z ilości i ceny netto.' }));
     expect(el.querySelectorAll('input[aria-label^="Cena brutto pozycji"]')).toHaveLength(0);
   });
+
+  it('faktura w cenach netto: szkic „przed / po” z formularza się zapisuje (pusty blok korekty kwotowej nie blokuje walidacji)', async () => {
+    const netto = [{ name: 'Usługa', unit: 'szt.', quantity: 1, unitPriceNet: 10, vatRate: '23' }];
+    const el = await render(context({ linesBefore: netto, linesAfter: structuredClone(netto) }));
+    await act(async () => {
+      setValue(el.querySelector<HTMLInputElement>('input[placeholder="KOR/2026/04/001"]')!, 'KOR/2026/11/001');
+      setValue(el.querySelector<HTMLTextAreaElement>('textarea[placeholder^="Np. błąd"]')!, 'Zmiana ceny');
+    });
+    const draft = [...el.querySelectorAll('button')].find((b) => b.textContent === 'Zapisz szkic')!;
+    await act(async () => draft.click());
+    await act(async () => {});
+    expect(mocks.saveDraft).toHaveBeenCalledTimes(1);
+    expect(mocks.saveDraft.mock.calls[0]![0]).toMatchObject({ correctionType: 'before_after' });
+    expect(mocks.saveDraft.mock.calls[0]![0]).not.toHaveProperty('amountChange');
+  });
 });

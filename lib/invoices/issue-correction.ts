@@ -353,15 +353,6 @@ function grossLinesBeforeAfterError(label: string): string {
  * odmowa mówiła o „pozycji bez pełnej ilości lub ceny”, choć faktura ma pełne
  * ceny brutto. Wyjście jak przy innych odmowach korekty: pomoc FaktWay.
  */
-/**
- * Faktura w cenach brutto, formularz korekty pozycji: serwer liczy stan po od cen brutto
- * (D6), ale formularz ma dziś pola tylko z ceną netto, więc korekty pozycji z niego
- * nie ma. Wyjście: anulowanie albo korekta kwotowa (te działają z formularza).
- */
-function grossInvoiceFormBeforeAfterNotice(label: string): string {
-  return `Faktura ${label} jest w cenach brutto, a formularz korekty pozycji („przed / po”) ma dziś tylko ceny netto. Anuluj fakturę albo wystaw korektę kwotową: podatek korekty liczymy wtedy od nowej sumy brutto stawki, tak jak na fakturze.`;
-}
-
 function grossPricedInvoiceCorrectionError(label: string): string {
   return `Faktura ${label} jest w cenach brutto (pozycje mają cenę brutto zamiast ceny netto), a korekty takiej faktury aplikacja jeszcze nie przygotowuje. ${CORRECTION_HELP_STEP}`;
 }
@@ -1240,8 +1231,9 @@ export async function getCorrectionParentContext(context: CorrectionContextSourc
       linesBefore: linesRaw,
       linesAfter: structuredClone(linesRaw),
       // Faktura z pozycją od brutto: formularz nie proponuje korekty pozycji (serwer i tak odmówi).
+      // Faktura w cenach brutto (D6): formularz ma ceny brutto pozycji, więc korekta pozycji jest.
       ...(baseline.pricesGross
-        ? { pricesGross: true as const, beforeAfterRefusal: grossInvoiceFormBeforeAfterNotice(parentLabelOf(row)) }
+        ? { pricesGross: true as const }
         : linesRaw.some((line) => line.unitPriceGross !== undefined)
           ? { beforeAfterRefusal: grossLinesBeforeAfterError(parentLabelOf(row)) }
           : {}),
