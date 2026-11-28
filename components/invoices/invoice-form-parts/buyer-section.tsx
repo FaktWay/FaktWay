@@ -23,6 +23,7 @@ import { buildVatUeHint } from './calculations';
 import {
   BUYER_ID_TYPE_ITEMS,
   BUYER_KINDS,
+  ALL_COUNTRY_ITEMS,
   EU_COUNTRY_ITEMS,
   errorTextClass,
   labelClass,
@@ -315,7 +316,8 @@ export function BuyerSection({
               );
               form.setValue('buyerPesel', '', { shouldDirty: true });
               form.setValue('buyerIdDocument', '', { shouldDirty: true });
-              void form.trigger(['buyerConsumerIdType', 'buyerPesel', 'buyerIdDocument']);
+              form.setValue('buyerCountryCode', '', { shouldDirty: true });
+              void form.trigger(['buyerConsumerIdType', 'buyerPesel', 'buyerIdDocument', 'buyerCountryCode']);
             }}
           >
             <SelectTrigger
@@ -376,6 +378,47 @@ export function BuyerSection({
               {form.formState.errors.buyerIdDocument.message}
             </FieldErrorText>
           ) : null}
+        </div>
+      ) : null}
+      {buyerKind === 'consumer' &&
+      (buyerConsumerIdType === 'id_card' || buyerConsumerIdType === 'passport') ? (
+        <div>
+          <Label htmlFor="buyer-country" className={labelClass}>Kraj nabywcy</Label>
+          <Select
+            value={buyerCountryCode || 'PL'}
+            items={ALL_COUNTRY_ITEMS}
+            onValueChange={(v) => {
+              if (v == null) return
+              form.setValue('buyerCountryCode', v === 'PL' ? '' : v, {
+                shouldDirty: true,
+                shouldValidate: wyslanoRaz,
+              })
+            }}
+          >
+            <SelectTrigger
+              id="buyer-country"
+              className="w-full"
+              {...fieldErrorProps('buyer-country', !!form.formState.errors.buyerCountryCode)}
+            >
+              <SelectValue placeholder="Wybierz kraj" />
+            </SelectTrigger>
+            <SelectContent>
+              {ALL_COUNTRY_ITEMS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {form.formState.errors.buyerCountryCode ? (
+            <FieldErrorText fieldId="buyer-country">
+              {form.formState.errors.buyerCountryCode.message}
+            </FieldErrorText>
+          ) : (
+            <p className="text-muted-foreground mt-1.5 text-xs">
+              Kraj, w którym wydano dokument i w którym jest adres nabywcy.
+            </p>
+          )}
         </div>
       ) : null}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">

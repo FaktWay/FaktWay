@@ -165,7 +165,8 @@ export function buildInvoiceFromForm(
       case 'passport':
         return {
           name: values.buyerName,
-          address: addr,
+          // C2 S7: kraj z formularza (adres i KodKraju przy NrID), pusty = Polska.
+          address: { ...addr, countryCode: values.buyerCountryCode?.trim() || 'PL' },
           nrInny: values.buyerIdDocument.trim(),
           jst,
           gv,

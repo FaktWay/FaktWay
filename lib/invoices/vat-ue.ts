@@ -35,6 +35,55 @@ export function parseVatUe(raw: string | null | undefined): ParsedVatUe | null {
   return { kodUE: prefix as KodUE, numer, normalized: `${prefix}${numer}` };
 }
 
+/**
+ * Wzorce numerów VAT-UE według kraju (część po prefiksie), jak w dokumentacji
+ * VIES. Plan zero, karta C2, S8. Austria ma literę „U”, Holandia „B” przed
+ * numerem oddziału, Francja dwa znaki kontrolne, Irlandia dwie postacie.
+ * Wzorzec sprawdza FORMĘ numeru, nie sumę kontrolną ani istnienie w VIES.
+ */
+const WZORCE_KRAJOWE: Record<KodUE, RegExp> = {
+  AT: /^U\d{8}$/,
+  BE: /^[01]\d{9}$/,
+  BG: /^\d{9,10}$/,
+  CY: /^\d{8}[A-Z]$/,
+  CZ: /^\d{8,10}$/,
+  DE: /^\d{9}$/,
+  DK: /^\d{8}$/,
+  EE: /^\d{9}$/,
+  EL: /^\d{9}$/,
+  ES: /^[A-Z0-9]\d{7}[A-Z0-9]$/,
+  FI: /^\d{8}$/,
+  FR: /^[A-Z0-9]{2}\d{9}$/,
+  HR: /^\d{11}$/,
+  HU: /^\d{8}$/,
+  IE: /^(?:\d{7}[A-Z]{1,2}|\d[A-Z+*]\d{5}[A-Z])$/,
+  IT: /^\d{11}$/,
+  LT: /^(?:\d{9}|\d{12})$/,
+  LU: /^\d{8}$/,
+  LV: /^\d{11}$/,
+  MT: /^\d{8}$/,
+  NL: /^\d{9}B\d{2}$/,
+  PL: /^\d{10}$/,
+  PT: /^\d{9}$/,
+  RO: /^\d{2,10}$/,
+  SE: /^\d{12}$/,
+  SI: /^\d{8}$/,
+  SK: /^\d{10}$/,
+  XI: /^(?:\d{9}|\d{12}|GD\d{3}|HA\d{3})$/,
+};
+
+/**
+ * Rozbiór numeru VAT-UE wpisywanego przez człowieka (formularz, API): oprócz
+ * ogólnego wzorca XSD wymaga wzorca kraju, więc „DEDE123456789” (podwójny
+ * prefiks), „AT123456789” (bez „U”) i „NL123456789001” (bez „B”) są odrzucane.
+ * Dane już zapisane czyta luźny {@link parseVatUe}: starsza faktura z numerem
+ * poza wzorcem nie może przestać się generować ani eksportować.
+ */
+export function parseVatUeInput(raw: string | null | undefined): ParsedVatUe | null {
+  const parsed = parseVatUe(raw);
+  return parsed && WZORCE_KRAJOWE[parsed.kodUE].test(parsed.numer) ? parsed : null;
+}
+
 /** Numer VAT-UE nabywcy z INNEGO państwa członkowskiego (prefiks ≠ PL). */
 export function isForeignEuVat(raw: string | null | undefined): boolean {
   const parsed = parseVatUe(raw);
