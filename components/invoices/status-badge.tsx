@@ -1,6 +1,7 @@
 import { RiLoader4Line } from '@remixicon/react';
 
 import { badgeVariants } from '@/components/ui/badge';
+import { SPOZA_KSEF_OZNACZENIE } from '@/lib/import/outside-ksef-teksty';
 import { cn } from '@/lib/utils';
 import { sendErrorClassOf } from '@/lib/ksef/send-error-classes';
 
@@ -77,9 +78,22 @@ interface StatusBadgeProps {
    */
   automaticResend?: boolean;
   isLoading?: boolean;
+  /** Faktura dopisana poza KSeF (krok 1.6, D24): etykieta „Poza KSeF” zamiast „Zaakceptowana”. */
+  outsideKsef?: boolean;
 }
 
-export function StatusBadge({ status, errorCode, automaticResend, isLoading }: StatusBadgeProps) {
+export function StatusBadge({ status, errorCode, automaticResend, isLoading, outsideKsef }: StatusBadgeProps) {
+  if (outsideKsef) {
+    return (
+      <span
+        data-slot="status-ksef"
+        data-tone="neutral"
+        className={cn(badgeVariants({ variant: 'secondary' }), 'h-auto rounded-sm', STATUS_TONE_CLASS.neutral)}
+      >
+        {SPOZA_KSEF_OZNACZENIE}
+      </span>
+    );
+  }
   const failedClass = status === 'failed' ? sendErrorClassOf(errorCode) : null;
   const byCode = status === 'failed' && errorCode ? FAILED_BY_CODE.get(errorCode) : undefined;
   const byClass = failedClass === 'transient' && automaticResend !== true

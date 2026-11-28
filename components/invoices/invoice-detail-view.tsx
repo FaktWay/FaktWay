@@ -10,6 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { StatusBadge } from '@/components/invoices/status-badge';
+import { OutsideKsefRemove } from '@/components/invoices/outside-ksef-remove';
+import { SPOZA_KSEF_OPIS, SPOZA_KSEF_OZNACZENIE } from '@/lib/import/outside-ksef-teksty';
 import { InvoiceActions } from '@/components/invoices/invoice-actions';
 import { InvoicePaymentPanel, type InvoicePaymentPanelData } from '@/components/invoices/invoice-payment-panel';
 import { InvoicePaymentsSection } from '@/components/invoices/invoice-payments-section';
@@ -157,6 +159,10 @@ export interface InvoiceDetailInitial {
    * Brak pola = `null`.
    */
   ksef_imported_original?: ImportedOriginalProvenance | null;
+  /** Krok 1.6: wpis dopisany poza KSeF (`origin = outside_ksef`). Brak pola = nie. */
+  outside_ksef?: boolean;
+  /** Krok 1.6: czy zalogowany może usunąć wpis spoza KSeF (właściciel albo administrator). */
+  can_remove_outside_ksef?: boolean;
   /** Krok 1.2: faktura do paragonu, oznaczenie i dane paragonu liczone na serwerze. Brak pola = `null`. */
   receipt_invoice?: ReceiptInvoiceView | null;
   /** Krok 2.8: gotowy wiersz „Zamówienie: …” z `fa3_data.order` (liczy serwer). Brak pola = `null`. */
@@ -432,6 +438,7 @@ export function InvoiceDetailView({ initial }: { initial: InvoiceDetailInitial }
               <StatusBadge
                 status={inv.ksef_status}
                 errorCode={inv.last_error_code}
+                outsideKsef={inv.outside_ksef === true}
                 automaticResend={automaticResendExpected({
                   status: inv.ksef_status,
                   errorCode: inv.last_error_code,
@@ -442,6 +449,14 @@ export function InvoiceDetailView({ initial }: { initial: InvoiceDetailInitial }
                 })}
               />
             </div>
+
+            {inv.outside_ksef && (
+              <OutsideKsefRemove
+                invoiceId={inv.id}
+                number={inv.internal_number}
+                canRemove={inv.can_remove_outside_ksef === true}
+              />
+            )}
 
             {inv.ksef_status === 'accepted' && inv.ksef_number && (
               <UpoDownload
@@ -742,6 +757,16 @@ export function InvoiceDetailView({ initial }: { initial: InvoiceDetailInitial }
                   <span className="font-medium">Uwagi:</span>{' '}
                   <span className="text-muted-foreground whitespace-pre-wrap">{inv.notes}</span>
                 </p>
+              </>
+            )}
+
+            {inv.outside_ksef && (
+              <>
+                <Separator />
+                <div data-testid="poza-ksef-dokument" className="space-y-1 text-sm">
+                  <p className="font-medium">{SPOZA_KSEF_OZNACZENIE}</p>
+                  <p className="text-muted-foreground text-xs">{SPOZA_KSEF_OPIS}</p>
+                </div>
               </>
             )}
 

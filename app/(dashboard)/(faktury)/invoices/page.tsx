@@ -22,6 +22,7 @@ import {
   type InvoiceListRowFacts,
   type ListRowFactsRow,
 } from '@/lib/invoices/list-row-facts';
+import { spozaKsefDostepne } from '@/lib/import/outside-ksef-wylacznik';
 import { canChangeInvoicePayment } from '@/lib/invoices/manual-payment';
 import { requireConfiguredKsefEnvironment } from '@/lib/ksef/claim-environment';
 import { getPageContext } from '@/lib/supabase/page-context';
@@ -33,7 +34,7 @@ import { InvoicesToolbar } from '@/app/(dashboard)/invoices/_components/invoices
 export const dynamic = 'force-dynamic';
 
 /** Kolumny listy: widok wiersza + pola płatności i błędu KSeF + fakty §2.4 pkt 11. */
-const LIST_COLUMNS = `id, internal_number, issue_date, buyer_data, gross_total, ksef_status, ksef_number, created_at, xml_storage_path, payment_status, payment_due_date, paid_amount, currency, invoice_kind, recurring_invoice_id, last_error_code, ${LIST_ROW_FACT_COLUMNS}`;
+const LIST_COLUMNS = `id, internal_number, issue_date, buyer_data, gross_total, ksef_status, ksef_number, created_at, xml_storage_path, payment_status, payment_due_date, paid_amount, currency, invoice_kind, origin, recurring_invoice_id, last_error_code, ${LIST_ROW_FACT_COLUMNS}`;
 
 type ListQueryRow = InvoiceRow & ListRowFactsRow;
 
@@ -53,6 +54,8 @@ export default async function InvoicesPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { supabase, tenantId, role } = await getPageContext();
+  // Krok 1.6: przycisk „Dodaj fakturę spoza KSeF” tylko przy włączonym wyłączniku (błąd odczytu = brak przycisku).
+  const outsideKsefAvailable = (role === 'owner' || role === 'admin') && (await spozaKsefDostepne());
   const params = parseInvoiceListParams((await searchParams) ?? {});
   const today = todayInWarsaw();
   const [rangeFrom, rangeTo] = pageRange(params.page, params.perPage);
@@ -151,7 +154,7 @@ export default async function InvoicesPage({
     <div className="ff-tab-panel flex w-full flex-1 flex-col pt-2">
       <h1 className="sr-only">Faktury wystawione</h1>
       <div className="flex-1 border-b">
-        <InvoicesToolbar params={params} filtered={filtered} />
+        <InvoicesToolbar params={params} filtered={filtered} outsideKsefAvailable={outsideKsefAvailable} />
 
         {paymentFilterError ? (
           <div className="px-4 pb-4">

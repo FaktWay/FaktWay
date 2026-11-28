@@ -18,6 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { companyInitials, shortenLegalForm } from '@/lib/format/legal-form';
 import { formatPlMoney } from '@/lib/format/pl';
 import { formatInvoiceDate } from '@/lib/invoices/display-date';
+import { jestFakturaSpozaKsef } from '@/lib/import/outside-ksef-teksty';
 import type { InvoiceListRowFacts } from '@/lib/invoices/list-row-facts';
 
 import { InvoiceRowActions } from './invoice-row-actions';
@@ -118,7 +119,11 @@ export function InvoicesTable({ invoices, facts, today, selectedIds, onToggleRow
               <TableCell className="h-14 first:pl-4">
                 <div className="flex items-center gap-2">
                   <PaymentIndicator state={state} />
-                  <StatusBadge status={inv.ksef_status} errorCode={inv.last_error_code} />
+                  <StatusBadge
+                    status={inv.ksef_status}
+                    errorCode={inv.last_error_code}
+                    outsideKsef={jestFakturaSpozaKsef(inv.origin)}
+                  />
                 </div>
               </TableCell>
               <TableCell className="h-14 max-w-72 first:pl-4">
