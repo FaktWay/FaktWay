@@ -28,6 +28,7 @@ import { saveBlob } from '@/lib/download';
 import { shortenLegalForm } from '@/lib/format/legal-form';
 import { formatPlMoney } from '@/lib/format/pl';
 import { formatInvoiceDate } from '@/lib/invoices/display-date';
+import { jestFakturaSpozaKsef } from '@/lib/import/outside-ksef-teksty';
 import type { InvoiceListRowFacts } from '@/lib/invoices/list-row-facts';
 
 export type SwipeableInvoiceRowInvoice = InvoiceRow;
@@ -130,7 +131,11 @@ export function SwipeableInvoiceRow({ invoice, facts, today, onMarkPaid }: Props
                 {formatInvoiceDate(invoice.issue_date)}
               </p>
             </div>
-            <StatusBadge status={invoice.ksef_status} errorCode={invoice.last_error_code} />
+            <StatusBadge
+              status={invoice.ksef_status}
+              errorCode={invoice.last_error_code}
+              outsideKsef={jestFakturaSpozaKsef(invoice.origin)}
+            />
           </div>
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 flex-1">

@@ -35,6 +35,7 @@ import { loadDuplicateDecisionFacts, loadLastDuplicateRecheckAt } from '@/lib/ks
 import { duplicateRecheckView, type DuplicateRecheckView } from '@/lib/ksef/duplicate-recheck';
 import { invoiceVerificationUrl, ksefEnvForQr, qrLabel } from '@/lib/ksef/qr-verification';
 import { todayInWarsaw } from '@/lib/format/warsaw-date';
+import { jestFakturaSpozaKsef } from '@/lib/import/outside-ksef-teksty';
 import { isTenantStoragePath } from '@/lib/storage/tenant-path';
 import { createClient } from '@/lib/supabase/server';
 import {
@@ -305,6 +306,8 @@ export default async function InvoiceDetailPage({
     // D-A4-1b-3 PR C: panel odsyła do akcji środowisko, które zobaczył (INV-8); karta K — skąd faktura się wzięła (6.5).
     ksef_server_environment: env,
     ksef_imported_original: importedOriginalProvenance(invoice.fa3_data),
+    outside_ksef: jestFakturaSpozaKsef(invoice.origin as string | null),
+    can_remove_outside_ksef: membership?.role === 'owner' || membership?.role === 'admin',
     // Krok 1.2: oznaczenie FP i dane paragonu jako gotowy tekst, fa3_data zostaje na serwerze.
     receipt_invoice: receiptInvoiceView(invoice.fa3_data),
     // Krok 2.8: numer zamówienia jako gotowy wiersz, reszta `fa3_data` zostaje na serwerze.

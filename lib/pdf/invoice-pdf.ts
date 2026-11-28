@@ -11,6 +11,7 @@ import { loadPdfLogo, readTenantLogoKey } from './logo-odczyt';
 import { invoiceVerificationUrl, ksefEnvForQr, qrLabel } from '@/lib/ksef/qr-verification';
 import { DUPLICATE_DECISION_TEXTS } from '@/lib/ksef/duplicate-decision';
 import { findKsefNumberTaken, type KsefNumberTaken } from '@/lib/ksef/submission-log';
+import { SPOZA_KSEF_PDF_DOPISEK } from '@/lib/import/outside-ksef-teksty';
 import { isTenantStoragePath } from '@/lib/storage/tenant-path';
 
 export type GenerateInvoicePdfResult =
@@ -289,7 +290,7 @@ export async function generateInvoicePdf(
       correctionVatRates: data.correctionVatRates,
       receiptInvoiceMarker: data.receiptInvoiceMarker,
       testWatermark: (process.env.KSEF_ENV ?? 'test') === 'test',
-      previewNotice: missingKodI ? PREVIEW_WITHOUT_KOD_I : null,
+      previewNotice: data.outsideKsef ? SPOZA_KSEF_PDF_DOPISEK : missingKodI ? PREVIEW_WITHOUT_KOD_I : null,
       logo,
     });
 
