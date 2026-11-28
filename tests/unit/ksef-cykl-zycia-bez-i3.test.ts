@@ -78,8 +78,9 @@ describe('ksef_upo_expected po 00186: da się wkleić w zapytanie', () => {
   const header = normalized(definition.slice(0, definition.indexOf('$$')));
   const body = normalized(definition.slice(definition.indexOf('$$') + 2, definition.lastIndexOf('$$')));
 
-  it('najnowsza definicja jest w 00186', () => {
-    expect(file).toBe(MIGRATION);
+  it('najnowsza definicja jest w 00221 (00186 + faktury spoza KSeF bez UPO)', () => {
+    // 00221 zmienia tylko wynik dla origin = 'outside_ksef' i zostaje jednym wyrażeniem (testy niżej).
+    expect(file).toBe('00221_faktury_spoza_ksef.sql');
   });
 
   it('SQL, STABLE, SECURITY INVOKER, bez SET', () => {
