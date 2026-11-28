@@ -1,3 +1,4 @@
+import type { WypelnienieZPdf } from '@/lib/import/outside-ksef-pdf';
 import { UPLOAD_FAILED_MESSAGE } from '@/lib/upload-limit';
 
 /**
@@ -19,6 +20,7 @@ import { UPLOAD_FAILED_MESSAGE } from '@/lib/upload-limit';
 export const EXPENSE_UPLOAD_URL = '/api/uploads/expense';
 export const IMPORT_UPLOAD_URL = '/api/uploads/import';
 export const LOGO_UPLOAD_URL = '/api/uploads/logo';
+export const SPOZA_KSEF_UPLOAD_URL = '/api/uploads/faktura-pdf';
 
 export type ExpenseUploadResult = { success: true; ocrJobId: string } | { success: false; error: string };
 export type ImportUploadResult = { success: true; importJobId: string } | { success: false; error: string };
@@ -91,6 +93,33 @@ export async function postImportUpload(form: FormData): Promise<ImportUploadResu
   const result = await postForm(IMPORT_UPLOAD_URL, form);
   if (!('ok' in result)) return result;
   return nonEmptyString(result.body.importJobId) ? { success: true, importJobId: result.body.importJobId } : failed();
+}
+
+/**
+ * PDF faktury spoza KSeF (krok 1.6, część 2b, PR D): odczyt wypełnia formularz,
+ * zapis oryginału przy już dopisanej fakturze. Wypełnienie to kształt z
+ * `WypelnienieZPdf`; strona go nie przelicza, tylko wstawia do formularza.
+ */
+export type SpozaKsefOdczytResult = { success: true; wypelnienie: WypelnienieZPdf } | { success: false; error: string };
+export type SpozaKsefOryginalResult = { success: true } | { success: false; error: string };
+
+export async function postSpozaKsefOdczyt(file: File): Promise<SpozaKsefOdczytResult> {
+  const form = new FormData();
+  form.set('tryb', 'odczyt');
+  form.set('plik', file);
+  const result = await postForm(SPOZA_KSEF_UPLOAD_URL, form);
+  if (!('ok' in result)) return result;
+  const w = result.body.wypelnienie;
+  return w && typeof w === 'object' ? { success: true, wypelnienie: w as WypelnienieZPdf } : failed();
+}
+
+export async function postSpozaKsefOryginal(invoiceId: string, file: File): Promise<SpozaKsefOryginalResult> {
+  const form = new FormData();
+  form.set('tryb', 'oryginal');
+  form.set('invoiceId', invoiceId);
+  form.set('plik', file);
+  const result = await postForm(SPOZA_KSEF_UPLOAD_URL, form);
+  return 'ok' in result ? { success: true } : result;
 }
 
 function uploadedLogo(value: unknown): UploadedLogo | null {

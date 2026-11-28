@@ -23,6 +23,7 @@ const h = vi.hoisted(() => ({
   address: vi.fn(),
   jpk: vi.fn(),
   xsd: vi.fn(),
+  oryginal: vi.fn(),
 }));
 
 /**
@@ -95,6 +96,7 @@ vi.mock('@/lib/supabase/admin', () => ({
 }));
 vi.mock('@/lib/storage/r2', () => ({ downloadInvoiceXml: h.xml, downloadFromR2: h.r2 }));
 vi.mock('@/lib/storage/expenses', () => ({ downloadExpensePhoto: h.photo }));
+vi.mock('@/lib/import/outside-ksef-oryginal', () => ({ pobierzOryginalSpozaKsef: h.oryginal }));
 vi.mock('@/lib/pdf/invoice-pdf', () => ({ generateInvoicePdf: h.pdf }));
 vi.mock('@/lib/exports/data-fetcher', () => ({ fetchInvoicesForExport: h.fetchJpk }));
 vi.mock('@/lib/exports/tax-office', async (orig) => ({ ...(await orig<object>()), readTenantTaxOffice: h.office }));
@@ -186,6 +188,46 @@ beforeEach(() => {
   h.office.mockResolvedValue('1471');
   h.address.mockResolvedValue({ wojewodztwo: 'mazowieckie' });
   h.xsd.mockResolvedValue(undefined);
+});
+
+describe('archiwum dokumentów: faktura wystawiona poza KSeF (D25 b, D40)', () => {
+  const KLUCZ = `tenants/${T}/outside-ksef/o1.pdf`;
+  const poza = (pola: Row = {}): Row => ({
+    id: 'o1', tenant_id: T, direction: 'outgoing', internal_number: 'FV/9/2026', ksef_number: null, ksef_status: 'accepted',
+    ksef_environment: 'test', origin: 'outside_ksef', issue_date: '2026-03-12', sale_date: null, payment_due_date: null,
+    net_total: 100, vat_total: 23, gross_total: 123, currency: 'PLN', xml_storage_path: null,
+    buyer_data: { name: 'Klient', nip: '5260001246', address: ADRES }, buyer_nip: '5260001246', seller_nip: '1234567890',
+    seller_data: { name: 'Firma Testowa', address: ADRES }, outside_ksef_original_path: KLUCZ, ...pola,
+  });
+
+  it('oryginał PDF wchodzi do paczki, a XML i UPO z KSeF nie trafiają do braków (ich nie ma i nie będzie)', async () => {
+    h.tables.invoices = [poza()];
+    h.tables.xml_documents = [];
+    h.tables.upo_receipts = [];
+    h.tables.expenses = [];
+    h.oryginal.mockResolvedValue(Buffer.from('%PDF oryginal'));
+    const built = await buildArchivePackage({ ...ORDER, kind: 'archive' }, { now: NOW });
+    const files = rozpakuj(built.zip);
+    expect(files.get('faktury-sprzedazy/2026-03-12_FV_9_2026.oryginal.pdf')?.toString()).toBe('%PDF oryginal');
+    expect(files.has('faktury-sprzedazy/2026-03-12_FV_9_2026.pdf')).toBe(true);
+    expect([...files.keys()].some((k) => k.endsWith('.xml'))).toBe(false);
+    expect(h.oryginal).toHaveBeenCalledWith(T, KLUCZ);
+    expect(built.missing).toEqual([]);
+    expect(files.get('faktury.csv')!.toString('utf8')).toContain('wystawiona poza KSeF');
+  });
+
+  it('wpis bez oryginału (wpisany ręcznie) nie jest brakiem; oryginał, którego nie ma w magazynie, jest', async () => {
+    h.tables.invoices = [poza({ outside_ksef_original_path: null })];
+    h.tables.xml_documents = [];
+    h.tables.upo_receipts = [];
+    h.tables.expenses = [];
+    expect((await buildArchivePackage({ ...ORDER, kind: 'archive' }, { now: NOW })).missing).toEqual([]);
+
+    h.tables.invoices = [poza()];
+    h.oryginal.mockRejectedValueOnce(missingObject());
+    const built = await buildArchivePackage({ ...ORDER, kind: 'archive' }, { now: NOW });
+    expect(built.missing.map((m) => `${m.dokument} | ${m.plik}`)).toEqual(['Faktura sprzedaży FV/9/2026 | oryginał PDF']);
+  });
 });
 
 describe('archiwum dokumentów: składanie paczki', () => {

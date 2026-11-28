@@ -38,7 +38,7 @@ import { formatUploadSize, UPLOAD_BODY_LIMIT_BYTES, UPLOAD_FILE_LIMIT_LABEL } fr
  * w toaście, `/share-target` zamienia ją na komunikat na Kosztach.
  */
 
-export type UploadKind = 'expense' | 'import' | 'logo';
+export type UploadKind = 'expense' | 'import' | 'logo' | 'outside_ksef';
 
 export type UploadRefusalReason =
   | 'bad_type'
@@ -76,7 +76,7 @@ export const UPLOAD_RATE_WINDOW_SECONDS = 600;
  * a nie człowieka; odczyty OCR ma osobno budżet AI firmy
  * (`lib/ai/tenant-ai-budget.ts`).
  */
-export const UPLOAD_RATE_LIMITS: Record<UploadKind, number> = { expense: 30, import: 10, logo: 10 };
+export const UPLOAD_RATE_LIMITS: Record<UploadKind, number> = { expense: 30, import: 10, logo: 10, outside_ksef: 20 };
 
 /**
  * Budżet bajtów wgrań naraz w procesie web: cztery największe pliki albo
