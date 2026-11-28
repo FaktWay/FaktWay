@@ -20,6 +20,10 @@ export const SPOZA_KSEF_OPIS =
 export const SPOZA_KSEF_PDF_DOPISEK =
   'Poza KSeF. To kopia faktury wystawionej poza KSeF, dopisana do historii FaktWay; FaktWay jej nie wystawił i nie wysłał do KSeF.';
 
+/** Odmowa wysyłki maila z dokumentem wpisu spoza KSeF (nazwa dokumentu i co zrobić). */
+export const MAIL_SPOZA_KSEF_ODMOWA = (numer: string | null): string =>
+  `Nie wysyłamy mailem faktury${numer ? ` ${numer}` : ''}: to kopia faktury wystawionej poza KSeF, dopisana do historii FaktWay, a nie dokument wystawiony w FaktWay. Wyślij nabywcy oryginał z programu, w którym ją wystawiono.`;
+
 export function jestFakturaSpozaKsef(origin: string | null | undefined): boolean {
   return origin === ORIGIN_SPOZA_KSEF;
 }
