@@ -48,7 +48,8 @@ describe('FZ-030: brak w szkicu pozycji w przypomnieniu o terminie', () => {
         const wynik = niezaplacone({ grupy: rodzaj === 'ryczalt' ? ['ryczalt'] : ['zus'], rozliczenia: r, pozycje, profil: profil() }).filter((p) => p.rodzaj === rodzaj);
         expect(wynik.every((p) => p.kwotaGr === null), JSON.stringify(wersje)).toBe(true);
         const najnowsza = r.at(-1);
-        const niczegoNieZaplacono = r.every((v) => v.status !== 'zaplacone' || v.kwotaGr === 0);
+        // D64 (FZ-030, zmiana niezmiennika z #910): zapłata 0 zł to oznaczona zapłata; o zapłacie decyduje status wersji, nie kwota.
+        const niczegoNieZaplacono = r.every((v) => v.status !== 'zaplacone');
         if (niczegoNieZaplacono || (najnowsza && najnowsza.status !== 'zaplacone')) {
           expect(wynik, JSON.stringify(wersje)).toEqual([{ rodzaj, kwotaGr: null }]);
         }
@@ -86,7 +87,8 @@ describe('D31 i D32: miesiąc bez kwot i zapłacona najnowsza wersja przy braku'
         // Składki społeczne w uldze na start albo przy etacie obok pomija etap ZUS (bez braku w szkicu).
         const pominiete = rodzaj === 'zus_spoleczne' && (p.zusEtap === 'ulga_na_start' || p.zusEtap === 'etat_obok');
         const najnowsza = r.at(-1);
-        const niczegoNieZaplacono = r.every((v) => v.status !== 'zaplacone' || v.kwotaGr === 0);
+        // D64 (FZ-030, zmiana niezmiennika z #910): zapłata 0 zł to oznaczona zapłata; o zapłacie decyduje status wersji, nie kwota.
+        const niczegoNieZaplacono = r.every((v) => v.status !== 'zaplacone');
         if (!pominiete && (niczegoNieZaplacono || (najnowsza && najnowsza.status !== 'zaplacone'))) {
           expect(wynik, JSON.stringify(wersje)).toEqual([{ rodzaj, kwotaGr: null }]);
         }
@@ -140,5 +142,27 @@ describe('D31 i D32: miesiąc bez kwot i zapłacona najnowsza wersja przy braku'
       }),
       opcje(),
     );
+  });
+});
+
+describe('D64 (FZ-030): zapłata 0 zł i VAT 0 zł z przyjętym JPK_V7M', () => {
+  const w = (rodzaj: Rodzaj, kwotaGr: number, status: 'zaplacone' | 'zatwierdzone') =>
+    rozliczenia(rodzaj, [{ kwotaGr, zaplacona: status === 'zaplacone', skrot: 'a' }]);
+
+  it('wersja zapłacona z kwotą 0 zł przy miesiącu bez kwot to cisza, nie „Bez oznaczonej zapłaty”', () => {
+    fc.assert(
+      fc.property(fc.constantFrom(...RODZAJE), (rodzaj) => {
+        const grupy: Parameters<typeof niezaplacone>[0]['grupy'] = rodzaj === 'ryczalt' ? ['ryczalt'] : ['zus'];
+        expect(niezaplacone({ grupy, rozliczenia: w(rodzaj, 0, 'zaplacone'), pozycje: null, profil: profil() }).filter((p) => p.rodzaj === rodzaj)).toEqual([]);
+        expect(niezaplacone({ grupy, rozliczenia: w(rodzaj, 0, 'zatwierdzone'), pozycje: null, profil: profil() }).filter((p) => p.rodzaj === rodzaj)).toEqual([{ rodzaj, kwotaGr: null }]);
+      }),
+      opcje(),
+    );
+  });
+
+  it('VAT 0 zł z przyjętym JPK_V7M w miesiącu bez kwot to cisza; bez przyjęcia przypomnienie bez kwoty', () => {
+    const r: Rozliczenie[] = w('ryczalt', 0, 'zatwierdzone').map((v) => ({ ...v, rodzaj: 'vat' }));
+    expect(niezaplacone({ grupy: ['vat'], rozliczenia: r, pozycje: null, profil: profil(), jpkPrzyjete: true })).toEqual([]);
+    expect(niezaplacone({ grupy: ['vat'], rozliczenia: r, pozycje: null, profil: profil(), jpkPrzyjete: false })).toEqual([{ rodzaj: 'vat', kwotaGr: null }]);
   });
 });
