@@ -28,6 +28,8 @@ import { suggestNextInvoiceNumberForTenant } from '@/lib/invoices/next-number';
 import { addDaysToIsoDate, dueDateFrom, todayInWarsaw } from '@/lib/format/warsaw-date';
 import { EU_BUYER_COUNTRIES, type InvoiceFormValues } from '@/lib/schemas/invoice-form';
 import type { Invoice } from '@/types/invoice';
+import { kursDoFaktury } from '@/lib/invoices/waluta-faktury';
+import { odmowaWaluty } from '@/lib/invoices/waluty-wylacznik';
 
 // ═══════════════════════════════════════════════════════════════
 // Helpery tenant / snapshot faktury
@@ -54,6 +56,33 @@ async function getTenantContext(formTenant?: FormTenantCheck): Promise<{
 // ═══════════════════════════════════════════════════════════════
 
 export type { LookupBuyerResult };
+
+/** Podgląd kursu NBP w formularzu (krok 2.1, część 3); zapis i tak pobiera kurs sam. */
+export type InvoiceRatePreview =
+  | { ok: true; rate: number; tableNo: string; tableDate: string }
+  | { ok: false; error: string };
+
+export async function previewInvoiceRateAction(input: {
+  currency: string;
+  issueDate: string;
+  saleDate?: string;
+}): Promise<InvoiceRatePreview> {
+  // Tylko zalogowany z aktywną firmą; wyłącznik ten sam co przy zapisie.
+  await requireUserAndActiveOrg();
+  const currency = typeof input.currency === 'string' ? input.currency.trim().toUpperCase() : '';
+  if (!/^[A-Z]{3}$/.test(currency) || currency === 'PLN') return { ok: false, error: 'Wybierz walutę obcą.' };
+  const issueDate = typeof input.issueDate === 'string' ? input.issueDate : '';
+  const saleDate = typeof input.saleDate === 'string' ? input.saleDate : undefined;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(issueDate) || (saleDate !== undefined && saleDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(saleDate))) {
+    return { ok: false, error: 'Wpisz poprawną datę wystawienia i sprzedaży, żeby pobrać kurs.' };
+  }
+  const refusal = await odmowaWaluty('zapis', { currency });
+  if (refusal) return { ok: false, error: refusal.tekst };
+  const found = await kursDoFaktury({ currency, issueDate, ...(saleDate ? { saleDate } : {}) });
+  if (!found.ok) return { ok: false, error: found.error };
+  if (!found.rate) return { ok: false, error: 'Wybierz walutę obcą.' };
+  return { ok: true, rate: found.rate.rate, tableNo: found.rate.tableNo, tableDate: found.rate.tableDate };
+}
 
 export async function lookupBuyerAction(
   nip: string

@@ -38,6 +38,7 @@ const EXEMPT: Record<string, string> = {
   lookupBuyerAction: 'odczyt nabywcy z bazy kontrahentów albo GUS; zapisuje tylko podpowiedź kontrahenta, nie dokument',
   prefillFromLastInvoiceAction: 'tylko odczyt podkładu formularza; nic nie zapisuje',
   prefillFromInvoiceAction: 'tylko odczyt podkładu formularza; nic nie zapisuje',
+  previewInvoiceRateAction: 'tylko odczyt kursu NBP do podglądu w formularzu; nic nie zapisuje, a zapis faktury w walucie sprawdza firmę formularza',
   getCorrectionParentContextAction: 'tylko odczyt faktury pierwotnej korekty; zapis korekty sprawdza firmę formularza',
   downloadInvoiceXmlAction: ID_BOUND,
   resendInvoiceAction: ID_BOUND,

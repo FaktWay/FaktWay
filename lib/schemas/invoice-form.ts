@@ -21,6 +21,7 @@ import {
 } from '@/lib/xml/fa3-limits';
 
 import { czyFakturaWCenachBrutto, tekstOdmowyCenBrutto } from '@/lib/invoices/ceny-brutto-wylacznik-wspolne';
+import { czyFakturaWWalucie, tekstOdmowyWaluty } from '@/lib/invoices/waluty-wylacznik-wspolne';
 import {
   normalizeCashRegisterNumber,
   receiptInvoiceIssues,
@@ -368,6 +369,26 @@ export const invoiceFormSchema = z
      * netto, jak dotąd.
      */
     pricesGross: z.boolean().optional(),
+    /**
+     * Waluta faktury (krok 2.1, część 3; D56): kod ISO 4217 wielkimi literami; brak
+     * albo pusty to złote. Inną walutę przyjmuje tylko włączony wyłącznik
+     * (`invoiceFormSchemaFor`, `insertInvoiceAndLines`). Kurs NBP z art. 31a ust. 1
+     * pobiera serwer przy zapisie (`lib/invoices/waluta-faktury.ts`).
+     */
+    currency: z
+      .string()
+      .regex(/^([A-Z]{3})?$/, 'Kod waluty: trzy wielkie litery, np. EUR albo USD')
+      .optional(),
+    /**
+     * Kurs wpisany ręcznie (np. obowiązek podatkowy innego dnia niż domyślny):
+     * zastępuje kurs NBP, najwyżej 6 miejsc po przecinku (XSD `TIlosci`). Bez niego
+     * serwer bierze kurs z tabeli NBP.
+     */
+    exchangeRateManual: z
+      .number()
+      .positive('Kurs musi być większy od zera')
+      .refine((v) => /^\d+(\.\d{1,6})?$/.test(String(v)), 'Kurs: najwyżej 6 miejsc po przecinku')
+      .optional(),
     paymentMethod: z.enum(['transfer', 'cash', 'card', 'other']),
     paymentDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     bankAccount: z.string().optional(),
@@ -565,6 +586,22 @@ export const invoiceFormSchema = z
       path: ['saleDate'],
     },
   )
+  .superRefine((d, ctx) => {
+    const waluta = d.currency && d.currency !== '' ? d.currency : 'PLN';
+    if (waluta === 'PLN') {
+      if (d.exchangeRateManual !== undefined) {
+        ctx.addIssue({ code: 'custom', message: 'Faktura w złotych nie ma kursu waluty. Usuń kurs albo wybierz walutę obcą.', path: ['exchangeRateManual'] });
+      }
+      return;
+    }
+    // D56: faktura w walucie obcej tylko w cenach netto (jedna metoda cen, bez brutto).
+    if (d.pricesGross === true) {
+      ctx.addIssue({ code: 'custom', message: 'Fakturę w walucie obcej wystawimy tylko w cenach netto. Wybierz ceny netto.', path: ['pricesGross'] });
+    }
+    if (d.receiptInvoice === true) {
+      ctx.addIssue({ code: 'custom', message: 'Faktury do paragonu nie wystawimy w walucie obcej, bo paragon jest w złotych. Wystaw ją w złotych.', path: ['currency'] });
+    }
+  })
   // Te same reguły co `validateInvoice` przy wysyłce do KSeF. Sprawdzane tylko
   // tam przepuszczały fakturę przez zapis, a job oznaczał ją jako nieudaną —
   // bez możliwości poprawki (ponowna wysyłka jest wstrzymana).
@@ -636,6 +673,11 @@ export interface InvoiceFormSchemaOptions {
    * odmowa zapisu (`insertInvoiceAndLines`).
    */
   cenyBrutto: boolean;
+  /**
+   * Wyłącznik faktury w walucie obcej (krok 2.1, część 3): wynik `walutyDostepne()`
+   * z serwera strony. Brak albo `false`: waluta inna niż złote dostaje odmowę z wyjściem.
+   */
+  waluty?: boolean;
 }
 
 /**
@@ -644,10 +686,13 @@ export interface InvoiceFormSchemaOptions {
  * wyłącznika ze strony, a zapis na serwerze i tak sprawdza go sam
  * (`insertInvoiceAndLines`, `lib/invoices/ceny-brutto-wylacznik.ts`).
  */
-export function invoiceFormSchemaFor({ cenyBrutto }: InvoiceFormSchemaOptions): typeof invoiceFormSchema {
-  if (cenyBrutto) return invoiceFormSchema;
+export function invoiceFormSchemaFor({ cenyBrutto, waluty = false }: InvoiceFormSchemaOptions): typeof invoiceFormSchema {
+  if (cenyBrutto && waluty) return invoiceFormSchema;
   return invoiceFormSchema.superRefine((d, ctx) => {
-    if (czyFakturaWCenachBrutto(d)) {
+    if (!waluty && czyFakturaWWalucie(d)) {
+      ctx.addIssue({ code: 'custom', message: tekstOdmowyWaluty('zapis', 'wylaczone'), path: ['currency'] });
+    }
+    if (!cenyBrutto && czyFakturaWCenachBrutto(d)) {
       ctx.addIssue({ code: 'custom', message: tekstOdmowyCenBrutto('zapis', 'wylaczone'), path: ['pricesGross'] });
     }
   });

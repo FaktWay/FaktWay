@@ -27,6 +27,10 @@ vi.mock('@/lib/supabase/auth-context', async () => {
 
 import { getCorrectionParentContextAction, saveCorrectionDraftAction } from '@/components/invoices/correction-actions';
 import { sprawdzFa3 } from '@/lib/bezpieczniki/fa3';
+import { korektaDoFormularza } from '@/lib/api/mobile/schematy-rodzaje';
+import { fetchInvoicesForExport } from '@/lib/exports/data-fetcher';
+import { generateJpkV7m } from '@/lib/exports/jpk-v7m-generator';
+import { validateJpkV7m } from '@/lib/exports/jpk-v7m-validator';
 import { generateCorrectionInvoiceXml } from '@/lib/ksef/fa3-correction-generator';
 import { finalizeInvoice, type InvoiceInput } from '@/lib/xml/invoice-calculator';
 import { validateInvoiceXml } from '@/lib/xml/validator';
@@ -389,5 +393,70 @@ describe('stan po korekty faktury w cenach brutto (D6): stawka bez zmian zostaje
       ({ ordinal, name: l.name, unit: l.unit, quantity: 1, unitPriceNet: 0, vatRate: l.vatRate, ...a });
     const roznica = differenceSummaries(przed.map((l, i) => linia(l, stany.before[i]!, i + 1)), po.map((l, i) => linia(l as never, stany.after[i]!, i + 1)));
     expect(roznica).toEqual([{ rate: '23', netSum: 0.07, vatSum: 0.01 }]);
+  });
+});
+
+describe('JPK_V7M: korekta faktury w cenach brutto (D6)', () => {
+  it('korekta „przed / po” w JPK_V7M: różnica VAT stawki 0,02 i netto 0,06 (z kopert stanów), plik zgodny z XSD', async () => {
+    fakturaFaktWay(TRZY_KAWY);
+    wlaczCenyBrutto();
+    const ctx = await getCorrectionParentContextAction(PARENT);
+    expect(ctx.success).toBe(true);
+    if (!ctx.success) return;
+    const po = ctx.linesAfter.map((l, i) => (i === 2 ? { ...l, unitPriceGross: 1.08 } : l));
+    const r = await saveCorrectionDraftAction(payload({ pricesGross: true, correctionType: 'before_after', linesBefore: ctx.linesBefore, linesAfter: po }), TENANT);
+    expect(r).toMatchObject({ success: true });
+    // Korekta przyjęta w KSeF (eksport czyta tylko przyjęte).
+    const kor = korekty()[0]!;
+    Object.assign(kor, { ksef_status: 'accepted', ksef_environment: 'test', ksef_number: '1234567890-20261116-0100002AF601-B2' });
+
+    const { issuedInvoices } = await fetchInvoicesForExport({ tenantId: TENANT, periodStart: '2026-11-01', periodEnd: '2026-11-30', direction: 'issued' });
+    const xml = generateJpkV7m({
+      issuer: { nip: '1234567890', name: 'Firma testowa', email: 'biuro@example.test', taxOfficeCode: '1433' },
+      periodStart: '2026-11-01', periodEnd: '2026-11-30', generatedAt: new Date('2026-12-05T10:00:00Z'),
+      issuedInvoices, expenses: [], previousSurplus: 0,
+    });
+    expect((await validateJpkV7m(xml)).errors).toEqual([]);
+    const wiersze = [...xml.matchAll(/<SprzedazWiersz>([\s\S]*?)<\/SprzedazWiersz>/g)].map((m) => m[1]!);
+    expect(wiersze).toHaveLength(2);
+    const k = (w: string, n: string) => pole(w, n);
+    // Faktura 0,56 od 3,00; korekta: różnica stanów, VAT 0,02 (nie 0,01 od samej różnicy brutto 0,08).
+    expect([k(wiersze[0]!, 'K_19'), k(wiersze[0]!, 'K_20')]).toEqual([['2.44'], ['0.56']]);
+    expect([k(wiersze[1]!, 'K_19'), k(wiersze[1]!, 'K_20')]).toEqual([['0.06'], ['0.02']]);
+  });
+});
+
+describe('korekta faktury w cenach brutto z telefonu (D6)', () => {
+  const zTelefonu = (o: Record<string, unknown>) => ({
+    internalNumber: 'FK/1/11/2026', numberSeriesId: 'seria', numberPreview: 'FK/1/11/2026', issueDate: '2026-11-16',
+    paymentMethod: 'transfer', paymentDueDate: '2026-11-30', bankAccount: '', notes: '', parentInvoiceId: PARENT,
+    correctionReason: 'Zmiana ceny', typKorekty: '2', linesAfter: [], ...o,
+  }) as never;
+
+  it('korekta kwotowa z telefonu (bez znacznika pricesGross): serwer nadaje go z kontekstu i liczy VAT od sumy brutto stawki', async () => {
+    fakturaFaktWay(TRZY_KAWY);
+    wlaczCenyBrutto();
+    const ctx = await getCorrectionParentContextAction(PARENT);
+    expect(ctx.success).toBe(true);
+    if (!ctx.success) return;
+    const wartosci = korektaDoFormularza(
+      zTelefonu({ correctionType: 'amount_change', amountChange: { description: 'Dopłata', netDelta: 0.06, vatDelta: 0.02, grossDelta: 0.08 } }),
+      ctx as never, 'klucz-1',
+    );
+    expect(wartosci.pricesGross).toBe(true);
+    // Numeracja z bazy numerów jest poza tym testem (atrapa bazy): numer wpisany jak w `payload`.
+    delete wartosci.numberSeriesId; delete wartosci.numberPreview; delete wartosci.numberRequestKey;
+    const r = await saveCorrectionDraftAction({ ...wartosci, buyer: { type: 'b2b', idType: 'nip', ...NABYWCA } } as never, TENANT);
+    expect(r).toEqual(expect.objectContaining({ success: true }));
+    expect(korekty()[0]).toMatchObject({ net_total: 0.06, vat_total: 0.02, gross_total: 0.08 });
+  });
+
+  it('faktura w cenach netto: telefon nie dostaje znacznika pricesGross', async () => {
+    const wartosci = korektaDoFormularza(
+      zTelefonu({ correctionType: 'cancellation', amountChange: null }),
+      { internalNumber: 'FV 1', issueDate: '2026-11-02', ksefNumber: KSEF_RODZICA, seller: SPRZEDAWCA, buyer: NABYWCA, linesBefore: [], linesAfter: [] } as never,
+      'klucz-2',
+    );
+    expect('pricesGross' in wartosci).toBe(false);
   });
 });

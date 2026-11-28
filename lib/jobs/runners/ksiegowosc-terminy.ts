@@ -35,7 +35,7 @@ import type { JobContext } from '@/lib/jobs/registry';
 import { firmyWPilotazu, wlasciciel, zajmij, zamknij } from '@/lib/ksiegowosc/powiadomienia';
 import { czytajWersjeProfilu, wersjaNa } from '@/lib/ksiegowosc/profil';
 import { isSubjectiveVatExemption, readTenantVatExemption } from '@/lib/invoices/vat-exemption';
-import { grupyFormy, niezaplacone, terminyNaDzis, trescTerminu, type TerminNaDzis } from '@/lib/ksiegowosc/przypomnienia';
+import { grupyFormy, niezaplacone, terminyNaDzis, trescTerminu, type PozycjaPrzypomnienia, type TerminNaDzis } from '@/lib/ksiegowosc/przypomnienia';
 import { BLAD_ODCZYTU_ROZLICZEN, czytajTenMiesiac } from '@/lib/ksiegowosc/ten-miesiac-dane';
 import { BLAD_ODCZYTU_VAT } from '@/lib/ksiegowosc/vat-dane';
 import { srodowiskoMf } from '@/lib/ksiegowosc/wysylka-jpk/certyfikaty';
@@ -120,8 +120,10 @@ export async function przypomnijOTerminie(
   const wejscie = { grupy, rozliczenia: dane.rozliczenia, pozycje: dane.ok ? dane.pozycje : null, profil };
   let pozycje = niezaplacone(wejscie);
   // F11-B5: VAT 0 zł przypomina o JPK_V7M, o ile MF nie przyjął już pliku z FaktWay za ten miesiąc.
-  // Wysyłki czytamy tylko wtedy, gdy jest taka pozycja.
-  if (pozycje.some((p) => p.rodzaj === 'vat' && p.kwotaGr === 0) && (await jpkPrzyjete(admin, tenantId, t.miesiac))) {
+  // D64 pkt 2: to samo w miesiącu bez kwot (`pozycje: null`), gdzie VAT idzie bez kwoty (`kwotaGr: null`), a ostatnia
+  // wersja ma 0 zł. Wysyłki czytamy tylko wtedy, gdy jest taka pozycja; błąd odczytu to `false` (fail-closed: przypomnienie).
+  const vatZero = (p: PozycjaPrzypomnienia) => p.rodzaj === 'vat' && (p.kwotaGr === 0 || (p.kwotaGr === null && wejscie.pozycje === null));
+  if (pozycje.some(vatZero) && (await jpkPrzyjete(admin, tenantId, t.miesiac))) {
     pozycje = niezaplacone({ ...wejscie, jpkPrzyjete: true });
   }
   if (bladVat) pozycje = pozycje.filter((p) => !(p.rodzaj === 'vat' && p.poZaplacie));
