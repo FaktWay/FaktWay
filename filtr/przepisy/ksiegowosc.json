@@ -201,7 +201,7 @@
     },
     {
       "id": "RP-ZAL-01",
-      "regula": "Zaliczka nie jest liczona dwa razy: faktura zaliczkowa wchodzi w miesiącu zaliczki, a faktura rozliczająca pomniejszona o rozliczone zaliczki (tak samo w ewidencji i KPiR).",
+      "regula": "Zaliczka (faktura zaliczkowa) nie jest przychodem, gdy dostawa albo usługa przypada na następny miesiąc: przychód w pełnej kwocie powstaje w miesiącu faktury rozliczającej (wykonanie), a ta wchodzi wtedy bez pomniejszenia o zaliczkę. Zaliczka i wykonanie w tym samym miesiącu: przychód w tym miesiącu, rozliczenie pomniejszone o zaliczkę. Tak samo w ewidencji i KPiR.",
       "podstawa": [
         {
           "akt": "ustawa o podatku dochodowym od osób fizycznych",
@@ -218,21 +218,25 @@
         "faktury.zaliczki"
       ],
       "kod": [
+        "lib/ksiegowosc/ewidencja.ts#zaliczkaNieJestPrzychodem",
         "lib/ksiegowosc/ewidencja.ts#zbudujEwidencje",
-        "lib/invoices/settled-advances.ts#fetchSettledAdvancesNet"
+        "lib/ksiegowosc/kpir.ts#zbudujKpir",
+        "lib/ksiegowosc/ewidencja-dane.ts#zaliczkiOkresowe"
       ],
       "testy": [
         "tests/unit/ksiegowosc-ewidencja.test.ts > zaliczka się nie dubluje",
-        "tests/unit/kpir-roz-zaliczki.test.tsx > zaliczk"
+        "tests/unit/ksiegowosc-zaliczka-d36.test.ts > D36: zaliczka w ewidencji ryczałtu",
+        "tests/unit/ksiegowosc-zaliczka-d36.test.ts > D36: zaliczka w KPiR",
+        "tests/unit/ksiegowosc-zaliczka-d36.test.ts > D36: odczyt zaliczek (zaliczkiOkresowe)"
       ],
       "parametry": [],
       "niezmienniki": [],
-      "pewnosc": "niska",
+      "pewnosc": "srednia",
       "wzorzec": null,
-      "interpretacja": "Zaliczka wchodzi do przychodu w miesiącu jej otrzymania (faktury zaliczkowej).",
+      "interpretacja": "D36: zaliczka wchodzi do przychodu dopiero w miesiącu wykonania (faktura rozliczająca); zaliczka z wcześniejszego miesiąca albo jeszcze nierozliczona nie jest przychodem (art. 14 ust. 3 pkt 1 ustawy o PIT), a ROZ liczy się w pełnej kwocie. Pominięta zaliczka jest na liście pominiętych faktur, a ROZ ma uwagę o zaliczkach z wcześniejszych okresów. Metoda kasowa (art. 14c) i kasa rejestrująca (art. 14 ust. 1j) poza wersją (RP-KASOWY-01).",
       "do_rozstrzygniecia": {
         "kto": "księgowa",
-        "pytanie": "Art. 14 ust. 3 pkt 1 ustawy o PIT: zaliczka na dostawę wykonaną w następnym okresie nie jest przychodem. Czy zaliczka ma wchodzić w miesiącu zaliczki, czy dopiero w miesiącu wykonania? Zmiana dotyczy też KPiR.",
+        "pytanie": "Potwierdzenie decyzji D36 (Bartosz, pewność wysoka co do przepisu, średnia co do ryczałtu) przed włączeniem u klientów: czy zaliczka na dostawę z następnego miesiąca nie wchodzi do przychodu (PIT i ryczałt, odesłanie art. 6 ustawy o ryczałcie do art. 14 ustawy o PIT), a zaliczka i wykonanie w tym samym miesiącu wchodzą w tym miesiącu? Zaliczka bez faktury rozliczającej jest traktowana jak dostawa w przyszłym okresie.",
         "przypadki": []
       },
       "sprawdzil": {
@@ -242,7 +246,7 @@
       "odczyt": "2026-11-09",
       "zrodlo_planu": "§4 pkt 1, §5 „Ewidencja: zaliczki”",
       "stan": "dziala",
-      "uwagi": null
+      "uwagi": "Dashboard, przepływy i eksport KPiR z lib/reports i lib/dashboard liczą zaliczki starą regułą (zaliczka w miesiącu wpłaty); poza modułem księgowości, osobne ustalenie."
     },
     {
       "id": "RP-FP-01",

@@ -98,7 +98,8 @@ describe('pkt 1: przychód z faktur i wpisów ręcznych', () => {
   });
 
   it('zaliczka się nie dubluje: rozliczenie pomniejszone o rozliczone zaliczki, jak w KPiR', () => {
-    const zal = faktura({ id: 'z1', numer: 'ZAL/1', rodzaj: 'zaliczka', nettoGr: 3_000_00 });
+    // D36: zaliczka z tego samego miesiąca co wykonanie jest przychodem (RP-ZAL-01).
+    const zal = faktura({ id: 'z1', numer: 'ZAL/1', rodzaj: 'zaliczka', nettoGr: 3_000_00, dataWystawienia: '2026-04-02', dataSprzedazy: '2026-04-02', zaliczkaRozliczonaDnia: '2026-04-10' });
     const roz = faktura({ id: 'r1', numer: 'ROZ/1', rodzaj: 'rozliczenie', nettoGr: 10_000_00, rozliczoneZaliczkiGr: 3_000_00, dataWystawienia: '2026-04-10', dataSprzedazy: '2026-04-10' });
     const e = ewidencja({ faktury: [zal, roz] });
     expect(e.wiersze.map((w) => [w.dowod, w.kwotaGr])).toEqual([['ZAL/1', 3_000_00], ['ROZ/1', 7_000_00]]);
