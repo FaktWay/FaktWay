@@ -505,7 +505,7 @@ export const invoiceFormSchema = z
       if (!vat) {
         ctx.addIssue({
           code: 'custom',
-          message: 'Numer VAT-UE — prefiks kraju UE i numer, np. DE123456789 (Grecja: EL)',
+          message: 'Numer VAT-UE — prefiks kraju UE i numer według wzorca kraju, np. DE123456789; Austria zaczyna się od ATU (AT z U), Holandia ma literę B (NL…B01); Grecja: EL',
           path: ['buyerVatUe'],
         });
       } else if (vat.kodUE === 'PL') {

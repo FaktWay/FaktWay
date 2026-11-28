@@ -22,7 +22,6 @@ import {
 } from '@/lib/invoices/ceny-brutto-wylacznik';
 import { documentGrossPrices } from '@/lib/invoices/document-lines';
 import { isGtuCode, isPkwiuCode } from '@/lib/invoices/line-codes';
-import { isKodKraju } from '@/lib/invoices/kody-krajow';
 import { addressCountryForKodUE, parseVatUe } from '@/lib/invoices/vat-ue';
 import { RECURRING_DRAFT_REFUSED_MESSAGE } from '@/lib/invoices/recurring/issue';
 import { suggestNextInvoiceNumberForTenant } from '@/lib/invoices/next-number';
@@ -486,12 +485,6 @@ export async function prefillFromInvoiceAction(invoiceId: string): Promise<Prefi
       buyerPesel: konsument === 'pesel' ? wzor.buyer_pesel ?? '' : '',
       buyerIdDocument:
         konsument === 'id_card' || konsument === 'passport' ? wzor.buyer_id_number ?? '' : '',
-      // C2 S7: kraj dokumentu z ostatniej faktury (adres nabywcy), tylko gdy jest na liście XSD i nie PL.
-      ...((konsument === 'id_card' || konsument === 'passport') &&
-      isKodKraju(faktura.buyer?.address?.countryCode) &&
-      faktura.buyer.address.countryCode !== 'PL'
-        ? { buyerCountryCode: faktura.buyer.address.countryCode }
-        : {}),
       splitPayment: faktura.annotations?.splitPayment === 1,
     },
   };

@@ -299,7 +299,7 @@ describe('nabywca', () => {
 
   it('po pierwszej próbie zapisu zmiana rodzaju sprawdza cały formularz od nowa', async () => {
     const npII = { ...podklad, lines: [{ ...podklad.lines![0]!, vatRate: 'np_ii' as const }] };
-    const bladVatUe = 'Numer VAT-UE — prefiks kraju UE i numer, np. DE123456789 (Grecja: EL)';
+    const bladVatUe = 'Numer VAT-UE — prefiks kraju UE i numer według wzorca kraju, np. DE123456789; Austria zaczyna się od ATU (AT z U), Holandia ma literę B (NL…B01); Grecja: EL';
     await render(<InvoiceForm tenantId={TENANT} initialValues={npII} />);
     await klik(q('#buyer-kind-eu'));
     await klik(q('#buyer-kind-pl'));

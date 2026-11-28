@@ -156,5 +156,8 @@ describe('C2 S8: numer VAT-UE według wzorca kraju', () => {
     const e = bledy(v).filter((x) => x.startsWith('buyerVatUe'));
     expect(e).toHaveLength(1);
     expect(e[0]).toMatch(/DE123456789/);
+    // Komunikat wspomina wzorce krajów z wyjątkami: Austria z U, Holandia z B.
+    expect(e[0]).toMatch(/ATU/);
+    expect(e[0]).toMatch(/B01/);
   });
 });
